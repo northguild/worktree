@@ -161,7 +161,10 @@ until Phase 5.
 
 - The `cd …` prefix at five sites, and the `&&` chaining at two.
 - `const currentPath = process.env.PWD` (`src/lib/git.ts:230`) and the `gotoBack` it feeds — the only
-  `process.env.PWD` read in the codebase.
+  `process.env.PWD` read in the codebase. **That deletion removes a latent failure, not only dead code**
+  (found at Phase 3's Gate 2): `PWD` is not guaranteed to be in the environment of a non-shell parent, and
+  when it was unset the chain ended in `cd undefined`, which exits non-zero — so `cmd()` rejected *after*
+  the worktree had already been created successfully.
 - `CmdOptions.debug` (D4), and eventually `cmd()` and the `exec` import in `cli.ts`.
 
 ### 4.4 The test surface
@@ -180,6 +183,15 @@ says the `cd` to the git root is deliberate: it makes `git worktree add` receive
 `worktreePath` so the layout survives the project being moved on disk. Getting `cwd` wrong there does not
 error — it creates a worktree in the wrong place. Response: Phase 3 asserts both the `cwd` and the relative
 path shape, and §7 case 2 checks the resulting `.git` file by hand.
+
+**The premise behind that comment does not hold on git 2.38.1, measured at Phase 3 rather than assumed.**
+`git worktree add` resolves the path it is given and records an **absolute** one in both link files, so a
+relative argument, an absolute argument and the pre-change shell form produce byte-identical
+`.git` and `.git/worktrees/<n>/gitdir` contents; after moving the containing directory all three fail
+alike with `fatal: not a git repository`. What R1 asked of Phase 3 is unaffected — the argument stays
+relative and the behaviour is unchanged — but the comment now states a benefit this git version does not
+deliver. Recorded as F-010, which is where the decision belongs: correct the comment, or reach for
+`git worktree add --relative-paths` (git 2.48+) and actually deliver it.
 
 **R2 — a `codeEditor` value with quoted arguments regresses.** `code -n` splits correctly on whitespace.
 `open -a "Visual Studio Code"` does not — today the shell parses those quotes, and after D6 it becomes three
@@ -224,7 +236,10 @@ handling changes" is very slightly overstated, in two ways found by measurement 
   `spinner.fail(error.message)`. Both forms carry `Command failed: …` plus stderr, so nothing is lost, but
   at **Phase 3** the prefix goes from `cd /x && git fetch && git worktree add …` to `git worktree add …`.
   That is an improvement and still a user-visible text change. Phase 3 should state it deliberately rather
-  than let it happen. **It happened at Phase 2 as well**, found at that phase's Gate 2 and measured: a
+  than let it happen. **Measured at Phase 3, not predicted:** the same failing `worktree add` gave
+  `Command failed: cd /…/proj && git fetch && git worktree add --no-track -b feature/abs
+  ../proj.worktrees/feature/abs main` before and `Command failed: git worktree add --no-track -b
+  feature/abs ../proj.worktrees/feature/abs main` after, with the stderr detail retained in both. **It happened at Phase 2 as well**, found at that phase's Gate 2 and measured: a
   vanished `cwd` on the three migrated reads now rejects with `spawn git ENOENT` where the old form gave
   `Command failed: cd /x && git status -s`. Narrow — `git.ts:194` gates all three behind `pathExists`, so
   reaching it needs a race — and it is the same class of change this risk already accepts.
@@ -240,7 +255,7 @@ handling changes" is very slightly overstated, in two ways found by measurement 
 |---|---|---|---|---|
 | 1 | `run()` helper, `cwd` support, and its global mock | done | — | Gate 2 `PASS WITH NOTES`; R5 re-verified, not a regression |
 | 2 | The three read-only `cd` sites | done | 1 | Gate 2 `PASS WITH NOTES`; F-006 closed, F-008 raised — §7 case 1 blocked by it |
-| 3 | `gitCreateWorktree`'s four-command chain | not started | 1 | |
+| 3 | `gitCreateWorktree`'s four-command chain | done | 1 | Gate 2 `PASS WITH NOTES`; F-009 and F-010 raised; R1's premise disproved on git 2.38.1, behaviour unchanged |
 | 4 | Config get/set and `gitNukeWorktreeCmd` | not started | 1 | |
 | 5 | Static sites, `commandExists`, and deleting `cmd()` | not started | 2, 3, 4 | |
 | 6 | `openWorktreePath` — the last `exec` | not started | 1 | |
@@ -308,8 +323,11 @@ arbitrary-value site that is `agent-mode`'s R1 — plus `gitNukeWorktreeCmd`'s t
 
 **Also decide here:** `describeRunCall` in `src/test-setup.ts` renders a `run` call by joining its argv on
 spaces, so `["config", name, "a b"]` and `["config", name, "a", "b"]` read identically in the R3 guard.
-Phase 2 accepted that because no call site then passed an argv element containing a space. `gitSetConfigValue`
-is the first that will, and §7 case 3's hostile value is exactly that shape. Either quote spaced elements in
+Phase 2 accepted that because no call site then passed an argv element containing a space. **Phase 3 is
+where that stopped being hypothetical** — its spaced-root case declares
+`git worktree add … ../my project.worktrees/feature/test …`, which the guard renders exactly as two argv
+entries would. `gitSetConfigValue` is the first site to pass such an element in production rather than in a
+fixture, and §7 case 3's hostile value is exactly that shape. Either quote spaced elements in
 the rendering or accept the collision knowingly — do not leave it unexamined.
 
 **Done when:** a config value containing `"`, a backtick and `;` round-trips through set-then-get unchanged
@@ -359,9 +377,17 @@ spinner still fails with the error message on a rejected call.
    `ahead: 1`, `behind: 0`, `uncommitted: 1`, the fixture's exact values, where the pre-change
    `exec("cd /…/space demo/… && git status -s")` form failed on the identical path. **Re-run this case as
    written once F-008 is fixed.**
-2. **The relative-path check, by hand, at Phase 3.** After `worktree branch <name>`, read the `.git` file in
-   the new worktree and confirm it points at a path of the same shape as before this change (R1). Then move
-   the repository directory and confirm the worktree still resolves — that is what the relative path buys.
+2. **The relative-path check, by hand, at Phase 3. Run 2026-09-05 — first half confirmed, second half
+   disproved for both forms.** After `worktree branch <name>`, read the `.git` file in the new worktree and
+   confirm it points at a path of the same shape as before this change (R1). Then move the repository
+   directory and confirm the worktree still resolves — that is what the relative path buys. Run against a
+   scratch repo by calling the built `dist/lib/git.js` directly, alongside a shell reproduction of the exact
+   pre-change command in the same repository: **the recorded links are byte-identical between the two
+   forms** — worktree `.git` holds `gitdir: <abs>/.git/worktrees/<n>` and `.git/worktrees/<n>/gitdir` holds
+   `<abs>/<worktree>/.git` in both — so the first half passes. An absolute argument produces identical links
+   too, and after moving the containing directory **all three forms fail alike** with
+   `fatal: not a git repository`, so the second half's expectation is false on git 2.38.1 for reasons that
+   predate this change. See R1 and F-010.
 3. **The hostile-value case, at Phase 4.** `worktree config codeEditor 'x"; touch /tmp/pwned; #'` must store
    the literal string and create no file.
 4. **Grep the test output for the R3 warning** at every phase: a run that prints

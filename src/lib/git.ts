@@ -227,24 +227,32 @@ export async function gitCreateWorktree(
 ): Promise<string> {
   const spinner = ora(`Creating worktree ${branchName}`).start();
   try {
-    const currentPath = process.env.PWD;
     const gitRootPath = await gitGetRootPath();
     const worktreesRootPath = `../${path.basename(gitRootPath)}.worktrees`;
     const worktreePath = `${worktreesRootPath}/${branchName}`;
     const absoluteWorktreePath = `${gitRootPath}.worktrees/${branchName}`;
-    // cd into the root path so we can create a relative worktree. This ensures that
-    // everything stays in sync in case the project is moved in the filesystem.
-    const cdRoot = `cd ${gitRootPath}`;
+    // Both calls run with the root path as their cwd, so `git worktree add` gets
+    // a relative worktree path. This ensures that everything stays in sync in
+    // case the project is moved in the filesystem. cwd is per-call and never
+    // moves this process, so there is nothing to change back afterwards.
     // Fetch the latest changes from the remote
-    const gitFetch = "git fetch";
-    // If checking out a remote branch, create a local tracking branch
-    const addWorktree = isCheckout
-      ? `git worktree add --track -b ${branchName} ${worktreePath} ${sourceBranch}`
-      : `git worktree add --no-track -b ${branchName} ${worktreePath} ${sourceBranch}`;
-    // Go back
-    const gotoBack = `cd ${currentPath}`;
-    // Run them all in sequence
-    await cmd(`${cdRoot} && ${gitFetch} && ${addWorktree} && ${gotoBack}`);
+    await run("git", ["fetch"], { cwd: gitRootPath });
+    // If checking out a remote branch, create a local tracking branch. Awaiting
+    // in sequence keeps the short-circuit the `&&` chain had: a rejection here
+    // is only reached once the fetch has resolved.
+    await run(
+      "git",
+      [
+        "worktree",
+        "add",
+        isCheckout ? "--track" : "--no-track",
+        "-b",
+        branchName,
+        worktreePath,
+        sourceBranch,
+      ],
+      { cwd: gitRootPath },
+    );
     // Stop the spinner
     spinner.succeed();
     // Return the absolute path to the new worktree

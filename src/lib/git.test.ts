@@ -2,6 +2,7 @@ import { expectCommands } from "../test-setup.js";
 import * as cli from "./cli.js";
 import {
   getCurrentBranchName,
+  gitCreateWorktree,
   gitGetAbsoluteWorktreesPath,
   gitGetCommitsAheadCount,
   gitGetCommitsBehindCount,
@@ -15,6 +16,21 @@ import {
   isSafeToRemove,
 } from "./git.js";
 import type { WorktreeListEntry } from "./types.js";
+
+// gitCreateWorktree is the only function under test here that draws a spinner.
+// Mock it so the suite neither writes to the terminal nor depends on a TTY.
+const spinnerMocks = vi.hoisted(() => {
+  const succeed = vi.fn();
+  const fail = vi.fn();
+  const start = vi.fn().mockReturnValue({ succeed, fail });
+  const oraFactory = vi.fn().mockReturnValue({ start });
+
+  return { succeed, fail, start, oraFactory };
+});
+
+vi.mock("ora", () => ({
+  default: spinnerMocks.oraFactory,
+}));
 
 describe("git branch parsing", () => {
   beforeEach(() => {
@@ -255,6 +271,124 @@ describe("git status and tracking helpers", () => {
       { local: "feature/test", remote: "origin/feature/test" },
       { local: "local-only", remote: "" },
     ]);
+  });
+});
+
+describe("gitCreateWorktree", () => {
+  const gitRootPath = "/repo/project";
+  // A root a shell would split on the space, which is the failure the argv form
+  // exists to fix.
+  const spacedGitRootPath = "/repo/my project";
+  const branchName = "feature/test";
+  const sourceBranch = "origin/main";
+  // Relative on purpose: `git worktree add` resolves it against the cwd, so the
+  // recorded link survives the project being moved on disk (plan R1).
+  const relativeWorktreePath = "../project.worktrees/feature/test";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    expectCommands(
+      "git rev-parse  --show-toplevel",
+      `git fetch (cwd: ${gitRootPath})`,
+      `git fetch (cwd: ${spacedGitRootPath})`,
+      `git worktree add --no-track -b ${branchName} ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
+      `git worktree add --track -b ${branchName} ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
+      `git worktree add --no-track -b ${branchName} ../my project.worktrees/feature/test ${sourceBranch} (cwd: ${spacedGitRootPath})`,
+    );
+  });
+
+  it("fetches then adds an untracked worktree, both at the git root", async () => {
+    vi.spyOn(cli, "cmd").mockResolvedValueOnce(gitRootPath);
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    const worktreePath = await gitCreateWorktree(branchName, sourceBranch);
+
+    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch"], {
+      cwd: gitRootPath,
+    });
+    expect(runSpy).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      [
+        "worktree",
+        "add",
+        "--no-track",
+        "-b",
+        branchName,
+        relativeWorktreePath,
+        sourceBranch,
+      ],
+      { cwd: gitRootPath },
+    );
+    expect(worktreePath).toBe("/repo/project.worktrees/feature/test");
+    expect(spinnerMocks.succeed).toHaveBeenCalled();
+  });
+
+  it("adds a tracking worktree when checking out a remote branch", async () => {
+    vi.spyOn(cli, "cmd").mockResolvedValueOnce(gitRootPath);
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitCreateWorktree(branchName, sourceBranch, { isCheckout: true });
+
+    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      [
+        "worktree",
+        "add",
+        "--track",
+        "-b",
+        branchName,
+        relativeWorktreePath,
+        sourceBranch,
+      ],
+      { cwd: gitRootPath },
+    );
+  });
+
+  it("keeps a git root containing a space in one cwd and one argv entry", async () => {
+    vi.spyOn(cli, "cmd").mockResolvedValueOnce(spacedGitRootPath);
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    const worktreePath = await gitCreateWorktree(branchName, sourceBranch);
+
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch"], {
+      cwd: spacedGitRootPath,
+    });
+    expect(runSpy).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      [
+        "worktree",
+        "add",
+        "--no-track",
+        "-b",
+        branchName,
+        "../my project.worktrees/feature/test",
+        sourceBranch,
+      ],
+      { cwd: spacedGitRootPath },
+    );
+    expect(worktreePath).toBe("/repo/my project.worktrees/feature/test");
+  });
+
+  // The sequential awaits stand in for the `&&` chain, so a failing fetch has to
+  // stop the sequence rather than let the add run anyway.
+  it("does not add the worktree when the fetch fails", async () => {
+    vi.spyOn(cli, "cmd").mockResolvedValueOnce(gitRootPath);
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockRejectedValueOnce(new Error("Command failed: git fetch"));
+
+    await expect(gitCreateWorktree(branchName, sourceBranch)).rejects.toThrow(
+      "Command failed: git fetch",
+    );
+
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(spinnerMocks.fail).toHaveBeenCalledWith("Command failed: git fetch");
+    expect(spinnerMocks.succeed).not.toHaveBeenCalled();
   });
 });
 

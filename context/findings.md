@@ -186,6 +186,68 @@ is still open at `/feature-close` unless it is given a home first — a roadmap 
 worktree-list line whose path contains a space, and `worktree list` run by hand in a repo under a spaced
 path prints its rows.
 
+### F-009 — P2 — the `worktree add` failure path is untested, so a dropped `await` on it would land green
+
+**Tied to:** shell-argv-safety Phase 3 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 3)
+
+`gitCreateWorktree` now issues two sequential `run` calls (`src/lib/git.ts:239` and `:243-255`), and D5
+rests on both being awaited. Only the **first** is exercised on its rejecting path:
+`grep -n "mockRejectedValue" src/lib/git.test.ts` returns `383` as the sole rejection in the new describe,
+and it is queued on the fetch. So dropping `await` at `src/lib/git.ts:243` passes all four new tests — the
+call is still recorded synchronously, `succeed` is still called, and the one rejection test stops at call 1
+before reaching it.
+
+It matters past mutation hygiene: `src/commands/branch.ts:182-184` and `src/commands/checkout.ts:65-71`
+both `await gitCreateWorktree(…)` and immediately act on the returned path, so an un-awaited
+`worktree add` would run them against a directory git has not created yet. This is also the one path R7
+names for Phase 3, and that prefix change is currently pinned by the hand measurement in §7 case 2 alone,
+not by a test.
+
+Smaller, and the same shape: `src/lib/git.test.ts:351-375`, the spaced-root case, omits the
+`toHaveBeenCalledTimes(2)` its two sibling cases carry at `:306` and `:334`, so a third `run` issued only
+on that path would go unseen.
+
+Left unfixed because Gate 2 had already returned `PASS WITH NOTES` on this exact diff, and adding
+assertions afterwards would commit test code no gate had seen — the reasoning F-002 through F-005 and
+F-007 record.
+
+**Closes when:** a Gate 1 run passes with a `git.test.ts` case that resolves the fetch, rejects the
+`worktree add`, and asserts both `rejects.toThrow` and `spinnerMocks.fail` called with that message.
+
+### F-010 — P3 — the relative `worktreePath` does not buy what its comment says it does
+
+**Tied to:** shell-argv-safety Phase 3 · **Raised:** 2026-09-05 (hand, §7 case 2)
+
+`src/lib/git.ts:234-237` keeps the pre-change rationale for passing `git worktree add` a relative path:
+"This ensures that everything stays in sync in case the project is moved in the filesystem." Measured on
+2026-09-05 on **git 2.38.1**, it does not. `git worktree add` resolves the path it is given and records an
+absolute one in both link files, so the relative form, an absolute form, and a shell reproduction of the
+exact pre-change command are byte-identical:
+
+```
+worktree .git             gitdir: <abs>/proj/.git/worktrees/<n>
+.git/worktrees/<n>/gitdir <abs>/proj.worktrees/feature/<n>/.git
+```
+
+After renaming the containing directory, all three fail alike with
+`fatal: not a git repository: <old abs>/proj/.git/worktrees/<n>`, and `git worktree list` from the root
+shows every entry `prunable` at its stale absolute path.
+
+**Not a regression and not introduced here** — Phase 3 preserved the argument shape exactly, which is what
+R1 asked of it, and §7 case 2's first half (same shape as before the change) passes. What is wrong is the
+claim: the comment survives into the argv form as the stated reason for a choice that, on this git version,
+has no effect. A future reader "simplifying" it to `absoluteWorktreePath` would be talked out of a harmless
+edit by a false rationale — or, worse, would trust the promise.
+
+Two ways out, and choosing between them is the point of recording this: correct the comment to say the
+path is relative for readability and that git records absolute links regardless, or reach for
+`git worktree add --relative-paths` (git 2.48+) and actually deliver the property — which would need a
+version floor this project does not currently state.
+
+**Closes when:** a Gate 1 run passes with `src/lib/git.ts`'s comment either matching measured git behaviour
+or accompanied by the `--relative-paths` flag that makes the original claim true.
+
+
 ## Closed
 
 Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
