@@ -14,14 +14,16 @@ import { strToNum } from "./utils.js";
 
 export async function gitGetConfigValue(name: ConfigName) {
   try {
-    return await cmd(`git config northguild.worktree.${name}`);
+    return await run("git", ["config", `northguild.worktree.${name}`]);
   } catch {
     return "";
   }
 }
 
+// The value is an argv element, so a config value carrying quotes, backticks or
+// semicolons is stored literally instead of being parsed as shell syntax.
 export async function gitSetConfigValue(name: ConfigName, value: string) {
-  await cmd(`git config northguild.worktree.${name} "${value}"`);
+  await run("git", ["config", `northguild.worktree.${name}`, value]);
 }
 
 async function gitCmdShowTopLevel() {
@@ -267,15 +269,20 @@ interface GitNukeWorktreeCmdOptions {
   force?: boolean;
 }
 
-export function gitNukeWorktreeCmd(
+// Sequential awaits stand in for the `&&` chain: a rejection stops the sequence
+// before the next command runs, which is what the shell operator did.
+export async function gitNukeWorktreeCmd(
   branchName: string,
   { force = false }: GitNukeWorktreeCmdOptions = {},
 ) {
-  return cmd(
-    `git worktree remove ${branchName}${
-      force ? " --force" : ""
-    } && git worktree prune && git branch -D ${branchName}`,
-  );
+  await run("git", [
+    "worktree",
+    "remove",
+    branchName,
+    ...(force ? ["--force"] : []),
+  ]);
+  await run("git", ["worktree", "prune"]);
+  await run("git", ["branch", "-D", branchName]);
 }
 
 export async function gitNukeWorktree(

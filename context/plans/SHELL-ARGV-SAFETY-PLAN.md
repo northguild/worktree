@@ -242,7 +242,14 @@ handling changes" is very slightly overstated, in two ways found by measurement 
   feature/abs ../proj.worktrees/feature/abs main` after, with the stderr detail retained in both. **It happened at Phase 2 as well**, found at that phase's Gate 2 and measured: a
   vanished `cwd` on the three migrated reads now rejects with `spawn git ENOENT` where the old form gave
   `Command failed: cd /x && git status -s`. Narrow — `git.ts:194` gates all three behind `pathExists`, so
-  reaching it needs a race — and it is the same class of change this risk already accepts.
+  reaching it needs a race — and it is the same class of change this risk already accepts. **And a third
+  time at Phase 4**, stated here deliberately because it is the one instance that reaches a user unswallowed:
+  a rejection from `gitNukeWorktreeCmd` on the `gitRemoveWorktreesWithProgress` path (`git.ts:375`) is
+  awaited bare by `src/commands/cleanup.ts:89` and `src/commands/remove.ts:92` and surfaces at
+  `src/lib/base-command.ts:75`, so its text goes from
+  `Command failed: git worktree remove X && git worktree prune && git branch -D X` to
+  `Command failed: git worktree remove X`. The `gitNukeWorktree` path is unaffected — `git.ts:296-300`
+  catches and prints a fixed message.
 - **`code` changes type when the file is missing.** `exec` rejects with a numeric `127` from the shell;
   `execFile` rejects with the string `"ENOENT"`. Harmless today — `grep -rn 'error\.code|\.code ===' src/`
   returns nothing, so no caller branches on it — but a future caller must not assume a number.
@@ -256,7 +263,7 @@ handling changes" is very slightly overstated, in two ways found by measurement 
 | 1 | `run()` helper, `cwd` support, and its global mock | done | — | Gate 2 `PASS WITH NOTES`; R5 re-verified, not a regression |
 | 2 | The three read-only `cd` sites | done | 1 | Gate 2 `PASS WITH NOTES`; F-006 closed, F-008 raised — §7 case 1 blocked by it |
 | 3 | `gitCreateWorktree`'s four-command chain | done | 1 | Gate 2 `PASS WITH NOTES`; F-009 and F-010 raised; R1's premise disproved on git 2.38.1, behaviour unchanged |
-| 4 | Config get/set and `gitNukeWorktreeCmd` | not started | 1 | |
+| 4 | Config get/set and `gitNukeWorktreeCmd` | done | 1 | Gate 2 `PASS WITH NOTES`; §7 case 3 run and the pre-change form proved live; F-011 raised |
 | 5 | Static sites, `commandExists`, and deleting `cmd()` | not started | 2, 3, 4 | |
 | 6 | `openWorktreePath` — the last `exec` | not started | 1 | |
 
@@ -315,7 +322,13 @@ branches are covered; `process.env.PWD` appears nowhere in `src/`.
 
 #### Phase 4 — Config get/set and `gitNukeWorktreeCmd`
 
-**Files:** `src/lib/git.ts`, `src/lib/git.test.ts`
+**Files:** `src/lib/git.ts`, `src/lib/git.test.ts`, `src/test-setup.ts`,
+`src/integrations/jira.test.ts`, `src/integrations/github.test.ts`
+
+The last three were not in this line as written and were added at the phase, not assumed: `test-setup.ts`
+is mandated by the "Also decide here" paragraph below, and the two integration test files mock the config
+helpers through `cmd`, so §2's "green at every phase boundary" forces them to move in this commit rather
+than in Phase 5, whose Files list already names them.
 
 **Scope:** Migrate `gitGetConfigValue` (`git.ts:17`) and `gitSetConfigValue` (`git.ts:24`) — the
 arbitrary-value site that is `agent-mode`'s R1 — plus `gitNukeWorktreeCmd`'s three-command chain
@@ -329,6 +342,14 @@ where that stopped being hypothetical** — its spaced-root case declares
 entries would. `gitSetConfigValue` is the first site to pass such an element in production rather than in a
 fixture, and §7 case 3's hostile value is exactly that shape. Either quote spaced elements in
 the rendering or accept the collision knowingly — do not leave it unexamined.
+
+**Settled 2026-09-05: quoted.** `describeRunCall` (`src/test-setup.ts:31-33`) wraps any element matching
+`/\s/` in double quotes, so one spaced argument no longer reads as two. Two declarations moved with it —
+Phase 3's spaced-root entry and this phase's hostile value — and they are the only whitespace-bearing argv
+strings in any `expectCommands` call. The `cwd` is left unquoted: it is a single labelled trailing field,
+so it has no boundary to lose. The quoting does not escape an embedded `"`, which is why
+`src/test-setup.ts:22-24` keeps saying the rendering is a diagnostic and `toHaveBeenCalledWith` is the
+assertion.
 
 **Done when:** a config value containing `"`, a backtick and `;` round-trips through set-then-get unchanged
 and is asserted as a single argv element; `gitNukeWorktreeCmd` issues three sequential calls that stop at
@@ -388,8 +409,15 @@ spinner still fails with the error message on a rejected call.
    too, and after moving the containing directory **all three forms fail alike** with
    `fatal: not a git repository`, so the second half's expectation is false on git 2.38.1 for reasons that
    predate this change. See R1 and F-010.
-3. **The hostile-value case, at Phase 4.** `worktree config codeEditor 'x"; touch /tmp/pwned; #'` must store
-   the literal string and create no file.
+3. **The hostile-value case, at Phase 4. Run 2026-09-05 — passed, and the pre-change form proved live.**
+   `worktree config codeEditor 'x"; touch /tmp/pwned; #'` must store the literal string and create no file.
+   Run against a scratch repo by calling the built `dist/lib/git.js` directly, with the marker path inside a
+   scratch directory rather than `/tmp`. The value carried a quote, a semicolon, a `#` and a backtick pair;
+   `gitSetConfigValue` then `gitGetConfigValue` round-tripped all of it byte-for-byte, `git config` held the
+   whole string, and **no file was created**. Then the *exact* pre-change shell string
+   (`git config northguild.worktree.codeEditor "${value}"` through `exec`) was reproduced in the same
+   repository: it exited 0, stored `x`, and **created the marker file** — so the injection this phase closes
+   was live rather than theoretical, and the check is not vacuous. Re-verified independently at Gate 2.
 4. **Grep the test output for the R3 warning** at every phase: a run that prints
    `Unexpected subprocess calls detected` is a failure even when vitest is green. The string was
    `Unexpected cmd calls detected` until Phase 2 extended the guard to `run` (R3, F-006) — grep for the
@@ -410,7 +438,11 @@ spinner still fails with the error message on a rejected call.
   `isValidBranchName` (`src/lib/validators.ts:22-55`) already rejects spaces and several metacharacters, but
   it is **not applied on every path a branch name reaches a subprocess call by** — `gitNukeWorktreeCmd` takes
   whatever it is handed. Argv-safety makes this non-exploitable, so it is now a correctness question rather
-  than a security one.
+  than a security one. **Sharpened at Phase 4's Gate 2:** the concrete residue is that `branchName` reaches
+  `git worktree remove` and `git branch -D` (`git.ts:278-285`) with no `--` end-of-options separator, so a
+  name beginning with `-` is still read as a flag. Unchanged from the shell form and not introduced by the
+  migration — but it is what this question is actually about now, and `--` is the one-line answer if it is
+  taken up.
 - **Q4 — is `run` the right name? Settled 2026-09-05: yes, `run`.** Confirmed against the tree rather than
   waved through: no `src/commands/*.ts` imports from `cli.js` today, so the only file that will see both
   names is `src/lib/base-command.ts` after Phase 6, where the inherited oclif method is reached as

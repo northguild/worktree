@@ -12,6 +12,7 @@ import {
   gitGetRemoteBranches,
   gitGetRootPath,
   gitGetUncommittedChangesCount,
+  gitNukeWorktreeCmd,
   gitSetConfigValue,
   isSafeToRemove,
 } from "./git.js";
@@ -74,44 +75,76 @@ describe("git branch parsing", () => {
 });
 
 describe("git config", () => {
+  // The value §7 case 3 stores by hand: a quote, a backtick and a semicolon,
+  // every one of which the old `git config … "${value}"` form handed to a shell.
+  const hostileValue = 'x"; touch /tmp/pwned; #`whoami`';
+
   beforeEach(() => {
     vi.clearAllMocks();
     expectCommands(
       "git config northguild.worktree.defaultSourceBranch",
-      'git config northguild.worktree.codeEditor "code"',
+      "git config northguild.worktree.codeEditor",
+      "git config northguild.worktree.codeEditor code",
+      `git config northguild.worktree.codeEditor "${hostileValue}"`,
     );
   });
 
   it("returns git config value", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd").mockResolvedValueOnce("origin/main");
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("origin/main");
 
     const value = await gitGetConfigValue("defaultSourceBranch");
 
-    expect(cmdSpy).toHaveBeenCalledWith(
-      "git config northguild.worktree.defaultSourceBranch",
-    );
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "config",
+      "northguild.worktree.defaultSourceBranch",
+    ]);
     expect(value).toBe("origin/main");
   });
 
   it("returns empty string when git config lookup fails", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd").mockRejectedValueOnce(new Error());
+    const runSpy = vi.spyOn(cli, "run").mockRejectedValueOnce(new Error());
 
     const value = await gitGetConfigValue("defaultSourceBranch");
 
-    expect(cmdSpy).toHaveBeenCalledWith(
-      "git config northguild.worktree.defaultSourceBranch",
-    );
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "config",
+      "northguild.worktree.defaultSourceBranch",
+    ]);
     expect(value).toBe("");
   });
 
   it("sets git config value", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd").mockResolvedValueOnce("");
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("");
 
     await gitSetConfigValue("codeEditor", "code");
 
-    expect(cmdSpy).toHaveBeenCalledWith(
-      'git config northguild.worktree.codeEditor "code"',
-    );
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "config",
+      "northguild.worktree.codeEditor",
+      "code",
+    ]);
+  });
+
+  // The point of the argv form: a value carrying shell metacharacters is one
+  // element on the way out and the same string on the way back, with nothing in
+  // between that could parse it.
+  it("round-trips a value containing a quote, a backtick and a semicolon", async () => {
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce(hostileValue);
+
+    await gitSetConfigValue("codeEditor", hostileValue);
+    const value = await gitGetConfigValue("codeEditor");
+
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
+      "config",
+      "northguild.worktree.codeEditor",
+      hostileValue,
+    ]);
+    // One argv element, not a shell string that happens to contain the value.
+    expect(runSpy.mock.calls[0]?.[1]).toHaveLength(3);
+    expect(value).toBe(hostileValue);
   });
 });
 
@@ -293,7 +326,7 @@ describe("gitCreateWorktree", () => {
       `git fetch (cwd: ${spacedGitRootPath})`,
       `git worktree add --no-track -b ${branchName} ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
       `git worktree add --track -b ${branchName} ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
-      `git worktree add --no-track -b ${branchName} ../my project.worktrees/feature/test ${sourceBranch} (cwd: ${spacedGitRootPath})`,
+      `git worktree add --no-track -b ${branchName} "../my project.worktrees/feature/test" ${sourceBranch} (cwd: ${spacedGitRootPath})`,
     );
   });
 
@@ -389,6 +422,80 @@ describe("gitCreateWorktree", () => {
     expect(runSpy).toHaveBeenCalledTimes(1);
     expect(spinnerMocks.fail).toHaveBeenCalledWith("Command failed: git fetch");
     expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+  });
+});
+
+describe("gitNukeWorktreeCmd", () => {
+  const branchName = "feature/test";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    expectCommands(
+      `git worktree remove ${branchName}`,
+      `git worktree remove ${branchName} --force`,
+      "git worktree prune",
+      `git branch -D ${branchName}`,
+    );
+  });
+
+  it("removes, prunes and deletes the branch in that order", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitNukeWorktreeCmd(branchName);
+
+    expect(runSpy).toHaveBeenCalledTimes(3);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
+      "worktree",
+      "remove",
+      branchName,
+    ]);
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["worktree", "prune"]);
+    expect(runSpy).toHaveBeenNthCalledWith(3, "git", [
+      "branch",
+      "-D",
+      branchName,
+    ]);
+  });
+
+  it("appends --force to the remove when forced", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitNukeWorktreeCmd(branchName, { force: true });
+
+    expect(runSpy).toHaveBeenCalledTimes(3);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
+      "worktree",
+      "remove",
+      branchName,
+      "--force",
+    ]);
+  });
+
+  // The sequential awaits stand in for the `&&` chain, so a failing remove has
+  // to stop the sequence rather than prune and delete the branch anyway.
+  it("does not prune or delete the branch when the remove fails", async () => {
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockRejectedValueOnce(new Error("Command failed: git worktree remove"));
+
+    await expect(gitNukeWorktreeCmd(branchName)).rejects.toThrow(
+      "Command failed: git worktree remove",
+    );
+
+    expect(runSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not delete the branch when the prune fails", async () => {
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce("")
+      .mockRejectedValueOnce(new Error("Command failed: git worktree prune"));
+
+    await expect(gitNukeWorktreeCmd(branchName)).rejects.toThrow(
+      "Command failed: git worktree prune",
+    );
+
+    expect(runSpy).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -248,6 +248,36 @@ version floor this project does not currently state.
 or accompanied by the `--relative-paths` flag that makes the original claim true.
 
 
+### F-011 — P2 — the third `run` in `gitNukeWorktreeCmd` is unpinned, so a dropped `await` would report a removal that did not happen
+
+**Tied to:** shell-argv-safety Phase 4 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 4)
+
+`gitNukeWorktreeCmd` now issues three sequential `run` calls (`src/lib/git.ts:278`, `:284`, `:285`), and D5
+rests on every one being awaited. The **third** has no rejecting test, because no call follows it to count:
+`src/lib/git.test.ts:476-486` rejects call 1 and asserts `toHaveBeenCalledTimes(1)`, and `:488-499` rejects
+call 2 and asserts `2`, but nothing observes a rejection from `git branch -D`. So dropping `await` at
+`src/lib/git.ts:285` passes all four new tests.
+
+It matters past mutation hygiene. `gitNukeWorktree` catches the rejection (`src/lib/git.ts:296-300`) and is
+the only thing standing between a failed `branch -D` and a success message: un-awaited, the catch never
+fires and the spinner prints `Worktree <name> was removed.` while the branch is still there. This is
+exactly the shape F-009 records for `worktree add`, one phase earlier.
+
+Smaller, and the same shape: the round-trip case at `src/lib/git.test.ts:131-148` asserts the **set** call's
+argv and its length, but never `toHaveBeenNthCalledWith(2, …)` for the get, and its
+`expect(value).toBe(hostileValue)` half only proves the helper returns what the mock was queued with. The
+load-bearing evidence for the return direction is §7 case 3, which was run by hand against the built
+`dist/lib/git.js` and re-run independently at Gate 2 — not this assertion.
+
+Left unfixed because Gate 2 had already returned `PASS WITH NOTES` on this exact diff, and adding
+assertions afterwards would commit test code no gate had seen — the reasoning F-002 through F-005, F-007
+and F-009 record.
+
+**Closes when:** a Gate 1 run passes with a `git.test.ts` case that resolves the first two calls, rejects
+`git branch -D`, and asserts both `rejects.toThrow` and that `gitNukeWorktree` fails rather than succeeds
+on that path.
+
+
 ## Closed
 
 Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;

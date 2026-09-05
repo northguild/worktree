@@ -16,17 +16,21 @@ vi.mock("./lib/cli.js", () => ({
 // run() stays inside the guard's field of view instead of leaving it. A run()
 // call reads as its argv joined, with the cwd appended when one is given — the
 // same information the `cd ${path} && …` prefix carried while these calls went
-// through a shell. The join is a diagnostic rendering, not an assertion: one
-// argument containing a space reads here the same as two arguments. What each
-// call site actually passes is asserted by the tests themselves, with
-// toHaveBeenCalledWith.
+// through a shell. An element containing whitespace is quoted, so one argument
+// holding a space stays distinguishable from two arguments: gitSetConfigValue
+// passes a caller-supplied value straight through, and the whole point of the
+// argv form is that such a value is one element however it is spelled. The
+// rendering is still a diagnostic — what each call site passes is asserted by
+// the tests themselves, with toHaveBeenCalledWith.
 function describeRunCall(call: unknown[]): string {
   const [file, args = [], options] = call as [
     string,
     string[]?,
     { cwd?: string }?,
   ];
-  const argv = [file, ...args].join(" ");
+  const argv = [file, ...args]
+    .map((part) => (/\s/.test(part) ? `"${part}"` : part))
+    .join(" ");
   return options?.cwd ? `${argv} (cwd: ${options.cwd})` : argv;
 }
 
