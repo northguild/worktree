@@ -120,6 +120,43 @@ this is a note, not a gap to close blindly.
 **Closes when:** a Lint gate run passes with `README.md:160` carrying the same uncommitted-work exception
 as `page.mdx:17`.
 
+### F-006 — P2 — the unexpected-call guard watches `cmd` only, so it goes vacuous as call sites migrate
+
+**Tied to:** shell-argv-safety Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1)
+
+`src/test-setup.ts:23` builds its unexpected-call list from `mockCmd.mock.calls` alone. Phase 1 added
+`mockRun` to the mock factory (`src/test-setup.ts:6,11,43`) but nothing watches it, so from Phase 2 onward
+every call site that moves to `run` leaves that guard's field of view. The plan's R3 exists precisely
+because this `afterEach` warns instead of failing, and §7 case 4 tells every phase to grep the test output
+for `Unexpected cmd calls detected` — a grep that will keep coming back clean while covering steadily less.
+The mitigation decays exactly as the migration proceeds.
+
+Not live in Phase 1: no call site migrated, so `mockRun` is never called and the guard's coverage is still
+total. Left unfixed rather than folded into Phase 1 because the fix is not one targeted edit —
+`expectedCommands` is a `string[]` and cannot hold a `(file, args, opts)` triple without a shape decision,
+and that decision wants real call sites to validate it. Phase 2 migrates the first three.
+
+**Closes when:** a Gate 1 run passes with the `afterEach` in `src/test-setup.ts` reporting unexpected `run`
+calls as well as `cmd` calls — or, if that shape is judged not worth having, when R3's mitigation and §7
+case 4 are explicitly retired in the plan, citing the run that made the call.
+
+### F-007 — P3 — `cli.test.ts`'s `afterAll` would mask a failure in its own `beforeAll`
+
+**Tied to:** shell-argv-safety Phase 1 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1)
+
+`src/lib/cli.test.ts:35-37` calls `rmSync(tempPath, { recursive: true, force: true })` unconditionally. If
+`mkdtempSync` at `:30` ever threw — a full or read-only temp filesystem — `tempPath` would still be
+`undefined` and `rmSync` would throw `ERR_INVALID_ARG_TYPE` on top of the real error, so the reported
+failure would name the cleanup rather than the cause. `force: true` does not help: it suppresses a missing
+path, not an invalid argument type.
+
+Narrow, and it costs a one-line `if (tempPath)` guard. Left unfixed because Gate 2 had already returned
+`PASS WITH NOTES` on this exact diff, and editing it afterwards would commit code no gate had seen — the
+same reasoning F-002 through F-005 record.
+
+**Closes when:** a Gate 1 run passes with the `afterAll` in `src/lib/cli.test.ts` guarded against an
+unset `tempPath`.
+
 ## Closed
 
 None. Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's

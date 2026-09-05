@@ -1,7 +1,11 @@
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 
 interface CmdOptions {
   debug?: boolean;
+}
+
+interface RunOptions {
+  cwd?: string;
 }
 
 export function cmd(
@@ -15,6 +19,26 @@ export function cmd(
       return;
     }
     exec(cmd, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(stdout?.trim() ?? "");
+    });
+  });
+}
+
+// Replaces cmd(): execFile takes an argv array, so no value passed here is ever
+// parsed as shell syntax, and cwd reaches the child directly instead of through
+// a `cd` prefix. Call sites migrate over in batches; cmd() goes when the last
+// one is gone.
+export function run(
+  file: string,
+  args: string[] = [],
+  { cwd }: RunOptions = {},
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { cwd }, (error, stdout) => {
       if (error) {
         reject(error);
         return;

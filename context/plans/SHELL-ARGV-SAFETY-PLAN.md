@@ -198,7 +198,30 @@ this is a sequencing question, not a design one — see §8 Q1.
 **R5 — `execFile` has a default `maxBuffer`.** `exec` and `execFile` both default to 1 MB of stdout in
 current Node. `git worktree list` or `git --no-pager branch -r` in a very large repository could exceed it,
 and the failure mode is a rejected promise, not truncation. Unchanged from today — `exec` has the same
-default — so this is not a regression, but it is now worth knowing. Not mitigated.
+default — so this is not a regression, but it is now worth knowing. Not mitigated. **Re-verified at
+Phase 1's Gate 2** by running both against a 1 MB stdout on Node 24: identical
+`ERR_CHILD_PROCESS_STDIO_MAXBUFFER` at 1 048 576 bytes. The claim is measured, not inferred.
+
+**R6 — `execFile` cannot launch a Windows `.cmd` or `.bat` shim.** Found at Phase 1's Gate 2 and **not in
+the original inventory.** `exec` always goes through a shell; `execFile` defaults to `shell: false`, and
+since the Node 18.20/20.12 spawn hardening a `.cmd`/`.bat` shim on Windows needs `shell: true` to launch at
+all. This barely touches git — `git.exe` is a real binary — but it lands squarely on **Phase 6**, where a
+`codeEditor` of `code` is `code.cmd` on Windows, and on `commandExists` in Phase 5, which already branches
+on `win32` (`src/lib/cli.ts:57`). **Unverified from macOS**: the restriction lives in libuv's Windows
+`uv_spawn`, not in the JS layer, so this is a question Phase 6's design must answer rather than a
+demonstrated defect. Do not close it by assertion.
+
+**R7 — two caller-observable error differences that §2 should acknowledge.** §4.1's "no caller's error
+handling changes" is very slightly overstated, in two ways found by measurement at Phase 1's Gate 2:
+
+- **The message prefix shrinks.** `src/lib/git.ts:253` surfaces a rejection with
+  `spinner.fail(error.message)`. Both forms carry `Command failed: …` plus stderr, so nothing is lost, but
+  at **Phase 3** the prefix goes from `cd /x && git fetch && git worktree add …` to `git worktree add …`.
+  That is an improvement and still a user-visible text change. Phase 3 should state it deliberately rather
+  than let it happen.
+- **`code` changes type when the file is missing.** `exec` rejects with a numeric `127` from the shell;
+  `execFile` rejects with the string `"ENOENT"`. Harmless today — `grep -rn 'error\.code|\.code ===' src/`
+  returns nothing, so no caller branches on it — but a future caller must not assume a number.
 
 ## 6. Phases
 
@@ -206,8 +229,8 @@ default — so this is not a regression, but it is now worth knowing. Not mitiga
 
 | # | Phase | Status | Depends on | Note |
 |---|---|---|---|---|
-| 1 | `run()` helper, `cwd` support, and its global mock | not started | — | |
-| 2 | The three read-only `cd` sites | not started | 1 | |
+| 1 | `run()` helper, `cwd` support, and its global mock | done | — | Gate 2 `PASS WITH NOTES`; R5 re-verified, not a regression |
+| 2 | The three read-only `cd` sites | not started | 1 | Owns F-006 — see the scope note below |
 | 3 | `gitCreateWorktree`'s four-command chain | not started | 1 | |
 | 4 | Config get/set and `gitNukeWorktreeCmd` | not started | 1 | |
 | 5 | Static sites, `commandExists`, and deleting `cmd()` | not started | 2, 3, 4 | |
@@ -242,8 +265,16 @@ and `gitGetUncommittedChangesCount` (`git.ts:103`) to `run("git", […], { cwd: 
 `cd ${branchPath} &&` prefix is deleted, not quoted (D3). Move each function's assertion to the argv form
 (§4.4).
 
+**Also in scope — F-006, and it is the reason this phase is where R3 lives or dies.** The `afterEach`
+guard in `src/test-setup.ts` maps `mockCmd.mock.calls` only. These are the first call sites to move onto
+`mockRun`, so from this phase on every migrated call is invisible to that guard and §7 case 4's grep goes
+quietly vacuous — the opposite of what R3 asks for. Decide the shape here: either extend the guard to cover
+`run` (`expectedCommands: string[]` cannot hold an argv triple unchanged, so this is a shape decision, not a
+one-line edit) or retire R3's mitigation explicitly in this document. Do not leave it implicit.
+
 **Done when:** none of the three functions' bodies contain the string `cd `; their tests assert
-`("git", [...], { cwd })`; a `branchPath` containing a space produces a correct call (§7 case 1).
+`("git", [...], { cwd })`; a `branchPath` containing a space produces a correct call (§7 case 1); F-006 is
+either closed or consciously retired.
 
 #### Phase 3 — `gitCreateWorktree`'s four-command chain
 
