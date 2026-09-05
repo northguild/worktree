@@ -122,15 +122,8 @@ as `page.mdx:17`.
 
 ## Closed
 
-### F-001 — P3 — `uncommittedChanges: undefined` with no remote is unpinned, and Phase 2 flips it
+None. Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's
+own log; an `ad-hoc` one at the start of the next `/orchestrate`.
 
-**Tied to:** cleanup-data-loss Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
-**Closed:** 2026-09-05 (Gate 1, Phase 2)
-
-Phase 2 dropped the `wt.uncommittedChanges === 0` clause per §4.1 and pinned the resulting verdict: the
-no-remote entry with an unknown count is `true`, asserted at `src/lib/git.test.ts:321-323` against
-`entry()`'s defaults of `pathExists: true, remote: ""` (`src/lib/git.test.ts:245-253`). Gate 1 re-passed on
-that run — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (12 files, 189 tests) and
-`pnpm docs:test` (6 files, 49 tests) all exit 0.
-
-
+`cleanup-data-loss`'s F-001 moved to
+[`archive/CLEANUP-DATA-LOSS-PLAN.md`](archive/CLEANUP-DATA-LOSS-PLAN.md) §10 on 2026-09-05.

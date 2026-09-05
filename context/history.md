@@ -11,3 +11,4 @@ except git history, and this row is what stops it being re-proposed.
 
 | Date | Feature | Outcome | Why | Document |
 |---|---|---|---|---|
+| 2026-09-05 | cleanup-data-loss | shipped | `isSafeToRemove` called a deleted-remote worktree safe while it held uncommitted work, and `cleanup` force-removed it; the hazard test is now hoisted above every remote branch and `cleanup` names what it held back | [`archive/CLEANUP-DATA-LOSS-PLAN.md`](archive/CLEANUP-DATA-LOSS-PLAN.md) |

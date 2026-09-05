@@ -44,14 +44,6 @@ and the text scrolls out of sight instead of the field growing.
 - **Size:** small — one component (`ChatInput`) plus its ref type and submit key handling in `ChatForm`
 - **Doc:** none yet
 
-### cleanup-data-loss — `active`
-
-`worktree cleanup` classifies a worktree whose remote branch was deleted as safe to remove without ever
-checking for uncommitted changes, then force-removes it — destroying work in progress.
-
-- **Size:** small — one predicate in `isSafeToRemove`, plus how `cleanup` reports what it skipped
-- **Doc:** [`plans/CLEANUP-DATA-LOSS-PLAN.md`](plans/CLEANUP-DATA-LOSS-PLAN.md) — 5 phases, 5 open questions
-
 ### shell-argv-safety — `pending`
 
 `cmd()` runs every git call through a shell as an interpolated string, so a repo path containing a space

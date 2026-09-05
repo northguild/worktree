@@ -1,10 +1,14 @@
 # Cleanup Data Loss Plan
 
-Written 2026-09-05. Makes `safeToRemove` mean what its name says, so `worktree cleanup` stops force-removing
-worktrees that hold uncommitted work. The `cleanup-data-loss` entry in [`../roadmap.md`](../roadmap.md) is
-where this feature's status lives.
+Retired — its outcome and date are in [`../history.md`](../history.md).
 
-**Phase status lives in §6.1 of this document, and nowhere else.**
+Made `safeToRemove` mean what its name says, so `worktree cleanup` stops force-removing worktrees that hold
+uncommitted work.
+
+**Its section numbers are cited from source comments.** `src/lib/git.ts:160`, `src/commands/cleanup.ts:16,77`,
+`src/commands/cleanup.test.ts:324` and `src/commands/remove.test.ts:313` reference `CLEANUP-DATA-LOSS-PLAN`
+by section and without a path, so they survived this move untouched — but renumbering or deleting a section
+below breaks them.
 
 ---
 
@@ -424,3 +428,44 @@ print each candidate with its uncommitted count. The accurate, narrower statemen
 matters because it changes what the fix has to do: the information is displayed but bundled into one bulk
 yes/no, `--force` skips the display entirely, and the real defect is the classification rather than the
 reporting.
+
+## 10. Findings log
+
+Closed findings tied to this feature, moved here from [`../findings.md`](../findings.md) at
+`/feature-close` so that file does not grow for the life of the project.
+
+### F-001 — P3 — `uncommittedChanges: undefined` with no remote is unpinned, and Phase 2 flips it
+
+**Tied to:** Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
+**Closed:** 2026-09-05 (Gate 1, Phase 2)
+
+Phase 2 dropped the `wt.uncommittedChanges === 0` clause per §4.1 and pinned the resulting verdict: the
+no-remote entry with an unknown count is `true`, asserted at `src/lib/git.test.ts:321-323` against
+`entry()`'s defaults of `pathExists: true, remote: ""` (`src/lib/git.test.ts:245-253`). Gate 1 re-passed on
+that run — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (12 files, 189 tests) and
+`pnpm docs:test` (6 files, 49 tests) all exit 0.
+
+### Still open at retirement
+
+Four `P3` findings tied to this feature were open when it was retired, and **stay in
+[`../findings.md`](../findings.md)** — only closed findings move here. None gated the close; `P3` blocks
+nothing. They are recorded here so the archive does not read as if the feature retired clean:
+
+| Id | Phase | What it is |
+|---|---|---|
+| F-002 | 2 | §4.1's `pathExists`-first ordering is argued but unpinned by any test |
+| F-003 | 3 | `{ pathExists: false, uncommittedChanges: 3 }` would be listed as skipped *and* removed |
+| F-004 | 4 | the `remove` regression cases are looser than the §4.3 claim they pin |
+| F-005 | 5 | `README.md:160` still carries the unqualified claim §4.4 corrected on the docs page |
+
+F-002 and F-003 are both the `pathExists: false` ordering question, latent because
+`gitGetWorktreeList` hardcodes the count to `0` when the path is missing. `agent-mode` Phase 6 adds a
+live-agent clause to this same predicate (§2, R2) and is the natural place to settle them.
+
+### §7 was not performed
+
+**The by-hand verification in §7 was never run.** Every phase passed both gates on unit tests over
+synthetic `WorktreeListEntry` objects, which is exactly what §7 says is insufficient: no test in this
+feature exercised `gitGetWorktreeList` against a real repository, so nothing proved that the real list
+builder produces the field values the corrected predicate depends on. Step 7 of that walkthrough — which
+confirms Q1's remaining gap rather than fixing it — is likewise unconfirmed.
