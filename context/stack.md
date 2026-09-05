@@ -93,6 +93,26 @@ longer arrive automatically — refresh by re-vendoring with `standards add <git
 and expect to redo these two changes afterwards. Everything outside `standards/` is unaffected and still
 updates normally.
 
+**Two files carry that flip, and a deletion is not one of them.** Read from the updater's own source at
+`dist/commands/update.js:37-41` (v0.4.0), the "edited" test is
+`onDisk === null ? false : hash(onDisk) !== recorded` — **a file deleted from `standards/` counts as
+unedited.** So the ten paths this project removed, `templates/biome.json` among them, contribute nothing.
+The whole tree stays adopted because exactly two files still exist with a changed hash:
+
+| File | Why it differs |
+|---|---|
+| `standards/README.md` | the PHP rows dropped from the conditional table |
+| `standards/philosophy/ai-agent-behavior.md` | the PHP references dropped |
+
+**Restoring either one to its bundled content re-arms the updater against this whole directory.**
+`standardsAdopted` goes false, and `update.js:49-52` treats every deleted-but-recorded path as a `restore`
+— which brings back `standards/templates/biome.json` and breaks `pnpm check`, `pnpm lint` and `pnpm format`
+together, exactly as [`verify.md`](verify.md) describes, plus `standards/php/`'s eight files and
+`standards/docs/PHP-SPEC.md`. If you ever need to revert a PHP-removal edit, delete the file instead of
+restoring it, or re-check `manifest.json` afterwards.
+Verified 2026-09-05: of the 78 `standards/` paths in `context/.state/manifest.json`, 66 match their recorded
+hash, 10 are deleted, and those 2 are modified.
+
 ## Also in `context/`
 
 Nothing beyond what the tool installs. Index anything you add here — not in `context/README.md`, which is

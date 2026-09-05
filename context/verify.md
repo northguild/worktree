@@ -65,8 +65,10 @@ asserts the *unstyled* string, so before that pin the suite passed in CI (no TTY
 interactive shell. If a console assertion ever starts failing only on someone's machine, check that pin
 first.
 
-`pnpm test` covers `src/` (181 tests); `pnpm docs:test` covers the `docs` workspace including the
-Cloudflare Worker (49 tests). CI runs both.
+`pnpm test` covers `src/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
+CI runs both. As of 2026-09-05 that is 206 and 49 tests respectively — a snapshot for recognising a suite
+that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
+it in passing rather than treating a mismatch as a failure.
 
 ## Not run by Gate 1
 
