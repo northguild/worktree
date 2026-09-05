@@ -264,7 +264,7 @@ handling changes" is very slightly overstated, in two ways found by measurement 
 | 2 | The three read-only `cd` sites | done | 1 | Gate 2 `PASS WITH NOTES`; F-006 closed, F-008 raised — §7 case 1 blocked by it |
 | 3 | `gitCreateWorktree`'s four-command chain | done | 1 | Gate 2 `PASS WITH NOTES`; F-009 and F-010 raised; R1's premise disproved on git 2.38.1, behaviour unchanged |
 | 4 | Config get/set and `gitNukeWorktreeCmd` | done | 1 | Gate 2 `PASS WITH NOTES`; §7 case 3 run and the pre-change form proved live; F-011 raised |
-| 5 | Static sites, `commandExists`, and deleting `cmd()` | not started | 2, 3, 4 | |
+| 5 | Static sites, `commandExists`, and deleting `cmd()` | done | 2, 3, 4 | Gate 2 `PASS WITH NOTES` then `PASS`; `cmd()` gone; F-007 closed; R3 guard re-proved non-vacuous |
 | 6 | `openWorktreePath` — the last `exec` | not started | 1 | |
 
 Status is one of `not started`, `in progress`, `blocked`, `done`. `done` only when committed and verified,
@@ -368,6 +368,28 @@ the first rejection; the `force` branch still appends `--force`.
 **Done when:** `grep -rn --include='*.ts' '\bcmd(' src/` returns nothing outside `*.test.ts` history;
 `grep -rn --include='*.ts' 'exec(' src/` returns only `src/lib/base-command.ts`; `pnpm test` and
 `pnpm typecheck` green.
+
+**Recorded at the phase, 2026-09-05.** Three things this phase settled that the scope above did not
+anticipate:
+
+- **`gitGetRootPath` moving onto `run` changes what `gitCreateWorktree`'s tests count.** Phase 3's **Done
+  when** said "exactly two subprocess calls", and that was true when it was written: the root lookup went
+  through `cmd`, a separate mock. It is now a third `run` call ahead of the fetch and the add, so that
+  describe asserts `3` and the fetch-failure case stops at call 2. Nothing about `gitCreateWorktree`'s own
+  body changed — it still issues two calls of its own — and Phase 3's claim is left as written rather than
+  back-dated. `vi.spyOn` returns the existing mock when the property is already one, so every
+  `mockResolvedValueOnce` across a migrated test now sits in a single ordered queue; that is what made the
+  ordering, not just the count, the thing to check in this phase's tests.
+- **The `for-each-ref` format loses its quotes, and that is the correct migration.** The shell form carried
+  `--format='%(refname:short) <- %(upstream:short)'`, whose single quotes the shell stripped before git saw
+  them. As one argv element the quotes must not be there. Verified byte-for-byte rather than reasoned
+  about: `sh -c` with the old string and `execFile` with the new argv produce identical output on this
+  repository. `git rev-parse  --show-toplevel`'s double space collapses for the same reason.
+- **`commandExists` gained its first tests.** It had none, and this phase is what moves it off `cmd`. The
+  three cases in `src/lib/cli.test.ts` pin that a command on `PATH` resolves `true`, an absent one `false`,
+  and that only the head of a command line is looked up — the last being the contract D6 relies on at
+  Phase 6. `beforeAll` prepends `dirname(process.execPath)` to `PATH` so the hit does not depend on how the
+  suite was launched. The `win32` branch stays untested, per R6.
 
 #### Phase 6 — `openWorktreePath` — the last `exec`
 

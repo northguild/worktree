@@ -47,7 +47,7 @@ future change hoisting the uncommitted test above the path test would flip
 `{ pathExists: false, uncommittedChanges: 3 }` from `true` to `false` with no test failing.
 
 Latent, not live: `gitGetWorktreeList` hardcodes `uncommittedChanges` to `0` when the path is missing
-(`src/lib/git.ts:194-196`), so the combination is unreachable from the list builder. Left open rather than
+(`src/lib/git.ts:200-202`), so the combination is unreachable from the list builder. Left open rather than
 fixed because Phase 2's **Done when** names exactly two over-reach cases and this is not one of them —
 adding it would have landed an unreviewed assertion after Gate 2 had already passed on the diff.
 
@@ -62,13 +62,13 @@ This matters sooner than it looks: `agent-mode` Phase 6 adds a live-agent clause
 **Tied to:** cleanup-data-loss Phase 3 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 3)
 
 For `{ pathExists: false, uncommittedChanges: 3 }` both halves of `cleanup`'s split claim the entry:
-`isSafeToRemove` returns `true` at `src/lib/git.ts:154-156`, so it lands in `worktrees`
+`isSafeToRemove` returns `true` at `src/lib/git.ts:159-162`, so it lands in `worktrees`
 (`src/commands/cleanup.ts:48`), and `isSkippedForUncommittedChanges` (`src/commands/cleanup.ts:17-21`) also
 returns `true`, because its zeroed probe hits that same first branch. The command would print the worktree
 as skipped and then remove it anyway.
 
 Latent, not live, and for the same reason as F-002: `gitGetWorktreeList` hardcodes `uncommittedChanges`
-to `0` when the path is missing (`src/lib/git.ts:194-196`), and `cleanup` consumes no other source. The
+to `0` when the path is missing (`src/lib/git.ts:200-202`), and `cleanup` consumes no other source. The
 one-line form is `wt.safeToRemove !== true &&` in front of the existing condition. Left open rather than
 fixed because Gate 2 had already passed on the diff — the same reasoning F-002 records — and because both
 findings are the `pathExists: false` ordering question that `agent-mode` Phase 6 will have this predicate
@@ -120,28 +120,11 @@ this is a note, not a gap to close blindly.
 **Closes when:** a Lint gate run passes with `README.md:160` carrying the same uncommitted-work exception
 as `page.mdx:17`.
 
-### F-007 — P3 — `cli.test.ts`'s `afterAll` would mask a failure in its own `beforeAll`
-
-**Tied to:** shell-argv-safety Phase 1 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1)
-
-`src/lib/cli.test.ts:35-37` calls `rmSync(tempPath, { recursive: true, force: true })` unconditionally. If
-`mkdtempSync` at `:30` ever threw — a full or read-only temp filesystem — `tempPath` would still be
-`undefined` and `rmSync` would throw `ERR_INVALID_ARG_TYPE` on top of the real error, so the reported
-failure would name the cleanup rather than the cause. `force: true` does not help: it suppresses a missing
-path, not an invalid argument type.
-
-Narrow, and it costs a one-line `if (tempPath)` guard. Left unfixed because Gate 2 had already returned
-`PASS WITH NOTES` on this exact diff, and editing it afterwards would commit code no gate had seen — the
-same reasoning F-002 through F-005 record.
-
-**Closes when:** a Gate 1 run passes with the `afterAll` in `src/lib/cli.test.ts` guarded against an
-unset `tempPath`.
-
 ### F-008 — P2 — `gitGetWorktrees` splits the worktree-list line on a space, so a repo under a spaced path lists nothing
 
 **Tied to:** shell-argv-safety Phase 2 · **Raised:** 2026-09-05 (hand, §7 case 1)
 
-`gitGetWorktrees` (`src/lib/git.ts:128-150`) parses each `git worktree list` line with
+`gitGetWorktrees` (`src/lib/git.ts:134-157`) parses each `git worktree list` line with
 `line.replace(/\s\s+/g, " ").split(" ")`, taking `[0]` as the path and `[2]` as the branch. That collapses
 runs of two-or-more spaces into one and then splits on every single space, so a repository whose own path
 contains a space is truncated at that space. Measured on 2026-09-05 against a real repo at
@@ -160,7 +143,7 @@ branchStr   9a6e0d9   → branchName "a6e0d" after slice(1, -1)
 Both lines collapse to the same truncated `parsedPath`, and `branchStr` lands on the commit sha instead of
 the bracketed branch, so `branchName` is five characters of that sha.
 
-Every entry then fails the `path.startsWith(worktreesRootPath)` filter at `src/lib/git.ts:146-149`, because
+Every entry then fails the `path.startsWith(worktreesRootPath)` filter at `src/lib/git.ts:152-155`, because
 `worktreesRootPath` is the untruncated `/Users/…/case1/space demo/proj.worktrees`. `worktree list` prints
 its spinner and no rows; `remove` and `cleanup` consume the same builder and see an empty list.
 
@@ -190,12 +173,16 @@ path prints its rows.
 
 **Tied to:** shell-argv-safety Phase 3 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 3)
 
-`gitCreateWorktree` now issues two sequential `run` calls (`src/lib/git.ts:239` and `:243-255`), and D5
-rests on both being awaited. Only the **first** is exercised on its rejecting path:
-`grep -n "mockRejectedValue" src/lib/git.test.ts` returns `383` as the sole rejection in the new describe,
-and it is queued on the fetch. So dropping `await` at `src/lib/git.ts:243` passes all four new tests — the
-call is still recorded synchronously, `succeed` is still called, and the one rejection test stops at call 1
-before reaching it.
+`gitCreateWorktree` issues two sequential `run` calls of its own (`src/lib/git.ts:245` and `:249-261`),
+and D5 rests on both being awaited. Only the **first** is exercised on its rejecting path:
+`grep -n "mockRejectedValue" src/lib/git.test.ts` returns `445` as the sole rejection in that describe,
+and it is queued on the fetch. So dropping `await` at `src/lib/git.ts:249` passes all four tests — the
+call is still recorded synchronously, `succeed` is still called, and the one rejection test stops before
+reaching it.
+
+**Line numbers updated at Phase 5**, which moved `gitGetRootPath` onto `run` as well: `gitCreateWorktree`
+now records **three** calls, the root lookup ahead of the fetch and the add, so the counts in that describe
+read `3` where they read `2`, and the fetch-failure case stops at call 2 rather than call 1.
 
 It matters past mutation hygiene: `src/commands/branch.ts:182-184` and `src/commands/checkout.ts:65-71`
 both `await gitCreateWorktree(…)` and immediately act on the returned path, so an un-awaited
@@ -203,13 +190,14 @@ both `await gitCreateWorktree(…)` and immediately act on the returned path, so
 names for Phase 3, and that prefix change is currently pinned by the hand measurement in §7 case 2 alone,
 not by a test.
 
-Smaller, and the same shape: `src/lib/git.test.ts:351-375`, the spaced-root case, omits the
-`toHaveBeenCalledTimes(2)` its two sibling cases carry at `:306` and `:334`, so a third `run` issued only
-on that path would go unseen.
+The smaller half of this finding is **closed**. The spaced-root case omitted the
+`toHaveBeenCalledTimes` its two sibling cases carried, so a further `run` issued only on that path would
+have gone unseen; Phase 5 added it at `src/lib/git.test.ts:418`, alongside the siblings now at `:363` and
+`:395`. The primary half — no rejecting test on `worktree add` — is untouched and is what keeps this
+finding open.
 
-Left unfixed because Gate 2 had already returned `PASS WITH NOTES` on this exact diff, and adding
-assertions afterwards would commit test code no gate had seen — the reasoning F-002 through F-005 and
-F-007 record.
+Left unfixed because Gate 2 had already returned `PASS WITH NOTES` on the Phase 3 diff, and adding
+assertions afterwards would commit test code no gate had seen — the reasoning F-002 through F-005 record.
 
 **Closes when:** a Gate 1 run passes with a `git.test.ts` case that resolves the fetch, rejects the
 `worktree add`, and asserts both `rejects.toThrow` and `spinnerMocks.fail` called with that message.
@@ -252,18 +240,18 @@ or accompanied by the `--relative-paths` flag that makes the original claim true
 
 **Tied to:** shell-argv-safety Phase 4 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 4)
 
-`gitNukeWorktreeCmd` now issues three sequential `run` calls (`src/lib/git.ts:278`, `:284`, `:285`), and D5
+`gitNukeWorktreeCmd` now issues three sequential `run` calls (`src/lib/git.ts:282`, `:288`, `:289`), and D5
 rests on every one being awaited. The **third** has no rejecting test, because no call follows it to count:
-`src/lib/git.test.ts:476-486` rejects call 1 and asserts `toHaveBeenCalledTimes(1)`, and `:488-499` rejects
+`src/lib/git.test.ts:506-516` rejects call 1 and asserts `toHaveBeenCalledTimes(1)`, and `:518-529` rejects
 call 2 and asserts `2`, but nothing observes a rejection from `git branch -D`. So dropping `await` at
-`src/lib/git.ts:285` passes all four new tests.
+`src/lib/git.ts:289` passes all four tests. (Line numbers refreshed at Phase 5, which shifted this file.)
 
-It matters past mutation hygiene. `gitNukeWorktree` catches the rejection (`src/lib/git.ts:296-300`) and is
+It matters past mutation hygiene. `gitNukeWorktree` catches the rejection (`src/lib/git.ts:300-304`) and is
 the only thing standing between a failed `branch -D` and a success message: un-awaited, the catch never
 fires and the spinner prints `Worktree <name> was removed.` while the branch is still there. This is
 exactly the shape F-009 records for `worktree add`, one phase earlier.
 
-Smaller, and the same shape: the round-trip case at `src/lib/git.test.ts:131-148` asserts the **set** call's
+Smaller, and the same shape: the round-trip case at `src/lib/git.test.ts:137-154` asserts the **set** call's
 argv and its length, but never `toHaveBeenNthCalledWith(2, …)` for the get, and its
 `expect(value).toBe(hostileValue)` half only proves the helper returns what the mock was queued with. The
 load-bearing evidence for the return direction is §7 case 3, which was run by hand against the built
@@ -307,3 +295,27 @@ of `Unexpected` in the captured test output.
 
 `cleanup-data-loss`'s F-001 moved to
 [`archive/CLEANUP-DATA-LOSS-PLAN.md`](archive/CLEANUP-DATA-LOSS-PLAN.md) §10 on 2026-09-05.
+
+### F-007 — P3 — `cli.test.ts`'s `afterAll` would mask a failure in its own `beforeAll`
+
+**Tied to:** shell-argv-safety Phase 1 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
+**Closed:** 2026-09-05 (Gate 1, Phase 5)
+
+`src/lib/cli.test.ts`'s `afterAll` called `rmSync(tempPath, …)` unconditionally, so a throwing
+`mkdtempSync` in `beforeAll` would have left `tempPath` undefined and reported an
+`ERR_INVALID_ARG_TYPE` from the cleanup instead of the real failure.
+
+**Fixed in Phase 5**, and in scope rather than swept in: Phase 5's **Files** names `src/lib/cli.test.ts`,
+and the phase already had to edit that exact `afterAll` block to restore the `PATH` its new `commandExists`
+cases mutate. The guard is `if (tempPath)` at `src/lib/cli.test.ts:47-49`; `tempPath` is declared
+`let tempPath: string` with no initializer, so it is genuinely `undefined` on that path.
+
+The PATH restore next to it raised the same class of defect one line earlier and was fixed with it:
+assigning a `string | undefined` back would have written the literal string `"undefined"` onto `PATH`, so
+an unset `PATH` is restored by `delete process.env.PATH` (`src/lib/cli.test.ts:43-51`). Verified both
+directions rather than assumed — after `delete`, `'PATH' in process.env` is `false`, which is the real
+pre-`beforeAll` state.
+
+Gate 1 on the Phase 5 commit: `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (219 passed) and
+`pnpm docs:test` (49 passed) all exit 0, with zero occurrences of `Unexpected` in the captured test output.
+Gate 2 returned `PASS`, having verified the guard and the restore against the file.

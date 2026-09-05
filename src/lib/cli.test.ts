@@ -6,8 +6,8 @@ import {
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { run } from "./cli.js";
+import { basename, delimiter, dirname, join } from "node:path";
+import { commandExists, run } from "./cli.js";
 
 // src/test-setup.ts mocks ./lib/cli.js for every suite so command tests never
 // execute anything. This file covers the real helper, so it opts back out.
@@ -23,6 +23,7 @@ const printCwd = "process.stdout.write(process.cwd())";
 
 let tempPath: string;
 let spacedPath: string;
+let originalPath: string | undefined;
 
 beforeAll(() => {
   // realpath because macOS resolves the temp dir through a symlink, and the
@@ -30,10 +31,28 @@ beforeAll(() => {
   tempPath = realpathSync(mkdtempSync(join(tmpdir(), "worktree-cli-")));
   spacedPath = join(tempPath, "space demo");
   mkdirSync(spacedPath);
+
+  // commandExists searches PATH. Put this node binary's own directory on it so
+  // the lookup has a guaranteed hit however the suite was launched.
+  originalPath = process.env.PATH;
+  process.env.PATH = [dirname(node), originalPath]
+    .filter(Boolean)
+    .join(delimiter);
 });
 
 afterAll(() => {
-  rmSync(tempPath, { recursive: true, force: true });
+  // Assigning undefined would leave the literal string "undefined" on PATH, so
+  // an unset PATH has to be restored by deleting the key.
+  if (originalPath === undefined) {
+    delete process.env.PATH;
+  } else {
+    process.env.PATH = originalPath;
+  }
+  // Guarded because a throwing mkdtempSync above would leave tempPath unset, and
+  // rmSync(undefined) would then report itself instead of the real failure.
+  if (tempPath) {
+    rmSync(tempPath, { recursive: true, force: true });
+  }
 });
 
 describe("run", () => {
@@ -61,7 +80,9 @@ describe("run", () => {
 
     await expect(failing).rejects.toBeInstanceOf(Error);
     // The rejection is execFile's own error, not a wrapper, so the child's exit
-    // code survives — same as cmd() rejecting with exec's error today.
+    // code survives. The message is not identical to the shell form's at every
+    // call site — plan R7 measures where it changed, and where `code` goes from
+    // a number to "ENOENT" — but the reject-with-an-Error shape is the same.
     await expect(failing).rejects.toMatchObject({ code: 3 });
   });
 
@@ -77,7 +98,7 @@ describe("run", () => {
 
   it("runs in a cwd whose path contains a space", async () => {
     // The failure this whole change exists to fix: the `cd ${path} && …` string
-    // cmd() builds today splits on that space once a shell parses it.
+    // this helper replaced split on that space once a shell parsed it.
     await expect(
       run(node, ["-e", printCwd], { cwd: spacedPath }),
     ).resolves.toBe(spacedPath);
@@ -97,5 +118,27 @@ describe("run", () => {
       hostile,
     );
     expect(existsSync(sentinel)).toBe(false);
+  });
+});
+
+describe("commandExists", () => {
+  // basename because process.execPath is absolute, and the point of these cases
+  // is to exercise a real PATH lookup rather than hand it a path to stat.
+  const nodeName = basename(node);
+
+  it("resolves true for a command on PATH", async () => {
+    await expect(commandExists(nodeName)).resolves.toBe(true);
+  });
+
+  it("resolves false for a command that is not on PATH", async () => {
+    await expect(commandExists("worktree-no-such-binary")).resolves.toBe(false);
+  });
+
+  // Only the head of the command line is looked up; the arguments after it are
+  // not part of the check, and never reach the lookup as argv either.
+  it("checks only the first word of a command line", async () => {
+    await expect(commandExists(`${nodeName} --no-warnings`)).resolves.toBe(
+      true,
+    );
   });
 });

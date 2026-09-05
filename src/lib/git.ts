@@ -4,7 +4,7 @@ import path from "node:path";
 import { confirm } from "@inquirer/prompts";
 import Process from "cli-progress";
 import ora from "ora";
-import { cmd, run } from "./cli.js";
+import { run } from "./cli.js";
 import type {
   ConfigName,
   WorktreeListBaseEntry,
@@ -27,15 +27,15 @@ export async function gitSetConfigValue(name: ConfigName, value: string) {
 }
 
 async function gitCmdShowTopLevel() {
-  return cmd("git rev-parse  --show-toplevel");
+  return run("git", ["rev-parse", "--show-toplevel"]);
 }
 
 async function gitCmdGitPath() {
-  return cmd("git rev-parse --absolute-git-dir");
+  return run("git", ["rev-parse", "--absolute-git-dir"]);
 }
 
 export async function gitFetch() {
-  return cmd("git fetch --prune");
+  return run("git", ["fetch", "--prune"]);
 }
 
 export async function gitGetRootPath() {
@@ -64,18 +64,18 @@ function parseGetBranchesResult(result: string) {
 }
 
 export async function gitGetLocalBranches() {
-  const res = await cmd("git --no-pager branch");
+  const res = await run("git", ["--no-pager", "branch"]);
   return parseGetBranchesResult(res);
 }
 
 export async function gitGetRemoteBranches() {
   await gitFetch();
-  const res = await cmd("git --no-pager branch -r");
+  const res = await run("git", ["--no-pager", "branch", "-r"]);
   return parseGetBranchesResult(res);
 }
 
 export async function getCurrentBranchName() {
-  return await cmd("git branch --show-current");
+  return await run("git", ["branch", "--show-current"]);
 }
 
 export async function gitGetAbsoluteWorktreesPath() {
@@ -107,9 +107,13 @@ export async function gitGetUncommittedChangesCount(branchPath: string) {
 }
 
 export async function gitGetLocalBranchesTracking() {
-  const res = await cmd(
-    "git for-each-ref --format='%(refname:short) <- %(upstream:short)' refs/heads",
-  );
+  // The format is one argv element, so the single quotes the shell form needed
+  // around its spaces are gone rather than being passed on to git literally.
+  const res = await run("git", [
+    "for-each-ref",
+    "--format=%(refname:short) <- %(upstream:short)",
+    "refs/heads",
+  ]);
   return res.split(EOL).map((branch) => {
     const [local, remote] = branch
       .trim()
@@ -132,7 +136,7 @@ export async function gitGetWorktrees({
 }: GitGetWorktreesOptions = {}): Promise<WorktreeListBaseEntry[]> {
   const currentBranch = await getCurrentBranchName();
   const worktreesRootPath = await gitGetAbsoluteWorktreesPath();
-  const result = await cmd("git worktree list");
+  const result = await run("git", ["worktree", "list"]);
 
   return (
     result

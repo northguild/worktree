@@ -109,10 +109,10 @@ describe("GitHub integration", () => {
   });
 
   it("fetches issue info from the current repository", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce(
-      "git@github.com:northguild/worktree.git",
-    );
-    vi.spyOn(cli, "run").mockResolvedValueOnce("");
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("");
 
     const fetchSpy = vi
       .fn()
@@ -121,7 +121,7 @@ describe("GitHub integration", () => {
 
     const issue = await fetchGitHubIssue(42);
 
-    expect(cli.cmd).toHaveBeenCalledWith("git remote get-url origin");
+    expect(runSpy).toHaveBeenCalledWith("git", ["remote", "get-url", "origin"]);
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://api.github.com/repos/northguild/worktree/issues/42",
       {
@@ -180,10 +180,9 @@ describe("GitHub integration", () => {
   it("throws when the GitHub API responds with an error", async () => {
     // Use a pre-configured token so the repo-check step is skipped, and the
     // error comes directly from the issue fetch.
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce(
-      "git@github.com:northguild/worktree.git",
-    );
-    vi.spyOn(cli, "run").mockResolvedValueOnce("ghp_test_token");
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
 
     vi.stubGlobal(
       "fetch",
@@ -201,11 +200,10 @@ describe("GitHub integration", () => {
   });
 
   it("auto-resolves a token via gh CLI when the repo check fails without a token", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd");
-    cmdSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git"); // git remote get-url origin
-    cmdSpy.mockResolvedValueOnce("ghp_auto_token"); // gh auth token
     const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git"); // git remote get-url origin
     runSpy.mockResolvedValueOnce(""); // git config token (no token)
+    runSpy.mockResolvedValueOnce("ghp_auto_token"); // gh auth token
     runSpy.mockResolvedValueOnce(""); // gitSetConfigValue (saving token)
 
     const fetchSpy = vi.fn();
@@ -237,7 +235,7 @@ describe("GitHub integration", () => {
     const issue = await fetchGitHubIssue(13);
 
     expect(issue.number).toBe(13);
-    expect(cmdSpy).toHaveBeenCalledWith("gh auth token");
+    expect(runSpy).toHaveBeenCalledWith("gh", ["auth", "token"]);
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://api.github.com/repos/northguild/worktree/issues/13",
       {

@@ -44,9 +44,11 @@ describe("git branch parsing", () => {
   });
 
   it("parses local branches and strips git branch markers", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce(
-      "* main\n+ feature/in-other-worktree\n  feature/test",
-    );
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce(
+        "* main\n+ feature/in-other-worktree\n  feature/test",
+      );
 
     const branches = await gitGetLocalBranches();
 
@@ -55,12 +57,12 @@ describe("git branch parsing", () => {
       "feature/in-other-worktree",
       "feature/test",
     ]);
-    expect(cli.cmd).toHaveBeenCalledWith("git --no-pager branch");
+    expect(runSpy).toHaveBeenCalledWith("git", ["--no-pager", "branch"]);
   });
 
   it("prunes and lists remote branches without symbolic refs", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd");
-    cmdSpy
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce(
         "  origin/HEAD -> origin/main\n  origin/main\n  origin/feature/test",
@@ -68,8 +70,12 @@ describe("git branch parsing", () => {
 
     const branches = await gitGetRemoteBranches();
 
-    expect(cmdSpy).toHaveBeenNthCalledWith(1, "git fetch --prune");
-    expect(cmdSpy).toHaveBeenNthCalledWith(2, "git --no-pager branch -r");
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch", "--prune"]);
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
+      "--no-pager",
+      "branch",
+      "-r",
+    ]);
     expect(branches).toEqual(["origin/main", "origin/feature/test"]);
   });
 });
@@ -152,38 +158,44 @@ describe("git root path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     expectCommands(
-      "git rev-parse  --show-toplevel",
+      "git rev-parse --show-toplevel",
       "git rev-parse --absolute-git-dir",
     );
   });
 
   it("returns top-level path when not in a worktree path", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd").mockResolvedValueOnce("/repo/project");
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("/repo/project");
 
     const path = await gitGetRootPath();
 
-    expect(cmdSpy).toHaveBeenCalledWith("git rev-parse  --show-toplevel");
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "rev-parse",
+      "--show-toplevel",
+    ]);
     expect(path).toBe("/repo/project");
   });
 
   it("resolves main repo root when current path is in .worktrees", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd");
-    cmdSpy
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy
       .mockResolvedValueOnce("/repo/project.worktrees/feature-x")
       .mockResolvedValueOnce("/repo/project/.git/worktrees/feature-x");
 
     const path = await gitGetRootPath();
 
-    expect(cmdSpy).toHaveBeenNthCalledWith(1, "git rev-parse  --show-toplevel");
-    expect(cmdSpy).toHaveBeenNthCalledWith(
-      2,
-      "git rev-parse --absolute-git-dir",
-    );
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
+      "rev-parse",
+      "--show-toplevel",
+    ]);
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
+      "rev-parse",
+      "--absolute-git-dir",
+    ]);
     expect(path).toBe("/repo/project");
   });
 
   it("throws a friendly error when git commands fail", async () => {
-    vi.spyOn(cli, "cmd").mockRejectedValueOnce(new Error("not a repo"));
+    vi.spyOn(cli, "run").mockRejectedValueOnce(new Error("not a repo"));
 
     await expect(gitGetRootPath()).rejects.toThrow(
       "Git: Unable find the root path. Are you in a git repository?",
@@ -191,7 +203,7 @@ describe("git root path", () => {
   });
 
   it("builds absolute worktrees path from repo root", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce("/repo/project");
+    vi.spyOn(cli, "run").mockResolvedValueOnce("/repo/project");
 
     const worktreesPath = await gitGetAbsoluteWorktreesPath();
 
@@ -213,16 +225,16 @@ describe("git status and tracking helpers", () => {
       `git rev-list --count HEAD..@{u} (cwd: ${worktreePath})`,
       `git status -s (cwd: ${worktreePath})`,
       `git status -s (cwd: ${spacedWorktreePath})`,
-      "git for-each-ref --format='%(refname:short) <- %(upstream:short)' refs/heads",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
     );
   });
 
   it("returns current branch name", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd").mockResolvedValueOnce("feature/test");
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("feature/test");
 
     const branchName = await getCurrentBranchName();
 
-    expect(cmdSpy).toHaveBeenCalledWith("git branch --show-current");
+    expect(runSpy).toHaveBeenCalledWith("git", ["branch", "--show-current"]);
     expect(branchName).toBe("feature/test");
   });
 
@@ -293,11 +305,21 @@ describe("git status and tracking helpers", () => {
   });
 
   it("parses local to remote tracking branch map", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce(
-      "main <- origin/main\nfeature/test <- origin/feature/test\nlocal-only <-",
-    );
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce(
+        "main <- origin/main\nfeature/test <- origin/feature/test\nlocal-only <-",
+      );
 
     const tracking = await gitGetLocalBranchesTracking();
+
+    // The format string is one argv element, spaces and all — the single quotes
+    // the shell form carried are gone rather than being passed on to git.
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "for-each-ref",
+      "--format=%(refname:short) <- %(upstream:short)",
+      "refs/heads",
+    ]);
 
     expect(tracking).toEqual([
       { local: "main", remote: "origin/main" },
@@ -321,7 +343,7 @@ describe("gitCreateWorktree", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     expectCommands(
-      "git rev-parse  --show-toplevel",
+      "git rev-parse --show-toplevel",
       `git fetch (cwd: ${gitRootPath})`,
       `git fetch (cwd: ${spacedGitRootPath})`,
       `git worktree add --no-track -b ${branchName} ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
@@ -331,17 +353,23 @@ describe("gitCreateWorktree", () => {
   });
 
   it("fetches then adds an untracked worktree, both at the git root", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce(gitRootPath);
     const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+    // Call 1 is gitGetRootPath's own lookup, which runs without a cwd; the fetch
+    // and the add follow it.
+    runSpy.mockResolvedValueOnce(gitRootPath);
 
     const worktreePath = await gitCreateWorktree(branchName, sourceBranch);
 
-    expect(runSpy).toHaveBeenCalledTimes(2);
-    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch"], {
+    expect(runSpy).toHaveBeenCalledTimes(3);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
+      "rev-parse",
+      "--show-toplevel",
+    ]);
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["fetch"], {
       cwd: gitRootPath,
     });
     expect(runSpy).toHaveBeenNthCalledWith(
-      2,
+      3,
       "git",
       [
         "worktree",
@@ -359,14 +387,14 @@ describe("gitCreateWorktree", () => {
   });
 
   it("adds a tracking worktree when checking out a remote branch", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce(gitRootPath);
     const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+    runSpy.mockResolvedValueOnce(gitRootPath);
 
     await gitCreateWorktree(branchName, sourceBranch, { isCheckout: true });
 
-    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenCalledTimes(3);
     expect(runSpy).toHaveBeenNthCalledWith(
-      2,
+      3,
       "git",
       [
         "worktree",
@@ -382,16 +410,17 @@ describe("gitCreateWorktree", () => {
   });
 
   it("keeps a git root containing a space in one cwd and one argv entry", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce(spacedGitRootPath);
     const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+    runSpy.mockResolvedValueOnce(spacedGitRootPath);
 
     const worktreePath = await gitCreateWorktree(branchName, sourceBranch);
 
-    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch"], {
+    expect(runSpy).toHaveBeenCalledTimes(3);
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["fetch"], {
       cwd: spacedGitRootPath,
     });
     expect(runSpy).toHaveBeenNthCalledWith(
-      2,
+      3,
       "git",
       [
         "worktree",
@@ -410,16 +439,17 @@ describe("gitCreateWorktree", () => {
   // The sequential awaits stand in for the `&&` chain, so a failing fetch has to
   // stop the sequence rather than let the add run anyway.
   it("does not add the worktree when the fetch fails", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce(gitRootPath);
     const runSpy = vi
       .spyOn(cli, "run")
+      .mockResolvedValueOnce(gitRootPath)
       .mockRejectedValueOnce(new Error("Command failed: git fetch"));
 
     await expect(gitCreateWorktree(branchName, sourceBranch)).rejects.toThrow(
       "Command failed: git fetch",
     );
 
-    expect(runSpy).toHaveBeenCalledTimes(1);
+    // The root lookup and the fetch, and nothing after them.
+    expect(runSpy).toHaveBeenCalledTimes(2);
     expect(spinnerMocks.fail).toHaveBeenCalledWith("Command failed: git fetch");
     expect(spinnerMocks.succeed).not.toHaveBeenCalled();
   });
