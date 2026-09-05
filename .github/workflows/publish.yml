@@ -40,6 +40,6 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         with:
           args: |
-            🚀 **Version ${{ github.event.release.tag_name }}** is now live on npm!
+            🚀 Version ${{ github.event.release.tag_name }} of @northguild/worktree is now live on npm!
             📑 **What's New:**
             ${{ github.event.release.html_url }}

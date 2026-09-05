@@ -309,4 +309,90 @@ describe("remove command", () => {
       expect(choices).toHaveLength(1);
     });
   });
+
+  // Regression coverage for CLEANUP-DATA-LOSS-PLAN §4.3, which claims this
+  // command needed no change of its own once isSafeToRemove stopped calling a
+  // deleted-remote worktree safe while work sits in it. These cases pin that
+  // claim so a later edit to either side cannot quietly undo it.
+  describe("a worktree whose remote was deleted while work is uncommitted", () => {
+    const mergedWithWorkEntry = {
+      path: "/path/to/project.worktrees/feature/merged-with-work",
+      branchName: "feature/merged-with-work",
+      remote: "origin/feature/merged-with-work",
+      remoteExists: false,
+      pathExists: true,
+      uncommittedChanges: 3,
+    };
+    // Taken from the real predicate rather than hand-set. Every other fixture
+    // in this file supplies its own verdict, so it would keep passing even if
+    // the classification regressed.
+    const mergedWithWork = {
+      ...mergedWithWorkEntry,
+      safeToRemove: git.isSafeToRemove(mergedWithWorkEntry),
+    };
+
+    beforeEach(() => {
+      (remove as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { force: false },
+      });
+    });
+
+    it("should be classified as not safe to remove", () => {
+      expect(mergedWithWork.safeToRemove).toBe(false);
+    });
+
+    it("should be grouped under Active branches, not Safe to delete", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+        safeWorktree,
+        mergedWithWork,
+      ]);
+      mockCheckbox.mockResolvedValue([]);
+
+      await remove.run();
+
+      const choices = mockCheckbox.mock.calls[0][0].choices as any[];
+      const activeGroupStart = choices.findIndex((choice) =>
+        String(choice.separator ?? "").includes("Active branches"),
+      );
+      const index = choices.findIndex(
+        (choice) => choice.value?.branchName === "feature/merged-with-work",
+      );
+
+      expect(activeGroupStart).toBeGreaterThan(-1);
+      expect(index).toBeGreaterThan(activeGroupStart);
+    });
+
+    it("should prompt for confirmation when it is selected", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([mergedWithWork]);
+      mockCheckbox.mockResolvedValue([mergedWithWork]);
+      mockConfirm.mockResolvedValue(true);
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktreesWithProgress")
+        .mockResolvedValue(undefined);
+
+      await remove.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message:
+          "Some selected branches are not safe to delete. Are you sure you want to continue?",
+        default: false,
+      });
+      expect(mockRemove).toHaveBeenCalledWith([mergedWithWork]);
+    });
+
+    it("should not remove it when the confirmation is declined", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([mergedWithWork]);
+      mockCheckbox.mockResolvedValue([mergedWithWork]);
+      mockConfirm.mockResolvedValue(false);
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktreesWithProgress")
+        .mockResolvedValue(undefined);
+
+      await remove.run();
+
+      expect(mockConfirm).toHaveBeenCalled();
+      expect(mockRemove).not.toHaveBeenCalled();
+    });
+  });
 });

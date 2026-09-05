@@ -77,6 +77,29 @@ open for anyway.
 **Closes when:** a Gate 1 run passes with a `cleanup.test.ts` case proving that entry appears in at most one
 of the two lists.
 
+### F-004 — P3 — Phase 4's regression cases are looser than the §4.3 claim they pin
+
+**Tied to:** cleanup-data-loss Phase 4 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 4)
+
+Two assertions in `src/commands/remove.test.ts` prove less than the plan's §4.3 claims, in ways a future
+edit could exploit without failing a test:
+
+- The confirmation case selects a single worktree (`remove.test.ts:367-368`), where `some` and `every` are
+  equivalent — so mutating `selected.some((wt) => !wt.safeToRemove)` at `src/commands/remove.ts:81` to
+  `every` passes. §4.3 names `some` specifically, and a mixed selection of `[safeWorktree, mergedWithWork]`
+  is the multi-select shape the phase is titled after. The pre-existing case at `remove.test.ts:173-194`
+  has the identical gap, so this is not introduced here.
+- The grouping case asserts position only (`remove.test.ts:363`, `index > activeGroupStart`), so swapping
+  the two groups emitted at `src/commands/remove.ts:40-45` would still pass. The test's name promises "not
+  Safe to delete" and never asserts that literal.
+
+Non-blocking: Gate 2 returned `PASS WITH NOTES` on the diff and Phase 4's **Done when** is met — the
+confirmation is asserted and declining it performs no removal. Left open rather than fixed for the reason
+F-002 and F-003 record: adding assertions after Gate 2 had already passed would land unreviewed test code.
+
+**Closes when:** a Gate 1 run passes with the confirmation case selecting a mixed `[safe, unsafe]` list and
+the grouping case asserting the entry is absent from the "Safe to delete" group by name.
+
 ## Closed
 
 ### F-001 — P3 — `uncommittedChanges: undefined` with no remote is unpinned, and Phase 2 flips it
