@@ -57,6 +57,26 @@ This matters sooner than it looks: `agent-mode` Phase 6 adds a live-agent clause
 **Closes when:** a Gate 1 run passes with a `git.test.ts` case asserting the verdict for
 `{ pathExists: false, uncommittedChanges: 3 }`.
 
+### F-003 — P3 — a path-less worktree with a non-zero change count would be listed as skipped *and* removed
+
+**Tied to:** cleanup-data-loss Phase 3 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 3)
+
+For `{ pathExists: false, uncommittedChanges: 3 }` both halves of `cleanup`'s split claim the entry:
+`isSafeToRemove` returns `true` at `src/lib/git.ts:154-156`, so it lands in `worktrees`
+(`src/commands/cleanup.ts:48`), and `isSkippedForUncommittedChanges` (`src/commands/cleanup.ts:17-21`) also
+returns `true`, because its zeroed probe hits that same first branch. The command would print the worktree
+as skipped and then remove it anyway.
+
+Latent, not live, and for the same reason as F-002: `gitGetWorktreeList` hardcodes `uncommittedChanges`
+to `0` when the path is missing (`src/lib/git.ts:194-196`), and `cleanup` consumes no other source. The
+one-line form is `wt.safeToRemove !== true &&` in front of the existing condition. Left open rather than
+fixed because Gate 2 had already passed on the diff — the same reasoning F-002 records — and because both
+findings are the `pathExists: false` ordering question that `agent-mode` Phase 6 will have this predicate
+open for anyway.
+
+**Closes when:** a Gate 1 run passes with a `cleanup.test.ts` case proving that entry appears in at most one
+of the two lists.
+
 ## Closed
 
 ### F-001 — P3 — `uncommittedChanges: undefined` with no remote is unpinned, and Phase 2 flips it

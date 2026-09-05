@@ -260,7 +260,7 @@ phase.
 |---|---|---|---|---|
 | 1 | Make `isSafeToRemove` testable and total | done | — | Verdicts unchanged; only the fall-through moved `undefined` → `false`. F-001 (P3) raised against Phase 2 |
 | 2 | Uncommitted work disqualifies removal | done | 1 | Two verdicts moved, both intended: the fix, and the no-remote `undefined` case F-001 pre-registered. F-001 closed. §4.1 cites `git.ts:188-190`; that assignment is now at `194-196` |
-| 3 | `cleanup` reports what it skipped | not started | 2 | |
+| 3 | `cleanup` reports what it skipped | done | 2 | Skipped = held back *only* by uncommitted work, asked of `isSafeToRemove` on a zeroed copy (D1); §4.2's literal "declined" would print every active worktree. F-003 (P3) raised. `verify.md:63` cites `cleanup.ts:37` and `cleanup.test.ts:176-178`; now `69` and `188-190` |
 | 4 | `remove` multi-select regression coverage | not started | 2 | |
 | 5 | Document the exception | not started | 2 | Docs-only — Lint gate only. §4.4 cites `page.mdx:16`; the bullet is now at line 17 |
 
