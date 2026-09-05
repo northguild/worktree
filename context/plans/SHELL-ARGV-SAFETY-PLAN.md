@@ -229,6 +229,31 @@ on `win32` (`src/lib/cli.ts:57`). **Unverified from macOS**: the restriction liv
 `uv_spawn`, not in the JS layer, so this is a question Phase 6's design must answer rather than a
 demonstrated defect. Do not close it by assertion.
 
+**Answered at Phase 6 from Node's own source, not by assertion.** Three things, each read rather than
+recalled, on 2026-09-05:
+
+- **Node 24.19.0's JavaScript layer contains no batch-file handling at all.** All 371 builtin module
+  sources — every key of `process.binding("natives")` bar the non-string `configs` — were read and scanned.
+  `.bat` and `IsWindowsBatchFile` return **zero** lines; the 16 `.cmd` lines, across 5 modules, are all
+  property reads in the child-process and cluster IPC code — `message.cmd` twelve times, `msg.cmd` three
+  and `ex.cmd` once — not batch-file handling. So there is no JS branch to take, and nothing there that can be probed from macOS. (Stated
+  loosely as "zero matches for the pair" when first written, and corrected at Gate 2, which reproduced the
+  scan.)
+- **The rejection is native and deliberate.** `src/process_wrap.cc` on `v24.x` — the async spawn path
+  `execFile` uses — sets `err = UV_EINVAL` when `IsWindowsBatchFile(options.file)`, under the comment that
+  spawning batch files directly "is potentially insecure because arguments are not escaped (and sometimes
+  cannot be unambiguously escaped), hence why they are rejected here." `src/spawn_sync.cc` carries the same
+  guard.
+- **An extension-less `code` never even reaches that guard.** libuv's `path_search_walk_ext`
+  (`deps/uv/src/win/process.c`) appends only `.com` and `.exe` — "Since CreateProcess can start only .com
+  and .exe files" — so `code` fails `ENOENT` before `code.cmd` is considered.
+
+**The design answer is no Windows branch.** The only way to launch a `.cmd` shim is `shell: true`, and Node
+refuses that path for exactly the argument-escaping hazard this plan exists to remove; re-adding a shell at
+the one site that interpolates a user-supplied config value would undo the change at its own last call
+site. The contract is documented on the configuration page instead. The consequence is **recorded as F-012,
+not closed here** — it is measured from Node's source, never observed on a Windows host.
+
 **R7 — two caller-observable error differences that §2 should acknowledge.** §4.1's "no caller's error
 handling changes" is very slightly overstated, in two ways found by measurement at Phase 1's Gate 2:
 
@@ -265,7 +290,7 @@ handling changes" is very slightly overstated, in two ways found by measurement 
 | 3 | `gitCreateWorktree`'s four-command chain | done | 1 | Gate 2 `PASS WITH NOTES`; F-009 and F-010 raised; R1's premise disproved on git 2.38.1, behaviour unchanged |
 | 4 | Config get/set and `gitNukeWorktreeCmd` | done | 1 | Gate 2 `PASS WITH NOTES`; §7 case 3 run and the pre-change form proved live; F-011 raised |
 | 5 | Static sites, `commandExists`, and deleting `cmd()` | done | 2, 3, 4 | Gate 2 `PASS WITH NOTES` then `PASS`; `cmd()` gone; F-007 closed; R3 guard re-proved non-vacuous |
-| 6 | `openWorktreePath` — the last `exec` | not started | 1 | |
+| 6 | `openWorktreePath` — the last `exec` | done | 1 | Gate 2 `PASS WITH NOTES`; R6 answered from Node's source; F-012 and F-013 raised; `exec` gone from `src/` entirely |
 
 Status is one of `not started`, `in progress`, `blocked`, `done`. `done` only when committed and verified,
 and whoever finishes a phase updates the row in the same commit.
@@ -394,7 +419,8 @@ anticipate:
 #### Phase 6 — `openWorktreePath` — the last `exec`
 
 **Files:** `src/lib/base-command.ts`, `src/lib/base-command.test.ts` (new),
-`docs/src/app/docs/configuration/page.mdx`
+`docs/src/app/docs/configuration/page.mdx`, `docs/src/app/docs/guides/editor-integration/page.mdx`
+(added at the phase — see §9)
 
 **Scope:** Replace `exec(\`${codeEditor} ${path}\`)` (`base-command.ts:56`) with the D6 argv split, keeping
 the existing ora spinner success/fail behaviour exactly. Document on the configuration page that
@@ -405,6 +431,33 @@ creates the same file.**
 **Done when:** `grep -rn --include='*.ts' 'exec(' src/` returns nothing outside `*.test.ts`; a worktree path
 containing a space opens; `base-command.test.ts` asserts the argv without launching a real editor; the
 spinner still fails with the error message on a rejected call.
+
+**Recorded at the phase, 2026-09-05.** Five things this phase settled:
+
+- **R6 is answered in §5, from Node's and libuv's source**, and the answer is that no Windows branch is
+  added. The user-facing half lands on the configuration page; the unobserved half is F-012.
+- **The launch stays fire-and-forget.** `exec`'s callback was never awaited, so `run(…).then(succeed, fail)`
+  is not either — `openWorktreePath` still returns as soon as the child is spawned, and the spinner settles
+  when it exits. Awaiting would have made all three callers (`branch.ts:184`, `checkout.ts:71`,
+  `open.ts:46`) block until the editor process closed, which is a behaviour change §2 does not allow.
+  Biome's `noFloatingPromises`, enabled in `biome.json`, accepts the two-argument `.then`; `pnpm check` is
+  green.
+- **R7, a fourth time, and stated deliberately.** An editor that cannot be launched used to fail with
+  `Command failed: <editor> <path>` plus the shell's own `command not found` line, and now fails with
+  `spawn <editor> ENOENT`. Narrow: `isValidConfigValue` routes `codeEditor` through `commandExists`
+  (`validators.ts:66-67`), and both config paths validate — `config.ts:221` interactively, `config.ts:250`
+  for `worktree config <name> <value>` — so an unfound editor is rejected at config time. **That mitigation
+  inverts on Windows**, where `commandExists` runs `where` (`cli.ts:31`), which resolves `PATHEXT` and so
+  finds `code.cmd`, while launching the stored value `code` fails `ENOENT` — libuv's path search tries only
+  `.com` and `.exe` (the `UV_EINVAL` refusal needs the value to name the batch file outright). Carried in
+  F-012, not here.
+- **The split is `trim().split(/\s+/)`, not `split(" ")`.** `commandExists` looks up
+  `command.split(" ")[0]` (`cli.ts:28`), and the two agree on the head for every value that passes that
+  validation; the stricter form additionally stops a doubled space from becoming an empty argv element.
+  Pinned by the third case in `src/lib/base-command.test.ts`.
+- **The fire-and-forget property itself is not pinned**, and Gate 2 measured that: adding `await` at
+  `src/lib/base-command.ts:65` leaves all six cases passing. Recorded as F-013 rather than fixed, for the
+  reason F-009 and F-011 record — the same shape of gap, one phase on.
 
 ## 7. Verification
 
@@ -444,6 +497,15 @@ spinner still fails with the error message on a rejected call.
    `Unexpected subprocess calls detected` is a failure even when vitest is green. The string was
    `Unexpected cmd calls detected` until Phase 2 extended the guard to `run` (R3, F-006) — grep for the
    current one.
+5. **The spaced-path editor launch, at Phase 6. Run 2026-09-05 — passed, and the pre-change form proved
+   broken.** Set `codeEditor` in a scratch repo to a recorder that appends its own `process.argv.slice(2)`
+   to a file, then drive the built `dist/lib/base-command.js` through a concrete subclass with a worktree
+   path containing two spaces (`…/space demo/proj.worktrees/feature/my branch`). The recorder received
+   **one** argument, the whole path, and the spinner succeeded. The *exact* pre-change form
+   (``exec(`${codeEditor} ${path}`)``) reproduced in the same repository handed the recorder **three**
+   fragments — `…/space`, `demo/proj.worktrees/feature/my`, `branch` — and reported no error, so the defect
+   was live rather than theoretical and this check is not vacuous. The recorder doubles as the
+   leading-argument case: `codeEditor` was `node <recorder.mjs>`, which is a two-element command line.
 
 ## 8. Open questions
 
@@ -477,6 +539,9 @@ spinner still fails with the error message on a rejected call.
 
 - `docs/src/app/docs/configuration/page.mdx` — the `codeEditor` contract note (Phase 6). It documents the
   value at lines 12 and 28 with no mention of arguments today.
+- `docs/src/app/docs/guides/editor-integration/page.mdx` — **missed by this sweep and found at Phase 6's
+  Gate 2.** Its closing line told the reader to set `codeEditor` to "the matching shell command", which
+  Phase 6 makes false. Corrected there, after the Gate 2 diff, and re-reviewed.
 - **No generated-surface sweep is needed, and this was checked rather than assumed.** `skills/core/SKILL.md`
   lists `src/lib/git.ts` and `src/lib/validators.ts` in `sources`, and both paths survive; its frontmatter
   `description` enumerates commands and config values, none of which change. No command is added, so

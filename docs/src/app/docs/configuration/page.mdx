@@ -18,6 +18,29 @@ title: Configuration
 - `branchPrefix.bugfix` (example: `fix/`)
 - `branchPrefix.chore` (example: `chore/`)
 
+## Editor Command
+
+`codeEditor` is a command line, not just a program name. It is split on whitespace: the first word is the
+program to launch, and anything after it is passed to that program as arguments, ahead of the worktree
+path.
+
+```bash
+worktree config codeEditor code       # runs: code <worktree-path>
+worktree config codeEditor "code -n"  # runs: code -n <worktree-path>
+```
+
+The worktree path is always passed as a single argument, so a project or branch whose path contains a
+space opens correctly.
+
+**Quoted arguments are not supported.** No shell parses this value, so the quotes in
+`open -a "Visual Studio Code"` are never removed — the value splits into `open` plus the four arguments
+`-a`, `"Visual`, `Studio` and `Code"`, quote characters and all. Point `codeEditor` at a program or at a wrapper
+script instead.
+
+**On Windows the editor has to be a real executable.** `.cmd` and `.bat` shims — which is what `code` is
+on Windows — cannot be launched without a shell, and `worktree` no longer uses one. Name the `.exe`, or a
+wrapper that is one.
+
 ## Commands
 
 ```bash

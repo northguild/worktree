@@ -266,6 +266,74 @@ and F-009 record.
 on that path.
 
 
+### F-012 — P2 — a Windows `.cmd`/`.bat` editor can no longer be launched, and `code` is one there
+
+**Tied to:** shell-argv-safety Phase 6 · **Raised:** 2026-09-05 (hand, R6)
+
+`openWorktreePath` now launches the editor through `run` (`src/lib/base-command.ts:65`), which is
+`execFile` with no shell. On Windows that cannot start a `.cmd` or `.bat` file, and the usual `codeEditor`
+value — `code` — is `code.cmd` there. The pre-change `exec` form always went through `cmd.exe`, so this is
+a behaviour change a Windows user would see, against §2 of the plan.
+
+**Measured from source rather than asserted, and the design answer is in the plan's R6:** Node 24.19.0's
+JavaScript layer has no batch-file handling at all (371 builtin module sources scanned via
+`process.binding("natives")`: zero `.bat` lines, and all 16 `.cmd` lines are property reads —
+`message.cmd`, `msg.cmd`, `ex.cmd`); `src/process_wrap.cc` on `v24.x` returns `UV_EINVAL` for
+`IsWindowsBatchFile(options.file)` because batch-file arguments "cannot be unambiguously escaped"; and
+libuv's `path_search_walk_ext` appends only `.com` and `.exe`, so an extension-less `code` fails `ENOENT`
+before the guard is reached. Adding `shell: true` on `win32` would restore the exact hazard this feature
+removes, at the one site that interpolates a user-supplied config value, so it was rejected.
+
+**Config-time validation does not catch it, and on Windows it actively hides it.** The plan's R7 note
+argues the new `spawn <editor> ENOENT` text is narrow because `commandExists` rejects an unfound editor
+before it can be stored. On Windows that inverts: `commandExists` runs `where` (`src/lib/cli.ts:31`), which
+resolves `PATHEXT` and therefore *finds* `code.cmd`, while libuv's spawn path tries only `.com` and `.exe`.
+Validation passes and the launch then fails — the one configuration where the "narrow" argument does not
+hold. **This half is reasoned from documented behaviour, not measured**, which is why it lives here rather
+than anywhere that reads as settled.
+
+**Not observed on a Windows host.** This repository has no Windows CI — every workflow is `ubuntu-latest`
+— and the phase was implemented and verified on macOS. The configuration page documents the limitation
+(`docs/src/app/docs/configuration/page.mdx`), which is the user-facing half; this finding is the half that
+is still unproved.
+
+**Closes when:** the behaviour is observed on a real Windows host and the configuration page's note is
+made to match what was seen — corrected and removed if `code` launches anyway, or kept with the observed
+error text if it does not.
+
+
+### F-013 — P2 — the editor launch is unpinned as fire-and-forget, so an added `await` would land green
+
+**Tied to:** shell-argv-safety Phase 6 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 6)
+
+`openWorktreePath` deliberately does not await the launch (`src/lib/base-command.ts:65`): the editor
+outlives the command, and the spinner settles from the `.then(succeed, fail)` after `openWorktreePath` has
+already resolved. **No case in `src/lib/base-command.test.ts` pins that.** Measured at Gate 2 rather than
+argued: putting `await` in front of that `run(…)` call leaves all six cases passing, for two reasons —
+the two cases that do assert a spinner outcome reach it through `vi.waitFor`
+(`src/lib/base-command.test.ts:83` and `:93`), which tolerates either ordering, and the other four never
+observe timing at all. The comment at
+`src/lib/base-command.test.ts:81-82` states the property in prose and asserts nothing about it.
+
+It matters past mutation hygiene. All three callers await `openWorktreePath` — `src/commands/branch.ts:184`,
+`src/commands/checkout.ts:71`, `src/commands/open.ts:46` — so the mutation would make `worktree branch`,
+`checkout` and `open` block until the editor process exits, which for a terminal editor is until the user
+closes it. This is the same shape as F-009 (`worktree add`) and F-011 (`git branch -D`), one phase on: a
+dropped or added `await` that no test observes.
+
+The property was measured by hand instead, at Gate 2 and again independently afterwards: driving the built
+`dist/lib/base-command.js` with an editor that sleeps 900 ms returns from `openWorktreePath` in **43 ms**,
+while the process stays alive until the child exits at 990 ms and the spinner succeeds there. That is
+evidence for the current commit, not a guard on the next one.
+
+Left unfixed because Gate 2 had already returned `PASS WITH NOTES` on this diff, and adding assertions
+afterwards would commit test code no gate had seen — the reasoning F-002 through F-005, F-009 and F-011
+record.
+
+**Closes when:** a Gate 1 run passes with a `base-command.test.ts` case asserting that `succeed` has *not*
+been called at the moment `openWorktreePath` resolves, and has been once the launch settles.
+
+
 ## Closed
 
 Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
