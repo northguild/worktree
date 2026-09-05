@@ -27,3 +27,20 @@ this, appended under **Features** below:
 
 ## Features
 
+### agent-mode — `pending`
+
+A worktree can be handed straight to a coding agent instead of, or as well as, an editor, and one command
+shows what every running agent has changed.
+
+- **Size:** large — three surfaces (`branch`, `list`, `cleanup`), a new config value, and a runtime-neutral
+  session join that must degrade silently
+- **Doc:** [`drafts/agent-mode.md`](drafts/agent-mode.md) — maintainer brief: the cwd/isolation mechanic,
+  the four work items, and what already holds in this repo
+
+### chat-input-multiline — `pending`
+
+The docs chatbot's message field is a single-line `<input>`, so a longer question cannot contain newlines
+and the text scrolls out of sight instead of the field growing.
+
+- **Size:** small — one component (`ChatInput`) plus its ref type and submit key handling in `ChatForm`
+- **Doc:** none yet
