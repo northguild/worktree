@@ -1,0 +1,379 @@
+# agent-mode Plan
+
+Written 2026-09-05. Hands a freshly created worktree to a coding agent, and makes the other worktree
+commands aware that an agent may be living inside one. The `agent-mode` entry in
+[`../roadmap.md`](../roadmap.md) is where this feature's status lives.
+
+**Phase status lives in §6.1 of this document, and nowhere else.**
+
+Built on the maintainer brief captured by `/roadmap` on 2026-09-05, which this document replaces. That
+brief's provenance is carried forward in §0 so nothing it recorded is lost.
+
+---
+
+## 0. Provenance of the source material
+
+- **Source:** maintainer brief pasted into `/roadmap`, 2026-09-05.
+- **External citation in the brief:** <https://code.claude.com/docs/en/agent-view> — the maintainer's claim
+  about background-session worktree isolation is attributed to that page. **Still not independently
+  verified.** See §8 Q1.
+- **The `claude agents --json` join was marked "I verified this join works" by the maintainer.** That claim
+  **is now verified here** — see §1 and D4.
+- The brief's closing instruction was "do not commit or push, leave the work in the tree and summarise."
+  That was addressed to a direct implementation run and is **superseded** by the roadmap flow:
+  `/feature-implement` commits per phase and updates the ledger in the same commit.
+
+## 1. Why
+
+Claude Code background sessions isolate themselves into `<project>/.claude/worktrees/`, which fights this
+tool's `<repo>.worktrees/<branch>` layout. Per the brief, that isolation is **skipped when the session's cwd
+is already inside a linked git worktree** — so if this CLI creates the worktree and dispatches the agent
+with `cwd` set to it, the agent works inside our layout and no nested worktree appears. There is a
+`worktree.location` setting in Claude Code, but per the brief its own schema says the CLI does not read it
+yet, so dispatching into an existing worktree is the only way to control placement today. **That is why this
+belongs in this tool rather than in agent configuration.**
+
+Verified on 2026-09-05, on this machine, `claude` 2.1.261:
+
+```
+$ claude agents --json | head
+[
+  { "pid": 9187, "cwd": "/Users/baldur/Documents/Job seeker", "kind": "interactive",
+    "startedAt": 1788600791123, "sessionId": "53fac4da-…", "name": "job-seeker-1f" },
+  …
+  { "pid": 33471, "id": "23f50fae",
+    "cwd": "/Users/baldur/Development/northguild/worktree/worktree.worktrees/feature/add-agent-mode",
+    "kind": "background", … } ]
+```
+
+`claude agents --help` documents `--json` as *"Print active sessions (interactive and background) as a JSON
+array and exit (for scripting; does not require a TTY)"*, plus `--cwd <path>` and `--all`. The join the
+brief wanted is real, and the last entry above is a background session whose `cwd` is a worktree in this
+repo's own layout — with no `.claude/worktrees/` anywhere under
+`/Users/baldur/Development/northguild/worktree` (`find … -name worktrees -path '*.claude*'` returns
+nothing).
+
+**Three things the live JSON shows that the brief did not**, each of which forces a decision below:
+
+1. A `kind` field separating `"interactive"` from `"background"`. Interactive sessions include the user's
+   own terminal — a naive join reports "an agent is here" when a human simply has Claude open. (D5)
+2. `status` and `state` fields on background sessions, e.g. `"status": "idle", "state": "done"`. A finished
+   session lingers in the default listing, so "block cleanup whenever a session matches" would wedge a
+   worktree permanently. (D6)
+3. `pid`, `sessionId` and a short `id` are all present. The brief asked for `{ name, pid }`; that is
+   satisfiable exactly as written.
+
+## 2. Constraints
+
+From the brief, unchanged:
+
+- **Runtime-neutral.** Never hardcode `claude`. The command is a config string, so Codex or anything of the
+  same shape works. **Tests must not depend on Claude Code being installed.**
+- **No TUI, no monitor.** `claude agents` already is one. `list --agents` prints and exits.
+- **No orchestration.** This tool decides *where* work happens, never *what* the work is. No task
+  assignment, no queue, no prompt templating.
+- **Degrade silently.** A missing agent command, a non-zero exit, or non-JSON output yields no agent data
+  and no error. This must never become a hard dependency on Claude Code.
+
+From this repository ([`../stack.md`](../stack.md)):
+
+- ESM throughout; relative imports keep the `.js` extension. `export default` only in `src/commands/*.ts`.
+- Tests colocated as `*.test.ts`, vitest.
+- Console output is chalk-styled and TTY-dependent; assertions on printed text rely on the `FORCE_COLOR: "0"`
+  pin in `vitest.config.ts`.
+- Never add a file named `biome.json` or `biome.jsonc` anywhere in the tree.
+
+## 3. Decisions
+
+**D1. `agent.command` holds a full command line, validated on its argv head only.** A new
+`isValidCommandLine` in `src/lib/validators.ts` splits on whitespace and checks the first token, wired into
+`isValidConfigValue`'s switch. *Rejected:* reusing `isValidCommand` — `commandExists` (`src/lib/cli.ts:27-39`)
+does already take `command.split(" ")[0]`, so `claude --bg` would in fact pass, but `isValidCommand`'s error
+message quotes the whole string back (`Command not found: claude --bg`), which is a misleading thing to show
+a user. *Rejected:* no validation at all — a typo would then fail silently at dispatch time, long after the
+config command exited 0.
+
+**D2. Dispatch uses `spawn` with an argv array, never `exec`.** `dispatchAgent(path, prompt)` splits
+`agent.command` into argv, appends the prompt as **one** argument, sets `cwd` to the worktree path, and uses
+`detached: true` + `unref()` so the CLI exits cleanly. *Rejected:* mirroring `openWorktreePath`'s
+`exec(\`${cmd} ${path}\`)` — a prompt is arbitrary user text full of quotes and apostrophes, and passing it
+through a shell string is an injection hole, not merely a quoting bug. See §5 R1.
+
+**D3. `--agent` and the editor are independent; both fire.** Order in `run()` becomes: create worktree →
+copy env files → dispatch agent → open editor. **The env-before-agent edge is load-bearing** (the brief says
+so explicitly); editor-last simply preserves the existing final call and keeps `openWorktreePath`'s
+`✔ Worktree created in …` as the last line when no editor is configured. *Rejected:* making `--agent`
+suppress the editor — the maintainer's stated preference is independence.
+
+**D4. One `claude agents --json` invocation per command run, joined in-process on `cwd`.** *Rejected:*
+`claude agents --cwd <path>` per worktree — `gitGetWorktreeList()` (`src/lib/git.ts:168-211`) is already a
+serial loop doing 3 subprocess calls per worktree; a fourth spawn per iteration for data one call returns
+whole is the wrong trade.
+
+**D5. The join keeps `kind`, and the two consumers use it differently.** `list --agents` reports background
+sessions — the ones this tool dispatched. `cleanup` blocks on **any** session, interactive included: its job
+is not to delete a directory a human is sitting in. *Rejected:* filtering to background everywhere — that
+makes `cleanup` delete the worktree out from under an open editor session, which is the failure mode the
+brief calls the worst in the whole flow.
+
+**D6. Liveness is `state !== "done"`, and an absent or unrecognised `state` counts as live.** Fail safe: a
+session whose shape we do not recognise blocks removal rather than being ignored. *Rejected:* treating every
+listed session as live — `"state": "done"` sessions persist in the listing, so that would wedge a worktree
+until the user hunted down a finished PID.
+
+**D7. Churn's merge-base comes from `defaultSourceBranch`, falling back to `origin/main`.** A
+`WorktreeListEntry` has no record of what it was branched from (`gitGetWorktreeList` tracks `remote`, not
+origin-of-branch), and `branch.ts:81` already uses exactly this fallback chain. If `git merge-base` fails,
+churn is **omitted**, not defaulted to zero — an absent number and a genuine zero are different facts.
+
+**D8. `list --agents` extends the existing bullet-list output, and does not become a table.** The brief says
+"output stays a printed table, consistent with current `list` formatting" — **the brief is wrong about the
+current formatting.** `src/commands/list.ts:16-18` prints `- ${worktreeListEntryToListName(wt)}`, a bullet
+list, and `worktreeListEntryToListName` (`src/lib/utils.ts:24-49`) builds a parenthesised details string.
+Churn and agent facts append to that same `details` array. **`worktreeListEntryToListName` is shared with
+`src/commands/cleanup.ts:40`**, so it takes an options argument to control which details render; without one,
+this change silently rewrites `cleanup`'s output too and breaks `cleanup.test.ts`.
+
+**D9. `checkout --agent` is in scope.** The brief marked it "only if it falls out cheaply — explicitly
+skippable." It does fall out cheaply: `dispatchAgent` lives on `BaseCommand`, and `checkout.run()`
+(`src/commands/checkout.ts:65-71`) already has the identical create → copy env → open sequence. The only
+real cost is that `checkout` has no `static override flags` block today and needs one.
+
+## 4. Design
+
+**Config.** `agent.command` joins `CONFIG_NAMES` (`src/lib/constants.ts`). `config.ts` gates it behind a
+`maybePrompt` confirm exactly as `codeEditor` is gated at `src/commands/config.ts:211-224`. Unset is a
+normal state: `dispatchAgent` prints a line pointing at `worktree config` and returns, rather than erroring.
+
+**Dispatch.** `dispatchAgent(path, prompt)` on `BaseCommand`, sibling to `openWorktreePath`:
+
+```
+agent.command  ──split──▶ [bin, ...args]
+                          spawn(bin, [...args, prompt], { cwd: path, detached: true, stdio: "ignore" })
+                          .unref()
+```
+
+**Session join.** A new `src/lib/agent.ts` owns everything that knows an agent CLI exists:
+
+- `getAgentSessions()` — returns `AgentSession[]` (`{ name, pid, cwd, kind, state? }`), or `[]` on any
+  failure. Gated on `agent.command` being configured; parses stdout as JSON inside a `try`.
+- `findSessionForPath(sessions, path)` — the `cwd` join.
+- `isSessionLive(session)` — D6.
+
+Nothing outside this file knows the JSON shape, so swapping runtimes touches one module.
+
+**List.** `WorktreeListEntry` (`src/lib/types.ts:12-19`) gains the four optional fields the brief specifies:
+`filesChanged?`, `insertions?`, `deletions?`, `agent?: { name: string; pid: number }`. `gitGetWorktreeList`
+takes an options flag so the extra work happens only when `list --agents` asks for it — `list` today is not
+paying for churn and must not start.
+
+**Cleanup.** `isSafeToRemove` (`src/lib/git.ts:153-166`) gains a live-agent clause. `cleanup` gets an
+override flag; `--force` alone must **not** be it, since `--force` today means "skip the confirmation
+prompt", not "override a safety verdict".
+
+## 5. Risks
+
+**R1 — the shell-interpolation prerequisite is wider than the brief says.** The brief cites
+`src/lib/base-command.ts:56` and calls it an `/orchestrate` task to be fixed separately and first. Verified
+present, and **it is not the only one**: `src/lib/git.ts` interpolates unquoted paths at lines 86, 94, 103,
+231 and 239 (`cd ${branchPath} && …`), and `gitSetConfigValue` at `src/lib/git.ts:23-25` interpolates a
+config *value* into `git config … "${value}"` — which `agent.command` will now flow through. Any worktree
+under a path containing a space is already broken today. **This plan does not depend on that fix** (D2 keeps
+dispatch off the shell entirely), but shipping `agent.command` through `gitSetConfigValue` adds a value with
+spaces in it to a code path that quotes badly. See §8 Q4.
+
+**R2 — the isolation mechanic is load-bearing and second-hand.** If the cwd-inside-a-worktree exemption does
+not hold, `--agent` produces a nested `.claude/worktrees/` and the feature's premise fails. It shows up
+immediately as a directory appearing inside the repo. Response: this is the first thing Phase 2's manual
+check looks for (§7), before any of Phases 3–7 build on it.
+
+**R3 — the agent JSON shape is undocumented.** `kind`, `state` and `status` appear in output but not in
+`claude agents --help`. A future version could rename them. Response: D6 fails safe, `getAgentSessions`
+returns `[]` on any parse failure, and every field the code reads is optional.
+
+**R4 — cost on the `list` path.** `gitGetWorktreeList` is serial and already runs 3 subprocess calls per
+worktree. Churn adds a fourth. Response: gated behind `--agents` (§4), so default `list` is unchanged.
+
+**R5 — a stale PID.** A session's process can die between the JSON call and the removal. The window is
+small and the consequence is a spurious block, not data loss. Accepted; not mitigated.
+
+## 6. Phases
+
+### 6.1 Status ledger
+
+| # | Phase | Status | Depends on | Note |
+|---|---|---|---|---|
+| 1 | `agent.command` config value | not started | — | |
+| 2 | `dispatchAgent` + `--agent` on `branch` and `checkout` | not started | 1 | |
+| 3 | Agent session join module | not started | 1 | |
+| 4 | Churn stats on the worktree entry | not started | — | |
+| 5 | `list --agents` | not started | 3, 4 | |
+| 6 | Agent-aware `cleanup` | not started | 3 | |
+| 7 | Generated-surface sweep | not started | 2, 5, 6 | |
+
+Status is one of `not started`, `in progress`, `blocked`, `done`. `done` only when committed and verified,
+and whoever finishes a phase updates the row in the same commit.
+
+**Exactly one table in this document has these columns.** Do not add a second phase table — a
+differently-shaped one nearby is a decoy that gets read by mistake.
+
+### 6.2 The phases
+
+#### Phase 1 — `agent.command` config value
+
+**Files:** `src/lib/constants.ts`, `src/lib/validators.ts`, `src/lib/validators.test.ts`,
+`src/commands/config.ts`, `src/commands/config.test.ts`, `docs/src/app/docs/configuration/page.mdx`
+
+**Scope:** Add `agent.command` to `CONFIG_NAMES`. Add `isValidCommandLine` and wire it into
+`isValidConfigValue`'s switch (D1). Add a `maybePrompt`-gated prompt in `renderInput`, following the
+`codeEditor` block at `src/commands/config.ts:211-224`. Document the value.
+
+**Done when:** `worktree config agent.command "claude --bg"` stores it and `worktree config --list` shows it;
+`worktree config agent.command "nope-not-a-binary"` is rejected; `config.test.ts` covers both.
+
+#### Phase 2 — `dispatchAgent` + `--agent` on `branch` and `checkout`
+
+**Files:** `src/lib/base-command.ts`, `src/commands/branch.ts`, `src/commands/branch.test.ts`,
+`src/commands/checkout.ts`, `src/commands/checkout.test.ts`,
+`docs/src/app/docs/commands/branch/page.mdx`, `docs/src/app/docs/commands/checkout/page.mdx`
+
+**Scope:** `dispatchAgent(path, prompt)` on `BaseCommand` per D2 — `spawn`, argv array, prompt as one
+argument, `cwd` set, `detached` + `unref()`. Unset `agent.command` prints a pointer at `worktree config` and
+returns. Add the `--agent` / `-a` string flag to `branch` and `checkout`, called after
+`copyEnvFilesFromRootPath` and before `openWorktreePath` (D3). `checkout` needs a new `static override flags`
+block (D9). **This phase adds `src/lib/base-command.test.ts`, which does not exist today.**
+
+**Done when:** `worktree branch --github 47 --agent "implement the issue"` creates the worktree, copies env
+files, and starts the agent with cwd set to the worktree; tests assert the spawn argv — including a prompt
+containing a single quote and a double quote — without invoking a real agent binary.
+
+#### Phase 3 — Agent session join module
+
+**Files:** `src/lib/agent.ts` (new), `src/lib/agent.test.ts` (new), `src/lib/types.ts`
+
+**Scope:** `getAgentSessions`, `findSessionForPath`, `isSessionLive` per §4 and D4/D5/D6. Add the
+`AgentSession` type and the `agent?: { name: string; pid: number }` field to `WorktreeListEntry`. Every
+failure path returns `[]`.
+
+**Done when:** tests cover a well-formed array, a non-zero exit, non-JSON stdout, an unset `agent.command`,
+and a session with no `state` — all without Claude Code installed, per §2.
+
+#### Phase 4 — Churn stats on the worktree entry
+
+**Files:** `src/lib/git.ts`, `src/lib/git.test.ts`, `src/lib/types.ts`
+
+**Scope:** Add `filesChanged?`, `insertions?`, `deletions?` to `WorktreeListEntry`. Add a
+`gitGetChurnStats(path, sourceBranch)` parsing `git diff --shortstat <merge-base> HEAD`, with the D7
+merge-base resolution and omit-on-failure behaviour. Extend `gitGetWorktreeList`'s options so the work is
+opt-in (R4).
+
+**Done when:** `gitGetWorktreeList({ withChurn: true })` returns the three numbers for a worktree with
+commits; a worktree whose merge-base cannot be resolved returns the entry with the fields absent; default
+`gitGetWorktreeList()` issues no extra subprocess call.
+
+#### Phase 5 — `list --agents`
+
+**Files:** `src/commands/list.ts`, `src/commands/list.test.ts`, `src/lib/utils.ts`,
+`src/lib/utils.test.ts`, `docs/src/app/docs/commands/list/page.mdx`
+
+**Scope:** Add the `--agents` flag — `list`'s first (`src/commands/list.ts:6-19` has no flags today). When
+set, request churn and perform the session join, and render both in the existing bullet-list details string
+per D8, via a new options argument to `worktreeListEntryToListName` so `cleanup`'s output is untouched.
+
+**Done when:** `worktree list --agents` prints churn and the agent name per worktree; `worktree list`
+output is byte-identical to today's; `cleanup.test.ts` passes unmodified.
+
+#### Phase 6 — Agent-aware `cleanup`
+
+**Files:** `src/lib/git.ts`, `src/lib/git.test.ts`, `src/commands/cleanup.ts`,
+`src/commands/cleanup.test.ts`, `docs/src/app/docs/commands/cleanup/page.mdx`
+
+**Scope:** Teach `isSafeToRemove` about a live agent (D5, D6) and add the explicit override flag to
+`cleanup` — distinct from `--force` (§4). A worktree hosting a live session is excluded from the sweep and
+named as skipped rather than silently dropped.
+
+**Done when:** a worktree with a live session in its `cwd` is excluded from `cleanup` and reported as
+skipped; the override includes it; a session with `state: "done"` does not block; tests cover all three
+without a real agent binary.
+
+#### Phase 7 — Generated-surface sweep
+
+**Files:** `skills/core/SKILL.md`, `README.md`
+
+**Scope:** Update `SKILL.md`'s frontmatter `description` (it enumerates every command and config value) and
+its `sources` list, plus the body. Update `README.md` if the feature list changed. **No new command is
+added, so `docs/src/app/docs/commands/_meta.ts` is not touched.**
+
+**Done when:** `SKILL.md` names `agent.command`, `--agent` and `list --agents`; `pnpm sync-version` leaves
+no diff (`ci.yml` hard-fails on drift via `git diff --exit-code`).
+
+## 7. Verification
+
+[`../verify.md`](../verify.md) names the commands — this file does not repeat them. Beyond Gate 1:
+
+**The manual run, from the brief's own definition of done.** Required at Phase 2, before later phases build
+on the premise (R2):
+
+1. `worktree branch <name> --agent "<some prompt>"` in a repo with `agent.command` set.
+2. Confirm the agent starts with cwd set to the new worktree — `claude agents --json` shows a session whose
+   `cwd` is that path.
+3. **Confirm no `.claude/worktrees/` directory appears inside the repo.** This is the load-bearing check.
+
+**At Phase 6**, confirm by hand that a worktree with a live agent survives `cleanup` and is reported as
+skipped. Removing a worktree out from under a running agent is the worst failure mode in this flow, and it
+is not one to discover from a unit test alone.
+
+## 8. Open questions
+
+- **Q1 — the isolation mechanic is still second-hand.** <https://code.claude.com/docs/en/agent-view> was
+  not fetched while writing this plan. Everything in §1 that is verified was verified by running the CLI,
+  not by reading that page; the *rule* that isolation is skipped inside a linked worktree remains the
+  maintainer's claim. §7 step 3 is what would falsify it.
+- **Q2 — should `list --agents` show interactive sessions?** D5 says no for `list`, yes for `cleanup`. That
+  asymmetry is defensible but it means `list --agents` will not show a worktree where the user has Claude
+  open interactively, while `cleanup` refuses to remove it. If that reads as inconsistent in use, the fix is
+  to show interactive sessions in `list` with a marker.
+- **Q3 — is `state: "done"` a stable field?** It is absent from `claude agents --help`. D6 fails safe, so a
+  rename degrades to "everything blocks cleanup" rather than "nothing does" — annoying, not dangerous.
+- **Q4 — does the `/orchestrate` shell fix land before or after this?** R1 found the problem is wider than
+  the brief's single citation, including `gitSetConfigValue`, through which `agent.command` will flow. This
+  plan does not block on it, but the phases and that task touch `src/lib/git.ts` and
+  `src/lib/base-command.ts` in overlapping places, so doing it first avoids a conflict.
+- **Q5 — what should `--agent` with no `agent.command` configured do on a *scripted* run?** The brief says
+  print a message rather than error, which is right interactively. In CI, a silently-not-dispatched agent
+  looks like success. Not resolved; the phases implement the brief's stated behaviour.
+
+## 9. Surfaces to update — all verified to exist
+
+- `docs/src/app/docs/commands/branch/page.mdx`, `checkout/`, `list/`, `cleanup/` — all present.
+- `docs/src/app/docs/configuration/page.mdx` — for `agent.command`.
+- `docs/src/app/docs/commands/_meta.ts` — **not touched**; no new command is added.
+- `skills/core/SKILL.md` — frontmatter `description` enumerates every command and config value; `sources`
+  already lists `src/commands/branch.ts`, `src/lib/git.ts`, `src/lib/validators.ts`.
+- `README.md` — if the feature list changes.
+
+## 10. What already holds in this repo
+
+Read, not recalled — checked 2026-09-05 on `feature/add-agent-mode`. The first seven rows are the brief's
+own table, re-verified; the rest were found while writing this plan.
+
+| Claim | Status |
+|---|---|
+| Unquoted shell interpolation of the path in `openWorktreePath()` | confirmed, `src/lib/base-command.ts:51-66` |
+| `CONFIG_NAMES` has `codeEditor`, no agent entry | confirmed, `src/lib/constants.ts:1-12` |
+| `WorktreeListEntry` carries `ahead`/`behind`/`uncommittedChanges`/`safeToRemove` | confirmed, `src/lib/types.ts:12-19` |
+| `branch.run()` already orders create → copy env → open editor | confirmed, `src/commands/branch.ts:182-184` |
+| `safeToRemove` reasons only about remote / commits / uncommitted | confirmed, `isSafeToRemove()` at `src/lib/git.ts:153-166` |
+| `cleanup` filters on `safeToRemove === true` and has only `--force` | confirmed, `src/commands/cleanup.ts:16-27` |
+| `list` has no flags at all today | confirmed, `src/commands/list.ts:6-19` — `--agents` is the first |
+| `claude agents --json` exists and emits `cwd` + `name` per session | **confirmed by running it**, `claude` 2.1.261 — see §1 |
+| `list` output is a bullet list, **not** a table as the brief states | confirmed, `src/commands/list.ts:16-18` + `src/lib/utils.ts:24-49` |
+| `worktreeListEntryToListName` is shared by `list` and `cleanup` | confirmed, `src/commands/cleanup.ts:40` |
+| `checkout` has no `flags` block at all | confirmed, `src/commands/checkout.ts:12-20` |
+| `commandExists` already splits on whitespace and checks only the head | confirmed, `src/lib/cli.ts:27-39` |
+| `config.ts` gates `codeEditor` behind a `maybePrompt` confirm | confirmed, `src/commands/config.ts:211-224` |
+| `gitGetWorktreeList()` does 3 serial subprocess calls per worktree | confirmed, `src/lib/git.ts:168-211` |
+| No `src/lib/base-command.test.ts` exists | confirmed, `ls src/lib/` — Phase 2 creates it |
+| `gitSetConfigValue` interpolates the value into a shell string | confirmed, `src/lib/git.ts:23-25` — see R1 |
+| Unquoted `cd ${branchPath}` in five more places | confirmed, `src/lib/git.ts:86,94,103,231,239` — see R1 |
+| No `.claude/worktrees/` exists under this repo today | confirmed, `find` returned nothing — the §7 baseline |

@@ -34,8 +34,7 @@ shows what every running agent has changed.
 
 - **Size:** large — three surfaces (`branch`, `list`, `cleanup`), a new config value, and a runtime-neutral
   session join that must degrade silently
-- **Doc:** [`drafts/agent-mode.md`](drafts/agent-mode.md) — maintainer brief: the cwd/isolation mechanic,
-  the four work items, and what already holds in this repo
+- **Doc:** [`plans/AGENT-MODE-PLAN.md`](plans/AGENT-MODE-PLAN.md) — 7 phases, 5 open questions
 
 ### chat-input-multiline — `pending`
 
@@ -44,3 +43,19 @@ and the text scrolls out of sight instead of the field growing.
 
 - **Size:** small — one component (`ChatInput`) plus its ref type and submit key handling in `ChatForm`
 - **Doc:** none yet
+
+### cleanup-data-loss — `pending`
+
+`worktree cleanup` classifies a worktree whose remote branch was deleted as safe to remove without ever
+checking for uncommitted changes, then force-removes it — destroying work in progress.
+
+- **Size:** small — one predicate in `isSafeToRemove`, plus how `cleanup` reports what it skipped
+- **Doc:** [`plans/CLEANUP-DATA-LOSS-PLAN.md`](plans/CLEANUP-DATA-LOSS-PLAN.md) — 5 phases, 5 open questions
+
+### shell-argv-safety — `pending`
+
+`cmd()` runs every git call through a shell as an interpolated string, so a repo path containing a space
+fails today and a config value containing a quote or backtick is an injection vector.
+
+- **Size:** medium — one helper contract, 8 interpolating call sites, and the `exec` that bypasses it
+- **Doc:** [`drafts/shell-argv-safety.md`](drafts/shell-argv-safety.md) — the full call-site inventory, a demonstrated failure, and why adding `cwd` removes most of it
