@@ -12,7 +12,9 @@ import {
   gitGetRootPath,
   gitGetUncommittedChangesCount,
   gitSetConfigValue,
+  isSafeToRemove,
 } from "./git.js";
+import type { WorktreeListEntry } from "./types.js";
 
 describe("git branch parsing", () => {
   beforeEach(() => {
@@ -233,5 +235,64 @@ describe("git status and tracking helpers", () => {
       { local: "feature/test", remote: "origin/feature/test" },
       { local: "local-only", remote: "" },
     ]);
+  });
+});
+
+describe("isSafeToRemove", () => {
+  function entry(
+    overrides: Partial<WorktreeListEntry> = {},
+  ): WorktreeListEntry {
+    return {
+      path: "/repo/project.worktrees/test",
+      branchName: "feature/test",
+      pathExists: true,
+      remote: "",
+      uncommittedChanges: 0,
+      ...overrides,
+    };
+  }
+
+  it("is safe when the worktree directory no longer exists", () => {
+    expect(isSafeToRemove(entry({ pathExists: false }))).toBe(true);
+  });
+
+  it("is safe when the tracked remote branch was deleted", () => {
+    expect(
+      isSafeToRemove(
+        entry({ remote: "origin/feature/test", remoteExists: false }),
+      ),
+    ).toBe(true);
+  });
+
+  it("is safe with no remote and nothing pending", () => {
+    expect(isSafeToRemove(entry())).toBe(true);
+  });
+
+  it("is not safe when no branch matches", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: true,
+          ahead: 2,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  // Characterization of the defect described in CLEANUP-DATA-LOSS-PLAN §1: the
+  // deleted-remote branch returns before the uncommitted-changes test is ever
+  // reached, so work in progress is classified safe to remove. Phase 2 of that
+  // plan overturns this assertion.
+  it("is safe when the remote was deleted, even holding uncommitted changes", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: false,
+          uncommittedChanges: 3,
+        }),
+      ),
+    ).toBe(true);
   });
 });

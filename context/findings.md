@@ -36,5 +36,22 @@ life of the project.
 
 ## Open
 
+### F-001 — P3 — `uncommittedChanges: undefined` with no remote is unpinned, and Phase 2 flips it
+
+**Tied to:** cleanup-data-loss Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1)
+
+No test covers `{ pathExists: true, remote: "", uncommittedChanges: undefined }`. Today the third branch's
+strict `wt.uncommittedChanges === 0` (`src/lib/git.ts:162`) makes `undefined` fail the clause, so the entry
+falls through and `isSafeToRemove` returns `false`. Under the §4.1 rewrite that clause is dropped, and the
+same entry becomes `true` — a silent verdict change in a phase whose stated scope is the deleted-remote
+case.
+
+Not reachable from `gitGetWorktreeList`, which always assigns a number (`src/lib/git.ts:189-191`), so this
+is a latent contract change rather than a live defect. Phase 2's **Done when** already requires cases
+pinning that the fix does not over-reach; this is the case it does not currently name.
+
+**Closes when:** Phase 2's Gate 1 re-passes with a `git.test.ts` case asserting the verdict for a
+no-remote entry whose `uncommittedChanges` is `undefined`, whichever verdict Phase 2 decides is correct.
+
 ## Closed
 

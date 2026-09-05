@@ -44,7 +44,7 @@ and the text scrolls out of sight instead of the field growing.
 - **Size:** small — one component (`ChatInput`) plus its ref type and submit key handling in `ChatForm`
 - **Doc:** none yet
 
-### cleanup-data-loss — `pending`
+### cleanup-data-loss — `active`
 
 `worktree cleanup` classifies a worktree whose remote branch was deleted as safe to remove without ever
 checking for uncommitted changes, then force-removes it — destroying work in progress.

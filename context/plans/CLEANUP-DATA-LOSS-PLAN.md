@@ -258,11 +258,11 @@ phase.
 
 | # | Phase | Status | Depends on | Note |
 |---|---|---|---|---|
-| 1 | Make `isSafeToRemove` testable and total | not started | — | No behaviour change |
+| 1 | Make `isSafeToRemove` testable and total | done | — | Verdicts unchanged; only the fall-through moved `undefined` → `false`. F-001 (P3) raised against Phase 2 |
 | 2 | Uncommitted work disqualifies removal | not started | 1 | The fix |
 | 3 | `cleanup` reports what it skipped | not started | 2 | |
 | 4 | `remove` multi-select regression coverage | not started | 2 | |
-| 5 | Document the exception | not started | 2 | Docs-only — Lint gate only |
+| 5 | Document the exception | not started | 2 | Docs-only — Lint gate only. §4.4 cites `page.mdx:16`; the bullet is now at line 17 |
 
 Status is one of `not started`, `in progress`, `blocked`, `done`. `done` only when committed and verified,
 and whoever finishes a phase updates the row in the same commit.

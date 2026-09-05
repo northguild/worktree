@@ -150,7 +150,7 @@ export async function gitGetWorktrees({
   );
 }
 
-function isSafeToRemove(wt: WorktreeListEntry) {
+export function isSafeToRemove(wt: WorktreeListEntry): boolean {
   if (!wt.pathExists) {
     // Worktree is defined but doesn't exist in the filesystem.
     return true;
@@ -163,6 +163,7 @@ function isSafeToRemove(wt: WorktreeListEntry) {
     // Worktree has no changes and it not tracking any remote branch.
     return true;
   }
+  return false;
 }
 
 export async function gitGetWorktreeList({
