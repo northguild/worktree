@@ -4,7 +4,7 @@ import path from "node:path";
 import { confirm } from "@inquirer/prompts";
 import Process from "cli-progress";
 import ora from "ora";
-import { cmd } from "./cli.js";
+import { cmd, run } from "./cli.js";
 import type {
   ConfigName,
   WorktreeListBaseEntry,
@@ -82,25 +82,25 @@ export async function gitGetAbsoluteWorktreesPath() {
 }
 
 export async function gitGetCommitsAheadCount(branchPath: string) {
-  const countStr = await cmd(
-    `cd ${branchPath} && git rev-list --count @{u}..HEAD`,
-  );
+  const countStr = await run("git", ["rev-list", "--count", "@{u}..HEAD"], {
+    cwd: branchPath,
+  });
   if (countStr) {
     return strToNum(countStr);
   }
 }
 
 export async function gitGetCommitsBehindCount(branchPath: string) {
-  const countStr = await cmd(
-    `cd ${branchPath} && git rev-list --count HEAD..@{u}`,
-  );
+  const countStr = await run("git", ["rev-list", "--count", "HEAD..@{u}"], {
+    cwd: branchPath,
+  });
   if (countStr) {
     return strToNum(countStr);
   }
 }
 
 export async function gitGetUncommittedChangesCount(branchPath: string) {
-  const result = await cmd(`cd ${branchPath} && git status -s`);
+  const result = await run("git", ["status", "-s"], { cwd: branchPath });
   return result ? result.split(EOL).length : 0;
 }
 

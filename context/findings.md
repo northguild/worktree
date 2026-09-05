@@ -120,26 +120,6 @@ this is a note, not a gap to close blindly.
 **Closes when:** a Lint gate run passes with `README.md:160` carrying the same uncommitted-work exception
 as `page.mdx:17`.
 
-### F-006 — P2 — the unexpected-call guard watches `cmd` only, so it goes vacuous as call sites migrate
-
-**Tied to:** shell-argv-safety Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1)
-
-`src/test-setup.ts:23` builds its unexpected-call list from `mockCmd.mock.calls` alone. Phase 1 added
-`mockRun` to the mock factory (`src/test-setup.ts:6,11,43`) but nothing watches it, so from Phase 2 onward
-every call site that moves to `run` leaves that guard's field of view. The plan's R3 exists precisely
-because this `afterEach` warns instead of failing, and §7 case 4 tells every phase to grep the test output
-for `Unexpected cmd calls detected` — a grep that will keep coming back clean while covering steadily less.
-The mitigation decays exactly as the migration proceeds.
-
-Not live in Phase 1: no call site migrated, so `mockRun` is never called and the guard's coverage is still
-total. Left unfixed rather than folded into Phase 1 because the fix is not one targeted edit —
-`expectedCommands` is a `string[]` and cannot hold a `(file, args, opts)` triple without a shape decision,
-and that decision wants real call sites to validate it. Phase 2 migrates the first three.
-
-**Closes when:** a Gate 1 run passes with the `afterEach` in `src/test-setup.ts` reporting unexpected `run`
-calls as well as `cmd` calls — or, if that shape is judged not worth having, when R3's mitigation and §7
-case 4 are explicitly retired in the plan, citing the run that made the call.
-
 ### F-007 — P3 — `cli.test.ts`'s `afterAll` would mask a failure in its own `beforeAll`
 
 **Tied to:** shell-argv-safety Phase 1 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1)
@@ -157,10 +137,81 @@ same reasoning F-002 through F-005 record.
 **Closes when:** a Gate 1 run passes with the `afterAll` in `src/lib/cli.test.ts` guarded against an
 unset `tempPath`.
 
+### F-008 — P2 — `gitGetWorktrees` splits the worktree-list line on a space, so a repo under a spaced path lists nothing
+
+**Tied to:** shell-argv-safety Phase 2 · **Raised:** 2026-09-05 (hand, §7 case 1)
+
+`gitGetWorktrees` (`src/lib/git.ts:128-150`) parses each `git worktree list` line with
+`line.replace(/\s\s+/g, " ").split(" ")`, taking `[0]` as the path and `[2]` as the branch. That collapses
+runs of two-or-more spaces into one and then splits on every single space, so a repository whose own path
+contains a space is truncated at that space. Measured on 2026-09-05 against a real repo at
+`…/case1/space demo/proj`:
+
+```
+line        /Users/…/case1/space demo/proj                         60b9ebe [main]
+parsedPath  /Users/…/case1/space
+branchStr   60b9ebe   → branchName "0b9eb" after slice(1, -1)
+
+line        /Users/…/case1/space demo/proj.worktrees/feature/test  9a6e0d9 [feature/test]
+parsedPath  /Users/…/case1/space
+branchStr   9a6e0d9   → branchName "a6e0d" after slice(1, -1)
+```
+
+Both lines collapse to the same truncated `parsedPath`, and `branchStr` lands on the commit sha instead of
+the bracketed branch, so `branchName` is five characters of that sha.
+
+Every entry then fails the `path.startsWith(worktreesRootPath)` filter at `src/lib/git.ts:146-149`, because
+`worktreesRootPath` is the untruncated `/Users/…/case1/space demo/proj.worktrees`. `worktree list` prints
+its spinner and no rows; `remove` and `cleanup` consume the same builder and see an empty list.
+
+**This is pre-existing and independent of the subprocess layer** — it is string parsing of stdout, not
+command construction, so no phase of this plan touches it. It is recorded here because it is what stopped
+§7 case 1 from being run as written: the three functions Phase 2 migrated are never reached under a spaced
+repo path, so the end-to-end "counts must be real numbers, not blanks" observation cannot be made.
+
+Phase 2's own claim was verified by substitute evidence instead, against the same real repository — the
+built `dist/lib/git.js` called directly with the spaced worktree path returned `ahead: 1`, `behind: 0`,
+`uncommitted: 1`, the exact values the fixture was built to have, while the pre-change
+`exec("cd /…/space demo/… && git status -s")` form failed on the identical path.
+
+Not fixed here: Phase 2's scope names three functions and F-006, and `gitGetWorktrees` is neither. Landing
+a parser change would commit code no gate reviewed — the reasoning F-002 through F-005 record. The likely
+shape is `git worktree list --porcelain`, which emits one `key value` record per line and needs no
+column-splitting at all.
+
+**No phase of this plan will close this.** §6.1 has no row that touches `gitGetWorktrees`, so this finding
+is still open at `/feature-close` unless it is given a home first — a roadmap entry is the natural one.
+
+**Closes when:** a Gate 1 run passes with `gitGetWorktrees` returning the correct path and branch for a
+worktree-list line whose path contains a space, and `worktree list` run by hand in a repo under a spaced
+path prints its rows.
+
 ## Closed
 
-None. Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's
-own log; an `ad-hoc` one at the start of the next `/orchestrate`.
+Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
+an `ad-hoc` one at the start of the next `/orchestrate`.
+
+### F-006 — P2 — the unexpected-call guard watches `cmd` only, so it goes vacuous as call sites migrate
+
+**Tied to:** shell-argv-safety Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
+**Closed:** 2026-09-05 (Gate 1, Phase 2)
+
+`src/test-setup.ts:23` built its unexpected-call list from `mockCmd.mock.calls` alone, so every call site
+moving to `run` would have left that guard's field of view.
+
+**Fixed in Phase 2.** The `afterEach` at `src/test-setup.ts:39-56` now folds both mocks into one list, with
+`describeRunCall` (`src/test-setup.ts:23-31`) rendering a `run` call as its argv joined plus the cwd when
+one is given — the same information the `cd ${path} && …` prefix carried. The shape decision F-006 asked
+for is that `expectedCommands` stays a `string[]`: the rendering is a diagnostic, and what each call site
+passes is asserted by `toHaveBeenCalledWith` in the tests themselves. The warning text is now
+`Unexpected subprocess calls detected`, and the plan's §7 case 4 was updated to grep for that string.
+
+**Proved non-vacuous rather than assumed:** deleting one declared entry from `git.test.ts`'s
+`expectCommands` made the guard print
+`Unexpected subprocess calls detected:\n  - git status -s (cwd: /repo/project.worktrees/test)`; restoring
+it returned the run to zero warnings. Gate 1 on the Phase 2 commit: `pnpm check`, `pnpm typecheck`,
+`pnpm build`, `pnpm test` (207 passed) and `pnpm docs:test` (49 passed) all exit 0, with zero occurrences
+of `Unexpected` in the captured test output.
 
 `cleanup-data-loss`'s F-001 moved to
 [`archive/CLEANUP-DATA-LOSS-PLAN.md`](archive/CLEANUP-DATA-LOSS-PLAN.md) §10 on 2026-09-05.

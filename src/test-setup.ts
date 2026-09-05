@@ -12,6 +12,24 @@ vi.mock("./lib/cli.js", () => ({
   commandExists: vi.fn().mockResolvedValue(true),
 }));
 
+// Both helpers reduce to one declared form, so a call site moving from cmd() to
+// run() stays inside the guard's field of view instead of leaving it. A run()
+// call reads as its argv joined, with the cwd appended when one is given — the
+// same information the `cd ${path} && …` prefix carried while these calls went
+// through a shell. The join is a diagnostic rendering, not an assertion: one
+// argument containing a space reads here the same as two arguments. What each
+// call site actually passes is asserted by the tests themselves, with
+// toHaveBeenCalledWith.
+function describeRunCall(call: unknown[]): string {
+  const [file, args = [], options] = call as [
+    string,
+    string[]?,
+    { cwd?: string }?,
+  ];
+  const argv = [file, ...args].join(" ");
+  return options?.cwd ? `${argv} (cwd: ${options.cwd})` : argv;
+}
+
 beforeEach(() => {
   // Clear all mocks before each test
   vi.clearAllMocks();
@@ -20,14 +38,17 @@ beforeEach(() => {
 
 afterEach(() => {
   // Assert that no unexpected commands were called
-  const actualCalls = mockCmd.mock.calls.map((call) => call[0]);
+  const actualCalls = [
+    ...mockCmd.mock.calls.map((call) => String(call[0])),
+    ...mockRun.mock.calls.map(describeRunCall),
+  ];
   const unexpectedCalls = actualCalls.filter(
     (call) => !expectedCommands.includes(call),
   );
 
   if (unexpectedCalls.length > 0) {
     console.warn(
-      `Unexpected cmd calls detected:\n${unexpectedCalls
+      `Unexpected subprocess calls detected:\n${unexpectedCalls
         .map((call) => `  - ${call}`)
         .join("\n")}`,
     );

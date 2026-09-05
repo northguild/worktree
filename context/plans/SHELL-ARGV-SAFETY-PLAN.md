@@ -62,12 +62,14 @@ static strings and are already safe.
 worktree:
 
 ```
-src/lib/git.ts:86    `cd ${branchPath} && git rev-list --count @{u}..HEAD`
-src/lib/git.ts:95    `cd ${branchPath} && git rev-list --count HEAD..@{u}`
-src/lib/git.ts:103   `cd ${branchPath} && git status -s`
+src/lib/git.ts:86    `cd ${branchPath} && git rev-list --count @{u}..HEAD`   ─┐ deleted by Phase 2
+src/lib/git.ts:95    `cd ${branchPath} && git rev-list --count HEAD..@{u}`   │
+src/lib/git.ts:103   `cd ${branchPath} && git status -s`                     ─┘
 src/lib/git.ts:237   `cd ${gitRootPath}`     ─┐ composed at :247 into one chained
 src/lib/git.ts:245   `cd ${currentPath}`     ─┘ `${cdRoot} && ${gitFetch} && ${addWorktree} && ${gotoBack}`
 ```
+
+The first three are historical from Phase 2 onward; the line numbers above are the pre-Phase-2 tree.
 
 **Adding a `cwd` option deletes these rather than escaping them.** That is the load-bearing consequence for
 how this plan is phased: the fix is mostly subtraction, and `execFile` already takes `{ cwd }`.
@@ -186,9 +188,13 @@ documents the contract on the configuration page. See §8 Q2 — whether to reje
 is not settled here.
 
 **R3 — the global mock warns instead of failing.** `src/test-setup.ts`'s `afterEach` `console.warn`s on
-unexpected `cmd` calls; it does not fail the test. So a migration that changes *which* commands are issued
+unexpected calls; it does not fail the test. So a migration that changes *which* commands are issued
 can pass a green suite while printing a warning nobody reads. Response: each phase's **Done when** names the
-assertion, not just the green run, and §7 case 4 greps the captured output for the warning.
+assertion, not just the green run, and §7 case 4 greps the captured output for the warning. **Extended at
+Phase 2 to cover `run` as well as `cmd`** (F-006): `describeRunCall` renders a `run` call as its argv joined
+plus the cwd when one is given, so `expectedCommands` stays a `string[]` and a call site moving to `run`
+stays inside the guard. The warning text is now `Unexpected subprocess calls detected`. The guard was proved
+non-vacuous by deleting a declared entry and watching it fire, not by assuming it would.
 
 **R4 — overlap with two other roadmap entries.** `agent-mode` Phase 2 edits `src/lib/base-command.ts` and
 creates `src/lib/base-command.test.ts` — the same file this plan's Phase 6 creates. `cleanup-data-loss`
@@ -218,7 +224,10 @@ handling changes" is very slightly overstated, in two ways found by measurement 
   `spinner.fail(error.message)`. Both forms carry `Command failed: …` plus stderr, so nothing is lost, but
   at **Phase 3** the prefix goes from `cd /x && git fetch && git worktree add …` to `git worktree add …`.
   That is an improvement and still a user-visible text change. Phase 3 should state it deliberately rather
-  than let it happen.
+  than let it happen. **It happened at Phase 2 as well**, found at that phase's Gate 2 and measured: a
+  vanished `cwd` on the three migrated reads now rejects with `spawn git ENOENT` where the old form gave
+  `Command failed: cd /x && git status -s`. Narrow — `git.ts:194` gates all three behind `pathExists`, so
+  reaching it needs a race — and it is the same class of change this risk already accepts.
 - **`code` changes type when the file is missing.** `exec` rejects with a numeric `127` from the shell;
   `execFile` rejects with the string `"ENOENT"`. Harmless today — `grep -rn 'error\.code|\.code ===' src/`
   returns nothing, so no caller branches on it — but a future caller must not assume a number.
@@ -230,7 +239,7 @@ handling changes" is very slightly overstated, in two ways found by measurement 
 | # | Phase | Status | Depends on | Note |
 |---|---|---|---|---|
 | 1 | `run()` helper, `cwd` support, and its global mock | done | — | Gate 2 `PASS WITH NOTES`; R5 re-verified, not a regression |
-| 2 | The three read-only `cd` sites | not started | 1 | Owns F-006 — see the scope note below |
+| 2 | The three read-only `cd` sites | done | 1 | Gate 2 `PASS WITH NOTES`; F-006 closed, F-008 raised — §7 case 1 blocked by it |
 | 3 | `gitCreateWorktree`'s four-command chain | not started | 1 | |
 | 4 | Config get/set and `gitNukeWorktreeCmd` | not started | 1 | |
 | 5 | Static sites, `commandExists`, and deleting `cmd()` | not started | 2, 3, 4 | |
@@ -297,6 +306,12 @@ branches are covered; `process.env.PWD` appears nowhere in `src/`.
 arbitrary-value site that is `agent-mode`'s R1 — plus `gitNukeWorktreeCmd`'s three-command chain
 (`git.ts:266-270`) into sequential `run` calls (D5).
 
+**Also decide here:** `describeRunCall` in `src/test-setup.ts` renders a `run` call by joining its argv on
+spaces, so `["config", name, "a b"]` and `["config", name, "a", "b"]` read identically in the R3 guard.
+Phase 2 accepted that because no call site then passed an argv element containing a space. `gitSetConfigValue`
+is the first that will, and §7 case 3's hostile value is exactly that shape. Either quote spaced elements in
+the rendering or accept the collision knowingly — do not leave it unexamined.
+
 **Done when:** a config value containing `"`, a backtick and `;` round-trips through set-then-get unchanged
 and is asserted as a single argv element; `gitNukeWorktreeCmd` issues three sequential calls that stop at
 the first rejection; the `force` branch still appends `--force`.
@@ -334,16 +349,25 @@ spinner still fails with the error message on a rejected call.
 
 [`../verify.md`](../verify.md) names the commands — this file does not repeat them. Beyond Gate 1:
 
-1. **The space-path case, by hand, at Phase 2.** Create a worktree under a path containing a space and run
-   `worktree list`. Ahead/behind/uncommitted counts must be real numbers, not blanks. This is the §1 failure
-   reproduced against the real CLI rather than a scratch script.
+1. **The space-path case, by hand, at Phase 2. Run 2026-09-05 — blocked by F-008, and verified another
+   way.** Create a worktree under a path containing a space and run `worktree list`. Ahead/behind/uncommitted
+   counts must be real numbers, not blanks. **`worktree list` prints no rows at all under a spaced repo
+   path**, for a reason that has nothing to do with this plan: `gitGetWorktrees` splits the `git worktree
+   list` line on single spaces and truncates the path, so every entry fails its own filter before the three
+   migrated functions are reached. Recorded as F-008. Phase 2's claim was verified against the same real
+   repository instead, by calling the built `dist/lib/git.js` directly with the spaced worktree path —
+   `ahead: 1`, `behind: 0`, `uncommitted: 1`, the fixture's exact values, where the pre-change
+   `exec("cd /…/space demo/… && git status -s")` form failed on the identical path. **Re-run this case as
+   written once F-008 is fixed.**
 2. **The relative-path check, by hand, at Phase 3.** After `worktree branch <name>`, read the `.git` file in
    the new worktree and confirm it points at a path of the same shape as before this change (R1). Then move
    the repository directory and confirm the worktree still resolves — that is what the relative path buys.
 3. **The hostile-value case, at Phase 4.** `worktree config codeEditor 'x"; touch /tmp/pwned; #'` must store
    the literal string and create no file.
 4. **Grep the test output for the R3 warning** at every phase: a run that prints
-   `Unexpected cmd calls detected` is a failure even when vitest is green.
+   `Unexpected subprocess calls detected` is a failure even when vitest is green. The string was
+   `Unexpected cmd calls detected` until Phase 2 extended the guard to `run` (R3, F-006) — grep for the
+   current one.
 
 ## 8. Open questions
 
@@ -391,7 +415,7 @@ own table, re-verified; the rest were found while writing this plan.
 | `cmd()` is the only shell boundary for git calls | confirmed, `src/lib/cli.ts:7-25` |
 | `base-command.ts:56` bypasses `cmd()` and calls `exec` directly | confirmed |
 | `CmdOptions` has no `cwd` | confirmed, `src/lib/cli.ts:3-5` |
-| Five interpolation sites exist only to work around that | confirmed, `git.ts:86, 95, 103, 237, 245` |
+| Five interpolation sites exist only to work around that | confirmed, `git.ts:86, 95, 103, 237, 245` — the first three deleted by Phase 2, leaving two |
 | The create-worktree call chains four commands with `&&` | confirmed, `git.ts:247` |
 | `commandExists` splits on whitespace and checks only the head | confirmed, `src/lib/cli.ts:27-39` |
 | No `src/lib/base-command.test.ts` exists | confirmed, `ls src/lib/` — Phase 6 creates it |
@@ -401,7 +425,7 @@ own table, re-verified; the rest were found while writing this plan.
 | `CmdOptions.debug` is passed by no caller | confirmed — `grep` returns only `cli.ts:4,9,12` |
 | No `src/lib/cli.test.ts` exists | confirmed, `ls src/lib/` — Phase 1 creates it |
 | `src/test-setup.ts` mocks `./lib/cli.js` globally with an explicit factory | confirmed, `src/test-setup.ts:5-8` — the D7 constraint |
-| Its `afterEach` warns, and does not fail, on unexpected calls | confirmed, `src/test-setup.ts:19-31` — R3 |
+| Its `afterEach` warns, and does not fail, on unexpected calls | confirmed, `src/test-setup.ts:19-31` — R3; still warns, now at `:39-56` and covering `run` too after Phase 2 |
 | 16 assertions across 3 test files assert on the command string | confirmed, `git.test.ts` (23 mock refs), `github.test.ts` (7), `jira.test.ts` (2) |
 | `process.env.PWD` is read exactly once in `src/` | confirmed, `git.ts:230` — deleted by Phase 3 |
 | The relative worktree path is deliberate, with a comment saying why | confirmed, `git.ts:235-236` — R1 |

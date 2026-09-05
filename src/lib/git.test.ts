@@ -151,13 +151,19 @@ describe("git root path", () => {
 });
 
 describe("git status and tracking helpers", () => {
+  const worktreePath = "/repo/project.worktrees/test";
+  // A path a shell would split on the space, which is the failure the argv form
+  // exists to fix.
+  const spacedWorktreePath = "/repo/my project.worktrees/test";
+
   beforeEach(() => {
     vi.clearAllMocks();
     expectCommands(
       "git branch --show-current",
-      "cd /repo/project.worktrees/test && git rev-list --count @{u}..HEAD",
-      "cd /repo/project.worktrees/test && git rev-list --count HEAD..@{u}",
-      "cd /repo/project.worktrees/test && git status -s",
+      `git rev-list --count @{u}..HEAD (cwd: ${worktreePath})`,
+      `git rev-list --count HEAD..@{u} (cwd: ${worktreePath})`,
+      `git status -s (cwd: ${worktreePath})`,
+      `git status -s (cwd: ${spacedWorktreePath})`,
       "git for-each-ref --format='%(refname:short) <- %(upstream:short)' refs/heads",
     );
   });
@@ -172,55 +178,69 @@ describe("git status and tracking helpers", () => {
   });
 
   it("parses ahead commit count", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd").mockResolvedValueOnce("3");
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("3");
 
-    const count = await gitGetCommitsAheadCount("/repo/project.worktrees/test");
+    const count = await gitGetCommitsAheadCount(worktreePath);
 
-    expect(cmdSpy).toHaveBeenCalledWith(
-      "cd /repo/project.worktrees/test && git rev-list --count @{u}..HEAD",
+    expect(runSpy).toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", "@{u}..HEAD"],
+      { cwd: worktreePath },
     );
     expect(count).toBe(3);
   });
 
   it("returns undefined for empty ahead commit count", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce("");
+    vi.spyOn(cli, "run").mockResolvedValueOnce("");
 
-    const count = await gitGetCommitsAheadCount("/repo/project.worktrees/test");
+    const count = await gitGetCommitsAheadCount(worktreePath);
 
     expect(count).toBeUndefined();
   });
 
   it("parses behind commit count", async () => {
-    const cmdSpy = vi.spyOn(cli, "cmd").mockResolvedValueOnce("2");
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("2");
 
-    const count = await gitGetCommitsBehindCount(
-      "/repo/project.worktrees/test",
-    );
+    const count = await gitGetCommitsBehindCount(worktreePath);
 
-    expect(cmdSpy).toHaveBeenCalledWith(
-      "cd /repo/project.worktrees/test && git rev-list --count HEAD..@{u}",
+    expect(runSpy).toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", "HEAD..@{u}"],
+      { cwd: worktreePath },
     );
     expect(count).toBe(2);
   });
 
   it("counts uncommitted changes from git status -s", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce("M a.ts\nA b.ts\n?? c.ts");
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce("M a.ts\nA b.ts\n?? c.ts");
 
-    const count = await gitGetUncommittedChangesCount(
-      "/repo/project.worktrees/test",
-    );
+    const count = await gitGetUncommittedChangesCount(worktreePath);
 
+    expect(runSpy).toHaveBeenCalledWith("git", ["status", "-s"], {
+      cwd: worktreePath,
+    });
     expect(count).toBe(3);
   });
 
   it("returns zero uncommitted changes for empty status", async () => {
-    vi.spyOn(cli, "cmd").mockResolvedValueOnce("");
+    vi.spyOn(cli, "run").mockResolvedValueOnce("");
 
-    const count = await gitGetUncommittedChangesCount(
-      "/repo/project.worktrees/test",
-    );
+    const count = await gitGetUncommittedChangesCount(worktreePath);
 
     expect(count).toBe(0);
+  });
+
+  it("passes a branch path containing a space through as one cwd", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("M a.ts");
+
+    const count = await gitGetUncommittedChangesCount(spacedWorktreePath);
+
+    expect(runSpy).toHaveBeenCalledWith("git", ["status", "-s"], {
+      cwd: spacedWorktreePath,
+    });
+    expect(count).toBe(1);
   });
 
   it("parses local to remote tracking branch map", async () => {
