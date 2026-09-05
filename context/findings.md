@@ -36,22 +36,38 @@ life of the project.
 
 ## Open
 
-### F-001 — P3 — `uncommittedChanges: undefined` with no remote is unpinned, and Phase 2 flips it
+### F-002 — P3 — the `pathExists` ordering rationale in §4.1 is not pinned by any test
 
-**Tied to:** cleanup-data-loss Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1)
+**Tied to:** cleanup-data-loss Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 2)
 
-No test covers `{ pathExists: true, remote: "", uncommittedChanges: undefined }`. Today the third branch's
-strict `wt.uncommittedChanges === 0` (`src/lib/git.ts:162`) makes `undefined` fail the clause, so the entry
-falls through and `isSafeToRemove` returns `false`. Under the §4.1 rewrite that clause is dropped, and the
-same entry becomes `true` — a silent verdict change in a phase whose stated scope is the deleted-remote
-case.
+§4.1's first bullet argues that `!wt.pathExists` must stay the first branch — a worktree whose directory is
+gone holds nothing to lose. No test enforces it. `src/lib/git.test.ts:255-257` covers `{ pathExists: false }`
+with the `entry()` default of `uncommittedChanges: 0`, which returns `true` under either ordering, so a
+future change hoisting the uncommitted test above the path test would flip
+`{ pathExists: false, uncommittedChanges: 3 }` from `true` to `false` with no test failing.
 
-Not reachable from `gitGetWorktreeList`, which always assigns a number (`src/lib/git.ts:189-191`), so this
-is a latent contract change rather than a live defect. Phase 2's **Done when** already requires cases
-pinning that the fix does not over-reach; this is the case it does not currently name.
+Latent, not live: `gitGetWorktreeList` hardcodes `uncommittedChanges` to `0` when the path is missing
+(`src/lib/git.ts:194-196`), so the combination is unreachable from the list builder. Left open rather than
+fixed because Phase 2's **Done when** names exactly two over-reach cases and this is not one of them —
+adding it would have landed an unreviewed assertion after Gate 2 had already passed on the diff.
 
-**Closes when:** Phase 2's Gate 1 re-passes with a `git.test.ts` case asserting the verdict for a
-no-remote entry whose `uncommittedChanges` is `undefined`, whichever verdict Phase 2 decides is correct.
+This matters sooner than it looks: `agent-mode` Phase 6 adds a live-agent clause to this same predicate
+(§2, R2), and is the natural place to pin the ordering while the branches are being re-read anyway.
+
+**Closes when:** a Gate 1 run passes with a `git.test.ts` case asserting the verdict for
+`{ pathExists: false, uncommittedChanges: 3 }`.
 
 ## Closed
+
+### F-001 — P3 — `uncommittedChanges: undefined` with no remote is unpinned, and Phase 2 flips it
+
+**Tied to:** cleanup-data-loss Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
+**Closed:** 2026-09-05 (Gate 1, Phase 2)
+
+Phase 2 dropped the `wt.uncommittedChanges === 0` clause per §4.1 and pinned the resulting verdict: the
+no-remote entry with an unknown count is `true`, asserted at `src/lib/git.test.ts:321-323` against
+`entry()`'s defaults of `pathExists: true, remote: ""` (`src/lib/git.test.ts:245-253`). Gate 1 re-passed on
+that run — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (12 files, 189 tests) and
+`pnpm docs:test` (6 files, 49 tests) all exit 0.
+
 

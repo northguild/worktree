@@ -280,11 +280,7 @@ describe("isSafeToRemove", () => {
     ).toBe(false);
   });
 
-  // Characterization of the defect described in CLEANUP-DATA-LOSS-PLAN §1: the
-  // deleted-remote branch returns before the uncommitted-changes test is ever
-  // reached, so work in progress is classified safe to remove. Phase 2 of that
-  // plan overturns this assertion.
-  it("is safe when the remote was deleted, even holding uncommitted changes", () => {
+  it("is not safe when the remote was deleted but work is uncommitted", () => {
     expect(
       isSafeToRemove(
         entry({
@@ -293,6 +289,36 @@ describe("isSafeToRemove", () => {
           uncommittedChanges: 3,
         }),
       ),
+    ).toBe(false);
+  });
+
+  it("is still safe when the remote was deleted and nothing is uncommitted", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: false,
+          uncommittedChanges: 0,
+        }),
+      ),
     ).toBe(true);
+  });
+
+  // An unknown count must not read as "has changes" — the field is optional, so
+  // the hoisted test is a truthiness check rather than a comparison against 0.
+  it("is still safe when the remote was deleted and the count is unknown", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: false,
+          uncommittedChanges: undefined,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("is safe with no remote and an unknown uncommitted count", () => {
+    expect(isSafeToRemove(entry({ uncommittedChanges: undefined }))).toBe(true);
   });
 });

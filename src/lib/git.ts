@@ -155,11 +155,16 @@ export function isSafeToRemove(wt: WorktreeListEntry): boolean {
     // Worktree is defined but doesn't exist in the filesystem.
     return true;
   }
+  if (wt.uncommittedChanges) {
+    // Uncommitted work disqualifies a worktree whatever its remote looks like.
+    // See CLEANUP-DATA-LOSS-PLAN §3 D2.
+    return false;
+  }
   if (wt.remote && !wt.remoteExists) {
     // Worktree is tracking a remote branch that no longer exists.
     return true;
   }
-  if (!wt.remote && !wt.ahead && !wt.behind && wt.uncommittedChanges === 0) {
+  if (!wt.remote && !wt.ahead && !wt.behind) {
     // Worktree has no changes and it not tracking any remote branch.
     return true;
   }
