@@ -100,6 +100,26 @@ F-002 and F-003 record: adding assertions after Gate 2 had already passed would 
 **Closes when:** a Gate 1 run passes with the confirmation case selecting a mixed `[safe, unsafe]` list and
 the grouping case asserting the entry is absent from the "Safe to delete" group by name.
 
+### F-005 — P3 — `README.md` still describes cleanup's pre-fix behaviour
+
+**Tied to:** cleanup-data-loss Phase 5 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 5)
+
+`README.md:160` carries the same unqualified claim Phase 5 corrected on the docs page — cleanup "targets
+worktrees that are considered safe to remove, for example branches whose remote no longer exists" — with no
+uncommitted-work exception. It is now the only place in the repository that documents the defect as if it
+were the design; `grep -rn "remote branch no longer exists" docs README.md skills` returns the corrected
+`page.mdx:17` and nothing else. Left unfixed because Phase 5's **Files** names exactly one file,
+`docs/src/app/docs/commands/cleanup/page.mdx`, and editing the README would have been scope the gate did
+not review.
+
+Adjacent and smaller: neither page documents `cleanup --force`, so D7's design point — `--force` skips the
+confirmation but still prints the skipped report (`src/commands/cleanup.ts:66,78-80`) — is written down
+nowhere user-facing. §4.4 did not ask for it and Q4 leaves whether `--force` *should* print unsettled, so
+this is a note, not a gap to close blindly.
+
+**Closes when:** a Lint gate run passes with `README.md:160` carrying the same uncommitted-work exception
+as `page.mdx:17`.
+
 ## Closed
 
 ### F-001 — P3 — `uncommittedChanges: undefined` with no remote is unpinned, and Phase 2 flips it

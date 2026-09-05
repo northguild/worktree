@@ -262,7 +262,7 @@ phase.
 | 2 | Uncommitted work disqualifies removal | done | 1 | Two verdicts moved, both intended: the fix, and the no-remote `undefined` case F-001 pre-registered. F-001 closed. §4.1 cites `git.ts:188-190`; that assignment is now at `194-196` |
 | 3 | `cleanup` reports what it skipped | done | 2 | Skipped = held back *only* by uncommitted work, asked of `isSafeToRemove` on a zeroed copy (D1); §4.2's literal "declined" would print every active worktree. F-003 (P3) raised. `verify.md:63` cites `cleanup.ts:37` and `cleanup.test.ts:176-178`; now `69` and `188-190` |
 | 4 | `remove` multi-select regression coverage | done | 2 | §4.3 confirmed — `remove.ts` needed no change. The fixture takes `safeToRemove` from the real predicate, unlike the hand-set ones at `remove.test.ts:37,49`. F-004 (P3) raised. `verify.md:68` says `pnpm test` covers 181 tests; now 197 |
-| 5 | Document the exception | not started | 2 | Docs-only — Lint gate only. §4.4 cites `page.mdx:16`; the bullet is now at line 17 |
+| 5 | Document the exception | done | 2 | Docs-only — Lint gate only. §4.4's `page.mdx:16` bullet was at 17. Gate 2 `PASS WITH NOTES`; its N1/N2 tightened the new prose before commit — "every worktree it skipped" was broader than `cleanup.ts:17-21`, and "instead of silently removed" repeated the overstatement §9.2 corrects. F-005 (P3) raised: `README.md:160` still carries the unqualified claim, outside this phase's **Files** |
 
 Status is one of `not started`, `in progress`, `blocked`, `done`. `done` only when committed and verified,
 and whoever finishes a phase updates the row in the same commit.

@@ -14,5 +14,11 @@ worktree cleanup
 
 Typical cleanup targets include:
 
-- worktrees whose remote branch no longer exists
+- worktrees whose remote branch no longer exists, as long as they hold no uncommitted changes
 - local worktrees with no tracked remote and no pending work
+
+Uncommitted changes disqualify a worktree from removal whatever its remote looks like. The
+count comes from `git status -s`, so untracked files hold a worktree back too.
+
+`cleanup` reports every worktree it would otherwise have removed but held back for that
+reason, along with its change count, so work in progress is named rather than swept up.
