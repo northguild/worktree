@@ -43,11 +43,3 @@ and the text scrolls out of sight instead of the field growing.
 
 - **Size:** small — one component (`ChatInput`) plus its ref type and submit key handling in `ChatForm`
 - **Doc:** none yet
-
-### shell-argv-safety — `active`
-
-`cmd()` runs every git call through a shell as an interpolated string, so a repo path containing a space
-fails today and a config value containing a quote or backtick is an injection vector.
-
-- **Size:** medium — one helper contract, 8 interpolating call sites, and the `exec` that bypasses it
-- **Doc:** [`plans/SHELL-ARGV-SAFETY-PLAN.md`](plans/SHELL-ARGV-SAFETY-PLAN.md) — 6 phases, 4 open questions

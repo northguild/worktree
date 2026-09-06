@@ -339,51 +339,5 @@ been called at the moment `openWorktreePath` resolves, and has been once the lau
 Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
 an `ad-hoc` one at the start of the next `/orchestrate`.
 
-### F-006 — P2 — the unexpected-call guard watches `cmd` only, so it goes vacuous as call sites migrate
-
-**Tied to:** shell-argv-safety Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
-**Closed:** 2026-09-05 (Gate 1, Phase 2)
-
-`src/test-setup.ts:23` built its unexpected-call list from `mockCmd.mock.calls` alone, so every call site
-moving to `run` would have left that guard's field of view.
-
-**Fixed in Phase 2.** The `afterEach` at `src/test-setup.ts:39-56` now folds both mocks into one list, with
-`describeRunCall` (`src/test-setup.ts:23-31`) rendering a `run` call as its argv joined plus the cwd when
-one is given — the same information the `cd ${path} && …` prefix carried. The shape decision F-006 asked
-for is that `expectedCommands` stays a `string[]`: the rendering is a diagnostic, and what each call site
-passes is asserted by `toHaveBeenCalledWith` in the tests themselves. The warning text is now
-`Unexpected subprocess calls detected`, and the plan's §7 case 4 was updated to grep for that string.
-
-**Proved non-vacuous rather than assumed:** deleting one declared entry from `git.test.ts`'s
-`expectCommands` made the guard print
-`Unexpected subprocess calls detected:\n  - git status -s (cwd: /repo/project.worktrees/test)`; restoring
-it returned the run to zero warnings. Gate 1 on the Phase 2 commit: `pnpm check`, `pnpm typecheck`,
-`pnpm build`, `pnpm test` (207 passed) and `pnpm docs:test` (49 passed) all exit 0, with zero occurrences
-of `Unexpected` in the captured test output.
-
-`cleanup-data-loss`'s F-001 moved to
-[`archive/CLEANUP-DATA-LOSS-PLAN.md`](archive/CLEANUP-DATA-LOSS-PLAN.md) §10 on 2026-09-05.
-
-### F-007 — P3 — `cli.test.ts`'s `afterAll` would mask a failure in its own `beforeAll`
-
-**Tied to:** shell-argv-safety Phase 1 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
-**Closed:** 2026-09-05 (Gate 1, Phase 5)
-
-`src/lib/cli.test.ts`'s `afterAll` called `rmSync(tempPath, …)` unconditionally, so a throwing
-`mkdtempSync` in `beforeAll` would have left `tempPath` undefined and reported an
-`ERR_INVALID_ARG_TYPE` from the cleanup instead of the real failure.
-
-**Fixed in Phase 5**, and in scope rather than swept in: Phase 5's **Files** names `src/lib/cli.test.ts`,
-and the phase already had to edit that exact `afterAll` block to restore the `PATH` its new `commandExists`
-cases mutate. The guard is `if (tempPath)` at `src/lib/cli.test.ts:47-49`; `tempPath` is declared
-`let tempPath: string` with no initializer, so it is genuinely `undefined` on that path.
-
-The PATH restore next to it raised the same class of defect one line earlier and was fixed with it:
-assigning a `string | undefined` back would have written the literal string `"undefined"` onto `PATH`, so
-an unset `PATH` is restored by `delete process.env.PATH` (`src/lib/cli.test.ts:43-51`). Verified both
-directions rather than assumed — after `delete`, `'PATH' in process.env` is `false`, which is the real
-pre-`beforeAll` state.
-
-Gate 1 on the Phase 5 commit: `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (219 passed) and
-`pnpm docs:test` (49 passed) all exit 0, with zero occurrences of `Unexpected` in the captured test output.
-Gate 2 returned `PASS`, having verified the guard and the restore against the file.
+None right now: `shell-argv-safety`'s F-006 and F-007 moved to
+[`archive/SHELL-ARGV-SAFETY-PLAN.md`](archive/SHELL-ARGV-SAFETY-PLAN.md) §11 at its close on 2026-09-06.

@@ -1,12 +1,17 @@
 # shell-argv-safety Plan
 
-Written 2026-09-05. Removes the shell from this CLI's subprocess calls, replacing an interpolated
-command-string contract with an argv-array one. The `shell-argv-safety` entry in
-[`../roadmap.md`](../roadmap.md) is where this feature's status lives.
+Retired — its outcome and date are in [`../history.md`](../history.md).
 
-**Phase status lives in §6.1 of this document, and nowhere else.**
+Removed the shell from this CLI's subprocess calls, replacing an interpolated command-string contract with
+an argv-array one. `cmd()`, the `exec` inside it, and the one `exec` that bypassed it are all gone; every
+subprocess call is now an argv array with an explicit `cwd`.
 
-Built on the reference material captured by `/roadmap` on 2026-09-05, which this document replaces. That
+**Nothing cites this document by section.** `grep -rn "SHELL-ARGV-SAFETY" .` at retirement returned exactly
+one hit — the `roadmap.md` entry this close removed — so no source comment depends on the numbering below.
+That is the opposite of [`CLEANUP-DATA-LOSS-PLAN.md`](CLEANUP-DATA-LOSS-PLAN.md), whose sections *are* cited
+from source, and it is why renumbering here breaks nothing.
+
+Built on the reference material captured by `/roadmap` on 2026-09-05, which this document replaced. That
 material's provenance is carried forward in §0, and its inventory — re-verified and corrected — is §10.
 
 ---
@@ -14,7 +19,7 @@ material's provenance is carried forward in §0, and its inventory — re-verifi
 ## 0. Provenance of the source material
 
 - **Source:** maintainer, pasted into `/roadmap` on 2026-09-05. Originated as analysis done while planning
-  `agent-mode`, where it is recorded as risk R1 in [`AGENT-MODE-PLAN.md`](AGENT-MODE-PLAN.md).
+  `agent-mode`, where it is recorded as risk R1 in [`AGENT-MODE-PLAN.md`](../plans/AGENT-MODE-PLAN.md).
 - The **original** `agent-mode` brief called this a single-site, commit-sized `/orchestrate` task citing
   only `src/lib/base-command.ts:56`. The inventory is why it was filed as its own roadmap entry instead.
 - The draft's two corrections to the supplied material (`git.ts:94` → `:95`, and "every subprocess call
@@ -590,3 +595,84 @@ phases are not read against stale citations:
 
 The draft's own two corrections to the material it was given — `git.ts:94` → `:95`, and "every subprocess
 call builds a shell string" being too broad — both still hold and are carried into §1 and the table above.
+
+## 11. Findings log
+
+Closed findings tied to this feature, moved here from [`../findings.md`](../findings.md) at
+`/feature-close` so that file does not grow for the life of the project.
+
+### F-006 — P2 — the unexpected-call guard watches `cmd` only, so it goes vacuous as call sites migrate
+
+**Tied to:** Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
+**Closed:** 2026-09-05 (Gate 1, Phase 2)
+
+`src/test-setup.ts:23` built its unexpected-call list from `mockCmd.mock.calls` alone, so every call site
+moving to `run` would have left that guard's field of view.
+
+**Fixed in Phase 2.** The `afterEach` at `src/test-setup.ts:39-56` now folds both mocks into one list, with
+`describeRunCall` (`src/test-setup.ts:23-31`) rendering a `run` call as its argv joined plus the cwd when
+one is given — the same information the `cd ${path} && …` prefix carried. The shape decision F-006 asked
+for is that `expectedCommands` stays a `string[]`: the rendering is a diagnostic, and what each call site
+passes is asserted by `toHaveBeenCalledWith` in the tests themselves. The warning text is now
+`Unexpected subprocess calls detected`, and the plan's §7 case 4 was updated to grep for that string.
+
+**Proved non-vacuous rather than assumed:** deleting one declared entry from `git.test.ts`'s
+`expectCommands` made the guard print
+`Unexpected subprocess calls detected:\n  - git status -s (cwd: /repo/project.worktrees/test)`; restoring
+it returned the run to zero warnings. Gate 1 on the Phase 2 commit: `pnpm check`, `pnpm typecheck`,
+`pnpm build`, `pnpm test` (207 passed) and `pnpm docs:test` (49 passed) all exit 0, with zero occurrences
+of `Unexpected` in the captured test output.
+
+`cleanup-data-loss`'s F-001 moved to [`CLEANUP-DATA-LOSS-PLAN.md`](CLEANUP-DATA-LOSS-PLAN.md) §10 on
+2026-09-05.
+
+### F-007 — P3 — `cli.test.ts`'s `afterAll` would mask a failure in its own `beforeAll`
+
+**Tied to:** Phase 1 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 1) ·
+**Closed:** 2026-09-05 (Gate 1, Phase 5)
+
+`src/lib/cli.test.ts`'s `afterAll` called `rmSync(tempPath, …)` unconditionally, so a throwing
+`mkdtempSync` in `beforeAll` would have left `tempPath` undefined and reported an
+`ERR_INVALID_ARG_TYPE` from the cleanup instead of the real failure.
+
+**Fixed in Phase 5**, and in scope rather than swept in: Phase 5's **Files** names `src/lib/cli.test.ts`,
+and the phase already had to edit that exact `afterAll` block to restore the `PATH` its new `commandExists`
+cases mutate. The guard is `if (tempPath)` at `src/lib/cli.test.ts:47-49`; `tempPath` is declared
+`let tempPath: string` with no initializer, so it is genuinely `undefined` on that path.
+
+The PATH restore next to it raised the same class of defect one line earlier and was fixed with it:
+assigning a `string | undefined` back would have written the literal string `"undefined"` onto `PATH`, so
+an unset `PATH` is restored by `delete process.env.PATH` (`src/lib/cli.test.ts:43-51`). Verified both
+directions rather than assumed — after `delete`, `'PATH' in process.env` is `false`, which is the real
+pre-`beforeAll` state.
+
+Gate 1 on the Phase 5 commit: `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (219 passed) and
+`pnpm docs:test` (49 passed) all exit 0, with zero occurrences of `Unexpected` in the captured test output.
+Gate 2 returned `PASS`, having verified the guard and the restore against the file.
+
+### Still open at retirement
+
+Six findings tied to this feature were open when it was retired, and **stay in
+[`../findings.md`](../findings.md)** — only closed findings move here. None gated the close: five are `P2`
+and one `P3`, and only `P0`/`P1` blocks. They are recorded here so the archive does not read as if the
+feature retired clean:
+
+| Id | Sev | Phase | What it is |
+|---|---|---|---|
+| F-008 | P2 | 2 | `gitGetWorktrees` splits the `worktree list` line on a space, so a repo under a spaced path lists nothing |
+| F-009 | P2 | 3 | the `worktree add` failure path is untested, so a dropped `await` would land green |
+| F-010 | P3 | 3 | the relative `worktreePath` comment claims a property git 2.38.1 does not deliver |
+| F-011 | P2 | 4 | the third `run` in `gitNukeWorktreeCmd` is unpinned against a dropped `await` |
+| F-012 | P2 | 6 | a Windows `.cmd`/`.bat` editor can no longer be launched, and `code` is one there |
+| F-013 | P2 | 6 | the editor launch is unpinned as fire-and-forget, so an added `await` would land green |
+
+**F-008 has no home and this close does not give it one.** Its own text says so: no row in §6.1 touches
+`gitGetWorktrees`, because it is stdout parsing rather than command construction, so no phase of this plan
+could ever have closed it. It is the one finding here that describes a defect a user hits today — a
+repository under a path containing a space lists no worktrees at all — and the likely fix,
+`git worktree list --porcelain`, is a roadmap entry rather than a loose end. **Raise one with `/roadmap`,
+or it stays open against a retired feature indefinitely.**
+
+F-009, F-011 and F-013 are one shape three times: a sequential `run` whose `await` no test observes. Each
+records the mutation that survives and the one case that would kill it. Whoever picks up any of them should
+take all three — they are the same test, written three times.
