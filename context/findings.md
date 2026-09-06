@@ -412,6 +412,74 @@ tells the reader to use their agent's own tooling, which is only true of an agen
 branch page saying so — or the maintainer accepts backgrounding agents as the supported shape, folded into
 the plan's log at `/feature-close`.
 
+### F-021 — P3 — `toAgentSession` drops a session that has a usable `cwd` but no `name` or `pid`
+
+**Tied to:** agent-mode Phase 3 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 3)
+
+`toAgentSession` (`src/lib/agent.ts`) requires `name`, `pid` and `cwd`, and its comment justifies all three
+with "an entry without them cannot match a worktree in the first place". That reasoning holds for `cwd`,
+the join key, and not for `name` and `pid`, which are only rendering fields. A runtime that renamed either
+would yield zero sessions and `cleanup` would then delete everything — the unsafe direction.
+
+This matches §4's type sketch literally, and §1 measured all three as present on both session kinds, so it
+is defensible as written. It is in tension with R3's response, "every field the code reads is optional",
+which the plan scopes to `kind`, `state` and `status` without saying so explicitly.
+
+**Closes when:** the plan says which fields are load-bearing and which are optional, and the code and its
+comment agree with that — or the maintainer accepts the current shape, folded into the plan's log at
+`/feature-close`.
+
+### F-022 — P3 — the `cwd` join misses on case and symlink differences, and fails toward "no session"
+
+**Tied to:** agent-mode Phase 3 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 3)
+
+`isPathInside` (`src/lib/agent.ts`) compares paths segment-wise via `path.relative`, which is
+case-sensitive on posix and does not resolve symlinks. So `/Repo/…` against `/repo/…` on a case-insensitive
+macOS volume, or `/tmp/wt` against `/private/tmp/wt`, both report no match. Every such miss fails toward
+"no session found", which for Phase 6 means the worktree is removable.
+
+Low probability: `git rev-parse --show-toplevel` and `process.cwd()` both return resolved physical paths,
+so the two sides of the comparison normally agree. R5 already accepts a stale PID as a spurious block; this
+is the same class of imprecision pointing the other way, and it is unrecorded.
+
+**Closes when:** the paths are normalised on both sides before comparison, or R5 is widened to name this as
+an accepted risk, folded into the plan's log at `/feature-close`.
+
+### F-023 — P3 — `isHere` is the only const-assigned arrow function in non-test `src/`
+
+**Tied to:** agent-mode Phase 3 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 3)
+
+`findSessionForPath` binds its predicate as `const isHere = (session) => …` (`src/lib/agent.ts`). Every
+other named function in non-test `src/` is a declaration; the reviewer's grep found this to be the only
+const-assigned arrow outside tests. `context/standards/typescript/rules.md:25-27` reserves arrow
+expressions for anonymous callbacks and inline handlers, and its `BAD` example is module-level, so a named
+local sits in a gray zone the rule does not directly address. A nested `function isHere(…)` closes over
+`worktreePath` identically.
+
+Cosmetic, and `pnpm check` passes it. Left unfixed because Gate 2 had already passed on the diff — the same
+reasoning F-002, F-003 and F-004 record: editing after the gate lands unreviewed code.
+
+**Closes when:** a Lint gate run passes with the predicate written as a nested function declaration — or the
+maintainer accepts the arrow, folded into the plan's log at `/feature-close`.
+
+### F-024 — P3 — among several *live* sessions in one worktree the choice is arbitrary, which Phase 5's marker inherits
+
+**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 3)
+
+`findSessionForPath` (`src/lib/agent.ts`) now prefers a live session over a finished one, but among two live
+ones it returns whichever the runtime listed first. With a human's interactive terminal and a dispatched
+background agent both live in one worktree — the ordinary `--agent`-then-editor case — either may win.
+
+Phase 6 is unaffected: both are live, so `cleanup` blocks either way, which is what F-020 set out to
+guarantee. Phase 5 is affected. Its **Done when** says "an interactive session renders with its marker and a
+background one without it", and the marker will describe whichever session was picked rather than the
+worktree as a whole — so a worktree holding both may render either way between runs. The singular signature
+is what §4 specifies, so this is a limit to state, not a defect to fix blindly.
+
+**Closes when:** Phase 5 either renders a marker that does not depend on which of several live sessions was
+picked, or its docs and plan section say the marker describes one session — folded into the plan's log at
+`/feature-close`.
+
 ## Closed
 
 Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
@@ -467,3 +535,28 @@ updated to match.
 `worktree config agent.command "<command>"`, and that form was verified by hand to set the value
 (exit 0, `git config --get` returns it); the unset path still prints the message, creates the worktree and
 exits 0.
+
+### F-020 — P2 — `findSessionForPath` returns the first match, so a finished session can mask a live one
+
+**Tied to:** agent-mode Phase 3 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 3)
+
+`findSessionForPath` (`src/lib/agent.ts`) returns `sessions.find(...)` — the first session whose `cwd` sits
+in the worktree, in whatever order the runtime listed them. D5 requires that `cleanup` block on **any**
+session; a single-match lookup delivers "block on the first one".
+
+Two sessions in one worktree is the ordinary case for `--agent`, which dispatches an agent and then opens
+the editor. If the first listed entry carries `state: "done"`, Phase 6 sees `isSessionLive` false and
+removes the worktree out from under the live second session — a live session treated as dead, which is the
+direction D6 exists to fail away from and the failure mode §7 calls the worst in the flow. D6's own premise
+is that a finished session can appear in the default listing, so the shadowing case is inside the plan's
+model rather than hypothetical.
+
+**Closes when:** Gate 2 re-passes on Phase 3 with a live match preferred over a finished one, and a test
+covering two matching sessions whose first is `done`.
+
+**Closed:** 2026-09-06 by agent-mode Phase 3's Gate 2 re-run (reviewer subagent, `PASS`, no blocking
+findings), after one loopback. `findSessionForPath` prefers a live match and falls back to any match, so the
+set of paths yielding no session is unchanged; `src/lib/agent.test.ts` pins two matching sessions with the
+finished one listed first, and a lone finished session still being returned. The re-run followed a Gate 1
+pass — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` 294 passed, `pnpm docs:test` 49 passed, all
+exit 0.

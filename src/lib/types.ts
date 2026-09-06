@@ -9,6 +9,28 @@ export interface WorktreeListBaseEntry {
   isCurrent?: boolean;
 }
 
+// One entry of the agent runtime's session listing, as `src/lib/agent.ts` reads
+// it. `kind`, `state` and `status` are optional because they appear in the
+// output but not in the runtime's own --help, so a rename has to degrade a
+// marker rather than drop the session. Nothing outside `agent.ts` reads them.
+export interface AgentSession {
+  name: string;
+  pid: number;
+  cwd: string;
+  kind?: string;
+  status?: string;
+  state?: string;
+}
+
+// What a worktree entry carries about the session living in it — derived in
+// `agent.ts`, so no raw `kind`, `state` or `status` value crosses this boundary.
+export interface WorktreeAgent {
+  name: string;
+  pid: number;
+  interactive?: boolean;
+  waiting?: boolean;
+}
+
 export interface WorktreeListEntry extends WorktreeListBaseEntry {
   remote: string;
   ahead?: number;
@@ -16,4 +38,5 @@ export interface WorktreeListEntry extends WorktreeListBaseEntry {
   remoteExists?: boolean;
   uncommittedChanges?: number;
   safeToRemove?: boolean;
+  agent?: WorktreeAgent;
 }

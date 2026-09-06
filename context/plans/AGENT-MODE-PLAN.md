@@ -243,7 +243,7 @@ small and the consequence is a spurious block, not data loss. Accepted; not miti
 |---|---|---|---|---|
 | 1 | `agent.command` config value | done | — | Gate 1 green; Gate 2 `PASS WITH NOTES`. Notes filed as F-014/F-015/F-016, all `P3`. |
 | 2 | `dispatchAgent` + `--agent` on `branch` and `checkout` | done | 1 | Gate 1 green; Gate 2 `PASS WITH NOTES` after one loopback. F-017 (`P1`) raised and closed in the same commit; F-016 closed. §7's manual run passed, including step 3 — see Q1. Notes filed as F-018/F-019, both `P3`. |
-| 3 | Agent session join module | not started | 1 | |
+| 3 | Agent session join module | done | 1 | Gate 1 green; Gate 2 `PASS` after one loopback. F-020 (`P2`) raised and closed in the same commit. Notes filed as F-021/F-022/F-023, all `P3`, plus F-024 against Phase 5. |
 | 4 | ~~Churn stats on the worktree entry~~ | cut | — | Cut 2026-09-06: unrelated to agents, Phase 5 was its only consumer, and it was the fourth per-worktree subprocess (R4). Re-filed as `worktree-churn-stats`. |
 | 5 | `list --agents` | not started | 3 | |
 | 6 | Agent-aware `cleanup` | not started | 3 | |
