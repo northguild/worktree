@@ -19,7 +19,7 @@ material's provenance is carried forward in §0, and its inventory — re-verifi
 ## 0. Provenance of the source material
 
 - **Source:** maintainer, pasted into `/roadmap` on 2026-09-05. Originated as analysis done while planning
-  `agent-mode`, where it is recorded as risk R1 in [`AGENT-MODE-PLAN.md`](../plans/AGENT-MODE-PLAN.md).
+  `agent-mode`, where it is recorded as risk R1 in [`AGENT-MODE-PLAN.md`](AGENT-MODE-PLAN.md).
 - The **original** `agent-mode` brief called this a single-site, commit-sized `/orchestrate` task citing
   only `src/lib/base-command.ts:56`. The inventory is why it was filed as its own roadmap entry instead.
 - The draft's two corrections to the supplied material (`git.ts:94` → `:95`, and "every subprocess call

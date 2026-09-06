@@ -238,7 +238,7 @@ untracked files are unrecoverable in exactly the way this plan is about, and D7'
 worktree and its count so the user can act. If it proves too noisy in practice, the lever is a flag or a
 `-uno` variant, recorded as Q2 rather than pre-emptively built.
 
-**R2 — the `agent-mode` collision.** `plans/AGENT-MODE-PLAN.md` Phase 6 edits the same function and the same
+**R2 — the `agent-mode` collision.** `archive/AGENT-MODE-PLAN.md` Phase 6 edits the same function and the same
 `cleanup` reporting. **How it shows up:** merge conflicts in `src/lib/git.ts` and `src/commands/cleanup.ts`,
 or a silent revert of this fix if Phase 6 rewrites the predicate from its own plan text. **Response:** land
 this first (§2), and have Phase 6 add its live-agent clause to the corrected predicate.

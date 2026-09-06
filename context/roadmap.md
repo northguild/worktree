@@ -27,16 +27,6 @@ this, appended under **Features** below:
 
 ## Features
 
-### agent-mode — `active`
-
-A worktree can be handed straight to a coding agent instead of, or as well as, an editor, and one command
-shows which worktrees have an agent living in them.
-
-- **Size:** large — three surfaces (`branch`, `list`, `cleanup`), a new config value, and a runtime-neutral
-  session join that must degrade silently
-- **Doc:** [`plans/AGENT-MODE-PLAN.md`](plans/AGENT-MODE-PLAN.md) — 7 phases, one of them cut; 5 open
-  questions, 4 resolved
-
 ### worktree-churn-stats — `pending`
 
 `list` says how far ahead or behind a worktree is, but not how much has actually changed in it, so there is
