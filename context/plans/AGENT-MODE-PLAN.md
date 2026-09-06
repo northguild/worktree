@@ -459,9 +459,14 @@ is not one to discover from a unit test alone.
 was never derived from anything; it is the pages someone thought of. That is exactly what let
 `getting-started/page.mdx` and `commands/config/page.mdx` through: both enumerate config keys, neither
 documents a command this feature changed, so nothing in the plan pointed at them and no phase's **Files**
-could have caught them. Both were fixed after the fact — see F-039 — and the standing rule that came out of
-it lives in [`../stack.md`](../stack.md): at a version bump, diff `docs/` against the release and look
-hardest at the pages that *enumerate* a surface rather than document one command.
+could have caught them. Both were fixed after the fact — see F-039.
+
+**The lesson is not local to this repository, so it is not written down as a local rule.** Note that a docs
+section is not itself the fix: this plan had one, and it still missed two pages. What was missing is a step
+that *derives* the set — every page enumerating a config key or a flag, not only the pages for the commands
+a feature touches. The maintainer is taking that to the shared AI-workflow repository on 2026-09-06 so it
+binds every plan, rather than pinning a bump-time check here that would catch it only once it was already
+too late to plan for.
 
 - `docs/src/app/docs/commands/branch/page.mdx`, `checkout/`, `list/`, `cleanup/` — all present.
 - `docs/src/app/docs/configuration/page.mdx` — for `agent.command`.

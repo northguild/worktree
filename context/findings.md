@@ -883,4 +883,11 @@ start and no gate could have caught them.
 the other two, `commands/config/page.mdx` carrying an `agent.command` example, and §9 amended to say how
 its list was derived.
 
-**Closed:** 2026-09-06 by a Lint gate run (`pnpm check` exit 0, `pnpm docs:test` 49 passed, exit 0) over the fix. `docs/src/app/docs/getting-started/page.mdx:60` now names `agent.command` beside the other two; `docs/src/app/docs/commands/config/page.mdx:33` carries an `agent.command` example and `:50-55` a new **Agent Key** section, the counterpart the GitHub keys already had; and the plan's §9 now states how its list was derived and why these two fell outside it. The standing rule that generalises it is in [`stack.md`](stack.md) — at a version bump, diff `docs/` against the release and look hardest at the pages that enumerate a surface.
+**Closed:** 2026-09-06 by a Lint gate run (`pnpm check` exit 0, `pnpm docs:test` 49 passed, exit 0) over the fix. `docs/src/app/docs/getting-started/page.mdx:60` now names `agent.command` beside the other two; `docs/src/app/docs/commands/config/page.mdx:33` carries an `agent.command` example and `:50-55` a new **Agent Key** section, the counterpart the GitHub keys already had; and the plan's §9 now states how its list was derived and why these two fell outside it.
+
+**No local rule was added, deliberately.** A bump-time docs check was written into `stack.md` and then
+removed the same day: bumping is too late to plan for, and the durable fix belongs to planning. Note that
+"plans must include docs" would not have caught this either — §9 existed and was incomplete. What is needed
+is a step that derives the set, naming every page that enumerates a config key or flag rather than only the
+pages for the commands a feature touches, and the maintainer is taking that to the shared AI-workflow
+repository so it binds every plan in every project.
