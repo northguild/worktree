@@ -58,6 +58,13 @@ context/              planning-workflow artifacts (this directory)
   `docs/src/lib/site-meta.ts`, `skills/core/SKILL.md`, `skills/_artifacts/skill_tree.yaml`. Run
   `pnpm sync-version` after a version bump; CI hard-fails on drift via `git diff --exit-code`. Use the
   root `pnpm docs:dev`, not `pnpm --filter docs dev` — the former syncs the version first.
+- **A version bump carries a second obligation: verify `docs/` describes what is shipping.**
+  `docs-deploy.yml` republishes the site on any push to `main` touching `package.json`, so the pages go
+  live with the bump whether or not anyone updated them. Before committing a bump, diff `docs/` against
+  the features the release contains, and look hardest at the pages that *enumerate* a surface rather than
+  document one command — `getting-started/page.mdx` and `commands/config/page.mdx` both list config keys.
+  Those go stale silently: nothing in them is wrong, only incomplete, so no gate catches it. Both were
+  missed by the release that added `agent.command`.
 - **One lockfile, at the root.** There is no `.npmrc` — the one that pinned
   `shared-workspace-lockfile=true` was removed in 260eb2f, and pnpm's default keeps the behaviour. CI
   still fails the build if `docs/pnpm-lock.yaml` ever appears, so do not add one.

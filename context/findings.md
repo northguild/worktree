@@ -852,3 +852,35 @@ or the sentence is cut.
 passed, `pnpm docs:test` 49 passed — all exit 0). `cleanup` excludes a worktree holding a live session and reports it by
 name, so the sentence at `docs/src/app/docs/commands/list/page.mdx:40-41` describes shipped behaviour. Both
 the unit suite and §7's manual run through the built `bin/run.js` confirm the refusal.
+
+### F-039 — P3 — two docs pages carrying the setup surface were in no phase's Files, so the site and the README now differ
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (hand, prompted by the maintainer asking whether
+the docs site was swept)
+
+The site was updated — `git diff --stat ebb23b8~1..HEAD -- docs/` shows +134 lines across
+`commands/branch`, `commands/checkout`, `commands/list`, `commands/cleanup` and `configuration`. Two pages
+that carry the same setup enumeration were missed:
+
+- `docs/src/app/docs/getting-started/page.mdx:56-59` lists what `worktree config` is for — `Common values:`
+  then `defaultSourceBranch` and `codeEditor`. This is the site's twin of `README.md:79-81`, which Phase 7
+  updated to name `agent.command` as a third.
+- `docs/src/app/docs/commands/config/page.mdx:31-33` gives example invocations for `defaultSourceBranch`
+  and `codeEditor` and none for `agent.command`, and its only key list is a **GitHub Integration Keys**
+  section with no agent equivalent.
+
+**Nothing on either page is false** — `Common values` and a set of examples are both hedged, and
+`configuration/page.mdx:45-66` documents the key properly. The defect is that the docs site and the README
+now give different answers to "what does setup involve", which is the disagreement Phase 7 existed to
+remove.
+
+**The cause is structural and worth more than the fix.** §9 of the plan is headed *Surfaces to update — all
+verified to exist*: it verified that the pages it named exist, never that the list was complete. No step
+asked which pages enumerate the setup surface, so these two were outside every phase's **Files** from the
+start and no gate could have caught them.
+
+**Closes when:** a Lint gate run passes with `getting-started/page.mdx` naming `agent.command` alongside
+the other two, `commands/config/page.mdx` carrying an `agent.command` example, and §9 amended to say how
+its list was derived.
+
+**Closed:** 2026-09-06 by a Lint gate run (`pnpm check` exit 0, `pnpm docs:test` 49 passed, exit 0) over the fix. `docs/src/app/docs/getting-started/page.mdx:60` now names `agent.command` beside the other two; `docs/src/app/docs/commands/config/page.mdx:33` carries an `agent.command` example and `:50-55` a new **Agent Key** section, the counterpart the GitHub keys already had; and the plan's §9 now states how its list was derived and why these two fell outside it. The standing rule that generalises it is in [`stack.md`](stack.md) — at a version bump, diff `docs/` against the release and look hardest at the pages that enumerate a surface.

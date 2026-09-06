@@ -455,6 +455,14 @@ is not one to discover from a unit test alone.
 
 ## 9. Surfaces to update — all verified to exist
 
+**How this list was derived — and the gap that left.** Every entry below was checked to exist. The *set*
+was never derived from anything; it is the pages someone thought of. That is exactly what let
+`getting-started/page.mdx` and `commands/config/page.mdx` through: both enumerate config keys, neither
+documents a command this feature changed, so nothing in the plan pointed at them and no phase's **Files**
+could have caught them. Both were fixed after the fact — see F-039 — and the standing rule that came out of
+it lives in [`../stack.md`](../stack.md): at a version bump, diff `docs/` against the release and look
+hardest at the pages that *enumerate* a surface rather than document one command.
+
 - `docs/src/app/docs/commands/branch/page.mdx`, `checkout/`, `list/`, `cleanup/` — all present.
 - `docs/src/app/docs/configuration/page.mdx` — for `agent.command`.
 - `docs/src/app/docs/commands/_meta.ts` — **not touched**; no new command is added.
@@ -463,6 +471,8 @@ is not one to discover from a unit test alone.
   Phase 7 added `src/lib/agent.ts` and `src/lib/base-command.ts` to it.
 - `skills/_artifacts/skill_tree.yaml` — **added at Phase 7**; it ships and duplicates that frontmatter. Its
   two sibling artifacts are deliberately left alone; see Phase 7's **Files** line for where the line falls.
+- `docs/src/app/docs/getting-started/page.mdx` and `docs/src/app/docs/commands/config/page.mdx` —
+  **added after the fact.** Both list config keys; neither was in this list or in any phase's **Files**.
 - `README.md` — if the feature list changes.
 
 ## 10. What already holds in this repo
