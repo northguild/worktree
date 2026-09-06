@@ -20,4 +20,6 @@ If omitted, `worktree open` will show an interactive branch picker.
 
 Similarly, if omitted, `worktree checkout` will show an interactive remote branch picker.
 
-For non-VS Code editors, set `codeEditor` to the matching shell command.
+For non-VS Code editors, set `codeEditor` to the matching command. No shell is involved: the value is a
+command line split on whitespace, so `code -n` works and quoted arguments do not — see
+[Configuration](/docs/configuration).

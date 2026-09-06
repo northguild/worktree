@@ -10,6 +10,7 @@ title: Configuration
 
 - `defaultSourceBranch` (example: `origin/main`)
 - `codeEditor` (example: `code`)
+- `agent.command` (the coding agent to hand a new worktree to, example: `claude --bg`)
 - `github.token` (GitHub personal access token)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
@@ -17,6 +18,56 @@ title: Configuration
 - `branchPrefix.feature` (example: `feature/`)
 - `branchPrefix.bugfix` (example: `fix/`)
 - `branchPrefix.chore` (example: `chore/`)
+
+## Editor Command
+
+`codeEditor` is a command line, not just a program name. It is split on whitespace: the first word is the
+program to launch, and anything after it is passed to that program as arguments, ahead of the worktree
+path.
+
+```bash
+worktree config codeEditor code       # runs: code <worktree-path>
+worktree config codeEditor "code -n"  # runs: code -n <worktree-path>
+```
+
+The worktree path is always passed as a single argument, so a project or branch whose path contains a
+space opens correctly.
+
+**Quoted arguments are not supported.** No shell parses this value, so the quotes in
+`open -a "Visual Studio Code"` are never removed — the value splits into `open` plus the four arguments
+`-a`, `"Visual`, `Studio` and `Code"`, quote characters and all. Point `codeEditor` at a program or at a wrapper
+script instead.
+
+**On Windows the editor has to be a real executable.** `.cmd` and `.bat` shims — which is what `code` is
+on Windows — cannot be launched without a shell, and `worktree` no longer uses one. Name the `.exe`, or a
+wrapper that is one.
+
+## Agent Command
+
+`agent.command` names the coding agent that a worktree can be handed to. Like `codeEditor` it is a command
+line, not just a program name, and it is split the same way: the first word is the program to launch, and
+anything after it is passed to that program as leading arguments.
+
+```bash
+worktree config agent.command claude
+worktree config agent.command "claude --bg"
+worktree config agent.command "codex exec"
+```
+
+Only the first word is checked when you set the value, so flags and subcommands do not have to resolve to
+anything on their own:
+
+```bash
+worktree config agent.command "claude --bg"   # accepted — only `claude` is looked up
+worktree config agent.command "nope --bg"     # rejected — Command not found: nope
+```
+
+`worktree` does not assume a particular agent. There is no default value, and nothing about this key is
+specific to one vendor — any agent CLI of the same shape works. The same caveats as
+[Editor Command](#editor-command) apply: no shell parses the value, so quoted arguments are not supported
+and the program has to be a real executable rather than a `.cmd` or `.bat` shim.
+
+The key is optional and unset by default.
 
 ## Commands
 
@@ -26,6 +77,7 @@ worktree config --missing
 worktree config --missing --names defaultSourceBranch,github.token
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
+worktree config agent.command "claude --bg"
 worktree config github.token <token>
 worktree config jira.host https://company.atlassian.net
 worktree config jira.email your-email@example.com

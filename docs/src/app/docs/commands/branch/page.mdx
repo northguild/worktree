@@ -13,6 +13,7 @@ worktree branch <name>
 worktree branch <name> --source <remote-branch>
 worktree branch --github <issue-number>
 worktree branch --jira <issue-id>
+worktree branch <name> --agent "<prompt>"
 ```
 
 ## Examples
@@ -24,6 +25,8 @@ worktree branch --github 42
 worktree branch --github "#42"
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
+worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
+worktree branch --github 42 --agent "implement the issue"
 ```
 
 ## GitHub Issue Branching
@@ -64,9 +67,30 @@ Jira authentication requires three configuration keys:
 2. `northguild.worktree.jira.email` - Your Jira email address
 3. `northguild.worktree.jira.apiToken` - Your Jira API token
 
+## Agent Dispatch
+
+Use the `--agent` flag (short: `-a`) to hand the new worktree to the coding agent configured as
+[`agent.command`](/docs/configuration#agent-command). The flag's value is the prompt the agent starts with.
+
+```bash
+worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
+```
+
+- The agent runs **with the new worktree as its working directory**, so it works inside
+  `<repo>.worktrees/<branch-name>` rather than picking a directory of its own.
+- The prompt is passed as a **single argument**, so quotes, apostrophes and semicolons in it reach the
+  agent unchanged. No shell interprets it.
+- The agent is started and left running — `worktree` does not wait for it, and its output does not appear
+  here. Use your agent's own tooling to follow it.
+- `--agent` and the editor are **independent**: if `codeEditor` is configured, the worktree still opens in
+  it as well.
+- If `agent.command` is not configured, `worktree` says so and carries on — the worktree is still created
+  and the editor still opens.
+
 ## What It Does
 
 1. Creates a branch from your configured source branch.
 2. Adds a worktree under `<repo>.worktrees/<branch-name>`.
 3. Copies `.env` files into the new worktree.
-4. Opens the worktree in your configured editor (if configured).
+4. Starts the configured coding agent in it (with `--agent`).
+5. Opens the worktree in your configured editor (if configured).

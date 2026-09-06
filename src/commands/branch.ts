@@ -25,6 +25,7 @@ export default class Branch extends BaseCommand {
     "<%= config.bin %> <%= command.id %> my-new-branch --source origin/main",
     "<%= config.bin %> <%= command.id %> --github 42",
     "<%= config.bin %> <%= command.id %> --jira DEV-123",
+    '<%= config.bin %> <%= command.id %> --github 42 --agent "implement the issue"',
   ];
 
   static override flags = {
@@ -39,6 +40,11 @@ export default class Branch extends BaseCommand {
     jira: Flags.string({
       char: "j",
       description: "Create a branch from a Jira issue (issue ID)",
+    }),
+    agent: Flags.string({
+      char: "a",
+      description:
+        "Start the configured coding agent in the new worktree with this prompt",
     }),
   };
 
@@ -180,7 +186,13 @@ export default class Branch extends BaseCommand {
     const branchName = await this.getBranchName(args.branchName, flags);
     const sourceBranch = await this.getSourceBranch(flags.source);
     const projectPath = await gitCreateWorktree(branchName, sourceBranch);
+    // Env files first: the agent starts working immediately, so it has to find a
+    // worktree that is already complete. The editor stays last so its "Worktree
+    // created" fallback remains the final line.
     await copyEnvFilesFromRootPath(projectPath);
+    if (flags.agent !== undefined) {
+      await this.dispatchAgent(projectPath, flags.agent);
+    }
     await this.openWorktreePath(projectPath);
   }
 }

@@ -12,6 +12,28 @@ export async function isValidCommand(value: string): Promise<true | string> {
   return true;
 }
 
+// A command line, not a bare program name: the head is the program to launch and
+// the tail is leading arguments. commandExists already looks up the head alone
+// (cli.ts), so this agrees with how the value is later executed. The error names
+// the head rather than quoting the whole line back — with "claude --bg" the
+// program is what was not found, and "Command not found: claude --bg" points the
+// reader at the flag instead. See AGENT-MODE-PLAN §3 D1.
+export async function isValidCommandLine(
+  value: string,
+): Promise<true | string> {
+  const [command] = value.trim().split(/\s+/);
+
+  if (!command) {
+    return "Command cannot be empty";
+  }
+
+  if (!(await commandExists(command))) {
+    return `Command not found: ${command}`;
+  }
+
+  return true;
+}
+
 export async function isValidBranch(value: string): Promise<true | string> {
   const branches = value.startsWith("origin/")
     ? await gitGetRemoteBranches()
@@ -65,6 +87,8 @@ export async function isValidConfigValue(
       return isValidBranch(value);
     case "codeEditor":
       return await isValidCommand(value);
+    case "agent.command":
+      return await isValidCommandLine(value);
     default:
       return true;
   }

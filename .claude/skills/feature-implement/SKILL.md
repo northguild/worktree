@@ -39,7 +39,8 @@ detailed it looks.
 This is the step that used to be structural: `/feature-plan` stopped and you typed a second command. It is
 explicit here now, or it is lost.
 
-1. **Surface the plan's §8 Open questions and require an acknowledgement.** Do not proceed on silence.
+1. **Surface the plan's Open questions section and require an acknowledgement.** Do not proceed on
+   silence. Cite it by name — a plan written against an earlier template numbers its sections differently.
 2. **Re-check that the files the plan cites still exist.** A plan drafted a month ago against a
    since-changed tree is a state that can now exist and could not before. Name anything that has moved.
 3. **Check the one-active-feature rule** in [`context/workflow.md`](../../../context/workflow.md). If
@@ -66,9 +67,30 @@ If the ledger's claim contradicts the repo — a phase marked `done` whose **Fil
 plainly in the tree under a phase marked `not started` — **say so and stop.** Never silently re-do or skip
 a phase on a stale ledger.
 
-## 6. Do the work
+## 6. Open the ledger row
+
+Set the phase's Status to `in progress` and write a Note naming what is underway — **before any code.**
+
+This row is what a *later* session reads. A phase interrupted here — context exhausted, session closed, run
+cancelled — leaves a working tree with half a phase in it. A row still reading `not started` sends the next
+run into step 5's disagreement stop, or into redoing work that is already there.
+
+One token and one Note, in the row that is already there — do not move the entry, restructure the table, or
+write a summary anywhere else. If the row is already `in progress` because you are resuming it, leave it
+alone; step 11 rewrites the Note.
+
+**This write is not a change of its own.** Leave it in the working tree — it lands with the phase's work
+under either answer in [`context/git.md`](../../../context/git.md). Never commit it on its own.
+
+## 7. Do the work
 
 Read the phase's §6.2 sub-section: its scope, its **Files:**, and what `done` means for it.
+
+**The plan's Documentation rows assigned to this phase are part of this phase**, not a follow-up — their
+paths are on the same **Files:** line as the code. Per the standing rule in
+[`context/workflow.md`](../../../context/workflow.md), whatever this phase makes untrue is fixed by this
+phase. If the work turned out differently from the plan and made something *else* untrue — a README the
+plan never listed — fix that too and say so; the sweep happened before the code existed.
 
 Delegate to a coder per [`context/executors.md`](../../../context/executors.md) if one is configured;
 otherwise implement in-host. The coder's system prompt is
@@ -80,7 +102,7 @@ this repository can open them, and a brief that inlines them is a brief that goe
 
 Describe **what** needs to happen, never **how** to code it. Scope each delegated task to specific files.
 
-## 7. Gate 1 — verification
+## 8. Gate 1 — verification
 
 Per the gate contract in [`context/workflow.md`](../../../context/workflow.md): read
 [`context/verify.md`](../../../context/verify.md) and run its sections in order — Lint → Typecheck → Build →
@@ -90,9 +112,9 @@ Test.
 so, never faked. Exit 0 is the verdict regardless of summary text. If `verify.md` does not exist or has no
 filled-in section, stop and say so. Docs-only changes run Lint plus a read of the diff.
 
-A failure is the verdict — go to step 9 with the failing output verbatim as the feedback.
+A failure is the verdict — go to step 10 with the failing output verbatim as the feedback.
 
-## 8. Gate 2 — review
+## 9. Gate 2 — review
 
 Dispatch per [`context/executors.md`](../../../context/executors.md). With no independent reviewer
 configured, review the diff yourself against the plan's review expectations and the standards — weaker, and
@@ -101,13 +123,13 @@ configured, review the diff yourself against the plan's review expectations and 
 Require concrete evidence — file paths, command output — for every verdict, and a `P0`–`P3` severity on
 every blocking finding.
 
-- `PASS` or `PASS WITH NOTES` → the phase's work is done; go to step 10.
-- `FAIL` → **write it to [`context/findings.md`](../../../context/findings.md) first, then** go to step 9.
+- `PASS` or `PASS WITH NOTES` → the phase's work is done; go to step 11.
+- `FAIL` → **write it to [`context/findings.md`](../../../context/findings.md) first, then** go to step 10.
 
 **Write the finding before the loopback, not after it.** A verdict that lives only in this session's
 transcript evaporates when the conversation ends — including a `P0` the cap never got to.
 
-## 9. Loopback
+## 10. Loopback
 
 Cap: **two loops per gate, per phase.**
 
@@ -119,20 +141,34 @@ At the cap: **write a finding** (`P1` for a Gate 1 cap-out — a phase whose ver
 blocked by definition), then escalate to the user with the current state and the last feedback.
 **Escalating is not a substitute for recording.**
 
-## 10. Close out the ledger row
+## 11. Close out the ledger row
 
-In the same commit as the work:
+The row is part of the same change as the work — never a separate step afterwards:
 
-- **All of the phase's scope landed and both gates passed** → `done`.
+- **All of the phase's scope landed and both gates passed** → `done`. Its documentation rows are part of
+  that scope: a phase whose doc update has not landed has not landed.
 - **Some landed** → stays `in progress`, Note rewritten to name exactly what remains.
 - **A gate hit its cap, or something external blocks it** → `blocked`, with the blocker in the Note.
 
 **Never mark `done` on a coder's self-report** — the gate output is the evidence. **Refuse `done` while an
 open `P0` or `P1` is tied to this phase**; leave it `in progress` and name the finding.
 
-## 11. Report
+`done` is a verdict about the gates, not about git. Whether the change is committed at all is the next step.
 
-- What changed, and which files.
+## 12. Land it — read [`context/git.md`](../../../context/git.md)
+
+**Do not commit until you have read that file, and do not commit at all unless it says the agent does.**
+It is the only place this project's answer lives, the same way `verify.md` is the only place its commands
+live. If it does not exist — an install from before it shipped — the answer is *the user commits*: say so
+once, and name `/onboard`.
+
+- **The user commits** → leave the change in the working tree, ledger row and all. Report it, hand it over,
+  and stop. Do not stage-and-commit "to be helpful", and do not push or branch under either answer.
+- **The agent commits** → the code and the ledger row in one commit, at the granularity that file names.
+
+## 13. Report
+
+- What changed, and which files — and whether it is committed or waiting in the tree.
 - Gate 1 output, and Gate 2's verdict.
 - Loopback counts, if any.
 - Findings written or closed, by id.

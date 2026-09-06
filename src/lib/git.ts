@@ -4,9 +4,18 @@ import path from "node:path";
 import { confirm } from "@inquirer/prompts";
 import Process from "cli-progress";
 import ora from "ora";
-import { cmd } from "./cli.js";
+import {
+  findSessionForPath,
+  getAgentSessions,
+  isSessionInteractive,
+  isSessionLive,
+  isSessionWaiting,
+} from "./agent.js";
+import { run } from "./cli.js";
 import type {
+  AgentSession,
   ConfigName,
+  WorktreeAgent,
   WorktreeListBaseEntry,
   WorktreeListEntry,
 } from "./types.js";
@@ -14,26 +23,28 @@ import { strToNum } from "./utils.js";
 
 export async function gitGetConfigValue(name: ConfigName) {
   try {
-    return await cmd(`git config northguild.worktree.${name}`);
+    return await run("git", ["config", `northguild.worktree.${name}`]);
   } catch {
     return "";
   }
 }
 
+// The value is an argv element, so a config value carrying quotes, backticks or
+// semicolons is stored literally instead of being parsed as shell syntax.
 export async function gitSetConfigValue(name: ConfigName, value: string) {
-  await cmd(`git config northguild.worktree.${name} "${value}"`);
+  await run("git", ["config", `northguild.worktree.${name}`, value]);
 }
 
 async function gitCmdShowTopLevel() {
-  return cmd("git rev-parse  --show-toplevel");
+  return run("git", ["rev-parse", "--show-toplevel"]);
 }
 
 async function gitCmdGitPath() {
-  return cmd("git rev-parse --absolute-git-dir");
+  return run("git", ["rev-parse", "--absolute-git-dir"]);
 }
 
 export async function gitFetch() {
-  return cmd("git fetch --prune");
+  return run("git", ["fetch", "--prune"]);
 }
 
 export async function gitGetRootPath() {
@@ -62,18 +73,18 @@ function parseGetBranchesResult(result: string) {
 }
 
 export async function gitGetLocalBranches() {
-  const res = await cmd("git --no-pager branch");
+  const res = await run("git", ["--no-pager", "branch"]);
   return parseGetBranchesResult(res);
 }
 
 export async function gitGetRemoteBranches() {
   await gitFetch();
-  const res = await cmd("git --no-pager branch -r");
+  const res = await run("git", ["--no-pager", "branch", "-r"]);
   return parseGetBranchesResult(res);
 }
 
 export async function getCurrentBranchName() {
-  return await cmd("git branch --show-current");
+  return await run("git", ["branch", "--show-current"]);
 }
 
 export async function gitGetAbsoluteWorktreesPath() {
@@ -82,32 +93,36 @@ export async function gitGetAbsoluteWorktreesPath() {
 }
 
 export async function gitGetCommitsAheadCount(branchPath: string) {
-  const countStr = await cmd(
-    `cd ${branchPath} && git rev-list --count @{u}..HEAD`,
-  );
+  const countStr = await run("git", ["rev-list", "--count", "@{u}..HEAD"], {
+    cwd: branchPath,
+  });
   if (countStr) {
     return strToNum(countStr);
   }
 }
 
 export async function gitGetCommitsBehindCount(branchPath: string) {
-  const countStr = await cmd(
-    `cd ${branchPath} && git rev-list --count HEAD..@{u}`,
-  );
+  const countStr = await run("git", ["rev-list", "--count", "HEAD..@{u}"], {
+    cwd: branchPath,
+  });
   if (countStr) {
     return strToNum(countStr);
   }
 }
 
 export async function gitGetUncommittedChangesCount(branchPath: string) {
-  const result = await cmd(`cd ${branchPath} && git status -s`);
+  const result = await run("git", ["status", "-s"], { cwd: branchPath });
   return result ? result.split(EOL).length : 0;
 }
 
 export async function gitGetLocalBranchesTracking() {
-  const res = await cmd(
-    "git for-each-ref --format='%(refname:short) <- %(upstream:short)' refs/heads",
-  );
+  // The format is one argv element, so the single quotes the shell form needed
+  // around its spaces are gone rather than being passed on to git literally.
+  const res = await run("git", [
+    "for-each-ref",
+    "--format=%(refname:short) <- %(upstream:short)",
+    "refs/heads",
+  ]);
   return res.split(EOL).map((branch) => {
     const [local, remote] = branch
       .trim()
@@ -130,7 +145,7 @@ export async function gitGetWorktrees({
 }: GitGetWorktreesOptions = {}): Promise<WorktreeListBaseEntry[]> {
   const currentBranch = await getCurrentBranchName();
   const worktreesRootPath = await gitGetAbsoluteWorktreesPath();
-  const result = await cmd("git worktree list");
+  const result = await run("git", ["worktree", "list"]);
 
   return (
     result
@@ -150,27 +165,88 @@ export async function gitGetWorktrees({
   );
 }
 
-function isSafeToRemove(wt: WorktreeListEntry) {
+// Somebody is working in this worktree — a dispatched agent or a human's own
+// terminal, which D5 treats alike. Fails safe on an absent marker: an entry that
+// records a session without saying whether it finished counts as live, so a
+// hand-built entry and a runtime that renamed its state field both block removal
+// rather than being waved through. See AGENT-MODE-PLAN §3 D5/D6.
+export function hasLiveAgent(wt: WorktreeListEntry): boolean {
+  return !!wt.agent && wt.agent.live !== false;
+}
+
+export function isSafeToRemove(wt: WorktreeListEntry): boolean {
   if (!wt.pathExists) {
-    // Worktree is defined but doesn't exist in the filesystem.
+    // Worktree is defined but doesn't exist in the filesystem. Tested first, and
+    // before the agent clause too: a directory that is already gone holds
+    // nothing to lose, whoever the session listing still believes is in it.
     return true;
+  }
+  if (hasLiveAgent(wt)) {
+    // Deleting a directory somebody is working in is the worst failure mode in
+    // this flow, so it outranks every reason below — including uncommitted work,
+    // which is the same judgement made about a smaller loss.
+    return false;
+  }
+  if (wt.uncommittedChanges) {
+    // Uncommitted work disqualifies a worktree whatever its remote looks like.
+    // See CLEANUP-DATA-LOSS-PLAN §3 D2.
+    return false;
   }
   if (wt.remote && !wt.remoteExists) {
     // Worktree is tracking a remote branch that no longer exists.
     return true;
   }
-  if (!wt.remote && !wt.ahead && !wt.behind && wt.uncommittedChanges === 0) {
+  if (!wt.remote && !wt.ahead && !wt.behind) {
     // Worktree has no changes and it not tracking any remote branch.
     return true;
   }
+  return false;
+}
+
+interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
+  includeAgents?: boolean;
+}
+
+// The session's own name and pid, plus the liveness `cleanup` weighs and the two
+// markers `list` renders — all three derived by agent.ts's predicates, so no raw
+// `kind`, `state` or `status` value crosses this boundary. See AGENT-MODE-PLAN
+// §4.
+//
+// One session, not a set: an entry carries a single `agent`, so a worktree
+// holding both a human's terminal and a dispatched agent is described by
+// whichever findSessionForPath picked. Naming it in the output is what keeps
+// that honest — the marker describes the session it names, not the worktree.
+function toWorktreeAgent(
+  sessions: AgentSession[],
+  worktreePath: string,
+): WorktreeAgent | undefined {
+  const session = findSessionForPath(sessions, worktreePath);
+  if (!session) {
+    return undefined;
+  }
+
+  return {
+    name: session.name,
+    pid: session.pid,
+    live: isSessionLive(session),
+    interactive: isSessionInteractive(session),
+    waiting: isSessionWaiting(session),
+  };
 }
 
 export async function gitGetWorktreeList({
   includeCurrent = false,
-}: GitGetWorktreesOptions = {}) {
+  includeAgents = false,
+}: GitGetWorktreeListOptions = {}) {
   const remoteBranches = await gitGetRemoteBranches();
   const tracking = await gitGetLocalBranchesTracking();
   const result = await gitGetWorktrees({ includeCurrent });
+  // One lookup for the whole run, joined in-process below, and only when a
+  // caller asks for it. Both halves matter: the loop underneath is serial and
+  // already spends three subprocesses per worktree, so a per-worktree session
+  // call would be a fourth, and a caller that never renders agents must not pay
+  // for the one. See AGENT-MODE-PLAN §3 D4 and §5 R4.
+  const sessions = includeAgents ? await getAgentSessions() : [];
 
   const worktreeList: WorktreeListEntry[] = [];
 
@@ -199,6 +275,9 @@ export async function gitGetWorktreeList({
       pathExists,
       uncommittedChanges,
       isCurrent,
+      // Empty without includeAgents, so this is undefined for every caller that
+      // did not ask — no separate branch needed to keep the field off.
+      agent: toWorktreeAgent(sessions, path),
     };
 
     worktreeList.push({
@@ -221,24 +300,32 @@ export async function gitCreateWorktree(
 ): Promise<string> {
   const spinner = ora(`Creating worktree ${branchName}`).start();
   try {
-    const currentPath = process.env.PWD;
     const gitRootPath = await gitGetRootPath();
     const worktreesRootPath = `../${path.basename(gitRootPath)}.worktrees`;
     const worktreePath = `${worktreesRootPath}/${branchName}`;
     const absoluteWorktreePath = `${gitRootPath}.worktrees/${branchName}`;
-    // cd into the root path so we can create a relative worktree. This ensures that
-    // everything stays in sync in case the project is moved in the filesystem.
-    const cdRoot = `cd ${gitRootPath}`;
+    // Both calls run with the root path as their cwd, so `git worktree add` gets
+    // a relative worktree path. This ensures that everything stays in sync in
+    // case the project is moved in the filesystem. cwd is per-call and never
+    // moves this process, so there is nothing to change back afterwards.
     // Fetch the latest changes from the remote
-    const gitFetch = "git fetch";
-    // If checking out a remote branch, create a local tracking branch
-    const addWorktree = isCheckout
-      ? `git worktree add --track -b ${branchName} ${worktreePath} ${sourceBranch}`
-      : `git worktree add --no-track -b ${branchName} ${worktreePath} ${sourceBranch}`;
-    // Go back
-    const gotoBack = `cd ${currentPath}`;
-    // Run them all in sequence
-    await cmd(`${cdRoot} && ${gitFetch} && ${addWorktree} && ${gotoBack}`);
+    await run("git", ["fetch"], { cwd: gitRootPath });
+    // If checking out a remote branch, create a local tracking branch. Awaiting
+    // in sequence keeps the short-circuit the `&&` chain had: a rejection here
+    // is only reached once the fetch has resolved.
+    await run(
+      "git",
+      [
+        "worktree",
+        "add",
+        isCheckout ? "--track" : "--no-track",
+        "-b",
+        branchName,
+        worktreePath,
+        sourceBranch,
+      ],
+      { cwd: gitRootPath },
+    );
     // Stop the spinner
     spinner.succeed();
     // Return the absolute path to the new worktree
@@ -253,15 +340,20 @@ interface GitNukeWorktreeCmdOptions {
   force?: boolean;
 }
 
-export function gitNukeWorktreeCmd(
+// Sequential awaits stand in for the `&&` chain: a rejection stops the sequence
+// before the next command runs, which is what the shell operator did.
+export async function gitNukeWorktreeCmd(
   branchName: string,
   { force = false }: GitNukeWorktreeCmdOptions = {},
 ) {
-  return cmd(
-    `git worktree remove ${branchName}${
-      force ? " --force" : ""
-    } && git worktree prune && git branch -D ${branchName}`,
-  );
+  await run("git", [
+    "worktree",
+    "remove",
+    branchName,
+    ...(force ? ["--force"] : []),
+  ]);
+  await run("git", ["worktree", "prune"]);
+  await run("git", ["branch", "-D", branchName]);
 }
 
 export async function gitNukeWorktree(

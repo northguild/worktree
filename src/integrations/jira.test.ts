@@ -40,8 +40,8 @@ describe("Jira integration", () => {
       "git config northguild.worktree.jira.apiToken",
     );
 
-    const cmdSpy = vi.spyOn(cli, "cmd");
-    cmdSpy
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy
       .mockResolvedValueOnce("https://example.atlassian.net/")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -74,7 +74,7 @@ describe("Jira integration", () => {
       "git config northguild.worktree.jira.apiToken",
     );
 
-    vi.spyOn(cli, "cmd")
+    vi.spyOn(cli, "run")
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -91,7 +91,7 @@ describe("Jira integration", () => {
       "git config northguild.worktree.jira.apiToken",
     );
 
-    vi.spyOn(cli, "cmd")
+    vi.spyOn(cli, "run")
       .mockResolvedValueOnce("example.atlassian.net")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -120,7 +120,7 @@ describe("Jira integration", () => {
       "git config northguild.worktree.branchPrefix.bugfix",
     );
 
-    vi.spyOn(cli, "cmd")
+    vi.spyOn(cli, "run")
       .mockResolvedValueOnce("example.atlassian.net")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token")
@@ -157,7 +157,7 @@ describe("Jira integration", () => {
       "git config northguild.worktree.jira.apiToken",
     );
 
-    vi.spyOn(cli, "cmd")
+    vi.spyOn(cli, "run")
       .mockResolvedValueOnce("example.atlassian.net")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");

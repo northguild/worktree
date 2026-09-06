@@ -4,6 +4,8 @@ import {
   isValidBranch,
   isValidBranchName,
   isValidCommand,
+  isValidCommandLine,
+  isValidConfigValue,
   isValidEmail,
 } from "./validators.js";
 
@@ -62,6 +64,79 @@ describe("isValidCommand", () => {
       expect(cli.commandExists).toHaveBeenCalledWith(command);
     },
   );
+});
+
+describe("isValidCommandLine", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each`
+    commandLine       | commandExists | expected                     | lookedUp    | description
+    ${"claude"}       | ${true}       | ${true}                      | ${"claude"} | ${"a bare program name"}
+    ${"claude --bg"}  | ${true}       | ${true}                      | ${"claude"} | ${"leading arguments are not part of the lookup"}
+    ${"  codex  -q "} | ${true}       | ${true}                      | ${"codex"}  | ${"surrounding whitespace is trimmed"}
+    ${"codex\t-q"}    | ${true}       | ${true}                      | ${"codex"}  | ${"a tab separates the head just as a space does"}
+    ${"nope --bg"}    | ${false}      | ${"Command not found: nope"} | ${"nope"}   | ${"the error names the program, not the whole line"}
+    ${"nope"}         | ${false}      | ${"Command not found: nope"} | ${"nope"}   | ${"a missing bare program"}
+  `(
+    'should return $expected for "$commandLine" ($description)',
+    async ({ commandLine, commandExists, expected, lookedUp }) => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(commandExists);
+
+      expect(await isValidCommandLine(commandLine)).toBe(expected);
+      expect(cli.commandExists).toHaveBeenCalledWith(lookedUp);
+    },
+  );
+
+  it.each`
+    commandLine | description
+    ${""}       | ${"empty string"}
+    ${"   "}    | ${"whitespace only"}
+  `(
+    'should reject "$commandLine" without a lookup ($description)',
+    async ({ commandLine }) => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+
+      expect(await isValidCommandLine(commandLine)).toBe(
+        "Command cannot be empty",
+      );
+      expect(cli.commandExists).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("isValidConfigValue", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // agent.command routes to isValidCommandLine rather than isValidCommand, so a
+  // configured value carrying flags validates on its head alone. Pinning the
+  // routing here is what keeps a switch edit from silently reverting D1.
+  it("validates agent.command on its argv head", async () => {
+    vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+
+    expect(await isValidConfigValue("agent.command", "claude --bg")).toBe(true);
+    expect(cli.commandExists).toHaveBeenCalledWith("claude");
+  });
+
+  it("reports only the program when agent.command's head is missing", async () => {
+    vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+
+    expect(await isValidConfigValue("agent.command", "nope --bg")).toBe(
+      "Command not found: nope",
+    );
+  });
+
+  it("leaves a config name with no case unvalidated", async () => {
+    vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+
+    expect(await isValidConfigValue("github.token", "anything at all")).toBe(
+      true,
+    );
+    expect(cli.commandExists).not.toHaveBeenCalled();
+  });
 });
 
 describe("isValidBranch", () => {

@@ -26,19 +26,27 @@ the standing rules, and every command cites it rather than restating it.
 | `/feature-status` | read-only "where do things stand". **Never a prerequisite** for anything |
 | `/feature-close` | retires a finished or abandoned feature into `context/archive/` |
 | `/orchestrate` | one ad-hoc, gated, commit-sized change — no roadmap entry, no ledger |
-| `/onboard` | fills in this project's own stubs — `verify.md`, `executors.md`, `stack.md` — adopting what an existing `AGENTS.md` already said |
+| `/prototype` | a throwaway HTML/CSS mockup under `prototypes/` — no gates, no ledger, no application code |
+| `/onboard` | fills in this project's own stubs — `verify.md`, `executors.md`, `git.md`, `stack.md` — adopting what an existing `AGENTS.md` already said |
 
 | Read | For |
 |---|---|
-| [`context/stack.md`](context/stack.md) | runtime, layout, conventions |
+| [`context/stack.md`](context/stack.md) | runtime, layout, conventions, and where this project documents itself |
 | [`context/standards/README.md`](context/standards/README.md) | engineering standards — load per its conditional table |
 | [`context/verify.md`](context/verify.md) | the real lint / typecheck / build / test commands — the only file that names one |
+| [`context/git.md`](context/git.md) | who commits, and at what granularity — read it before closing out any change |
 
 **Phase status lives in the active plan's status ledger and nowhere else.** Work the lowest-numbered phase
 that is not `done` and whose `Depends on` are all `done`; state which you picked before starting; update
-the row in the same commit as the work. **If the ledger disagrees with the repo, stop and say so.**
+the row as part of the same change as the work. **If the ledger disagrees with the repo, stop and say so.**
+
+**Nothing commits unless [`context/git.md`](context/git.md) says so.** Absent or silent, the work is left in
+the working tree and the user commits it.
 
 **An open `P0` or `P1` in [`context/findings.md`](context/findings.md) blocks its phase from being `done`.**
+
+**Documentation is part of the change.** Whatever a change makes untrue in this project's own docs is fixed
+by the phase that makes it untrue, not by a follow-up.
 
 **Require evidence, not assertion.** A claim about what a file contains needs the file read, not recalled —
 yours as much as a subagent's.

@@ -20,7 +20,7 @@ running something else.
 | Tier 1 → a plan | `/feature-plan` |
 | a plan → being worked, then phase by phase | `/feature-implement` |
 | Tier 2 → retired | `/feature-close` |
-| no tier crossed | `/orchestrate` — one ad-hoc gated change; `/feature-status` — read-only |
+| no tier crossed | `/orchestrate` — one ad-hoc gated change; `/feature-status` — read-only; `/prototype` — a throwaway mockup |
 
 **Every command finds its own starting point.** Nothing has to be looked up first, and `/feature-status` is
 never a prerequisite for anything.
@@ -35,7 +35,8 @@ never a prerequisite for anything.
 | `/feature-status` | nothing — read-only | — |
 | `/feature-close` | Tier 2 → retired | `history.md`, `archive/`, the reference sweep |
 | `/orchestrate` | one ad-hoc gated change | the code, and `findings.md` |
-| `/onboard` | the project-owned stubs | `verify.md`, `executors.md`, `stack.md`, and the pruning of what they replace |
+| `/prototype` | one throwaway HTML/CSS mockup — no gates, no application code | `prototypes/<NAME>/`, and nothing else |
+| `/onboard` | the project-owned stubs | `verify.md`, `executors.md`, `git.md`, `stack.md`, and the pruning of what they replace |
 
 ## One source of truth per fact
 
@@ -85,6 +86,30 @@ features may hold plans at once, and that is what makes planning ahead possible.
 `/orchestrate` is the ad-hoc escape hatch, not the way to skip planning. It refuses anything larger than a
 commit-sized unit and anything an existing roadmap entry already covers.
 
+### Nothing commits unless `git.md` says so
+
+> **Read [`git.md`](git.md) before closing out any command that lands code. If it does not exist, or does
+> not say the agent commits, the work is left in the working tree and the user commits it.**
+
+This workflow has always described phases as commit-sized and `done` as landed — which an agent, given no
+policy, resolves by committing on its own every phase. That is a call about someone else's repository, so
+it is a written answer rather than an inference. Branching and pushing are outside it: nothing here creates
+a branch, pushes, or opens a pull request under either answer.
+
+### Documentation is part of the change
+
+> **Find where this project documents itself before planning — the Documentation index in
+> [`stack.md`](stack.md), and the repository itself when that index is missing or empty. Whatever a change
+> makes untrue there is fixed by the phase that makes it untrue, not by a follow-up.**
+
+Documentation is the one output with no gate behind it. Nothing fails when a README goes on describing a
+flag that was renamed, so the drift is invisible until someone follows the old instructions and it is not
+invisible to them. `/feature-plan` writes the affected surfaces into the plan's §7, each assigned to a
+phase, and that phase's **Files:** line carries the path like anything else it touches.
+
+*"Nothing here describes this feature"* is a legitimate answer, and it names the surfaces that were
+checked. Saying nothing is not that answer.
+
 ### Never transcribe a credential
 
 > **A DSN, token or key is described and pointed at the secret store, never copied into a tracked file.**
@@ -114,10 +139,21 @@ To pick the next phase: take the **lowest-numbered phase that is not `done` and 
 are all `done`.** State which one you picked before starting. If it is already `in progress`, read its Note
 and resume — do not restart it.
 
-`done` means committed and verified, and whoever finishes a phase updates its row in the same commit.
+**A phase's row is written twice.** It opens to `in progress` when the work starts, before any code, and
+closes to `done`, `in progress` or `blocked` when the phase ends. The opening write is what makes an
+interruption survivable: a run that dies mid-phase leaves a tree with half the work in it, and the row is
+the only thing that can say so.
+
+`done` means the phase's scope landed and both gates passed — **a verdict about the gates, not about git.**
+Whoever finishes a phase updates its row **as part of the same change as the work**: one commit where the
+agent commits, one working tree handed over where the user does. A closing row updated separately is a row
+that disagrees with the repository in between. The opening write is not a change of its own — it is left in
+the tree and lands with the work it describes.
 
 If the ledger's claim disagrees with the repo — a phase marked `done` whose files do not exist, or the
-reverse — **stop and say so.** Never silently re-do or skip a phase on a stale ledger.
+reverse — **stop and say so.** Never silently re-do or skip a phase on a stale ledger. A `done` row whose
+change is still uncommitted is not that: under the default policy in [`git.md`](git.md) it is the normal
+end state.
 
 ## The gates
 

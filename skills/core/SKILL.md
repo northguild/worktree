@@ -2,15 +2,16 @@
 name: core
 description: >
   Complete usage guide for @northguild/worktree. Covers install, first-time
-  setup with worktree config (defaultSourceBranch, codeEditor, github.token,
-  jira.host, jira.email, jira.apiToken, branchPrefix.feature,
+  setup with worktree config (defaultSourceBranch, codeEditor, agent.command,
+  github.token, jira.host, jira.email, jira.apiToken, branchPrefix.feature,
   branchPrefix.bugfix, branchPrefix.chore), worktree branch, worktree checkout,
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
-  --github issue-to-branch, --jira issue-to-branch, and automatic .env /
-  .env.local copying into new worktrees.
+  --github issue-to-branch, --jira issue-to-branch, handing a new worktree to a
+  coding agent with --agent, worktree list --agents, worktree cleanup
+  --ignore-agents, and automatic .env / .env.local copying into new worktrees.
 type: core
 library: '@northguild/worktree'
-library_version: "1.2.8"
+library_version: "1.3.0"
 sources:
   - "northguild/worktree:README.md"
   - "northguild/worktree:docs/src/app/docs/commands/branch/page.mdx"
@@ -25,6 +26,8 @@ sources:
   - "northguild/worktree:docs/src/app/docs/guides/jira-integration/page.mdx"
   - "northguild/worktree:docs/src/app/docs/guides/env-files/page.mdx"
   - "northguild/worktree:src/commands/branch.ts"
+  - "northguild/worktree:src/lib/agent.ts"
+  - "northguild/worktree:src/lib/base-command.ts"
   - "northguild/worktree:src/lib/git.ts"
   - "northguild/worktree:src/lib/validators.ts"
 ---
@@ -43,7 +46,8 @@ npm install -g @northguild/worktree
 
 # Run once inside your git repository
 worktree config
-# prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code)
+# prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code),
+# and agent.command (e.g. claude --bg) — the last two behind a yes/no confirm
 
 # Create your first worktree
 worktree branch feature/my-feature
@@ -96,11 +100,33 @@ editable before confirmation. Branch prefixes are applied when configured:
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
 
+### Hand a new worktree to a coding agent
+
+```bash
+# Requires agent.command in config, e.g. claude --bg
+worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
+worktree branch --github 42 --agent "implement the issue"
+worktree checkout feature/fix-login-timeout -a "find the cause of the timeout"
+```
+
+The agent starts with the new worktree as its working directory, so it works
+inside `<repo>.worktrees/` rather than isolating itself elsewhere. The flag's
+value reaches the agent as a single argument and no shell parses it, so quotes
+and spaces in a prompt are safe.
+
+`--agent` and the editor are independent: with `codeEditor` also configured the
+worktree opens there as well. The agent is started and left running, so
+`worktree` does not wait for it and its output does not appear here.
+
 ### Maintain the worktree lifecycle
 
 ```bash
 # See all active worktrees
 worktree list
+
+# Name the agent session living in each worktree
+worktree list --agents
+worktree list -a                              # alias
 
 # Reopen a worktree in your editor
 worktree open feature/add-bulk-actions
@@ -113,7 +139,14 @@ worktree remove feature/add-bulk-actions --force  # skip confirmation
 # Remove all stale worktrees (no unpushed work, remote gone, etc.)
 worktree cleanup
 worktree cleanup --force                      # skip confirmation
+worktree cleanup --ignore-agents              # sweep even worktrees an agent is in
 ```
+
+A worktree a live agent session is sitting in is never removed by `cleanup`; it
+is reported as skipped instead. `--force` does not override that — it answers
+the confirmation prompt, not the safety verdict — and `--ignore-agents` does,
+which is why that one has no short alias. The check covers an interactive
+session in your own terminal as well as an agent this tool dispatched.
 
 ## Configuration Reference
 
@@ -124,6 +157,7 @@ under `northguild.worktree.*`.
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source` |
 | `codeEditor` | `code` | auto-opening worktrees |
+| `agent.command` | `claude --bg` | `--agent`, `list --agents`, `cleanup`'s agent check |
 | `github.token` | `ghp_...` | `--github` flag |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
@@ -238,6 +272,32 @@ All three Jira keys are required. Missing any one causes an authentication
 error when the CLI calls the Jira API.
 
 Source: `docs/guides/jira-integration`, `src/integrations/jira.ts`
+
+---
+
+### HIGH `--agent` used without `agent.command` configured
+
+Wrong:
+
+```bash
+# Nothing set agent.command
+worktree branch feature/x --agent "implement the issue"
+```
+
+Correct:
+
+```bash
+worktree config agent.command "claude --bg"
+worktree branch feature/x --agent "implement the issue"
+```
+
+With no `agent.command` set, `--agent` logs `No agent configured. Run worktree
+config agent.command "<command>" to set one.` and carries on: the worktree is
+created, env files are copied, the editor opens, and the exit code is still `0`. Nothing fails, so in a scripted run a skipped dispatch
+is indistinguishable from a successful one. Set the key first, or check
+`worktree config --list`.
+
+Source: `src/lib/base-command.ts` — `dispatchAgent()`
 
 ---
 
