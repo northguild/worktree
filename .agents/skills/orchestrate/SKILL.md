@@ -45,6 +45,11 @@ A refusal here is the workflow working.
 
 Read `context/stack.md` and load `context/standards/README.md` per its conditional table.
 
+**Check that file's Documentation section, and the tree if it is empty.** If this change makes something
+there wrong — a README, a docs page, a changelog, help text in the code — the fix is part of this change,
+per the standing rule in [`context/workflow.md`](../../../context/workflow.md). A one-shot change is where
+that gets skipped most, because there is no plan holding the row.
+
 Delegate to a coder per [`context/executors.md`](../../../context/executors.md) if one is configured;
 otherwise implement in-host. The coder's system prompt is
 [`context/roles/coder.md`](../../../context/roles/coder.md). The brief **cites paths, it does not paste
@@ -79,10 +84,18 @@ expand no scope.
 At the cap: write a finding (`P1` for a Gate 1 cap-out), then escalate with the current state and the last
 feedback. **Escalating is not a substitute for recording.**
 
-## 6. Report
+## 6. Land it — read [`context/git.md`](../../../context/git.md)
 
-What changed, the Gate 1 output, the Gate 2 verdict, any loopbacks, and any findings written, closed or
-swept — by id.
+**Do not commit unless that file says the agent does.** If it does not exist, the answer is *the user
+commits*: say so once, and name `/onboard`. Nothing branches or pushes under either answer.
+
+- **The user commits** → leave the change in the working tree and hand it over.
+- **The agent commits** → one commit, at the granularity that file names.
+
+## 7. Report
+
+What changed, whether it is committed or waiting in the tree, the Gate 1 output, the Gate 2 verdict, any
+loopbacks, and any findings written, closed or swept — by id.
 
 ## Rules
 

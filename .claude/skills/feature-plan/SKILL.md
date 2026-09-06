@@ -90,11 +90,22 @@ inline. Either way the brief is the same, and the output contract is the templat
 planner's own default shape:
 
 - The roadmap entry verbatim, and the full content of its draft if there was one.
+- **If `prototypes/<NAME>/` exists at the repository root**, its `NOTES.md` and the mockups beside it. A
+  sketch someone has already looked at settles a design question that a paragraph would only argue. Carry
+  what it settled into §4 Design and cite the folder; treat anything it marked invented as a proposal, not
+  a fact. **No folder, no step** — this is a conditional read, not a prerequisite.
 - **The full section list from `context/plan-template.md`, stated as required output**, in order, with the
   ledger's exact column set. A general-purpose planner will otherwise emit implementation-steps-and-
   acceptance-criteria — a per-phase artifact, not a plan — and you will throw it away.
 - Pointers to `context/stack.md`, `context/standards/README.md` (load per its conditional table) and
   `context/verify.md`. Cite the paths; do not paste the files in. Anything reading this repo can open them.
+- **Where this project documents itself, and what this feature makes untrue there.** Start from the
+  Documentation section of `context/stack.md`. **If that section is empty, missing, or names less than the
+  tree plainly holds, sweep for it** — the root `README`, a `README` in each package, `docs/`, a docs site
+  or landing page in the repository, an API reference or OpenAPI document, a changelog, help text and
+  format comments that live in the code. Ask the user about anything hosted elsewhere: a wiki, a docs site
+  built from another repo, a published reference. **An index nobody filled in is not evidence that there
+  are no docs**, and a plan that assumes it is ships the drift.
 - **Cite file paths and command output for every claim about the current codebase.** Anything unverified is
   an open question, not an assertion.
 - Phases are **commit-sized units with checkable outcomes**, each with a real `Depends on` value and a
@@ -108,7 +119,11 @@ Fill in the template's shape. Then:
 - Date it and point its header at the roadmap entry.
 - **No `**Status:**` header.** Feature status lives in `roadmap.md`, phase status in the ledger. A document
   that claims its own status is a copy that goes stale.
-- Fill in **§8 Open questions** honestly. An honest gap is worth more than an invented decision.
+- Fill in **§7 Documentation** from what the sweep found: one row per surface the feature changes, each
+  assigned to the phase that carries it, **and that phase's `Files:` line names the same path.** A
+  documentation row with no phase is a follow-up nobody does. If nothing changes, say which surfaces you
+  checked and why none of them describe this — that is an answer, and leaving the section blank is not.
+- Fill in **§9 Open questions** honestly. An honest gap is worth more than an invented decision.
 - Every phase is `not started`.
 
 ### 6. Update the roadmap entry
@@ -126,7 +141,8 @@ own; discarding it over a marker would undo the point of the split.
 
 ### 7. Report and stop
 
-State the document path, the phase count, and the open questions. Then say plainly that **what you produced
+State the document path, the phase count, the documentation surfaces §7 commits to updating, and the open
+questions. Then say plainly that **what you produced
 is a reviewable skeleton plus open questions, not a finished plan of record** — the value is the structure
 and the research. Name the next step: the user reviews and edits the plan, and `/feature-implement` runs it
 once they are satisfied.

@@ -40,8 +40,10 @@ stale. That is the exact failure this workflow exists to prevent.
 
 - Every phase `done` while the entry still reads `active` — that is the normal state before
   `/feature-close`. Next action 5 handles it.
-- A `done` row with its changes still in the working tree — a phase finished but not committed. Name it in
-  the report; do not stop on it.
+- A `done` row with its changes still in the working tree. Under the default policy in
+  [`context/git.md`](../../../context/git.md) that is the normal end state of a phase, not a discrepancy —
+  the user commits. Name it in the report; do not stop on it, and do not commit it: this command writes
+  nothing.
 
 ## 3. Report
 

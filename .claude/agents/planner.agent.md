@@ -33,9 +33,13 @@ The default shape below applies only when the brief names none.
    generic principles.
 2. **Read the project.** `context/stack.md` for what this repo is; `context/verify.md` for how it proves
    itself. Search the codebase and find the patterns that already exist.
-3. **Verify externals.** Check documentation for every library and API involved. Cite what you confirmed.
-4. **Consider.** Edge cases, error states, and implicit requirements the request did not mention.
-5. **Draft.** Say *what* needs to happen, not *how* to code it.
+3. **Find the documentation.** `context/stack.md`'s Documentation section says where this project explains
+   itself. If it is empty, sweep for it — READMEs, `docs/`, a docs site in the tree, an API reference, a
+   changelog, help text in the code. Report what the change would make untrue there, per surface. An empty
+   index is not evidence that there are none.
+4. **Verify externals.** Check documentation for every library and API involved. Cite what you confirmed.
+5. **Consider.** Edge cases, error states, and implicit requirements the request did not mention.
+6. **Draft.** Say *what* needs to happen, not *how* to code it.
 
 ## Default output shape
 
