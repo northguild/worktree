@@ -250,7 +250,7 @@ small and the consequence is a spurious block, not data loss. Accepted; not miti
 | 4 | ~~Churn stats on the worktree entry~~ | cut | — | Cut 2026-09-06: unrelated to agents, Phase 5 was its only consumer, and it was the fourth per-worktree subprocess (R4). Re-filed as `worktree-churn-stats`. |
 | 5 | `list --agents` | done | 3 | Gate 1 green (307 tests, was 294). Gate 2 `PASS WITH NOTES`, no loopbacks. F-024 closed. Notes filed as F-025 (`P2`, tied to Phase 6) and F-026/F-027/F-028, all `P3`. §4's flag on `gitGetWorktreeList` was followed over this phase's original **Files** line — see Phase 5 below. |
 | 6 | Agent-aware `cleanup` | done | 3 | Gate 1 green (322 tests, was 307). Gate 2 `PASS WITH NOTES`, no loopbacks. §7's Phase 6 manual run passed, including the override and the finished-session case. F-002, F-003 and F-026 closed; F-025 deferred, with its dangling close condition amended in place. Notes filed as F-029 through F-035, all `P3`. `src/lib/types.ts` added to **Files** — see Phase 6 below. |
-| 7 | Generated-surface sweep | not started | 2, 5, 6 | |
+| 7 | Generated-surface sweep | done | 2, 5, 6 | Gate 1 green — docs-only per `verify.md`, so Lint (`pnpm check`, exit 0) plus a read of the diff, and `pnpm sync-version` left no further diff, which is this phase's own **Done when**. Gate 2 `PASS WITH NOTES`, no loopbacks. `skills/_artifacts/skill_tree.yaml` added to **Files** — see Phase 7 below. F-036 filed by hand during the sweep. Of Gate 2's ten notes, the six that were inaccuracies or stale bookkeeping in this phase's own text were corrected before the commit; the two that would have rewritten shipped prose are filed as F-037/F-038, and two were judged not defects. All `P3`. |
 
 Status is one of `not started`, `in progress`, `blocked`, `done`, `cut`. `done` only when committed and
 verified, and whoever finishes a phase updates the row in the same commit. `cut` means the phase will not be
@@ -386,7 +386,24 @@ without a real agent binary.
 
 #### Phase 7 — Generated-surface sweep
 
-**Files:** `skills/core/SKILL.md`, `README.md`
+**Files:** `skills/core/SKILL.md`, `README.md`, and — **added at implementation, 2026-09-06** —
+`skills/_artifacts/skill_tree.yaml`. That file carries a near-copy of `SKILL.md`'s frontmatter — a
+`description` enumerating the config keys and commands, and the same `sources` list — and it ships: the
+`files` field in `package.json` publishes the whole `skills/` tree. Leaving it would have put two
+disagreeing descriptions of the config surface in the published package, which is the drift this phase
+exists to close.
+
+`skills/_artifacts/domain_map.yaml` and `skills/_artifacts/skill_spec.md` are **deliberately not touched**,
+and the line between them and `skill_tree.yaml` is checkable rather than a matter of taste. Two independent
+things draw it in the same place: `scripts/sync-intent-version.mjs:49-50` writes exactly two files,
+`SKILL.md` and `skill_tree.yaml`, and `.github/workflows/ci.yml:33-34` gates on that same pair —
+`git diff --exit-code -- skills/core/SKILL.md skills/_artifacts/skill_tree.yaml`. Those two are the
+maintained artifacts; the other two are generator inputs nothing consumes at build or run time.
+
+`domain_map.yaml` is additionally a stamped record: `:4-6` carries `Version: 1.2.0`, `Date: 2026-04-06` and
+`Status: reviewed` against a package now at 1.2.8, so hand-editing it would claim a discovery run and a
+review that never happened. `skill_spec.md` carries no such stamp and rests on the sync/CI criterion alone.
+Both files' stale enumerations are recorded as [`../findings.md`](../findings.md) F-036 instead.
 
 **Scope:** Update `SKILL.md`'s frontmatter `description` (it enumerates every command and config value) and
 its `sources` list, plus the body. Update `README.md` if the feature list changed. **No new command is
@@ -442,7 +459,10 @@ is not one to discover from a unit test alone.
 - `docs/src/app/docs/configuration/page.mdx` — for `agent.command`.
 - `docs/src/app/docs/commands/_meta.ts` — **not touched**; no new command is added.
 - `skills/core/SKILL.md` — frontmatter `description` enumerates every command and config value; `sources`
-  already lists `src/commands/branch.ts`, `src/lib/git.ts`, `src/lib/validators.ts`.
+  listed `src/commands/branch.ts`, `src/lib/git.ts`, `src/lib/validators.ts` when this plan was written, and
+  Phase 7 added `src/lib/agent.ts` and `src/lib/base-command.ts` to it.
+- `skills/_artifacts/skill_tree.yaml` — **added at Phase 7**; it ships and duplicates that frontmatter. Its
+  two sibling artifacts are deliberately left alone; see Phase 7's **Files** line for where the line falls.
 - `README.md` — if the feature list changes.
 
 ## 10. What already holds in this repo

@@ -10,6 +10,7 @@ It wraps the most common worktree tasks into a small workflow-oriented tool:
 - check out an existing remote branch into its own worktree
 - copy local env files into the new worktree
 - open the result in your editor automatically
+- hand the new worktree straight to a coding agent
 - list, reopen, remove, and clean up worktrees later
 
 This README focuses on the fast path. The documentation website will cover deeper examples, advanced workflows, integrations, and troubleshooting.
@@ -77,6 +78,7 @@ The setup flow can configure:
 
 - `defaultSourceBranch` for new worktrees, such as `origin/main`
 - `codeEditor` for automatically opening a worktree, such as `code`
+- `agent.command` for handing a worktree to a coding agent, such as `claude --bg`
 
 Then create your first worktree:
 
@@ -119,10 +121,26 @@ worktree checkout origin/feature/fix-login-timeout
 
 This creates a local tracking branch in a dedicated worktree.
 
+### Hand a new worktree to a coding agent
+
+```bash
+worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
+```
+
+The agent starts with the new worktree as its working directory and the flag's value as its prompt, so it works inside `<repo>.worktrees` alongside everything else. `worktree checkout` takes the same flag.
+
+This is independent of the editor: with `codeEditor` set as well, the worktree still opens there. It needs `agent.command` configured — without it the worktree is created and opened as usual and only the agent is skipped.
+
 ### See what worktrees already exist
 
 ```bash
 worktree list
+```
+
+To name the agent session living in each worktree:
+
+```bash
+worktree list --agents
 ```
 
 ### Reopen a worktree in your editor
@@ -159,6 +177,8 @@ worktree cleanup
 
 The cleanup command targets worktrees that are considered safe to remove, for example branches whose remote no longer exists or local worktrees with no tracked remote and no pending work.
 
+A worktree that an agent session is living in is held back and reported as skipped. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
+
 ## Commands
 
 | Command                             | What it does                                        |
@@ -187,6 +207,7 @@ Examples:
 ```bash
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
+worktree config agent.command "claude --bg"
 worktree config --list
 worktree config --missing
 ```

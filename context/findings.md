@@ -607,6 +607,67 @@ than drifting page by page.
 **Closes when:** the two pages use one table shape and quote the flag descriptions the code carries, proven by
 a Lint gate run — or the maintainer accepts the variation.
 
+### F-036 — P3 — two shipped skill artifacts still enumerate the pre-agent config and command surface
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (hand, during the Phase 7 sweep)
+
+`skills/_artifacts/domain_map.yaml:38` claims `'worktree config (all 9 keys)'` and
+`skills/_artifacts/skill_spec.md:23` claims `All 7 commands, 9 config keys`. There are ten user-facing keys
+now — `agent.command` is the tenth (`src/lib/constants.ts:1-12`, less the internal `has-called-config`) —
+and neither file mentions `--agent`, `list --agents` or `cleanup --ignore-agents`. Both ship: the `files`
+field in `package.json` publishes the whole `skills/` tree.
+
+They were left untouched deliberately, and the reasoning is in the plan's Phase 7 **Files** line. What
+draws the line is that `scripts/sync-intent-version.mjs:49-50` writes only `SKILL.md` and
+`skill_tree.yaml`, and `.github/workflows/ci.yml:33-34` gates on that same pair — so those two are the
+maintained artifacts and these two are inputs nothing consumes. `domain_map.yaml` is a stamped record on
+top of that (`:4-6` — `Version: 1.2.0`, `Date: 2026-04-06`, `Status: reviewed`, against a package now at
+1.2.8), so editing it by hand would assert a discovery run and a review that never happened.
+`skill_spec.md` carries no stamp and rests on the sync/CI criterion alone.
+
+A second consequence worth naming: `skill_tree.yaml:8-10` declares `generated_from` these two files, and
+its hand-edited `description` now enumerates a surface neither declared input describes. That is the
+accepted trade — a shipped description that is correct, sourced from inputs that are not.
+
+`P3` because nothing reads these two at runtime: `SKILL.md`'s own frontmatter is what an agent loads, and
+that is now correct. The cost is a published artifact that undercounts the surface.
+
+**Closes when:** the skill generator is re-run against the current tree and its output committed, restamping
+both files — or the maintainer accepts that they are frozen 1.2.0 records and the claim is scoped to that
+version in the files themselves.
+
+### F-037 — P3 — `SKILL.md` shows `list --agents` without naming the three states it renders
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 7)
+
+`skills/core/SKILL.md:128-129` gives the invocation and its `-a` alias and stops there. The command renders
+`Agent: <name>` qualified by `[interactive]` or `[waiting]` or neither (`src/lib/utils.ts:37-44`), and
+`docs/src/app/docs/commands/list/page.mdx:36-39` documents all three. An agent reading only the skill file
+sees output it has not been told how to read — and the interactive marker is the one that matters, because
+it is the difference between "an agent this tool dispatched" and "somebody's own terminal".
+
+Not fixed in the phase that raised it: Gate 2 had already passed on the diff, and adding shipped prose
+afterwards lands content no gate reviewed — the same reasoning F-002 through F-005 record.
+
+**Closes when:** a Lint gate run passes with `SKILL.md`'s `list --agents` text naming the no-marker,
+`[waiting]` and `[interactive]` states as `page.mdx:36-39` does.
+
+### F-038 — P3 — `SKILL.md` inherits the cleanup docs' absolute-then-qualified opening
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 7)
+
+`skills/core/SKILL.md:145` opens "A worktree a live agent session is sitting in is never removed by
+`cleanup`", which is the same unqualified absolute F-034 records against
+`docs/src/app/docs/commands/cleanup/page.mdx:35`. `src/lib/git.ts:178-183` returns `true` before the agent
+clause is reached when `pathExists` is false, so "never" has an exception neither page states.
+
+**This one must not be fixed alone.** The two sentences agreeing is the property Phase 7 exists to
+establish, so editing the skill file without the docs page would trade a wording defect for a consistency
+defect. It closes with F-034 or not at all.
+
+**Closes when:** a Lint gate run passes with `SKILL.md:145` and `page.mdx:35` carrying the same qualified
+claim — that is, jointly with F-034.
+
 ## Closed
 
 Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
