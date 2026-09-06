@@ -67,6 +67,40 @@ context/              planning-workflow artifacts (this directory)
 - **Console output is styled with chalk, so it is TTY-dependent.** Any test asserting on printed text has
   to control colour explicitly — see the `FORCE_COLOR=0` note in [`verify.md`](verify.md).
 
+## Documentation
+
+Where this project explains itself. **Every plan's §7 starts from this list**, and whatever a change makes
+untrue on one of these surfaces is fixed by the phase that makes it untrue, not by a follow-up.
+
+| Surface | Who reads it | What has to reach it |
+|---|---|---|
+| [`README.md`](../README.md) | someone deciding whether to install; npm renders it as the package page | the fast path — a new command, a renamed flag, a change to what the tool is for |
+| `docs/src/app/docs/` | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration/`, `getting-started/`, `faq/`, and `guides/` (6) |
+| [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
+| [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
+| `skills/core/SKILL.md`, `skills/_artifacts/` | the `@tanstack/intent` skill consumers; shipped in the npm package | a command or flag change that the skill tree describes — **but see the caveat below** |
+| `docs/src/app/docs/changelog/page.mdx` | users looking for release notes | nothing routine — it states the "single latest-docs" policy rather than listing versions |
+
+**Nothing is published outside this repository.** The GitHub Pages site is built from `docs/` by
+`docs-deploy.yml`, and npm's package page renders the root `README.md`. Both are already in the tree, so
+sweeping the tree finds every surface.
+
+### The two that are not ordinary docs
+
+- **`.github/agents/` is not maintained.** Documentation only, nothing executes it, the `scripts/run-agents.js`
+  runner it proposes was never written, and no workflow references the directory. **Do not propose updates
+  to it as part of a feature** — treat it as a note to contributors. Its suggest-only commit rule is
+  adopted, and now superseded, by [`git.md`](git.md).
+- **`skills/` is hand-written prose with two generated lines in it.** `pnpm sync-version` rewrites *only*
+  the `library_version:` field of `skills/core/SKILL.md` and the `version:` field of
+  `skills/_artifacts/skill_tree.yaml` — `scripts/sync-intent-version.mjs:20-45` is a two-field regex
+  replace, nothing more. So the version lines are never hand-edited, and everything around them is a real
+  documentation surface that a command change can make untrue. `skill_spec.md` and `domain_map.yaml` are
+  hand-written throughout.
+
+This project stated the standing rule itself, in `changelog/page.mdx`, before the workflow arrived:
+*"Update relevant docs pages in the same change."*
+
 ## Agent customization lives in `.claude/` and `.agents/`
 
 Project skills are in `.claude/skills/` and `.agents/skills/`; agents in `.claude/agents/`. Both trees are
@@ -119,4 +153,4 @@ Nothing beyond what the tool installs. Index anything you add here — not in `c
 tool-owned and replaced on every update.
 
 Verification commands are in [`verify.md`](verify.md), not here. Executor dispatch is in
-[`executors.md`](executors.md).
+[`executors.md`](executors.md), and who commits is in [`git.md`](git.md).
