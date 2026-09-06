@@ -57,9 +57,12 @@ nothing).
 
 1. A `kind` field separating `"interactive"` from `"background"`. Interactive sessions include the user's
    own terminal — a naive join reports "an agent is here" when a human simply has Claude open. (D5)
-2. `status` and `state` fields on background sessions, e.g. `"status": "idle", "state": "done"`. A finished
-   session lingers in the default listing, so "block cleanup whenever a session matches" would wedge a
-   worktree permanently. (D6)
+2. `status` and `state` fields on background sessions — and **on background sessions only**: an
+   interactive entry carries just `pid, cwd, kind, startedAt, sessionId, name`. **Completed sessions are
+   excluded from the default listing**; `--all` is what includes them, per `claude agents --help`: *"With
+   --json: also include completed background sessions"*. Re-measured 2026-09-06 on `claude` 2.1.263: the
+   default returns 7 sessions, 1 of them background with `"state": "working"`; `--all` returns 10, adding
+   three with `"state": "done"` and `"status": null`. So the invocation must never pass `--all`. (D4, D6)
 3. `pid`, `sessionId` and a short `id` are all present. The brief asked for `{ name, pid }`; that is
    satisfiable exactly as written.
 
@@ -105,10 +108,12 @@ so explicitly); editor-last simply preserves the existing final call and keeps `
 `✔ Worktree created in …` as the last line when no editor is configured. *Rejected:* making `--agent`
 suppress the editor — the maintainer's stated preference is independence.
 
-**D4. One `claude agents --json` invocation per command run, joined in-process on `cwd`.** *Rejected:*
-`claude agents --cwd <path>` per worktree — `gitGetWorktreeList()` (`src/lib/git.ts:168-211`) is already a
-serial loop doing 3 subprocess calls per worktree; a fourth spawn per iteration for data one call returns
-whole is the wrong trade.
+**D4. One `claude agents --json` invocation per command run, joined in-process on `cwd`. The invocation is
+bare `--json`; `--all` is never passed (D6).** *Rejected:* `claude agents --cwd <path>` per worktree — two
+reasons, and the second is the disqualifying one. `gitGetWorktreeList()` (`src/lib/git.ts:168-211`) is
+already a serial loop doing 3 subprocess calls per worktree, so a fourth spawn per iteration for data one
+call returns whole is the wrong trade; and `--cwd` is documented as *"Show only background sessions started
+under `<path>`"*, so it silently drops exactly the interactive sessions D5 exists to protect.
 
 **D5. The join keeps `kind`, and both consumers see every session.** `cleanup` blocks on **any** session,
 interactive included: its job is not to delete a directory a human is sitting in. `list --agents` reports
@@ -119,12 +124,17 @@ from under an open editor session, which is the failure mode the brief calls the
 the Q2 resolution in §8**: it made `list --agents` silent about exactly the worktrees `cleanup` then refused
 to remove, which is the inconsistency Q2 asked about.
 
-**D6. Liveness is `state !== "done"`, and an absent or unrecognised `state` counts as live.** Fail safe: a
-session whose shape we do not recognise blocks removal rather than being ignored. *Rejected:* treating every
-listed session as live — `"state": "done"` sessions persist in the listing, so that would wedge a worktree
-until the user hunted down a finished PID.
+**D6. The invocation omits `--all`, and liveness is a belt-and-braces `state !== "done"` on top of that.**
+The default listing already excludes completed sessions (§1.2), so the primary guard against wedging a
+worktree is simply not asking for them. The `state` check is the second layer, for a session that is listed
+but finished. An absent or unrecognised `state` counts as live — which is also what makes an *interactive*
+session live, since those carry no `state` at all (§1.2), exactly as D5 requires. *Rejected:* passing
+`--all` for completeness — that imports exactly the wedging problem this decision exists to prevent, and
+nothing in either consumer wants a finished session.
 
-**D7. Churn's merge-base comes from `defaultSourceBranch`, falling back to `origin/main`.** A
+**D7. ~~Churn's merge-base comes from `defaultSourceBranch`, falling back to `origin/main`.~~ — CUT with
+Phase 4, 2026-09-06.** Kept rather than deleted, because it is the one part of the churn design that was
+actually settled and the `worktree-churn-stats` roadmap entry should not have to re-derive it: a
 `WorktreeListEntry` has no record of what it was branched from (`gitGetWorktreeList` tracks `remote`, not
 origin-of-branch), and `branch.ts:81` already uses exactly this fallback chain. If `git merge-base` fails,
 churn is **omitted**, not defaulted to zero — an absent number and a genuine zero are different facts.
@@ -133,7 +143,7 @@ churn is **omitted**, not defaulted to zero — an absent number and a genuine z
 "output stays a printed table, consistent with current `list` formatting" — **the brief is wrong about the
 current formatting.** `src/commands/list.ts:16-18` prints `- ${worktreeListEntryToListName(wt)}`, a bullet
 list, and `worktreeListEntryToListName` (`src/lib/utils.ts:24-49`) builds a parenthesised details string.
-Churn and agent facts append to that same `details` array. **`worktreeListEntryToListName` is shared with
+Agent facts append to that same `details` array. **`worktreeListEntryToListName` is shared with
 `src/commands/cleanup.ts:40`**, so it takes an options argument to control which details render; without one,
 this change silently rewrites `cleanup`'s output too and breaks `cleanup.test.ts`.
 
@@ -158,17 +168,38 @@ agent.command  ──split──▶ [bin, ...args]
 
 **Session join.** A new `src/lib/agent.ts` owns everything that knows an agent CLI exists:
 
-- `getAgentSessions()` — returns `AgentSession[]` (`{ name, pid, cwd, kind, state? }`), or `[]` on any
-  failure. Gated on `agent.command` being configured; parses stdout as JSON inside a `try`.
+- `getAgentSessions()` — returns `AgentSession[]` (`{ name, pid, cwd, kind, status?, state? }`), or `[]`
+  on any failure. Gated on `agent.command` being configured; parses stdout as JSON inside a `try`. Invoked
+  as bare `--json` — never `--all` (D4, D6).
 - `findSessionForPath(sessions, path)` — the `cwd` join.
 - `isSessionLive(session)` — D6.
+- `isSessionWaiting(session)` — true when the session is live but not progressing (`state === "blocked"`,
+  or `status === "idle"`). Derived here so the JSON shape stays inside this module, per the rule below.
 
 Nothing outside this file knows the JSON shape, so swapping runtimes touches one module.
 
-**List.** `WorktreeListEntry` (`src/lib/types.ts:12-19`) gains the four optional fields the brief specifies:
-`filesChanged?`, `insertions?`, `deletions?`, `agent?: { name: string; pid: number }`. `gitGetWorktreeList`
-takes an options flag so the extra work happens only when `list --agents` asks for it — `list` today is not
-paying for churn and must not start.
+**4.1 — what `isSessionWaiting` can and cannot say.** Two measured constraints, both from §1.2. `status` is
+`null`, not absent, on a finished session, so the test is `status === "idle"` and never a truthiness check.
+And interactive sessions carry no `status` or `state` at all, so `waiting` is **only ever true for a
+background session** — which is the intended reading, since a human's own terminal should be marked
+*interactive*, not *waiting*, but it is invisible from the field name and so is written down here. Both
+fields are undocumented (R3); an unrecognised vocabulary degrades `waiting` to "no marker", which is
+cosmetic — unlike D6, where the same degradation goes the safe way and counts the session live.
+
+**List.** `WorktreeListEntry` (`src/lib/types.ts:12-19`) gains **one** optional field:
+
+```ts
+agent?: { name: string; pid: number; interactive?: boolean; waiting?: boolean }
+```
+
+`interactive` is required by the Q2 resolution — Phase 5 must mark a human's own terminal, and the brief's
+bare `{ name, pid }` has nowhere to put that. `waiting` is §4.1. Both are **derived** in `agent.ts`; no raw
+`kind`, `state` or `status` value crosses this boundary, per the encapsulation rule above.
+`gitGetWorktreeList` takes an options flag so the join happens only when `list --agents` asks for it —
+`list` today pays for no session lookup and must not start.
+
+The brief's `filesChanged?` / `insertions?` / `deletions?` are **not** part of this feature. See the cut
+Phase 4 in §6.1.
 
 **Cleanup.** `isSafeToRemove` (`src/lib/git.ts:153-166`) gains a live-agent clause. `cleanup` gets an
 override flag; `--force` alone must **not** be it, since `--force` today means "skip the confirmation
@@ -195,7 +226,11 @@ check looks for (§7), before any of Phases 3–7 build on it.
 returns `[]` on any parse failure, and every field the code reads is optional.
 
 **R4 — cost on the `list` path.** `gitGetWorktreeList` is serial and already runs 3 subprocess calls per
-worktree. Churn adds a fourth. Response: gated behind `--agents` (§4), so default `list` is unchanged.
+worktree, and one real repo on this machine carries **51 registered worktrees** (`git worktree list` in
+`~/Development/corivo/corivo`, 2026-09-06) — so a per-worktree cost is not hypothetical here. Response:
+cutting churn (Phase 4) removes the proposed fourth per-worktree call outright, and the session join is
+**one** invocation for the whole run (D4), gated behind `--agents` (§4). Default `list` is unchanged, and
+`list --agents` adds exactly one subprocess regardless of worktree count.
 
 **R5 — a stale PID.** A session's process can die between the JSON call and the removal. The window is
 small and the consequence is a spurious block, not data loss. Accepted; not mitigated.
@@ -209,13 +244,16 @@ small and the consequence is a spurious block, not data loss. Accepted; not miti
 | 1 | `agent.command` config value | done | — | Gate 1 green; Gate 2 `PASS WITH NOTES`. Notes filed as F-014/F-015/F-016, all `P3`. |
 | 2 | `dispatchAgent` + `--agent` on `branch` and `checkout` | done | 1 | Gate 1 green; Gate 2 `PASS WITH NOTES` after one loopback. F-017 (`P1`) raised and closed in the same commit; F-016 closed. §7's manual run passed, including step 3 — see Q1. Notes filed as F-018/F-019, both `P3`. |
 | 3 | Agent session join module | not started | 1 | |
-| 4 | Churn stats on the worktree entry | not started | — | |
-| 5 | `list --agents` | not started | 3, 4 | |
+| 4 | ~~Churn stats on the worktree entry~~ | cut | — | Cut 2026-09-06: unrelated to agents, Phase 5 was its only consumer, and it was the fourth per-worktree subprocess (R4). Re-filed as `worktree-churn-stats`. |
+| 5 | `list --agents` | not started | 3 | |
 | 6 | Agent-aware `cleanup` | not started | 3 | |
 | 7 | Generated-surface sweep | not started | 2, 5, 6 | |
 
-Status is one of `not started`, `in progress`, `blocked`, `done`. `done` only when committed and verified,
-and whoever finishes a phase updates the row in the same commit.
+Status is one of `not started`, `in progress`, `blocked`, `done`, `cut`. `done` only when committed and
+verified, and whoever finishes a phase updates the row in the same commit. `cut` means the phase will not be
+built and nothing depends on it; **the row stays so the numbering never shifts** —
+[`../findings.md`](../findings.md) F-002 and F-003 both cite "agent-mode Phase 6" by number, and renumbering
+would silently break those references.
 
 **Exactly one table in this document has these columns.** Do not add a second phase table — a
 differently-shaped one nearby is a decoy that gets read by mistake.
@@ -255,25 +293,24 @@ containing a single quote and a double quote — without invoking a real agent b
 
 **Files:** `src/lib/agent.ts` (new), `src/lib/agent.test.ts` (new), `src/lib/types.ts`
 
-**Scope:** `getAgentSessions`, `findSessionForPath`, `isSessionLive` per §4 and D4/D5/D6. Add the
-`AgentSession` type and the `agent?: { name: string; pid: number }` field to `WorktreeListEntry`. Every
+**Scope:** `getAgentSessions`, `findSessionForPath`, `isSessionLive`, `isSessionWaiting` per §4/§4.1 and
+D4/D5/D6. Add the `AgentSession` type and the widened `agent?` field (§4) to `WorktreeListEntry`. Every
 failure path returns `[]`.
 
 **Done when:** tests cover a well-formed array, a non-zero exit, non-JSON stdout, an unset `agent.command`,
-and a session with no `state` — all without Claude Code installed, per §2.
+and a session with no `state` — all without Claude Code installed, per §2; **and the invocation is asserted
+to omit `--all`** (D6). That assertion is the primary guard, not a detail: a regression to `--all` would
+pass every other test in the file and only show up as a worktree nobody can delete.
 
-#### Phase 4 — Churn stats on the worktree entry
+#### Phase 4 — ~~Churn stats on the worktree entry~~ — CUT 2026-09-06
 
-**Files:** `src/lib/git.ts`, `src/lib/git.test.ts`, `src/lib/types.ts`
+Not built. Churn is diff statistics with no relationship to an agent session; Phase 5 was its only consumer;
+and it was the fourth serial subprocess per worktree on the `list` path, in a tool whose largest real
+installation here has 51 of them (R4). It is also what would have made Phase 5 a dashboard rather than a
+read surface — see Phase 5 below.
 
-**Scope:** Add `filesChanged?`, `insertions?`, `deletions?` to `WorktreeListEntry`. Add a
-`gitGetChurnStats(path, sourceBranch)` parsing `git diff --shortstat <merge-base> HEAD`, with the D7
-merge-base resolution and omit-on-failure behaviour. Extend `gitGetWorktreeList`'s options so the work is
-opt-in (R4).
-
-**Done when:** `gitGetWorktreeList({ withChurn: true })` returns the three numbers for a worktree with
-commits; a worktree whose merge-base cannot be resolved returns the entry with the fields absent; default
-`gitGetWorktreeList()` issues no extra subprocess call.
+Re-filed as the `worktree-churn-stats` entry in [`../roadmap.md`](../roadmap.md); **D7 above is retained as
+the design that entry should start from.** The phase number is retained and never reused — see §6.1.
 
 #### Phase 5 — `list --agents`
 
@@ -281,15 +318,21 @@ commits; a worktree whose merge-base cannot be resolved returns the entry with t
 `src/lib/utils.test.ts`, `docs/src/app/docs/commands/list/page.mdx`
 
 **Scope:** Add the `--agents` flag — `list`'s first (`src/commands/list.ts:6-19` has no flags today). When
-set, request churn and perform the session join, and render both in the existing bullet-list details string
-per D8, via a new options argument to `worktreeListEntryToListName` so `cleanup`'s output is untouched.
-**Both session kinds are listed, and an interactive one is marked as such** — this is what the §8 Q2
-resolution requires and the reason D5 was amended; without the marker a human's own terminal is
-indistinguishable from an agent this tool dispatched.
+set, perform the session join and render it in the existing bullet-list details string per D8, via a new
+options argument to `worktreeListEntryToListName` so `cleanup`'s output is untouched. **Both session kinds
+are listed, and an interactive one is marked as such** — this is what the §8 Q2 resolution requires and the
+reason D5 was amended; without the marker a human's own terminal is indistinguishable from an agent this
+tool dispatched. A *waiting* session is marked too (§4.1).
 
-**Done when:** `worktree list --agents` prints churn and the agent name per worktree; **an interactive
-session renders with its marker and a background one without it**; `worktree list` output is byte-identical
-to today's; `cleanup.test.ts` passes unmodified.
+**Why this phase survives the "is it just a dashboard?" question.** It is the read surface for Phase 6:
+once `cleanup` refuses a worktree because a session lives in it, the only other way to find out which
+worktrees those are is to trigger the refusal. Cutting churn (Phase 4) is what keeps this a read surface
+rather than a dashboard, and §2's "no TUI, no monitor" still holds — the flag prints and exits.
+
+**Done when:** `worktree list --agents` prints the agent name per worktree; **an interactive session renders
+with its marker and a background one without it**; **a worktree whose session is blocked or idle renders
+distinguishably from one that is actively working**; `worktree list` output is byte-identical to today's;
+`cleanup.test.ts` passes unmodified.
 
 #### Phase 6 — Agent-aware `cleanup`
 
@@ -367,8 +410,9 @@ is not one to discover from a unit test alone.
 
 ## 10. What already holds in this repo
 
-Read, not recalled — checked 2026-09-05 on `feature/add-agent-mode`. The first seven rows are the brief's
-own table, re-verified; the rest were found while writing this plan.
+Read, not recalled — checked 2026-09-05 on `feature/add-agent-mode`, with the last four rows added
+2026-09-06 by the audit that cut Phase 4. The first seven rows are the brief's own table, re-verified; the
+rest were found while writing this plan or auditing it.
 
 | Claim | Status |
 |---|---|
@@ -390,3 +434,7 @@ own table, re-verified; the rest were found while writing this plan.
 | `gitSetConfigValue` interpolates the value into a shell string | confirmed, `src/lib/git.ts:23-25` — see R1 |
 | Unquoted `cd ${branchPath}` in five more places | confirmed, `src/lib/git.ts:86,94,103,231,239` — see R1 |
 | No `.claude/worktrees/` exists under this repo today | confirmed, `find` returned nothing — the §7 baseline |
+| `claude agents --json` **excludes** completed sessions unless `--all` is passed | **confirmed by running both**, 2.1.263 on 2026-09-06 — 7 sessions vs 10; see §1 and D6 |
+| Interactive sessions carry no `status` or `state` field at all | **confirmed by running it** — keys are `pid, cwd, kind, startedAt, sessionId, name`; see §4.1 |
+| `--cwd` filters to background sessions only | confirmed, `claude agents --help` — the disqualifying reason in D4 |
+| A real repo on this machine has 51 registered worktrees | confirmed, `git worktree list` in `~/Development/corivo/corivo`, 2026-09-06 — see R4 |

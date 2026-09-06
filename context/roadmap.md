@@ -30,11 +30,22 @@ this, appended under **Features** below:
 ### agent-mode — `active`
 
 A worktree can be handed straight to a coding agent instead of, or as well as, an editor, and one command
-shows what every running agent has changed.
+shows which worktrees have an agent living in them.
 
 - **Size:** large — three surfaces (`branch`, `list`, `cleanup`), a new config value, and a runtime-neutral
   session join that must degrade silently
-- **Doc:** [`plans/AGENT-MODE-PLAN.md`](plans/AGENT-MODE-PLAN.md) — 7 phases, 5 open questions
+- **Doc:** [`plans/AGENT-MODE-PLAN.md`](plans/AGENT-MODE-PLAN.md) — 7 phases, one of them cut; 5 open
+  questions, 4 resolved
+
+### worktree-churn-stats — `pending`
+
+`list` says how far ahead or behind a worktree is, but not how much has actually changed in it, so there is
+no way to tell a one-line fix from a rewrite without entering the directory.
+
+- **Size:** small — one `git diff --shortstat` per worktree behind an opt-in flag, plus three fields on
+  `WorktreeListEntry`
+- **Doc:** none yet — cut out of `agent-mode` on 2026-09-06 as unrelated scope; its merge-base design is
+  already settled in that plan's D7, and its cost concern in that plan's R4
 
 ### chat-input-multiline — `pending`
 
