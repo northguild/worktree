@@ -11,7 +11,7 @@ description: >
   --ignore-agents, and automatic .env / .env.local copying into new worktrees.
 type: core
 library: '@northguild/worktree'
-library_version: "1.2.8"
+library_version: "1.3.0"
 sources:
   - "northguild/worktree:README.md"
   - "northguild/worktree:docs/src/app/docs/commands/branch/page.mdx"
