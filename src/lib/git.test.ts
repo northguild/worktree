@@ -1,4 +1,7 @@
-import { expectCommands } from "../test-setup.js";
+import fs from "node:fs";
+import { EOL } from "node:os";
+import { expectCommands, mockRun } from "../test-setup.js";
+import * as agent from "./agent.js";
 import * as cli from "./cli.js";
 import {
   getCurrentBranchName,
@@ -12,11 +15,12 @@ import {
   gitGetRemoteBranches,
   gitGetRootPath,
   gitGetUncommittedChangesCount,
+  gitGetWorktreeList,
   gitNukeWorktreeCmd,
   gitSetConfigValue,
   isSafeToRemove,
 } from "./git.js";
-import type { WorktreeListEntry } from "./types.js";
+import type { AgentSession, WorktreeListEntry } from "./types.js";
 
 // gitCreateWorktree is the only function under test here that draws a spinner.
 // Mock it so the suite neither writes to the terminal nor depends on a TTY.
@@ -611,5 +615,118 @@ describe("isSafeToRemove", () => {
 
   it("is safe with no remote and an unknown uncommitted count", () => {
     expect(isSafeToRemove(entry({ uncommittedChanges: undefined }))).toBe(true);
+  });
+});
+
+describe("gitGetWorktreeList agent join", () => {
+  const rootPath = "/repo/project";
+  const onePath = `${rootPath}.worktrees/feature/one`;
+  const twoPath = `${rootPath}.worktrees/feature/two`;
+
+  function session(overrides: Partial<AgentSession> = {}): AgentSession {
+    return { name: "feature-one-1f", pid: 9187, cwd: onePath, ...overrides };
+  }
+
+  // Every git call gitGetWorktreeList makes, in order, for two worktrees that
+  // track no remote — which is what keeps the ahead/behind pair out of the
+  // sequence. The session lookup itself is stubbed rather than driven through
+  // run(), because agent.test.ts already owns its parsing.
+  function mockWorktreeListRun() {
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      `git status -s (cwd: ${onePath})`,
+      `git status -s (cwd: ${twoPath})`,
+    );
+
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(
+        [
+          `${onePath}  abc1234 [feature/one]`,
+          `${twoPath}  def5678 [feature/two]`,
+        ].join(EOL),
+      )
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    mockWorktreeListRun();
+  });
+
+  it("performs no session lookup and sets no agent by default", async () => {
+    const sessionsSpy = vi.spyOn(agent, "getAgentSessions");
+
+    const worktrees = await gitGetWorktreeList();
+
+    expect(sessionsSpy).not.toHaveBeenCalled();
+    expect(worktrees.map((wt) => wt.agent)).toEqual([undefined, undefined]);
+  });
+
+  // The R4 guard: one invocation for the whole run, not one per worktree.
+  it("looks sessions up once for the whole run and joins them by cwd", async () => {
+    const sessionsSpy = vi
+      .spyOn(agent, "getAgentSessions")
+      .mockResolvedValue([session()]);
+
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(sessionsSpy).toHaveBeenCalledTimes(1);
+    expect(worktrees[0].agent).toEqual({
+      name: "feature-one-1f",
+      pid: 9187,
+      interactive: false,
+      waiting: false,
+    });
+    expect(worktrees[1].agent).toBeUndefined();
+  });
+
+  it("carries the interactive marker without exposing the raw session shape", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+      session({ kind: "interactive" }),
+    ]);
+
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(worktrees[0].agent).toEqual({
+      name: "feature-one-1f",
+      pid: 9187,
+      interactive: true,
+      waiting: false,
+    });
+  });
+
+  it("carries the waiting marker for a background session that is not progressing", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+      session({ kind: "background", state: "blocked" }),
+    ]);
+
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(worktrees[0].agent).toEqual({
+      name: "feature-one-1f",
+      pid: 9187,
+      interactive: false,
+      waiting: true,
+    });
+  });
+
+  it("sets no agent when the runtime reports no sessions at all", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([]);
+
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(worktrees.map((wt) => wt.agent)).toEqual([undefined, undefined]);
   });
 });

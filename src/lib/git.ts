@@ -4,9 +4,17 @@ import path from "node:path";
 import { confirm } from "@inquirer/prompts";
 import Process from "cli-progress";
 import ora from "ora";
+import {
+  findSessionForPath,
+  getAgentSessions,
+  isSessionInteractive,
+  isSessionWaiting,
+} from "./agent.js";
 import { run } from "./cli.js";
 import type {
+  AgentSession,
   ConfigName,
+  WorktreeAgent,
   WorktreeListBaseEntry,
   WorktreeListEntry,
 } from "./types.js";
@@ -177,12 +185,48 @@ export function isSafeToRemove(wt: WorktreeListEntry): boolean {
   return false;
 }
 
+interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
+  includeAgents?: boolean;
+}
+
+// The session's own name and pid, plus the two markers `list` renders — and the
+// markers come from agent.ts's predicates, so no raw `kind`, `state` or `status`
+// value crosses this boundary. See AGENT-MODE-PLAN §4.
+//
+// One session, not a set: an entry carries a single `agent`, so a worktree
+// holding both a human's terminal and a dispatched agent is described by
+// whichever findSessionForPath picked. Naming it in the output is what keeps
+// that honest — the marker describes the session it names, not the worktree.
+function toWorktreeAgent(
+  sessions: AgentSession[],
+  worktreePath: string,
+): WorktreeAgent | undefined {
+  const session = findSessionForPath(sessions, worktreePath);
+  if (!session) {
+    return undefined;
+  }
+
+  return {
+    name: session.name,
+    pid: session.pid,
+    interactive: isSessionInteractive(session),
+    waiting: isSessionWaiting(session),
+  };
+}
+
 export async function gitGetWorktreeList({
   includeCurrent = false,
-}: GitGetWorktreesOptions = {}) {
+  includeAgents = false,
+}: GitGetWorktreeListOptions = {}) {
   const remoteBranches = await gitGetRemoteBranches();
   const tracking = await gitGetLocalBranchesTracking();
   const result = await gitGetWorktrees({ includeCurrent });
+  // One lookup for the whole run, joined in-process below, and only when a
+  // caller asks for it. Both halves matter: the loop underneath is serial and
+  // already spends three subprocesses per worktree, so a per-worktree session
+  // call would be a fourth, and a caller that never renders agents must not pay
+  // for the one. See AGENT-MODE-PLAN §3 D4 and §5 R4.
+  const sessions = includeAgents ? await getAgentSessions() : [];
 
   const worktreeList: WorktreeListEntry[] = [];
 
@@ -211,6 +255,9 @@ export async function gitGetWorktreeList({
       pathExists,
       uncommittedChanges,
       isCurrent,
+      // Empty without includeAgents, so this is undefined for every caller that
+      // did not ask — no separate branch needed to keep the field off.
+      agent: toWorktreeAgent(sessions, path),
     };
 
     worktreeList.push({

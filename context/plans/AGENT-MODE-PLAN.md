@@ -230,7 +230,10 @@ worktree, and one real repo on this machine carries **51 registered worktrees** 
 `~/Development/corivo/corivo`, 2026-09-06) — so a per-worktree cost is not hypothetical here. Response:
 cutting churn (Phase 4) removes the proposed fourth per-worktree call outright, and the session join is
 **one** invocation for the whole run (D4), gated behind `--agents` (§4). Default `list` is unchanged, and
-`list --agents` adds exactly one subprocess regardless of worktree count.
+`list --agents` adds a **constant** cost regardless of worktree count. Measured at Phase 5, that constant is
+**two** subprocesses, not one: `getAgentSessions` reads `agent.command` through `gitGetConfigValue` before
+it invokes the runtime (`src/lib/agent.ts:66,78`). R4's substance is that the cost does not scale with the
+worktree count, and that holds exactly; the earlier "exactly one" was a miscount of the same constant.
 
 **R5 — a stale PID.** A session's process can die between the JSON call and the removal. The window is
 small and the consequence is a spurious block, not data loss. Accepted; not mitigated.
@@ -245,7 +248,7 @@ small and the consequence is a spurious block, not data loss. Accepted; not miti
 | 2 | `dispatchAgent` + `--agent` on `branch` and `checkout` | done | 1 | Gate 1 green; Gate 2 `PASS WITH NOTES` after one loopback. F-017 (`P1`) raised and closed in the same commit; F-016 closed. §7's manual run passed, including step 3 — see Q1. Notes filed as F-018/F-019, both `P3`. |
 | 3 | Agent session join module | done | 1 | Gate 1 green; Gate 2 `PASS` after one loopback. F-020 (`P2`) raised and closed in the same commit. Notes filed as F-021/F-022/F-023, all `P3`, plus F-024 against Phase 5. |
 | 4 | ~~Churn stats on the worktree entry~~ | cut | — | Cut 2026-09-06: unrelated to agents, Phase 5 was its only consumer, and it was the fourth per-worktree subprocess (R4). Re-filed as `worktree-churn-stats`. |
-| 5 | `list --agents` | not started | 3 | |
+| 5 | `list --agents` | done | 3 | Gate 1 green (307 tests, was 294). Gate 2 `PASS WITH NOTES`, no loopbacks. F-024 closed. Notes filed as F-025 (`P2`, tied to Phase 6) and F-026/F-027/F-028, all `P3`. §4's flag on `gitGetWorktreeList` was followed over this phase's original **Files** line — see Phase 5 below. |
 | 6 | Agent-aware `cleanup` | not started | 3 | |
 | 7 | Generated-surface sweep | not started | 2, 5, 6 | |
 
@@ -315,7 +318,12 @@ the design that entry should start from.** The phase number is retained and neve
 #### Phase 5 — `list --agents`
 
 **Files:** `src/commands/list.ts`, `src/commands/list.test.ts`, `src/lib/utils.ts`,
-`src/lib/utils.test.ts`, `docs/src/app/docs/commands/list/page.mdx`
+`src/lib/utils.test.ts`, `docs/src/app/docs/commands/list/page.mdx`, and — **added at implementation,
+2026-09-06** — `src/lib/git.ts`, `src/lib/git.test.ts`. This line originally omitted the two `git.ts` files
+and disagreed with §4, which puts the `includeAgents` flag on `gitGetWorktreeList` itself. §4 is the
+normative design and was followed: the join has to happen inside the builder, because that is where
+`isSafeToRemove` is called (`src/lib/git.ts:265`) and Phase 6 needs it to see the agent. Phase 6's own
+**Files** line already names both, so this moves in-feature work earlier rather than widening the feature.
 
 **Scope:** Add the `--agents` flag — `list`'s first (`src/commands/list.ts:6-19` has no flags today). When
 set, perform the session join and render it in the existing bullet-list details string per D8, via a new
@@ -323,6 +331,14 @@ options argument to `worktreeListEntryToListName` so `cleanup`'s output is untou
 are listed, and an interactive one is marked as such** — this is what the §8 Q2 resolution requires and the
 reason D5 was amended; without the marker a human's own terminal is indistinguishable from an agent this
 tool dispatched. A *waiting* session is marked too (§4.1).
+
+**The marker describes one session, not the worktree.** `WorktreeListEntry.agent` is singular (§4), so a
+worktree holding several live sessions at once — a dispatched agent and a human's own terminal, which is the
+ordinary `--agent`-then-editor case — is rendered from whichever `findSessionForPath` picked, and the
+picked one may differ between runs. That is why the rendering **names** the session: `Agent: <name>`, with
+`[interactive]` or `[waiting]` qualifying that named session and nothing else. This is the resolution of
+[`../findings.md`](../findings.md) F-024, which recorded the ambiguity against this phase; the docs page
+says the same thing in the reader's words.
 
 **Why this phase survives the "is it just a dashboard?" question.** It is the read surface for Phase 6:
 once `cleanup` refuses a worktree because a session lives in it, the only other way to find out which

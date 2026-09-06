@@ -10,6 +10,40 @@ List known worktrees managed for the current repository.
 
 ```bash
 worktree list
+worktree list --agents
 ```
 
 Use this before `open`, `remove`, or cleanup decisions.
+
+## Flags
+
+| Flag | Alias | Description |
+| --- | --- | --- |
+| `--agents` | `-a` | Show the agent session living in each worktree |
+
+## Showing agent sessions
+
+`--agents` asks the agent runtime configured in
+[`agent.command`](/docs/configuration#agent-command) which sessions are open, and names the one
+found in each worktree:
+
+```text
+- feature/one (Agent: feature-one-1f)
+- feature/two (Ahead: 2, Behind: 0, Agent: feature-two-1f [waiting])
+- feature/three (Agent: notes-1f [interactive])
+```
+
+- **No marker** — a background agent that is getting on with its work.
+- **`[waiting]`** — a background agent that is live but not progressing, so it is
+  probably waiting on you.
+- **`[interactive]`** — somebody's own terminal session, not an agent this tool
+  dispatched. It is listed because `cleanup` will refuse to remove a worktree
+  somebody is sitting in, and this is where you find out which those are.
+
+A worktree with no `Agent:` detail has no session in it. Where a worktree holds
+more than one — a dispatched agent and your own terminal, say — the entry names
+one of them, and the marker describes the session it names.
+
+Without `--agents`, `list` asks the agent runtime nothing and its output is
+unchanged. If `agent.command` is unset, or the runtime is not installed or
+reports nothing usable, `--agents` simply lists no sessions rather than failing.

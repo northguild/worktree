@@ -462,23 +462,78 @@ reasoning F-002, F-003 and F-004 record: editing after the gate lands unreviewed
 **Closes when:** a Lint gate run passes with the predicate written as a nested function declaration — or the
 maintainer accepts the arrow, folded into the plan's log at `/feature-close`.
 
-### F-024 — P3 — among several *live* sessions in one worktree the choice is arbitrary, which Phase 5's marker inherits
+### F-025 — P2 — `git.ts` and `agent.ts` now import each other, the only circular import in non-test `src/`
 
-**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 3)
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 5)
 
-`findSessionForPath` (`src/lib/agent.ts`) now prefers a live session over a finished one, but among two live
-ones it returns whichever the runtime listed first. With a human's interactive terminal and a dispatched
-background agent both live in one worktree — the ordinary `--agent`-then-editor case — either may win.
+Phase 5 introduced it: `src/lib/git.ts:7-12` imports four symbols from `./agent.js`, while
+`src/lib/agent.ts:3` imports `gitGetConfigValue` from `./git.js`. A depth-first scan over relative imports
+in non-test `src/` reports `git.ts -> agent.ts -> git.ts`; the same scan at the pre-phase commit reports no
+cycle at all. `context/standards/architecture/dependency-boundaries.md:81` reads *"Circular dependencies are
+always forbidden. They indicate a design problem."* Nothing catches it — there is no `madge` step in
+`.github/workflows/` and Biome has no rule for it enabled in `biome.json`.
 
-Phase 6 is unaffected: both are live, so `cleanup` blocks either way, which is what F-020 set out to
-guarantee. Phase 5 is affected. Its **Done when** says "an interactive session renders with its marker and a
-background one without it", and the marker will describe whichever session was picked rather than the
-worktree as a whole — so a worktree holding both may render either way between runs. The singular signature
-is what §4 specifies, so this is a limit to state, not a defect to fix blindly.
+It is safe **today** and that is exactly why it is worth recording. Neither module has a top-level binding
+that references the other — `agent.ts`'s only module-scope `const` is `SESSION_ARGS` (line 15) — so every
+crossing is a hoisted function declaration resolved at call time, and the build is plain `tsc`, not a
+bundler that could reorder it. The hazard is latent: the first top-level `const` added to either module that
+references the other becomes a temporal-dead-zone crash at CLI startup, with a stack trace naming neither
+the cause nor the author.
 
-**Closes when:** Phase 5 either renders a marker that does not depend on which of several live sessions was
-picked, or its docs and plan section say the marker describes one session — folded into the plan's log at
-`/feature-close`.
+It is the joint consequence of two plan-directed decisions rather than an invention of Phase 5 — §4 puts the
+`includeAgents` flag on `gitGetWorktreeList`, and Phase 3 already read config through `git.ts`. The fix is
+to extract `gitGetConfigValue` / `gitSetConfigValue` into a `src/lib/config.ts` depending only on
+`./cli.js`, leaving `git.ts -> agent.ts -> config.ts`. That touches `git.ts`, `agent.ts`, `base-command.ts`,
+`src/commands/config.ts` and their tests — outside Phase 5's scope, but **Phase 6 already owns
+`src/lib/git.ts`** and will have the module open, which is why it is tied there.
+
+**Closes when:** a cycle scan over non-test `src/` reports none, proven by a Gate 1 run on Phase 6.
+
+### F-026 — P3 — the `list` docs page describes a `cleanup` refusal that Phase 6 has not built
+
+**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 5)
+
+`docs/src/app/docs/commands/list/page.mdx:40-41` explains the `[interactive]` marker with *"It is listed
+because `cleanup` will refuse to remove a worktree somebody is sitting in."* `grep -n 'agent\|Agent'
+src/commands/cleanup.ts` returns nothing; that refusal is Phase 6's scope.
+
+Same shape as the closed F-016, and accepted on the same grounds: `docs-deploy.yml` deploys only on push to
+`main`, the branch merges as a unit, and Phase 6 gates both Phase 7 and `/feature-close`, so the sentence
+will be true before any reader sees it. Recorded so it is not lost if Phase 6 changes shape.
+
+**Closes when:** `cleanup` excludes a worktree holding a live session, proven by a Gate 1 run on Phase 6 —
+or the sentence is cut.
+
+### F-027 — P3 — a new `git.test.ts` comment claims an ordering assertion the harness does not make
+
+**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 5)
+
+`src/lib/git.test.ts:630-633` introduces its fixture as *"Every git call gitGetWorktreeList makes, in
+order…"* and passes an eight-command sequence to `expectCommands`. But `src/test-setup.ts:47-53` only
+`console.warn`s on an unexpected call — it asserts nothing, and it tests membership, not order. The comment
+promises a guard the harness does not provide.
+
+Nothing this phase guarantees rests on it: the load-bearing R4 check is the `toHaveBeenCalledTimes(1)` at
+`src/lib/git.test.ts:685`, which is a real assertion. The harness property is pre-existing and surfaced only
+because this comment leans on it.
+
+**Closes when:** the comment states what `expectCommands` actually does, or `test-setup.ts` asserts rather
+than warns — either proven by a Gate 1 run.
+
+### F-028 — P3 — `list`'s `-a` alias and flag description are pinned by no test
+
+**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 5)
+
+`docs/src/app/docs/commands/list/page.mdx:22` documents `-a` and the exact description string, and a manual
+`list --help` run confirmed both, but nothing in `src/commands/list.test.ts` reads `List.flags` — the suite
+stubs `parse` wholesale (`src/commands/list.test.ts:34-37,41`). Changing `char: "a"` or the description at
+`src/commands/list.ts:16-17` would diverge from the docs table with every test still green.
+
+Cosmetic, and consistent with how `branch` and `checkout` flags are tested in this repo — so this is a note
+about a repo-wide gap that Phase 5 inherited, not a Phase 5 defect.
+
+**Closes when:** a test reads `List.flags.agents` and asserts its `char` and `description`, proven by a Gate
+1 run — or the maintainer accepts the gap, folded into the plan's log at `/feature-close`.
 
 ## Closed
 
@@ -560,3 +615,30 @@ set of paths yielding no session is unchanged; `src/lib/agent.test.ts` pins two 
 finished one listed first, and a lone finished session still being returned. The re-run followed a Gate 1
 pass — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` 294 passed, `pnpm docs:test` 49 passed, all
 exit 0.
+
+### F-024 — P3 — among several *live* sessions in one worktree the choice is arbitrary, which Phase 5's marker inherits
+
+**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 3)
+
+`findSessionForPath` (`src/lib/agent.ts`) now prefers a live session over a finished one, but among two live
+ones it returns whichever the runtime listed first. With a human's interactive terminal and a dispatched
+background agent both live in one worktree — the ordinary `--agent`-then-editor case — either may win.
+
+Phase 6 is unaffected: both are live, so `cleanup` blocks either way, which is what F-020 set out to
+guarantee. Phase 5 is affected. Its **Done when** says "an interactive session renders with its marker and a
+background one without it", and the marker will describe whichever session was picked rather than the
+worktree as a whole — so a worktree holding both may render either way between runs. The singular signature
+is what §4 specifies, so this is a limit to state, not a defect to fix blindly.
+
+**Closes when:** Phase 5 either renders a marker that does not depend on which of several live sessions was
+picked, or its docs and plan section say the marker describes one session — folded into the plan's log at
+`/feature-close`.
+
+**Closed 2026-09-06** by the Phase 5 Gate 2 run (reviewer subagent, `PASS WITH NOTES`), which assessed this
+finding as "addressed, not worsened". The second branch of the condition above is met in full: the plan's
+§6.2 Phase 5 section now carries a paragraph headed *"The marker describes one session, not the worktree"*,
+and `docs/src/app/docs/commands/list/page.mdx:43-45` says the same in the reader's words. The rendering
+**names** the session it describes — `Agent: <name>`, with `[interactive]` or `[waiting]` qualifying that
+named session — so an ambiguous worktree is never rendered ambiguously, only partially. Observed live at
+Phase 5: this repo's own worktree held two live sessions at once, one background and one interactive, and
+the background one was named.

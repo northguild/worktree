@@ -1,3 +1,4 @@
+import type { WorktreeAgent, WorktreeListEntry } from "./types.js";
 import { conjoin, worktreeListEntryToListName } from "./utils.js";
 
 describe("conjoin", () => {
@@ -211,5 +212,99 @@ describe("worktreeListEntryToListName", () => {
     });
 
     expect(result).not.toContain("uncommitted changes");
+  });
+});
+
+describe("worktreeListEntryToListName agent details", () => {
+  function entry(agent?: WorktreeAgent): WorktreeListEntry {
+    return {
+      path: "/path/to/worktree",
+      branchName: "feature/test",
+      remote: "origin/feature/test",
+      pathExists: true,
+      remoteExists: true,
+      agent,
+    };
+  }
+
+  it("shows the agent name for a background session that is working", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f", pid: 9187 }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("Agent: feature-test-1f");
+    expect(result).not.toContain("[interactive]");
+    expect(result).not.toContain("[waiting]");
+  });
+
+  it("marks an interactive session so a human's own terminal is distinguishable", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "notes-1f", pid: 4021, interactive: true }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("Agent: notes-1f [interactive]");
+  });
+
+  it("marks a waiting session distinguishably from one that is working", () => {
+    const working = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f", pid: 9187, waiting: false }),
+      "gray",
+      { agents: true },
+    );
+    const waiting = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f", pid: 9187, waiting: true }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(waiting).toContain("Agent: feature-test-1f [waiting]");
+    expect(waiting).not.toBe(working);
+  });
+
+  // The guard for D8: cleanup shares this renderer and asks for no agents, so
+  // its output must not change even once cleanup starts populating the field.
+  it("renders nothing about an agent when the caller did not ask", () => {
+    const agent: WorktreeAgent = {
+      name: "feature-test-1f",
+      pid: 9187,
+      interactive: true,
+    };
+
+    expect(worktreeListEntryToListName(entry(agent), "yellow")).toBe(
+      worktreeListEntryToListName(entry(), "yellow"),
+    );
+    expect(worktreeListEntryToListName(entry(agent), "yellow")).not.toContain(
+      "Agent:",
+    );
+  });
+
+  it("renders nothing about an agent when the entry carries none", () => {
+    const result = worktreeListEntryToListName(entry(), "gray", {
+      agents: true,
+    });
+
+    expect(result).not.toContain("Agent:");
+    expect(result).toBe("feature/test");
+  });
+
+  it("appends the agent after the existing details rather than replacing them", () => {
+    const result = worktreeListEntryToListName(
+      {
+        ...entry({ name: "feature-test-1f", pid: 9187 }),
+        ahead: 2,
+        behind: 1,
+        uncommittedChanges: 3,
+      },
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toBe(
+      "feature/test (Ahead: 2, Behind: 1, 3 uncommitted changes, Agent: feature-test-1f)",
+    );
   });
 });
