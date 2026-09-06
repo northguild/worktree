@@ -24,6 +24,7 @@ vi.mock("ora", () => ({
 describe("checkout command", () => {
   let checkout: Checkout;
   let mockOpenWorktreePath: ReturnType<typeof vi.spyOn>;
+  let mockDispatchAgent: ReturnType<typeof vi.spyOn>;
   const mockSelect = vi.mocked(select);
   const mockCopyEnvFiles = vi.mocked(copyEnvFilesFromRootPath);
 
@@ -35,6 +36,9 @@ describe("checkout command", () => {
     checkout = new Checkout([], mockConfig);
     mockOpenWorktreePath = vi
       .spyOn(checkout as any, "openWorktreePath")
+      .mockResolvedValue(undefined);
+    mockDispatchAgent = vi
+      .spyOn(checkout as any, "dispatchAgent")
       .mockResolvedValue(undefined);
   });
 
@@ -168,5 +172,50 @@ describe("checkout command", () => {
       'Local branch "feature/test" already exists',
     );
     expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+  });
+
+  describe("--agent flag", () => {
+    beforeEach(() => {
+      vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue([
+        "origin/main",
+        "origin/feature/test",
+      ]);
+      vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    });
+
+    it("hands the checked-out worktree to the agent with the prompt", async () => {
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "review this branch" },
+      });
+
+      await checkout.run();
+
+      expect(mockDispatchAgent).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        "review this branch",
+      );
+      // The worktree has to be complete before the agent sees it, and the
+      // editor still opens afterwards.
+      expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
+        mockDispatchAgent.mock.invocationCallOrder[0],
+      );
+      expect(mockDispatchAgent.mock.invocationCallOrder[0]).toBeLessThan(
+        mockOpenWorktreePath.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("dispatches nothing when the flag is absent", async () => {
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: {},
+      });
+
+      await checkout.run();
+
+      expect(mockDispatchAgent).not.toHaveBeenCalled();
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+    });
   });
 });

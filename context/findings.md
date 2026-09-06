@@ -235,7 +235,6 @@ version floor this project does not currently state.
 **Closes when:** a Gate 1 run passes with `src/lib/git.ts`'s comment either matching measured git behaviour
 or accompanied by the `--relative-paths` flag that makes the original claim true.
 
-
 ### F-011 — P2 — the third `run` in `gitNukeWorktreeCmd` is unpinned, so a dropped `await` would report a removal that did not happen
 
 **Tied to:** shell-argv-safety Phase 4 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 4)
@@ -264,7 +263,6 @@ and F-009 record.
 **Closes when:** a Gate 1 run passes with a `git.test.ts` case that resolves the first two calls, rejects
 `git branch -D`, and asserts both `rejects.toThrow` and that `gitNukeWorktree` fails rather than succeeds
 on that path.
-
 
 ### F-012 — P2 — a Windows `.cmd`/`.bat` editor can no longer be launched, and `code` is one there
 
@@ -301,7 +299,6 @@ is still unproved.
 made to match what was seen — corrected and removed if `code` launches anyway, or kept with the observed
 error text if it does not.
 
-
 ### F-013 — P2 — the editor launch is unpinned as fire-and-forget, so an added `await` would land green
 
 **Tied to:** shell-argv-safety Phase 6 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 6)
@@ -332,7 +329,6 @@ record.
 
 **Closes when:** a Gate 1 run passes with a `base-command.test.ts` case asserting that `succeed` has *not*
 been called at the moment `openWorktreePath` resolves, and has been once the launch settles.
-
 
 ### F-014 — P3 — `codeEditor` keeps the whole-line error message that D1 rejected for `agent.command`
 
@@ -382,6 +378,49 @@ two consecutive exit-0s and no agent — the failure is invisible at both ends.
 `InvalidConfigValueError`. The second is a repo-wide behaviour change well outside agent-mode and should not
 be taken as part of it.
 
+### F-018 — P3 — `✔ Agent started` is printed before a failed launch is knowable
+
+**Tied to:** agent-mode Phase 2 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 2)
+
+`dispatchAgent` logs its success line immediately after `spawnDetached` returns (`src/lib/base-command.ts`),
+but the launch is fire-and-forget: an ENOENT arrives as an `error` event a tick later. Measured on
+2026-09-06 against the built `dist` with `agent.command` pointing at a missing binary — the terminal shows
+`✔ Agent started in …` and then a red `Error: spawn worktree-no-such-agent ENOENT`, exit 0.
+
+Narrow, because `isValidCommandLine` refuses to store a head that is not on PATH: the residual cases are a
+binary removed after it was configured, and the Windows `.cmd` shim case [F-012] records. There is no exit
+status to wait for by design (§3 D2), so the fix is wording, not sequencing.
+
+**Closes when:** a Gate 1 run passes with the dispatch line no longer asserting success ahead of the launch
+— or the maintainer accepts the current wording, folded into the plan's log at `/feature-close`.
+
+### F-019 — P3 — `stdio: "ignore"` discards the output of an agent that does not background itself
+
+**Tied to:** agent-mode Phase 2 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 2)
+
+`spawnDetached` sets `stdio: "ignore"` (`src/lib/cli.ts`), which is right for the runtime the plan was
+written against: `claude --bg` detaches and keeps its own transcript, reachable through `claude agents`.
+§2 requires runtime neutrality, and an agent of the same shape that stays in the foreground and writes to
+stdout — `codex exec`, the plan's own second example at `docs/src/app/docs/configuration/page.mdx:54` — has
+its output thrown away irrecoverably: no file, no terminal, nothing to attach to.
+
+Inherited stdio is not the answer, since the CLI exits immediately and would be writing into a terminal that
+has moved on; a log file under the worktree would be. `docs/src/app/docs/commands/branch/page.mdx` currently
+tells the reader to use their agent's own tooling, which is only true of an agent that has some.
+
+**Closes when:** a Gate 1 run passes with dispatch writing the child's output somewhere recoverable and the
+branch page saying so — or the maintainer accepts backgrounding agents as the supported shape, folded into
+the plan's log at `/feature-close`.
+
+## Closed
+
+Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
+an `ad-hoc` one at the start of the next `/orchestrate`.
+
+`shell-argv-safety`'s F-006 and F-007 left at its close on 2026-09-06, into
+[`archive/SHELL-ARGV-SAFETY-PLAN.md`](archive/SHELL-ARGV-SAFETY-PLAN.md) §11. These two leave at
+`agent-mode`'s.
+
 ### F-016 — P3 — the configuration docs describe dispatch semantics that no code reads yet
 
 **Tied to:** agent-mode Phase 2 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 1)
@@ -399,11 +438,32 @@ reaches readers — the branch merges as a unit.
 **Closes when:** Phase 2's Gate 1 run passes with `dispatchAgent` reading `agent.command`, making the page's
 description true.
 
+**Closed:** 2026-09-06 by agent-mode Phase 2's Gate 1 run (`pnpm check`, `pnpm typecheck`, `pnpm build`,
+`pnpm test` 261 passed, `pnpm docs:test` 49 passed — all exit 0). `dispatchAgent` reads `agent.command` and
+passes its tail as leading arguments, so the page's description is now true of shipped code, confirmed
+end-to-end against the built `dist`.
 
-## Closed
+### F-017 — P1 — the "no agent configured" hint points at a command that does nothing
 
-Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
-an `ad-hoc` one at the start of the next `/orchestrate`.
+**Tied to:** agent-mode Phase 2 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 2)
 
-None right now: `shell-argv-safety`'s F-006 and F-007 moved to
-[`archive/SHELL-ARGV-SAFETY-PLAN.md`](archive/SHELL-ARGV-SAFETY-PLAN.md) §11 at its close on 2026-09-06.
+`dispatchAgent` tells a user with no `agent.command` set to run `worktree config agent.command`
+(`src/lib/base-command.ts:79`). That form does nothing: `config.ts:273-274` calls `gitGetConfigValue(args.name)`
+and **discards the result** when no value argument follows, so the command prints nothing, writes nothing and
+exits 0. Verified by hand on 2026-09-06 in a throwaway repo — zero output, and only `has-called-config` written.
+
+The one new user-facing string this phase adds therefore sends the reader to a dead end, on exactly the path
+§8 Q5 resolved to keep friendly. The repository's four existing hints of this shape all name the bare,
+working form — `src/integrations/jira.ts:80,86,92,100`, `Run "worktree config" to configure …` — and
+`context/standards/typescript/error-handling.md:172-176` requires a user-facing message to name an
+actionable next step.
+
+**Closes when:** a Gate 1 run passes with the message naming a form that works — the bare `worktree config`,
+or the `worktree config agent.command "<command>"` shape the docs already show at
+`docs/src/app/docs/configuration/page.mdx:52-54` — and the assertion at `src/lib/base-command.test.ts:187`
+updated to match.
+
+**Closed:** 2026-09-06 by the same Gate 1 run, after one Gate 2 loopback. The message now names
+`worktree config agent.command "<command>"`, and that form was verified by hand to set the value
+(exit 0, `git config --get` returns it); the unset path still prints the message, creates the worktree and
+exits 0.

@@ -2,12 +2,13 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
-import { commandExists, run } from "./cli.js";
+import { commandExists, run, spawnDetached } from "./cli.js";
 
 // src/test-setup.ts mocks ./lib/cli.js for every suite so command tests never
 // execute anything. This file covers the real helper, so it opts back out.
@@ -140,5 +141,76 @@ describe("commandExists", () => {
     await expect(commandExists(`${nodeName} --no-warnings`)).resolves.toBe(
       true,
     );
+  });
+});
+
+describe("spawnDetached", () => {
+  // The child is detached and its stdio ignored, so nothing it does is visible
+  // through the return value — every case here reads a file the child wrote.
+  function writeMarker(markerPath: string, expression: string) {
+    return `require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, ${expression})`;
+  }
+
+  it("runs the command in the directory given as cwd", async () => {
+    const marker = join(tempPath, "detached-cwd.txt");
+
+    spawnDetached(node, ["-e", writeMarker(marker, "process.cwd()")], {
+      cwd: spacedPath,
+    });
+
+    // The content assertion sits inside the poll: writeFileSync creates the
+    // file before it writes, so a poll on existence alone could read it empty.
+    await vi.waitFor(() =>
+      expect(readFileSync(marker, "utf8")).toBe(spacedPath),
+    );
+  });
+
+  it("passes an argument as one argument and never as shell syntax", async () => {
+    const marker = join(tempPath, "detached-argv.txt");
+    const sentinel = join(tempPath, "detached-pwned");
+    const hostile = `x"; touch ${sentinel}; \`whoami\` $(id) #`;
+
+    spawnDetached(node, [
+      "-e",
+      writeMarker(marker, "process.argv[1]"),
+      hostile,
+    ]);
+
+    await vi.waitFor(() => expect(readFileSync(marker, "utf8")).toBe(hostile));
+    expect(existsSync(sentinel)).toBe(false);
+  });
+
+  it("returns before the child has finished, and the child still runs", async () => {
+    const marker = join(tempPath, "detached-slow.txt");
+
+    spawnDetached(node, [
+      "-e",
+      `setTimeout(() => ${writeMarker(marker, '"done"')}, 200)`,
+    ]);
+
+    // Fire-and-forget: unref'd and never awaited, so the call returns while the
+    // child is still working, and the child outlives the return.
+    expect(existsSync(marker)).toBe(false);
+    await vi.waitFor(() => expect(existsSync(marker)).toBe(true), {
+      timeout: 3000,
+    });
+  });
+
+  it("reports a failed launch through onError", async () => {
+    const error = await new Promise<Error>((resolve) => {
+      spawnDetached("worktree-no-such-binary", [], { onError: resolve });
+    });
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain("worktree-no-such-binary");
+  });
+
+  it("survives a failed launch when the caller supplies no handler", async () => {
+    // An "error" event with no listener throws on a ChildProcess, so dropping
+    // the handler registration would crash the CLI — and would surface here as
+    // an unhandled exception failing this file, not as a failed assertion.
+    expect(() => spawnDetached("worktree-no-such-binary")).not.toThrow();
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
   });
 });

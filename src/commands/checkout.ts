@@ -1,5 +1,5 @@
 import { select } from "@inquirer/prompts";
-import { Args } from "@oclif/core";
+import { Args, Flags } from "@oclif/core";
 import ora from "ora";
 import { BaseCommand } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
@@ -17,7 +17,16 @@ export default class Checkout extends BaseCommand {
   static override examples = [
     "<%= config.bin %> <%= command.id %>",
     "<%= config.bin %> <%= command.id %> origin/feature/other-branch",
+    '<%= config.bin %> <%= command.id %> feature/other-branch --agent "review this branch"',
   ];
+
+  static override flags = {
+    agent: Flags.string({
+      char: "a",
+      description:
+        "Start the configured coding agent in the new worktree with this prompt",
+    }),
+  };
 
   private normalizeBranchNameArg(branchNameArg?: string) {
     if (branchNameArg) {
@@ -42,7 +51,7 @@ export default class Checkout extends BaseCommand {
   }
 
   public async run(): Promise<void> {
-    const { args } = await this.parse(Checkout);
+    const { args, flags } = await this.parse(Checkout);
     const spinner = ora("Fetching remote branches").start();
     const remoteBranches = await gitGetRemoteBranches();
     const localBranches = await gitGetLocalBranches();
@@ -67,7 +76,12 @@ export default class Checkout extends BaseCommand {
         sourceBranchName,
         { isCheckout: true },
       );
+      // Same order as branch: env files complete the worktree before the agent
+      // sees it, and the editor stays last.
       await copyEnvFilesFromRootPath(projectPath);
+      if (flags.agent !== undefined) {
+        await this.dispatchAgent(projectPath, flags.agent);
+      }
       await this.openWorktreePath(projectPath);
     }
   }

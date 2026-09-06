@@ -1,7 +1,12 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 
 interface RunOptions {
   cwd?: string;
+}
+
+interface SpawnDetachedOptions {
+  cwd?: string;
+  onError?: (error: Error) => void;
 }
 
 // execFile takes an argv array, so no value passed here is ever parsed as shell
@@ -34,4 +39,20 @@ export async function commandExists(command: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// Fire-and-forget sibling of run(): the child outlives this process, so it is
+// detached, its stdio is ignored and it is unref'd — none of which execFile can
+// express. The argv array is the point here too, so a prompt full of quotes is
+// one argument rather than shell syntax. A failed launch arrives as an "error"
+// event, and an unhandled one on a ChildProcess throws, so a handler is always
+// attached even when the caller supplies none.
+export function spawnDetached(
+  file: string,
+  args: string[] = [],
+  { cwd, onError }: SpawnDetachedOptions = {},
+): void {
+  const child = spawn(file, args, { cwd, detached: true, stdio: "ignore" });
+  child.on("error", (error: Error) => onError?.(error));
+  child.unref();
 }

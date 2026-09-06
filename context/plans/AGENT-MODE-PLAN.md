@@ -15,8 +15,8 @@ brief's provenance is carried forward in §0 so nothing it recorded is lost.
 
 - **Source:** maintainer brief pasted into `/roadmap`, 2026-09-05.
 - **External citation in the brief:** <https://code.claude.com/docs/en/agent-view> — the maintainer's claim
-  about background-session worktree isolation is attributed to that page. **Still not independently
-  verified.** See §8 Q1.
+  about background-session worktree isolation is attributed to that page. **The page was never fetched; the
+  claim it carries was instead verified by observation at Phase 2** — see §8 Q1.
 - **The `claude agents --json` join was marked "I verified this join works" by the maintainer.** That claim
   **is now verified here** — see §1 and D4.
 - The brief's closing instruction was "do not commit or push, leave the work in the tree and summarise."
@@ -207,7 +207,7 @@ small and the consequence is a spurious block, not data loss. Accepted; not miti
 | # | Phase | Status | Depends on | Note |
 |---|---|---|---|---|
 | 1 | `agent.command` config value | done | — | Gate 1 green; Gate 2 `PASS WITH NOTES`. Notes filed as F-014/F-015/F-016, all `P3`. |
-| 2 | `dispatchAgent` + `--agent` on `branch` and `checkout` | not started | 1 | |
+| 2 | `dispatchAgent` + `--agent` on `branch` and `checkout` | done | 1 | Gate 1 green; Gate 2 `PASS WITH NOTES` after one loopback. F-017 (`P1`) raised and closed in the same commit; F-016 closed. §7's manual run passed, including step 3 — see Q1. Notes filed as F-018/F-019, both `P3`. |
 | 3 | Agent session join module | not started | 1 | |
 | 4 | Churn stats on the worktree entry | not started | — | |
 | 5 | `list --agents` | not started | 3, 4 | |
@@ -333,10 +333,13 @@ is not one to discover from a unit test alone.
 
 ## 8. Open questions
 
-- **Q1 — the isolation mechanic is still second-hand.** <https://code.claude.com/docs/en/agent-view> was
-  not fetched while writing this plan. Everything in §1 that is verified was verified by running the CLI,
-  not by reading that page; the *rule* that isolation is skipped inside a linked worktree remains the
-  maintainer's claim. §7 step 3 is what would falsify it.
+- **Q1 — the isolation mechanic — RESOLVED 2026-09-06: it holds, verified first-hand.** §7's manual run
+  was performed at Phase 2 against the built `dist` in a throwaway repo. With `agent.command` set to
+  `claude --bg`, `worktree branch feature/claude-check --agent "…"` produced a `"kind": "background"`
+  session whose `cwd` was exactly the new worktree (`claude agents --json`), and `find` over the repository
+  and its worktrees returned **no `.claude` directory at all**. R2's premise is confirmed by observation
+  rather than by the maintainer's claim, and <https://code.claude.com/docs/en/agent-view> did not need to be
+  fetched to settle it. Phases 3–7 build on a checked foundation.
 - **Q2 — should `list --agents` show interactive sessions? — RESOLVED 2026-09-06: yes, with a marker.**
   The maintainer chose the fix the question itself named, so `list` and `cleanup` now agree on what counts
   as "an agent is here". **D5 is amended accordingly** and Phase 5 renders the marker.

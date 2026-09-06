@@ -3,10 +3,12 @@
 // be listed here — one that is missing is undefined at call time, and the caller
 // fails with "x is not a function" rather than a useful assertion.
 const mockRun: ReturnType<typeof vi.fn> = vi.fn();
+const mockSpawnDetached: ReturnType<typeof vi.fn> = vi.fn();
 let expectedCommands: string[] = [];
 
 vi.mock("./lib/cli.js", () => ({
   run: mockRun,
+  spawnDetached: mockSpawnDetached,
   commandExists: vi.fn().mockResolvedValue(true),
 }));
 
@@ -56,5 +58,5 @@ function expectCommands(...commands: string[]) {
   expectedCommands.push(...commands);
 }
 
-// Export the mock and helper for use in tests
-export { expectCommands, mockRun };
+// Export the mocks and helper for use in tests
+export { expectCommands, mockRun, mockSpawnDetached };

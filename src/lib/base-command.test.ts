@@ -1,5 +1,5 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
-import { expectCommands, mockRun } from "../test-setup.js";
+import { expectCommands, mockRun, mockSpawnDetached } from "../test-setup.js";
 import { BaseCommand } from "./base-command.js";
 import * as git from "./git.js";
 
@@ -25,6 +25,10 @@ class TestCommand extends BaseCommand {
 
   open(path: string) {
     return this.openWorktreePath(path);
+  }
+
+  dispatch(path: string, prompt: string) {
+    return this.dispatchAgent(path, prompt);
   }
 }
 
@@ -107,5 +111,106 @@ describe("openWorktreePath", () => {
     expect(logSpy).toHaveBeenCalledWith(
       `✔ Worktree created in ${worktreePath}`,
     );
+  });
+});
+
+describe("dispatchAgent", () => {
+  const worktreePath = "/repo/project.worktrees/feature/test";
+  const prompt = "implement the issue";
+  let command: TestCommand;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("claude --bg");
+    logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
+  });
+
+  it("splits the configured command line and runs it in the worktree", async () => {
+    await command.dispatch(worktreePath, prompt);
+
+    expect(mockSpawnDetached).toHaveBeenCalledTimes(1);
+    expect(mockSpawnDetached).toHaveBeenCalledWith(
+      "claude",
+      ["--bg", prompt],
+      expect.objectContaining({ cwd: worktreePath }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(`✔ Agent started in ${worktreePath}`);
+  });
+
+  it("passes a prompt full of quotes as one argument", async () => {
+    // No shell parses this value, so a prompt that would need escaping in a
+    // command string arrives at the agent byte for byte.
+    const quotedPrompt = `fix the 'login' bug in "auth.ts"; don't stop`;
+
+    await command.dispatch(worktreePath, quotedPrompt);
+
+    expect(mockSpawnDetached).toHaveBeenCalledWith(
+      "claude",
+      ["--bg", quotedPrompt],
+      expect.objectContaining({ cwd: worktreePath }),
+    );
+  });
+
+  it("collapses repeated whitespace instead of passing an empty argument", async () => {
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("  claude   --bg  ");
+
+    await command.dispatch(worktreePath, prompt);
+
+    expect(mockSpawnDetached).toHaveBeenCalledWith(
+      "claude",
+      ["--bg", prompt],
+      expect.objectContaining({ cwd: worktreePath }),
+    );
+  });
+
+  it("runs a bare command with the prompt as its only argument", async () => {
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("claude");
+
+    await command.dispatch(worktreePath, prompt);
+
+    expect(mockSpawnDetached).toHaveBeenCalledWith(
+      "claude",
+      [prompt],
+      expect.objectContaining({ cwd: worktreePath }),
+    );
+  });
+
+  it("points at the config command and starts nothing when no agent is configured", async () => {
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+    await command.dispatch(worktreePath, prompt);
+
+    expect(mockSpawnDetached).not.toHaveBeenCalled();
+    // The form named here has to be one that does something: `worktree config
+    // <name>` with no value reads the key and discards it (config.ts:273-274).
+    expect(logSpy).toHaveBeenCalledWith(
+      'No agent configured. Run worktree config agent.command "<command>" to set one.',
+    );
+  });
+
+  it("treats a whitespace-only command as no agent rather than spawning nothing", async () => {
+    // The head is what spawn receives, and spawn("") throws synchronously —
+    // which would take the editor launch down with it.
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("   ");
+
+    await command.dispatch(worktreePath, prompt);
+
+    expect(mockSpawnDetached).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'No agent configured. Run worktree config agent.command "<command>" to set one.',
+    );
+  });
+
+  it("reports a failed launch through the error handler it registers", async () => {
+    await command.dispatch(worktreePath, prompt);
+
+    // The launch is fire-and-forget, so a missing binary can only surface
+    // through the handler passed to spawnDetached.
+    const { onError } = mockSpawnDetached.mock.calls[0][2];
+    onError(new Error("spawn claude ENOENT"));
+
+    expect(logSpy).toHaveBeenCalledWith("Error: spawn claude ENOENT");
   });
 });
