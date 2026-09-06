@@ -36,47 +36,6 @@ life of the project.
 
 ## Open
 
-### F-002 — P3 — the `pathExists` ordering rationale in §4.1 is not pinned by any test
-
-**Tied to:** cleanup-data-loss Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 2)
-
-§4.1's first bullet argues that `!wt.pathExists` must stay the first branch — a worktree whose directory is
-gone holds nothing to lose. No test enforces it. `src/lib/git.test.ts:255-257` covers `{ pathExists: false }`
-with the `entry()` default of `uncommittedChanges: 0`, which returns `true` under either ordering, so a
-future change hoisting the uncommitted test above the path test would flip
-`{ pathExists: false, uncommittedChanges: 3 }` from `true` to `false` with no test failing.
-
-Latent, not live: `gitGetWorktreeList` hardcodes `uncommittedChanges` to `0` when the path is missing
-(`src/lib/git.ts:200-202`), so the combination is unreachable from the list builder. Left open rather than
-fixed because Phase 2's **Done when** names exactly two over-reach cases and this is not one of them —
-adding it would have landed an unreviewed assertion after Gate 2 had already passed on the diff.
-
-This matters sooner than it looks: `agent-mode` Phase 6 adds a live-agent clause to this same predicate
-(§2, R2), and is the natural place to pin the ordering while the branches are being re-read anyway.
-
-**Closes when:** a Gate 1 run passes with a `git.test.ts` case asserting the verdict for
-`{ pathExists: false, uncommittedChanges: 3 }`.
-
-### F-003 — P3 — a path-less worktree with a non-zero change count would be listed as skipped *and* removed
-
-**Tied to:** cleanup-data-loss Phase 3 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 3)
-
-For `{ pathExists: false, uncommittedChanges: 3 }` both halves of `cleanup`'s split claim the entry:
-`isSafeToRemove` returns `true` at `src/lib/git.ts:159-162`, so it lands in `worktrees`
-(`src/commands/cleanup.ts:48`), and `isSkippedForUncommittedChanges` (`src/commands/cleanup.ts:17-21`) also
-returns `true`, because its zeroed probe hits that same first branch. The command would print the worktree
-as skipped and then remove it anyway.
-
-Latent, not live, and for the same reason as F-002: `gitGetWorktreeList` hardcodes `uncommittedChanges`
-to `0` when the path is missing (`src/lib/git.ts:200-202`), and `cleanup` consumes no other source. The
-one-line form is `wt.safeToRemove !== true &&` in front of the existing condition. Left open rather than
-fixed because Gate 2 had already passed on the diff — the same reasoning F-002 records — and because both
-findings are the `pathExists: false` ordering question that `agent-mode` Phase 6 will have this predicate
-open for anyway.
-
-**Closes when:** a Gate 1 run passes with a `cleanup.test.ts` case proving that entry appears in at most one
-of the two lists.
-
 ### F-004 — P3 — Phase 4's regression cases are looser than the §4.3 claim they pin
 
 **Tied to:** cleanup-data-loss Phase 4 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 4)
@@ -487,22 +446,18 @@ to extract `gitGetConfigValue` / `gitSetConfigValue` into a `src/lib/config.ts` 
 `src/commands/config.ts` and their tests — outside Phase 5's scope, but **Phase 6 already owns
 `src/lib/git.ts`** and will have the module open, which is why it is tied there.
 
-**Closes when:** a cycle scan over non-test `src/` reports none, proven by a Gate 1 run on Phase 6.
+**No remaining phase of this plan will close this.** It was tied to Phase 6 because that phase owns
+`src/lib/git.ts`; Phase 6 has now shipped without taking it, and Phase 7's **Files** are `skills/core/SKILL.md`
+and `README.md`, so no row is left that opens either module. Deferred deliberately: the extraction is `P2`,
+which does not gate a phase, and the Phase 6 Gate 2 reviewer measured its real blast radius as **seven**
+non-test files (`git.ts`, `agent.ts`, `base-command.ts`, `commands/config.ts`, `commands/branch.ts`,
+`integrations/github.ts`, `integrations/jira.ts`) plus six test files that spy on `git.gitGetConfigValue` —
+materially wider than this finding's own estimate above, and roughly twelve files against Phase 6's five.
+Landing it inside Phase 6 would have been the unreviewed-scope-expansion this file records elsewhere. It is
+therefore still open at `/feature-close` unless it is given a home first — a roadmap entry is the natural
+one, as with F-008.
 
-### F-026 — P3 — the `list` docs page describes a `cleanup` refusal that Phase 6 has not built
-
-**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 5)
-
-`docs/src/app/docs/commands/list/page.mdx:40-41` explains the `[interactive]` marker with *"It is listed
-because `cleanup` will refuse to remove a worktree somebody is sitting in."* `grep -n 'agent\|Agent'
-src/commands/cleanup.ts` returns nothing; that refusal is Phase 6's scope.
-
-Same shape as the closed F-016, and accepted on the same grounds: `docs-deploy.yml` deploys only on push to
-`main`, the branch merges as a unit, and Phase 6 gates both Phase 7 and `/feature-close`, so the sentence
-will be true before any reader sees it. Recorded so it is not lost if Phase 6 changes shape.
-
-**Closes when:** `cleanup` excludes a worktree holding a live session, proven by a Gate 1 run on Phase 6 —
-or the sentence is cut.
+**Closes when:** a cycle scan over non-test `src/` reports none, proven by a Gate 1 run.
 
 ### F-027 — P3 — a new `git.test.ts` comment claims an ordering assertion the harness does not make
 
@@ -534,6 +489,123 @@ about a repo-wide gap that Phase 5 inherited, not a Phase 5 defect.
 
 **Closes when:** a test reads `List.flags.agents` and asserts its `char` and `description`, proven by a Gate
 1 run — or the maintainer accepts the gap, folded into the plan's log at `/feature-close`.
+
+### F-029 — P3 — `hasLiveAgent`'s comment credits the fail-safe to a path that cannot reach it
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`src/lib/git.ts:168-172` says an absent `live` marker counts as live "so a hand-built entry **and a runtime
+that renamed its state field** both block removal rather than being waved through". The hand-built half is
+real. The renamed-`state` half never reaches the `!== false` branch: `toWorktreeAgent` always sets `live`
+(`src/lib/git.ts:231`), and `isSessionLive` returns `true` for an unrecognised state (`src/lib/agent.ts:132`),
+so a renamed field yields `live: true` explicitly, not an absent one. The outcome is the same and the code is
+right; the comment names the wrong mechanism for it.
+
+The same shape as F-027 — a comment leaning on a guard that lives in another module. One line.
+
+**Closes when:** the comment attributes the renamed-`state` case to `isSessionLive` rather than to the absent
+marker, proven by a Gate 1 run.
+
+### F-030 — P3 — `--ignore-agents` is "do not tell me" as well as "do not look", against this command's own stated principle
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`archive/CLEANUP-DATA-LOSS-PLAN.md:209` states *"`--force` means \"do not ask me\", not \"do not tell me\"."*
+and `src/commands/cleanup.ts:147-148` carries that forward for uncommitted changes. `--ignore-agents` is
+implemented as *not gathering* the sessions (`src/commands/cleanup.ts:110-112`), so
+`cleanup --force --ignore-agents` sweeps agent-occupied worktrees and names none of them — "do not tell me",
+for the one category D5 calls the worst failure mode in the flow.
+
+This is a deliberate trade, not an oversight: not looking is also what keeps R4's constant cost off the
+overridden path, the docs disclose the mechanism (`docs/src/app/docs/commands/cleanup/page.mdx:55-57`), and
+nothing in §4 or D5 requires a report from the override. Recorded because it is the single place the new flag
+departs from a principle this command already had in writing, and someone will otherwise rediscover it as a
+bug.
+
+**Closes when:** the override reports what it swept past — which means gathering sessions and discounting
+them rather than skipping the lookup — or the maintainer accepts the trade, folded into the plan's log at
+`/feature-close`.
+
+### F-031 — P3 — `cleanup`'s flags block is pinned by no test
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`src/commands/cleanup.test.ts` stubs `parse` wholesale and never reads `Cleanup.flags`, so deleting the
+`"ignore-agents"` entry at `src/commands/cleanup.ts:58-61` leaves every test green while
+`worktree cleanup --ignore-agents` fails at runtime against a flag the docs table documents
+(`docs/src/app/docs/commands/cleanup/page.mdx:31`). Only §7's manual run currently proves the flag exists.
+
+Identical in shape to F-028, one command over, and to how `branch` and `checkout` flags are tested here — so
+this is the repo-wide gap Phase 6 inherited rather than a Phase 6 defect.
+
+**Closes when:** a test reads `Cleanup.flags["ignore-agents"]` and asserts it, proven by a Gate 1 run — or
+the maintainer accepts the gap, folded into the plan's log at `/feature-close`. Best taken together with
+F-028.
+
+### F-032 — P3 — `remove` and `cleanup` now disagree about a worktree an agent is living in
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`src/commands/remove.ts:54` calls `gitGetWorktreeList()` with no options, so no session join happens and a
+worktree holding a live agent still gets `safeToRemove: true` — landing it under *"Inactive branches (Safe to
+delete)"* (`src/commands/remove.ts:40`) while `cleanup` refuses the same worktree.
+
+Out of scope by design: D5 names `cleanup` only, §4's **Cleanup** paragraph names `isSafeToRemove` and
+`cleanup`'s override and nothing else, and `remove` is an explicit single-worktree choice rather than a
+sweep, so the case for blocking it is weaker. But the label it prints is now wrong for that worktree, which
+is a different thing from declining to block.
+
+**Closes when:** `remove` either joins sessions and stops calling such a worktree safe, or the maintainer
+accepts the asymmetry — either folded into the plan's log at `/feature-close`, or re-filed as its own
+roadmap entry.
+
+### F-033 — P3 — a finished session renders in `list --agents` as though it were working
+
+**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`src/lib/utils.ts:37-44` gives a session no marker unless it is interactive or waiting, so a session with
+`state: "done"` renders as bare `Agent: <name>` — indistinguishable from a background agent that is getting
+on with its work. `docs/src/app/docs/commands/list/page.mdx` says *"**No marker** — a background agent that is
+getting on with its work"*, which is now false for that case, and `cleanup` will happily remove the worktree
+the reader has just been shown an agent in.
+
+Reachable only through D6's second layer — a finished session appearing in a listing that omits `--all` — so
+low probability. Phase 5 owns both files, and Phase 6 is what made the divergence observable by acting on
+`live` where `list` does not render it.
+
+**Closes when:** `list --agents` distinguishes a finished session from a working one, proven by a Gate 1 run
+— or the maintainer accepts the gap, folded into the plan's log at `/feature-close`.
+
+### F-034 — P3 — the cleanup docs open with an absolute the page then qualifies twice
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`docs/src/app/docs/commands/cleanup/page.mdx:35` opens *"A worktree that an agent session is living in is
+never removed."* Two exceptions exist: `--ignore-agents`, qualified three paragraphs later at `:54-57` and in
+the flags table at `:31`, and a worktree whose directory is already gone, which `isSafeToRemove` answers
+before it ever reaches the agent clause (`src/lib/git.ts:178-183`).
+
+Ordinary topic-sentence-then-qualification prose, so a note rather than a defect. *"is not removed unless you
+pass `--ignore-agents`"* would remove the tension in one edit.
+
+**Closes when:** the sentence carries its qualification, proven by a Lint gate run — or the maintainer
+accepts the prose as written.
+
+### F-035 — P3 — the cleanup docs flags table has a different shape from the list page's
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`docs/src/app/docs/commands/cleanup/page.mdx:28-31` uses a two-column Flag/Description table with the alias
+folded into the flag cell, where `docs/src/app/docs/commands/list/page.mdx:20-22` uses three columns —
+Flag/Alias/Description — and quotes each flag's `description` string verbatim. `--ignore-agents`' row does
+quote the code; `--force`'s paraphrases it as "Skip the confirmation prompt" against
+`src/commands/cleanup.ts:53`'s "Force cleanup without confirmation".
+
+Cosmetic, and the two pages were written by different phases. Recorded so the docs settle on one shape rather
+than drifting page by page.
+
+**Closes when:** the two pages use one table shape and quote the flag descriptions the code carries, proven by
+a Lint gate run — or the maintainer accepts the variation.
 
 ## Closed
 
@@ -642,3 +714,80 @@ and `docs/src/app/docs/commands/list/page.mdx:43-45` says the same in the reader
 named session — so an ambiguous worktree is never rendered ambiguously, only partially. Observed live at
 Phase 5: this repo's own worktree held two live sessions at once, one background and one interactive, and
 the background one was named.
+
+### F-002 — P3 — the `pathExists` ordering rationale in §4.1 is not pinned by any test
+
+**Tied to:** cleanup-data-loss Phase 2 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 2)
+
+§4.1's first bullet argues that `!wt.pathExists` must stay the first branch — a worktree whose directory is
+gone holds nothing to lose. No test enforces it. `src/lib/git.test.ts:255-257` covers `{ pathExists: false }`
+with the `entry()` default of `uncommittedChanges: 0`, which returns `true` under either ordering, so a
+future change hoisting the uncommitted test above the path test would flip
+`{ pathExists: false, uncommittedChanges: 3 }` from `true` to `false` with no test failing.
+
+Latent, not live: `gitGetWorktreeList` hardcodes `uncommittedChanges` to `0` when the path is missing
+(`src/lib/git.ts:200-202`), so the combination is unreachable from the list builder. Left open rather than
+fixed because Phase 2's **Done when** names exactly two over-reach cases and this is not one of them —
+adding it would have landed an unreviewed assertion after Gate 2 had already passed on the diff.
+
+This matters sooner than it looks: `agent-mode` Phase 6 adds a live-agent clause to this same predicate
+(§2, R2), and is the natural place to pin the ordering while the branches are being re-read anyway.
+
+**Closes when:** a Gate 1 run passes with a `git.test.ts` case asserting the verdict for
+`{ pathExists: false, uncommittedChanges: 3 }`.
+
+**Closed:** 2026-09-06 by agent-mode Phase 6's Gate 1 run (`pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` 322
+passed, `pnpm docs:test` 49 passed — all exit 0). `src/lib/git.test.ts` now carries "is safe when the directory is gone
+even with uncommitted work", asserting `true` for `{ pathExists: false, uncommittedChanges: 3 }` — the exact
+case this finding names. The predicate was open for the live-agent clause, which is placed *after* the path
+branch and pinned by a second ordering case of its own, so the argument in §4.1 is now enforced by tests on
+both sides rather than by a comment.
+
+### F-003 — P3 — a path-less worktree with a non-zero change count would be listed as skipped *and* removed
+
+**Tied to:** cleanup-data-loss Phase 3 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 3)
+
+For `{ pathExists: false, uncommittedChanges: 3 }` both halves of `cleanup`'s split claim the entry:
+`isSafeToRemove` returns `true` at `src/lib/git.ts:159-162`, so it lands in `worktrees`
+(`src/commands/cleanup.ts:48`), and `isSkippedForUncommittedChanges` (`src/commands/cleanup.ts:17-21`) also
+returns `true`, because its zeroed probe hits that same first branch. The command would print the worktree
+as skipped and then remove it anyway.
+
+Latent, not live, and for the same reason as F-002: `gitGetWorktreeList` hardcodes `uncommittedChanges`
+to `0` when the path is missing (`src/lib/git.ts:200-202`), and `cleanup` consumes no other source. The
+one-line form is `wt.safeToRemove !== true &&` in front of the existing condition. Left open rather than
+fixed because Gate 2 had already passed on the diff — the same reasoning F-002 records — and because both
+findings are the `pathExists: false` ordering question that `agent-mode` Phase 6 will have this predicate
+open for anyway.
+
+**Closes when:** a Gate 1 run passes with a `cleanup.test.ts` case proving that entry appears in at most one
+of the two lists.
+
+**Closed:** 2026-09-06 by agent-mode Phase 6's Gate 1 run (`pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` 322
+passed, `pnpm docs:test` 49 passed — all exit 0). Both skip predicates in `src/commands/cleanup.ts` now open with
+`wt.safeToRemove !== true`, so an entry the sweep will remove can never also be announced as held back.
+`src/commands/cleanup.test.ts` pins it with "claims a worktree whose directory is gone for at most one
+report". The Gate 2 reviewer went further and ran the two predicates against the built `dist/lib/git.js`
+over all 48 combinations of `pathExists` × `uncommittedChanges` × four agent shapes × three remote states,
+reporting **0** entries claimed by more than one list — so the defect class is closed empirically, not just
+for the one case named here.
+
+### F-026 — P3 — the `list` docs page describes a `cleanup` refusal that Phase 6 has not built
+
+**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 5)
+
+`docs/src/app/docs/commands/list/page.mdx:40-41` explains the `[interactive]` marker with *"It is listed
+because `cleanup` will refuse to remove a worktree somebody is sitting in."* `grep -n 'agent\|Agent'
+src/commands/cleanup.ts` returns nothing; that refusal is Phase 6's scope.
+
+Same shape as the closed F-016, and accepted on the same grounds: `docs-deploy.yml` deploys only on push to
+`main`, the branch merges as a unit, and Phase 6 gates both Phase 7 and `/feature-close`, so the sentence
+will be true before any reader sees it. Recorded so it is not lost if Phase 6 changes shape.
+
+**Closes when:** `cleanup` excludes a worktree holding a live session, proven by a Gate 1 run on Phase 6 —
+or the sentence is cut.
+
+**Closed:** 2026-09-06 by agent-mode Phase 6's Gate 1 run (`pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` 322
+passed, `pnpm docs:test` 49 passed — all exit 0). `cleanup` excludes a worktree holding a live session and reports it by
+name, so the sentence at `docs/src/app/docs/commands/list/page.mdx:40-41` describes shipped behaviour. Both
+the unit suite and §7's manual run through the built `bin/run.js` confirm the refusal.

@@ -20,7 +20,11 @@ import {
   gitSetConfigValue,
   isSafeToRemove,
 } from "./git.js";
-import type { AgentSession, WorktreeListEntry } from "./types.js";
+import type {
+  AgentSession,
+  WorktreeAgent,
+  WorktreeListEntry,
+} from "./types.js";
 
 // gitCreateWorktree is the only function under test here that draws a spinner.
 // Mock it so the suite neither writes to the terminal nor depends on a TTY.
@@ -547,6 +551,10 @@ describe("isSafeToRemove", () => {
     };
   }
 
+  function liveAgent(overrides: Partial<WorktreeAgent> = {}): WorktreeAgent {
+    return { name: "feature-test-1f", pid: 9187, live: true, ...overrides };
+  }
+
   it("is safe when the worktree directory no longer exists", () => {
     expect(isSafeToRemove(entry({ pathExists: false }))).toBe(true);
   });
@@ -615,6 +623,52 @@ describe("isSafeToRemove", () => {
 
   it("is safe with no remote and an unknown uncommitted count", () => {
     expect(isSafeToRemove(entry({ uncommittedChanges: undefined }))).toBe(true);
+  });
+
+  // The ordering guard for the path branch, which every case above leaves free
+  // to move because they all pair a missing path with a zero count. Hoisting the
+  // uncommitted test above it would flip this one to `false`. See findings.md
+  // F-002.
+  it("is safe when the directory is gone even with uncommitted work", () => {
+    expect(
+      isSafeToRemove(entry({ pathExists: false, uncommittedChanges: 3 })),
+    ).toBe(true);
+  });
+
+  it("is not safe when a live agent session is living in it", () => {
+    expect(isSafeToRemove(entry({ agent: liveAgent() }))).toBe(false);
+  });
+
+  it("is safe again once the session living in it has finished", () => {
+    expect(isSafeToRemove(entry({ agent: liveAgent({ live: false }) }))).toBe(
+      true,
+    );
+  });
+
+  // Fails safe: `live` is optional on WorktreeAgent, so an entry that records a
+  // session without saying whether it finished blocks removal rather than being
+  // waved through. See AGENT-MODE-PLAN §3 D6.
+  it("is not safe when the session carries no liveness marker at all", () => {
+    expect(
+      isSafeToRemove(entry({ agent: { name: "one-1f", pid: 9187 } })),
+    ).toBe(false);
+  });
+
+  // The same ordering guard for the agent branch: a directory that is already
+  // gone holds nothing to lose, whoever the session listing still believes is
+  // in it.
+  it("is safe when the directory is gone even with a session recorded in it", () => {
+    expect(
+      isSafeToRemove(entry({ pathExists: false, agent: liveAgent() })),
+    ).toBe(true);
+  });
+
+  // A live session outranks uncommitted work, which is the same judgement made
+  // about a smaller loss — so the verdict does not change when both are present.
+  it("is not safe when a live session and uncommitted work are both present", () => {
+    expect(
+      isSafeToRemove(entry({ agent: liveAgent(), uncommittedChanges: 3 })),
+    ).toBe(false);
   });
 });
 
@@ -686,6 +740,7 @@ describe("gitGetWorktreeList agent join", () => {
     expect(worktrees[0].agent).toEqual({
       name: "feature-one-1f",
       pid: 9187,
+      live: true,
       interactive: false,
       waiting: false,
     });
@@ -702,6 +757,7 @@ describe("gitGetWorktreeList agent join", () => {
     expect(worktrees[0].agent).toEqual({
       name: "feature-one-1f",
       pid: 9187,
+      live: true,
       interactive: true,
       waiting: false,
     });
@@ -717,8 +773,28 @@ describe("gitGetWorktreeList agent join", () => {
     expect(worktrees[0].agent).toEqual({
       name: "feature-one-1f",
       pid: 9187,
+      live: true,
       interactive: false,
       waiting: true,
+    });
+  });
+
+  // The finished session still joins — `list` names it — but it carries the
+  // marker cleanup reads, which is the whole reason liveness crosses this
+  // boundary rather than staying inside agent.ts. See AGENT-MODE-PLAN §3 D6.
+  it("marks a finished session as not live", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+      session({ kind: "background", state: "done" }),
+    ]);
+
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(worktrees[0].agent).toEqual({
+      name: "feature-one-1f",
+      pid: 9187,
+      live: false,
+      interactive: false,
+      waiting: false,
     });
   });
 

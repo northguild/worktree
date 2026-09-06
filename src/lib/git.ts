@@ -8,6 +8,7 @@ import {
   findSessionForPath,
   getAgentSessions,
   isSessionInteractive,
+  isSessionLive,
   isSessionWaiting,
 } from "./agent.js";
 import { run } from "./cli.js";
@@ -164,10 +165,27 @@ export async function gitGetWorktrees({
   );
 }
 
+// Somebody is working in this worktree — a dispatched agent or a human's own
+// terminal, which D5 treats alike. Fails safe on an absent marker: an entry that
+// records a session without saying whether it finished counts as live, so a
+// hand-built entry and a runtime that renamed its state field both block removal
+// rather than being waved through. See AGENT-MODE-PLAN §3 D5/D6.
+export function hasLiveAgent(wt: WorktreeListEntry): boolean {
+  return !!wt.agent && wt.agent.live !== false;
+}
+
 export function isSafeToRemove(wt: WorktreeListEntry): boolean {
   if (!wt.pathExists) {
-    // Worktree is defined but doesn't exist in the filesystem.
+    // Worktree is defined but doesn't exist in the filesystem. Tested first, and
+    // before the agent clause too: a directory that is already gone holds
+    // nothing to lose, whoever the session listing still believes is in it.
     return true;
+  }
+  if (hasLiveAgent(wt)) {
+    // Deleting a directory somebody is working in is the worst failure mode in
+    // this flow, so it outranks every reason below — including uncommitted work,
+    // which is the same judgement made about a smaller loss.
+    return false;
   }
   if (wt.uncommittedChanges) {
     // Uncommitted work disqualifies a worktree whatever its remote looks like.
@@ -189,9 +207,10 @@ interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
   includeAgents?: boolean;
 }
 
-// The session's own name and pid, plus the two markers `list` renders — and the
-// markers come from agent.ts's predicates, so no raw `kind`, `state` or `status`
-// value crosses this boundary. See AGENT-MODE-PLAN §4.
+// The session's own name and pid, plus the liveness `cleanup` weighs and the two
+// markers `list` renders — all three derived by agent.ts's predicates, so no raw
+// `kind`, `state` or `status` value crosses this boundary. See AGENT-MODE-PLAN
+// §4.
 //
 // One session, not a set: an entry carries a single `agent`, so a worktree
 // holding both a human's terminal and a dispatched agent is described by
@@ -209,6 +228,7 @@ function toWorktreeAgent(
   return {
     name: session.name,
     pid: session.pid,
+    live: isSessionLive(session),
     interactive: isSessionInteractive(session),
     waiting: isSessionWaiting(session),
   };

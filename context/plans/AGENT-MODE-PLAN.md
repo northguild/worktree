@@ -249,7 +249,7 @@ small and the consequence is a spurious block, not data loss. Accepted; not miti
 | 3 | Agent session join module | done | 1 | Gate 1 green; Gate 2 `PASS` after one loopback. F-020 (`P2`) raised and closed in the same commit. Notes filed as F-021/F-022/F-023, all `P3`, plus F-024 against Phase 5. |
 | 4 | ~~Churn stats on the worktree entry~~ | cut | — | Cut 2026-09-06: unrelated to agents, Phase 5 was its only consumer, and it was the fourth per-worktree subprocess (R4). Re-filed as `worktree-churn-stats`. |
 | 5 | `list --agents` | done | 3 | Gate 1 green (307 tests, was 294). Gate 2 `PASS WITH NOTES`, no loopbacks. F-024 closed. Notes filed as F-025 (`P2`, tied to Phase 6) and F-026/F-027/F-028, all `P3`. §4's flag on `gitGetWorktreeList` was followed over this phase's original **Files** line — see Phase 5 below. |
-| 6 | Agent-aware `cleanup` | not started | 3 | |
+| 6 | Agent-aware `cleanup` | done | 3 | Gate 1 green (322 tests, was 307). Gate 2 `PASS WITH NOTES`, no loopbacks. §7's Phase 6 manual run passed, including the override and the finished-session case. F-002, F-003 and F-026 closed; F-025 deferred, with its dangling close condition amended in place. Notes filed as F-029 through F-035, all `P3`. `src/lib/types.ts` added to **Files** — see Phase 6 below. |
 | 7 | Generated-surface sweep | not started | 2, 5, 6 | |
 
 Status is one of `not started`, `in progress`, `blocked`, `done`, `cut`. `done` only when committed and
@@ -353,11 +353,32 @@ distinguishably from one that is actively working**; `worktree list` output is b
 #### Phase 6 — Agent-aware `cleanup`
 
 **Files:** `src/lib/git.ts`, `src/lib/git.test.ts`, `src/commands/cleanup.ts`,
-`src/commands/cleanup.test.ts`, `docs/src/app/docs/commands/cleanup/page.mdx`
+`src/commands/cleanup.test.ts`, `docs/src/app/docs/commands/cleanup/page.mdx`, and — **added at
+implementation, 2026-09-06** — `src/lib/types.ts`. Liveness has to reach `isSafeToRemove`, and §4's
+encapsulation rule says no raw `state` may cross out of `agent.ts`, so `WorktreeAgent` carries a third
+derived field — `live?: boolean`, alongside `interactive` and `waiting` — set in `toWorktreeAgent` from
+`isSessionLive`. That is one line on a type Phase 3 already created rather than new scope. It is **optional**
+like its two siblings, because `src/commands/list.test.ts` and `src/lib/utils.test.ts` build `WorktreeAgent`
+literals without it and both are Phase 5's files; the cost is that every reader must say what an absent
+marker means, and `hasLiveAgent` says *live*, which is the direction D6 fails in.
 
 **Scope:** Teach `isSafeToRemove` about a live agent (D5, D6) and add the explicit override flag to
 `cleanup` — distinct from `--force` (§4). A worktree hosting a live session is excluded from the sweep and
 named as skipped rather than silently dropped.
+
+**The override is `--ignore-agents`, and it works by not looking.** It has no short alias: `--force` has
+`-f` because it answers a prompt, and this one overrules a safety verdict, which is worth spelling out.
+Rather than gathering sessions and discounting them, it turns the join off (`includeAgents:
+!flags["ignore-agents"]`), so the overridden path also costs exactly what `cleanup` cost before this phase —
+R4's constant, off. The one consequence is that the override reports nothing about what it swept past, which
+is a departure from this command's own "do not ask me, not do not tell me" principle and is recorded as
+F-030.
+
+**Each held-back worktree is named under exactly one heading.** A worktree an agent is working in almost
+always holds uncommitted work too, so the two skip reports are made disjoint by construction: the uncommitted
+probe keeps the agent (and so declines anything an agent holds), the agent probe drops both. Both are gated
+on `safeToRemove !== true`, which is also what closes F-003 — without it a worktree whose directory is gone
+is reported as held back *and* removed.
 
 **Done when:** a worktree with a live session in its `cwd` is excluded from `cleanup` and reported as
 skipped; the override includes it; a session with `state: "done"` does not block; tests cover all three

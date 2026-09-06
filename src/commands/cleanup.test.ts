@@ -80,6 +80,64 @@ describe("cleanup command", () => {
     safeToRemove: false,
   };
 
+  // A stale worktree an agent is living in. Nothing else holds it back, so it is
+  // the live session alone that has to keep it out of the sweep.
+  const agentWorktree = {
+    path: "/path/to/project.worktrees/feature/agent-live",
+    branchName: "feature/agent-live",
+    remote: "origin/feature/agent-live",
+    remoteExists: false,
+    pathExists: true,
+    uncommittedChanges: 0,
+    agent: {
+      name: "feature-agent-1f",
+      pid: 9187,
+      live: true,
+      interactive: false,
+      waiting: false,
+    },
+    safeToRemove: false,
+  };
+
+  // The ordinary shape of a worktree an agent is working in: a live session and
+  // the uncommitted work it has produced so far. It belongs under one heading,
+  // not both.
+  const agentWorktreeWithChanges = {
+    path: "/path/to/project.worktrees/feature/agent-dirty",
+    branchName: "feature/agent-dirty",
+    remote: "origin/feature/agent-dirty",
+    remoteExists: false,
+    pathExists: true,
+    uncommittedChanges: 2,
+    agent: {
+      name: "feature-dirty-2a",
+      pid: 9188,
+      live: true,
+      interactive: false,
+      waiting: false,
+    },
+    safeToRemove: false,
+  };
+
+  // The session finished and the worktree went back to being ordinary stale
+  // work. `list` still names the session; cleanup must not be held by it.
+  const finishedAgentWorktree = {
+    path: "/path/to/project.worktrees/feature/agent-done",
+    branchName: "feature/agent-done",
+    remote: "origin/feature/agent-done",
+    remoteExists: false,
+    pathExists: true,
+    uncommittedChanges: 0,
+    agent: {
+      name: "feature-done-3b",
+      pid: 9189,
+      live: false,
+      interactive: false,
+      waiting: false,
+    },
+    safeToRemove: true,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     const mockConfig = {
@@ -317,6 +375,229 @@ describe("cleanup command", () => {
     );
     expect(mockConfirm).not.toHaveBeenCalled();
     expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  // The join is what puts an agent on the entry in the first place, so a cleanup
+  // that never asked for it cannot see the session it is meant to respect.
+  it("asks for the session join by default", async () => {
+    const listSpy = vi
+      .spyOn(git, "gitGetWorktreeList")
+      .mockResolvedValue([safeWorktree]);
+    vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(false);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await cleanup.run();
+
+    expect(listSpy).toHaveBeenCalledWith({ includeAgents: true });
+  });
+
+  it("excludes a worktree with a live agent session and names the session", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+      safeWorktree,
+      agentWorktree,
+    ]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockResolvedValue(undefined);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await cleanup.run();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      "Skipped 1 worktree branch with a live agent session:",
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "- feature/agent-live (Remote removed, Agent: feature-agent-1f)",
+    );
+    expect(mockRemove).toHaveBeenCalledWith([safeWorktree]);
+  });
+
+  it("removes a worktree whose agent session has finished", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+      finishedAgentWorktree,
+    ]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockResolvedValue(undefined);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await cleanup.run();
+
+    expect(
+      logSpy.mock.calls.some((call) => (call[0] ?? "").startsWith("Skipped ")),
+    ).toBe(false);
+    expect(mockRemove).toHaveBeenCalledWith([finishedAgentWorktree]);
+  });
+
+  // The override is "do not look": with no join asked for, the builder returns
+  // entries carrying no agent at all, and the verdict is what it was before the
+  // flag existed. Asserting the argument is the real check — the list here is
+  // what the builder would then hand back.
+  it("asks for no session join with --ignore-agents and removes anyway", async () => {
+    const listSpy = vi
+      .spyOn(git, "gitGetWorktreeList")
+      .mockResolvedValue([
+        { ...agentWorktree, agent: undefined, safeToRemove: true },
+      ]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockResolvedValue(undefined);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: true, "ignore-agents": true },
+    });
+
+    await cleanup.run();
+
+    expect(listSpy).toHaveBeenCalledWith({ includeAgents: false });
+    expect(
+      logSpy.mock.calls.some((call) => (call[0] ?? "").startsWith("Skipped ")),
+    ).toBe(false);
+    expect(mockRemove).toHaveBeenCalledWith([
+      { ...agentWorktree, agent: undefined, safeToRemove: true },
+    ]);
+  });
+
+  // --force answers the confirmation prompt, not the safety verdict, so a live
+  // session survives it. That distinction is the whole reason --ignore-agents
+  // exists as a separate flag. See AGENT-MODE-PLAN §4.
+  it("does not let --force remove a worktree with a live agent session", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+      safeWorktree,
+      agentWorktree,
+    ]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockResolvedValue(undefined);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: true },
+    });
+
+    await cleanup.run();
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      "Skipped 1 worktree branch with a live agent session:",
+    );
+    expect(mockRemove).toHaveBeenCalledWith([safeWorktree]);
+  });
+
+  // A worktree an agent is working in almost always holds uncommitted work too.
+  // Reporting it under both headings would double-count it and read as two
+  // worktrees; the agent heading is the one that claims it, and the change count
+  // still appears in its details.
+  it("reports a dirty worktree with a live session under the agent heading only", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+      safeWorktree,
+      agentWorktreeWithChanges,
+    ]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockResolvedValue(
+      undefined,
+    );
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await cleanup.run();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      "Skipped 1 worktree branch with a live agent session:",
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "- feature/agent-dirty (Remote removed, 2 uncommitted changes, Agent: feature-dirty-2a)",
+    );
+    expect(
+      logSpy.mock.calls.filter((call) =>
+        (call[0] ?? "").includes("feature/agent-dirty"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      logSpy.mock.calls.some((call) =>
+        (call[0] ?? "").includes("uncommitted changes:"),
+      ),
+    ).toBe(false);
+  });
+
+  it("reports agent hold-backs when nothing at all can be removed", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+      agentWorktree,
+      staleWorktreeWithChanges,
+    ]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockResolvedValue(undefined);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await cleanup.run();
+
+    expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+    expect(spinnerMocks.info).toHaveBeenCalledWith(
+      "No stale worktree branches can be removed safely.",
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "Skipped 1 worktree branch that has uncommitted changes:",
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "Skipped 1 worktree branch with a live agent session:",
+    );
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  // A worktree whose directory is already gone is safe to remove whatever its
+  // change count says, so it must not also be announced as held back. Both
+  // reports are gated on the verdict for exactly this reason. See findings.md
+  // F-003.
+  it("claims a worktree whose directory is gone for at most one report", async () => {
+    const ghostWorktree = {
+      path: "/path/to/project.worktrees/feature/ghost",
+      branchName: "feature/ghost",
+      remote: "origin/feature/ghost",
+      remoteExists: false,
+      pathExists: false,
+      uncommittedChanges: 3,
+      safeToRemove: true,
+    };
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([ghostWorktree]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockResolvedValue(undefined);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: true },
+    });
+
+    await cleanup.run();
+
+    expect(
+      logSpy.mock.calls.some((call) => (call[0] ?? "").startsWith("Skipped ")),
+    ).toBe(false);
+    expect(mockRemove).toHaveBeenCalledWith([ghostWorktree]);
   });
 
   // Only worktrees cleanup would otherwise have swept are reported. An active

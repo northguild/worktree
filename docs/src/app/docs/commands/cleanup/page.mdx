@@ -22,3 +22,39 @@ count comes from `git status -s`, so untracked files hold a worktree back too.
 
 `cleanup` reports every worktree it would otherwise have removed but held back for that
 reason, along with its change count, so work in progress is named rather than swept up.
+
+## Flags
+
+| Flag | Description |
+| --- | --- |
+| `-f`, `--force` | Skip the confirmation prompt |
+| `--ignore-agents` | Remove worktrees even when an agent session is living in them |
+
+## Agent sessions
+
+A worktree that an agent session is living in is never removed. `cleanup` asks the agent
+runtime configured in [`agent.command`](/docs/configuration#agent-command) which sessions are running and
+where, and holds back any worktree one of them is working in — naming both the worktree and
+the session sitting in it:
+
+```
+Skipped 1 worktree branch with a live agent session:
+- feature/api-retries (Remote removed, Agent: feature-api-retries-1f)
+```
+
+This covers your own terminal as well as an agent this tool dispatched with
+[`branch --agent`](/docs/commands/branch). Both count as somebody working in the directory,
+and deleting it out from under either is the failure this check exists to prevent. Use
+[`list --agents`](/docs/commands/list) to see which worktrees those are before running
+`cleanup`, rather than discovering them from the report.
+
+A session that has finished does not hold anything back — the worktree goes back to being
+ordinary stale work.
+
+`--force` does **not** override this. It answers the confirmation prompt, not the safety
+verdict. To sweep a worktree anyway, pass `--ignore-agents`, which skips the session lookup
+entirely and leaves `cleanup` deciding exactly as it did before agents existed. It has no
+short alias on purpose: overruling this one is worth spelling out.
+
+If `agent.command` is not configured, or the runtime cannot be reached, no session data is
+gathered and `cleanup` behaves exactly as it always has.

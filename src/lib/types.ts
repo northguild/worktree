@@ -24,9 +24,15 @@ export interface AgentSession {
 
 // What a worktree entry carries about the session living in it — derived in
 // `agent.ts`, so no raw `kind`, `state` or `status` value crosses this boundary.
+//
+// `live` is the only one of the three that a safety verdict rests on, and it is
+// optional like the rest, so every reader has to say what an absent one means.
+// `isSafeToRemove` reads it as live — the same direction D6 fails in, and the
+// reason the test there is `!== false` rather than a truthiness check.
 export interface WorktreeAgent {
   name: string;
   pid: number;
+  live?: boolean;
   interactive?: boolean;
   waiting?: boolean;
 }
