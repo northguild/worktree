@@ -8,5 +8,6 @@ export const CONFIG_NAMES = [
   "branchPrefix.bugfix",
   "branchPrefix.chore",
   "codeEditor",
+  "agent.command",
   "defaultSourceBranch",
 ] as const;

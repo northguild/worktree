@@ -110,11 +110,14 @@ suppress the editor — the maintainer's stated preference is independence.
 serial loop doing 3 subprocess calls per worktree; a fourth spawn per iteration for data one call returns
 whole is the wrong trade.
 
-**D5. The join keeps `kind`, and the two consumers use it differently.** `list --agents` reports background
-sessions — the ones this tool dispatched. `cleanup` blocks on **any** session, interactive included: its job
-is not to delete a directory a human is sitting in. *Rejected:* filtering to background everywhere — that
-makes `cleanup` delete the worktree out from under an open editor session, which is the failure mode the
-brief calls the worst in the whole flow.
+**D5. The join keeps `kind`, and both consumers see every session.** `cleanup` blocks on **any** session,
+interactive included: its job is not to delete a directory a human is sitting in. `list --agents` reports
+both kinds too, **marking interactive ones** so a dispatched agent is still distinguishable from a human's
+own terminal. *Rejected:* filtering to background everywhere — that makes `cleanup` delete the worktree out
+from under an open editor session, which is the failure mode the brief calls the worst in the whole flow.
+*Rejected:* background-only in `list` while `cleanup` blocks on both — the original wording, **superseded by
+the Q2 resolution in §8**: it made `list --agents` silent about exactly the worktrees `cleanup` then refused
+to remove, which is the inconsistency Q2 asked about.
 
 **D6. Liveness is `state !== "done"`, and an absent or unrecognised `state` counts as live.** Fail safe: a
 session whose shape we do not recognise blocks removal rather than being ignored. *Rejected:* treating every
@@ -203,7 +206,7 @@ small and the consequence is a spurious block, not data loss. Accepted; not miti
 
 | # | Phase | Status | Depends on | Note |
 |---|---|---|---|---|
-| 1 | `agent.command` config value | not started | — | |
+| 1 | `agent.command` config value | done | — | Gate 1 green; Gate 2 `PASS WITH NOTES`. Notes filed as F-014/F-015/F-016, all `P3`. |
 | 2 | `dispatchAgent` + `--agent` on `branch` and `checkout` | not started | 1 | |
 | 3 | Agent session join module | not started | 1 | |
 | 4 | Churn stats on the worktree entry | not started | — | |
@@ -241,7 +244,8 @@ differently-shaped one nearby is a decoy that gets read by mistake.
 argument, `cwd` set, `detached` + `unref()`. Unset `agent.command` prints a pointer at `worktree config` and
 returns. Add the `--agent` / `-a` string flag to `branch` and `checkout`, called after
 `copyEnvFilesFromRootPath` and before `openWorktreePath` (D3). `checkout` needs a new `static override flags`
-block (D9). **This phase adds `src/lib/base-command.test.ts`, which does not exist today.**
+block (D9). **`src/lib/base-command.test.ts` now exists** (added by `shell-argv-safety`, 6 tests on
+`openWorktreePath`) — this phase extends it rather than creating it.
 
 **Done when:** `worktree branch --github 47 --agent "implement the issue"` creates the worktree, copies env
 files, and starts the agent with cwd set to the worktree; tests assert the spawn argv — including a prompt
@@ -279,9 +283,13 @@ commits; a worktree whose merge-base cannot be resolved returns the entry with t
 **Scope:** Add the `--agents` flag — `list`'s first (`src/commands/list.ts:6-19` has no flags today). When
 set, request churn and perform the session join, and render both in the existing bullet-list details string
 per D8, via a new options argument to `worktreeListEntryToListName` so `cleanup`'s output is untouched.
+**Both session kinds are listed, and an interactive one is marked as such** — this is what the §8 Q2
+resolution requires and the reason D5 was amended; without the marker a human's own terminal is
+indistinguishable from an agent this tool dispatched.
 
-**Done when:** `worktree list --agents` prints churn and the agent name per worktree; `worktree list`
-output is byte-identical to today's; `cleanup.test.ts` passes unmodified.
+**Done when:** `worktree list --agents` prints churn and the agent name per worktree; **an interactive
+session renders with its marker and a background one without it**; `worktree list` output is byte-identical
+to today's; `cleanup.test.ts` passes unmodified.
 
 #### Phase 6 — Agent-aware `cleanup`
 
@@ -329,19 +337,21 @@ is not one to discover from a unit test alone.
   not fetched while writing this plan. Everything in §1 that is verified was verified by running the CLI,
   not by reading that page; the *rule* that isolation is skipped inside a linked worktree remains the
   maintainer's claim. §7 step 3 is what would falsify it.
-- **Q2 — should `list --agents` show interactive sessions?** D5 says no for `list`, yes for `cleanup`. That
-  asymmetry is defensible but it means `list --agents` will not show a worktree where the user has Claude
-  open interactively, while `cleanup` refuses to remove it. If that reads as inconsistent in use, the fix is
-  to show interactive sessions in `list` with a marker.
+- **Q2 — should `list --agents` show interactive sessions? — RESOLVED 2026-09-06: yes, with a marker.**
+  The maintainer chose the fix the question itself named, so `list` and `cleanup` now agree on what counts
+  as "an agent is here". **D5 is amended accordingly** and Phase 5 renders the marker.
 - **Q3 — is `state: "done"` a stable field?** It is absent from `claude agents --help`. D6 fails safe, so a
   rename degrades to "everything blocks cleanup" rather than "nothing does" — annoying, not dangerous.
-- **Q4 — does the `/orchestrate` shell fix land before or after this?** R1 found the problem is wider than
-  the brief's single citation, including `gitSetConfigValue`, through which `agent.command` will flow. This
-  plan does not block on it, but the phases and that task touch `src/lib/git.ts` and
-  `src/lib/base-command.ts` in overlapping places, so doing it first avoids a conflict.
-- **Q5 — what should `--agent` with no `agent.command` configured do on a *scripted* run?** The brief says
-  print a message rather than error, which is right interactively. In CI, a silently-not-dispatched agent
-  looks like success. Not resolved; the phases implement the brief's stated behaviour.
+- **Q4 — does the `/orchestrate` shell fix land before or after this? — RESOLVED 2026-09-06: before.**
+  It shipped as the `shell-argv-safety` feature and is archived (`acf0774` … `43cca67`). Verified on
+  2026-09-06: `grep -rn 'exec(\|cd \${' src/` matches nothing but the `execFile` import in
+  `src/lib/cli.ts:1`, and `gitSetConfigValue` (`src/lib/git.ts:25-27`) now passes the value as an argv
+  element. **R1 is closed**, and the code path `agent.command` flows through is clean. The conflict this
+  question worried about cannot now occur.
+- **Q5 — what should `--agent` with no `agent.command` configured do on a *scripted* run? — RESOLVED
+  2026-09-06: the brief's behaviour, unchanged.** A message and exit 0; the worktree is still created and
+  the editor still opens, only the dispatch is skipped. The maintainer accepted the CI caveat rather than
+  adding a TTY branch. Phase 2 implements exactly this.
 
 ## 9. Surfaces to update — all verified to exist
 

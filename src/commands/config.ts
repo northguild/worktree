@@ -10,6 +10,7 @@ import { conjoin } from "../lib/utils.js";
 import {
   isValidBranch,
   isValidCommand,
+  isValidCommandLine,
   isValidEmail,
   validateConfigValue,
 } from "../lib/validators.js";
@@ -221,6 +222,24 @@ export default class Config extends BaseCommand {
         validate: isValidCommand,
       });
       await gitSetConfigValue("codeEditor", codeEditor);
+    }
+
+    if (
+      shouldPrompt("agent.command") &&
+      (await this.maybePrompt(
+        "Do you want to hand new worktrees to a coding agent?",
+        flags.yes,
+      ))
+    ) {
+      // No fallback default: the agent runtime is deliberately not named here.
+      // Suggesting one would make this tool depend on a particular CLI, which
+      // AGENT-MODE-PLAN §2 rules out.
+      const agentCommand = await input({
+        message: "Command to start the coding agent?",
+        ...(await this.getInputConfig("agent.command")),
+        validate: isValidCommandLine,
+      });
+      await gitSetConfigValue("agent.command", agentCommand);
     }
 
     this.log(`${chalk.green("✔")} Configuration complete!${EOL}`);

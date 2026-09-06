@@ -1,5 +1,6 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { confirm, input } from "@inquirer/prompts";
+import * as cli from "../lib/cli.js";
 import * as git from "../lib/git.js";
 import * as validators from "../lib/validators.js";
 import Config from "./config.js";
@@ -361,6 +362,146 @@ describe("config command", () => {
           prefill: "tab",
         }),
       );
+    });
+  });
+  describe("agent.command prompt", () => {
+    const agentFlags = {
+      list: false,
+      missing: false,
+      yes: false,
+      names: "agent.command",
+    };
+
+    it("should prompt for the agent command and store it when the user confirms", async () => {
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("claude --bg");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: agentFlags,
+      });
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Do you want to hand new worktrees to a coding agent?",
+      });
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Command to start the coding agent?",
+        }),
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "agent.command",
+        "claude --bg",
+      );
+    });
+
+    it("should skip the agent prompt when the user declines", async () => {
+      mockConfirm.mockResolvedValue(false);
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: agentFlags,
+      });
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Do you want to hand new worktrees to a coding agent?",
+      });
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it("should skip the confirmation prompt when --yes is set", async () => {
+      mockInput.mockResolvedValue("claude --bg");
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { ...agentFlags, yes: true },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).toHaveBeenCalledTimes(1);
+    });
+
+    // No agent runtime is named as a fallback, unlike codeEditor's "code".
+    // Suggesting one would make this tool depend on a particular CLI, which
+    // AGENT-MODE-PLAN §2 rules out.
+    it("should offer no default agent runtime when none is configured", async () => {
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("claude");
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: agentFlags,
+      });
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Command to start the coding agent?",
+          default: "",
+          prefill: "tab",
+        }),
+      );
+    });
+
+    it("should pre-fill with the existing value when one is configured", async () => {
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("codex -q");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "agent.command") return Promise.resolve("codex -q");
+        return Promise.resolve("");
+      });
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: agentFlags,
+      });
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Command to start the coding agent?",
+          default: "codex -q",
+          prefill: "editable",
+        }),
+      );
+    });
+
+    // The prompt validates on the argv head, so a value carrying flags is
+    // accepted while the program alone is what gets looked up. Exercising the
+    // captured validate pins the behaviour rather than the function identity.
+    it("should validate the entered command on its argv head", async () => {
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("claude --bg");
+      const mockCommandExists = vi
+        .spyOn(cli, "commandExists")
+        .mockResolvedValue(true);
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: agentFlags,
+      });
+
+      await config.run();
+
+      const { validate } = mockInput.mock.calls[0][0] as {
+        validate: (value: string) => Promise<true | string>;
+      };
+
+      expect(await validate("claude --bg")).toBe(true);
+      expect(mockCommandExists).toHaveBeenCalledWith("claude");
+      expect(await validate("   ")).toBe("Command cannot be empty");
     });
   });
 });

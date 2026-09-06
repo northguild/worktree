@@ -334,6 +334,72 @@ record.
 been called at the moment `openWorktreePath` resolves, and has been once the launch settles.
 
 
+### F-014 — P3 — `codeEditor` keeps the whole-line error message that D1 rejected for `agent.command`
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 1)
+
+Phase 1 added `isValidCommandLine` (`src/lib/validators.ts:21-35`) because `isValidCommand`'s message quotes
+the whole value back — `Command not found: claude --bg` names the flag rather than the program that is
+actually missing. That reasoning is `AGENT-MODE-PLAN.md` §3 D1. But the switch wires only `agent.command` to
+the new validator (`src/lib/validators.ts:90-91`); `codeEditor` stays on `isValidCommand`
+(`src/lib/validators.ts:88-89`).
+
+The two keys now have **identical execution semantics and different error quality**: `openWorktreePath`
+splits `codeEditor` on `/\s+/` and launches the head alone (`src/lib/base-command.ts:62`), exactly as
+`agent.command` will, so `worktree config codeEditor "code -n"` with `code` absent reports
+`Command not found: code -n`. The current behaviour is pinned by `src/lib/validators.test.ts:56`, which
+asserts `"Command not found: bad command with args"` — so switching `codeEditor` over is a deliberate change
+with a test to update, not a silent fix.
+
+Out of Phase 1's scope: the plan wires `agent.command` and nothing else, and editing `codeEditor`'s
+validation after Gate 2 had passed on the diff would land an unreviewed behaviour change. Phase 7 is the
+generated-surface sweep and the natural place to take it.
+
+**Closes when:** a Gate 1 run passes with `codeEditor` routed to `isValidCommandLine` and
+`validators.test.ts:56` updated to expect the head alone — or the finding is closed as deliberate if the
+maintainer prefers the two keys to differ.
+
+### F-015 — P3 — a rejected config value prints an error but exits 0, so a scripted `worktree config` cannot detect it
+
+**Tied to:** agent-mode Phase 1 · **Raised:** 2026-09-06 (hand, confirmed by Gate 2)
+
+`worktree config agent.command "nope-not-a-binary"` prints `Error: Command not found: nope-not-a-binary` and
+**exits 0**. The value is correctly not stored, so Phase 1's **Done when** clause ("is rejected") does hold —
+but a caller that checks the exit code sees success. `BaseCommand.catch` (`src/lib/base-command.ts:74-85`)
+logs the message and returns instead of re-throwing, which is what swallows the status.
+
+**Pre-existing and repo-wide, not introduced by Phase 1.** Verified on 2026-09-06 against the built `dist`
+in a throwaway repo: `worktree config codeEditor "also-not-a-binary"` exits 0 identically, and that path is
+untouched by this phase.
+
+Recorded because it compounds with the §8 Q5 resolution rather than because Phase 1 caused it. Q5 accepted
+that `--agent` with no `agent.command` set prints a message and exits 0, on the grounds that the CI case is
+a caveat worth taking. With this, a scripted setup that both *sets* the key wrongly and *uses* `--agent` gets
+two consecutive exit-0s and no agent — the failure is invisible at both ends.
+
+**Closes when:** the maintainer either accepts it explicitly (and it is folded into the plan's log at
+`/feature-close`) or a Gate 1 run passes with `catch` re-raising a non-zero status for
+`InvalidConfigValueError`. The second is a repo-wide behaviour change well outside agent-mode and should not
+be taken as part of it.
+
+### F-016 — P3 — the configuration docs describe dispatch semantics that no code reads yet
+
+**Tied to:** agent-mode Phase 2 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 1)
+
+`docs/src/app/docs/configuration/page.mdx` documents `agent.command` and says the tail is "passed to that
+program as leading arguments". That is true of the `spawn` in §3 D2 — which Phase 2 adds. Today nothing
+reads the key, so a reader who sets it gets no behaviour. The page never names a dispatching command, so it
+does not document a phantom flag; the gap is that the key is inert until Phase 2.
+
+Not fixed in Phase 1, and deliberately not hedged with a temporary "no command reads this yet" line: that
+sentence would have to be removed again in Phase 2, and Phase 2's **Files** do not include this page, so the
+note would strand. `docs-deploy.yml:3-7` deploys only on push to `main`, so the intermediate state never
+reaches readers — the branch merges as a unit.
+
+**Closes when:** Phase 2's Gate 1 run passes with `dispatchAgent` reading `agent.command`, making the page's
+description true.
+
+
 ## Closed
 
 Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;

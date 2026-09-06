@@ -27,7 +27,7 @@ this, appended under **Features** below:
 
 ## Features
 
-### agent-mode — `pending`
+### agent-mode — `active`
 
 A worktree can be handed straight to a coding agent instead of, or as well as, an editor, and one command
 shows what every running agent has changed.
