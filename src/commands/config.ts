@@ -3,14 +3,16 @@ import { confirm, input } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
 import { BaseCommand } from "../lib/base-command.js";
-import { CONFIG_NAMES } from "../lib/constants.js";
+import { CONFIG_NAMES, OPENER_KINDS } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
 import type { ConfigName } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
 import {
+  isValidBoolean,
   isValidBranch,
   isValidCommand,
   isValidEmail,
+  isValidOpener,
   validateConfigValue,
 } from "../lib/validators.js";
 
@@ -115,6 +117,9 @@ export default class Config extends BaseCommand {
     const hasBranchPrefixPrompt = configNames.some((name) =>
       name.startsWith("branchPrefix"),
     );
+    const hasHerdrPrompt = configNames.some((name) =>
+      name.startsWith("herdr."),
+    );
 
     // First check if there is anything to prompt
     if (configNames.length === 0) {
@@ -209,6 +214,21 @@ export default class Config extends BaseCommand {
     }
 
     if (
+      shouldPrompt("opener") &&
+      (await this.maybePrompt(
+        "Do you want to choose where new worktrees are opened?",
+        flags.yes,
+      ))
+    ) {
+      const opener = await input({
+        message: `Which opener should new worktrees use? (${conjoin(OPENER_KINDS, "or")})`,
+        ...(await this.getInputConfig("opener", "editor")),
+        validate: isValidOpener,
+      });
+      await gitSetConfigValue("opener", opener);
+    }
+
+    if (
       shouldPrompt("codeEditor") &&
       (await this.maybePrompt(
         "Do you want to automatically open the worktree in a code editor?",
@@ -221,6 +241,23 @@ export default class Config extends BaseCommand {
         validate: isValidCommand,
       });
       await gitSetConfigValue("codeEditor", codeEditor);
+    }
+
+    if (
+      hasHerdrPrompt &&
+      (await this.maybePrompt(
+        "Do you want to configure Herdr space options?",
+        flags.yes,
+      ))
+    ) {
+      if (shouldPrompt("herdr.focus")) {
+        const herdrFocus = await input({
+          message: "Should opening a worktree focus its Herdr space?",
+          ...(await this.getInputConfig("herdr.focus", "true")),
+          validate: isValidBoolean,
+        });
+        await gitSetConfigValue("herdr.focus", herdrFocus);
+      }
     }
 
     this.log(`${chalk.green("✔")} Configuration complete!${EOL}`);

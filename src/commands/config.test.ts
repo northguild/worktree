@@ -49,6 +49,8 @@ describe("config command", () => {
         if (key === "jira.email") return Promise.resolve("test@example.com");
         if (key === "jira.apiToken") return Promise.resolve("api-token-123");
         if (key === "codeEditor") return Promise.resolve("code");
+        if (key === "opener") return Promise.resolve("herdr");
+        if (key === "herdr.focus") return Promise.resolve("false");
         if (key === "defaultSourceBranch")
           return Promise.resolve("origin/main");
         return Promise.resolve("");
@@ -66,6 +68,8 @@ describe("config command", () => {
         "jira.apiToken=api-token-123",
       );
       expect(mockConsoleLog).toHaveBeenCalledWith("codeEditor=code");
+      expect(mockConsoleLog).toHaveBeenCalledWith("opener=herdr");
+      expect(mockConsoleLog).toHaveBeenCalledWith("herdr.focus=false");
       expect(mockConsoleLog).toHaveBeenCalledWith(
         "defaultSourceBranch=origin/main",
       );
@@ -85,6 +89,8 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("jira.email");
       expect(mockConsoleLog).toHaveBeenCalledWith("jira.apiToken");
       expect(mockConsoleLog).toHaveBeenCalledWith("codeEditor");
+      expect(mockConsoleLog).toHaveBeenCalledWith("opener");
+      expect(mockConsoleLog).toHaveBeenCalledWith("herdr.focus");
       expect(mockConsoleLog).toHaveBeenCalledWith("defaultSourceBranch");
     });
 
@@ -360,6 +366,100 @@ describe("config command", () => {
           default: "origin/main",
           prefill: "tab",
         }),
+      );
+    });
+  });
+
+  describe("opener prompts", () => {
+    it("should set both opener and herdr.focus from a prompt run", async () => {
+      mockInput.mockResolvedValueOnce("herdr").mockResolvedValueOnce("false");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "opener,herdr.focus",
+        },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Which opener should new worktrees use? (editor or herdr)",
+          default: "editor",
+          prefill: "tab",
+          validate: validators.isValidOpener,
+        }),
+      );
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Should opening a worktree focus its Herdr space?",
+          default: "true",
+          prefill: "tab",
+          validate: validators.isValidBoolean,
+        }),
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith("opener", "herdr");
+      expect(mockSetConfigValue).toHaveBeenCalledWith("herdr.focus", "false");
+    });
+
+    it("should skip both prompts when the user declines", async () => {
+      mockConfirm.mockResolvedValue(false);
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: false,
+          names: "opener,herdr.focus",
+        },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Do you want to choose where new worktrees are opened?",
+      });
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Do you want to configure Herdr space options?",
+      });
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it("should pre-fill both prompts with the configured values", async () => {
+      mockInput.mockResolvedValue("herdr");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "opener") return Promise.resolve("herdr");
+        if (key === "herdr.focus") return Promise.resolve("false");
+        return Promise.resolve("");
+      });
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "opener,herdr.focus",
+        },
+      });
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({ default: "herdr", prefill: "editable" }),
+      );
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({ default: "false", prefill: "editable" }),
       );
     });
   });

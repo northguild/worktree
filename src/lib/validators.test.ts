@@ -1,10 +1,15 @@
 import * as cli from "./cli.js";
 import * as git from "./git.js";
 import {
+  InvalidConfigValueError,
+  isValidBoolean,
   isValidBranch,
   isValidBranchName,
   isValidCommand,
+  isValidConfigValue,
   isValidEmail,
+  isValidOpener,
+  validateConfigValue,
 } from "./validators.js";
 
 describe("isValidEmail", () => {
@@ -147,4 +152,74 @@ describe("isValidBranchName", () => {
       expect(result).toBe(expected);
     },
   );
+});
+
+describe("isValidOpener", () => {
+  it.each`
+    opener      | expected                            | description
+    ${"editor"} | ${true}                             | ${"the default opener"}
+    ${"herdr"}  | ${true}                             | ${"the Herdr opener"}
+    ${"bogus"}  | ${"Opener must be editor or herdr"} | ${"an unknown opener"}
+    ${"Editor"} | ${"Opener must be editor or herdr"} | ${"the right kind in the wrong case"}
+    ${""}       | ${"Opener must be editor or herdr"} | ${"empty string"}
+    ${"herdr "} | ${"Opener must be editor or herdr"} | ${"a trailing space"}
+  `(
+    'should return $expected for "$opener" ($description)',
+    ({ opener, expected }) => {
+      expect(isValidOpener(opener)).toBe(expected);
+    },
+  );
+});
+
+describe("isValidBoolean", () => {
+  it.each`
+    value      | expected                         | description
+    ${"true"}  | ${true}                          | ${"true"}
+    ${"false"} | ${true}                          | ${"false"}
+    ${"yes"}   | ${"Value must be true or false"} | ${"a truthy word that is not true"}
+    ${"1"}     | ${"Value must be true or false"} | ${"a numeric flag"}
+    ${"True"}  | ${"Value must be true or false"} | ${"the right word in the wrong case"}
+    ${""}      | ${"Value must be true or false"} | ${"empty string"}
+  `(
+    'should return $expected for "$value" ($description)',
+    ({ value, expected }) => {
+      expect(isValidBoolean(value)).toBe(expected);
+    },
+  );
+});
+
+describe("isValidConfigValue", () => {
+  it.each`
+    configName        | value         | expected                            | description
+    ${"opener"}       | ${"herdr"}    | ${true}                             | ${"a known opener"}
+    ${"opener"}       | ${"bogus"}    | ${"Opener must be editor or herdr"} | ${"an unknown opener"}
+    ${"herdr.focus"}  | ${"false"}    | ${true}                             | ${"a boolean focus value"}
+    ${"herdr.focus"}  | ${"maybe"}    | ${"Value must be true or false"}    | ${"a non-boolean focus value"}
+    ${"github.token"} | ${"anything"} | ${true}                             | ${"a key with no validation case"}
+  `(
+    'should return $expected for $configName="$value" ($description)',
+    async ({ configName, value, expected }) => {
+      expect(await isValidConfigValue(configName, value)).toBe(expected);
+    },
+  );
+});
+
+describe("validateConfigValue", () => {
+  it("should throw InvalidConfigValueError for an unknown opener", async () => {
+    await expect(validateConfigValue("opener", "bogus")).rejects.toThrow(
+      InvalidConfigValueError,
+    );
+  });
+
+  it("should resolve for a known opener", async () => {
+    await expect(
+      validateConfigValue("opener", "herdr"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("should throw InvalidConfigValueError for a non-boolean herdr.focus", async () => {
+    await expect(validateConfigValue("herdr.focus", "maybe")).rejects.toThrow(
+      InvalidConfigValueError,
+    );
+  });
 });

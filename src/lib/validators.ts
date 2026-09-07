@@ -1,5 +1,7 @@
 import { commandExists } from "./cli.js";
+import { OPENER_KINDS } from "./constants.js";
 import { gitGetLocalBranches, gitGetRemoteBranches } from "./git.js";
+import { conjoin } from "./utils.js";
 
 export function isValidEmail(value: string): true | string {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || "Invalid email address";
@@ -54,6 +56,17 @@ export function isValidBranchName(value: string): true | string {
   return true;
 }
 
+export function isValidOpener(value: string): true | string {
+  return (
+    OPENER_KINDS.some((kind) => kind === value) ||
+    `Opener must be ${conjoin(OPENER_KINDS, "or")}`
+  );
+}
+
+export function isValidBoolean(value: string): true | string {
+  return value === "true" || value === "false" || "Value must be true or false";
+}
+
 export async function isValidConfigValue(
   configName: string,
   value: string,
@@ -65,6 +78,10 @@ export async function isValidConfigValue(
       return isValidBranch(value);
     case "codeEditor":
       return await isValidCommand(value);
+    case "opener":
+      return isValidOpener(value);
+    case "herdr.focus":
+      return isValidBoolean(value);
     default:
       return true;
   }
