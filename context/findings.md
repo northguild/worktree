@@ -36,5 +36,46 @@ life of the project.
 
 ## Open
 
+### F-001 — P2 — a quoted `codeEditor` value no longer launches
+
+**Tied to:** herdr-space-opener Phase 1 · **Raised:** 2026-09-07 (Gate 2, the `reviewer` subagent)
+
+`openWorktreePath` splits the configured value on `/\s+/` with no quote awareness
+(`src/lib/base-command.ts:61`). A macOS-idiomatic value like `open -a "Sublime Text"` used to reach
+`/bin/sh` through `exec` and work; it now produces argv `["-a", "\"Sublime", "Text\"", <path>]` and fails.
+Same class: `~/bin/editor` and `$EDITOR` no longer expand, because nothing expands them any more.
+
+This is what the plan prescribes — §4.2 says "splits the configured value on whitespace" and Phase 1's
+**Done when** tests only the unquoted cases — so it is a gap in the design, not a departure from it. It
+does sit against §2's "Non-Herdr users must see no change", which is why it is recorded rather than
+waved through: the two statements cannot both be true for a quoted value.
+
+Deciding it is a maintainer's call, and there are three ways out: accept it and correct
+`docs/src/app/docs/guides/editor-integration/page.mdx:23`, which today tells the reader to set
+`codeEditor` to "the matching shell command" and becomes wrong; parse the value with quote awareness;
+or keep a shell for the editor branch and use the argv runner only for Herdr.
+
+**Closes when:** the decision is made and Gate 1 re-passes on whichever branch it lands in — a doc
+correction inside Phase 6, or a split change inside Phase 1's files.
+
+### F-002 — P2 — the editor opener can no longer launch a `.cmd` or `.bat` on Windows
+
+**Tied to:** herdr-space-opener Phase 1 · **Raised:** 2026-09-07 (Gate 2, the `reviewer` subagent)
+
+`exec` went through `cmd.exe /c`, which resolves `.cmd` and `.bat` via `PATHEXT`; `execFile` without a
+shell (`src/lib/cli.ts:48`) cannot spawn either on current Node. `codeEditor` set to `code` on Windows
+resolves to `code.cmd`, so it stops launching.
+
+Windows is untested here — `package.json` declares no `os` or `engines`, every workflow is
+`runs-on: ubuntu-latest`, and §8 already records that Herdr's own Windows support is unverified. But
+`commandExists` branches on `process.platform === "win32"` (`src/lib/cli.ts:70`), so the platform is at
+least nominally contemplated, and this is a real regression for anyone there.
+
+Not a one-edit fix: `shell: true` on win32 would reintroduce the quoting defect D4 exists to kill. The
+narrow fix is resolving the executable through `PATHEXT` before spawning.
+
+**Closes when:** either the repo states it does not support Windows, or the executable is resolved
+before spawning and Gate 1 re-passes with a test covering a `PATHEXT` extension.
+
 ## Closed
 

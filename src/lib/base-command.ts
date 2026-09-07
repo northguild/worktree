@@ -1,9 +1,9 @@
-import { exec } from "node:child_process";
 import { confirm } from "@inquirer/prompts";
 import { Command } from "@oclif/core";
 import type { CommandError } from "@oclif/core/interfaces";
 import chalk from "chalk";
 import ora from "ora";
+import { runCommand } from "./cli.js";
 import { gitGetConfigValue } from "./git.js";
 import type { ConfigName } from "./types.js";
 
@@ -52,14 +52,29 @@ export abstract class BaseCommand extends Command {
     const codeEditor = await gitGetConfigValue("codeEditor");
 
     if (codeEditor) {
+      // The configured value may carry leading arguments — `code -n` and the
+      // interim `herdr worktree open --focus --path` workaround are both in
+      // use — so split it into an executable plus its arguments and append the
+      // worktree path as its own argv element. Passing the path as an argument
+      // rather than interpolating it into a shell string is what lets a path
+      // containing a space open at all.
+      const [executable, ...editorArgs] = codeEditor.trim().split(/\s+/);
       const spinner = ora(`Opening in ${codeEditor}`).start();
-      exec(`${codeEditor} ${path}`, (error) => {
-        if (error) {
-          spinner.fail(error.message);
-        } else {
-          spinner.succeed();
-        }
-      });
+
+      // Deliberately not awaited: the previous implementation registered a
+      // callback and returned, so the command does not stay open for the
+      // lifetime of the editor process. Keep that timing.
+      runCommand(executable, [...editorArgs, path])
+        .then(({ stderr, exitCode }) => {
+          if (exitCode === 0) {
+            spinner.succeed();
+            return;
+          }
+          spinner.fail(stderr || `${executable} exited with code ${exitCode}`);
+        })
+        .catch((error: unknown) => {
+          spinner.fail(error instanceof Error ? error.message : String(error));
+        });
     } else {
       this.log(`${chalk.green("✔")} Worktree created in ${path}`);
     }

@@ -1,7 +1,13 @@
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 
 interface CmdOptions {
   debug?: boolean;
+}
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
 }
 
 export function cmd(
@@ -20,6 +26,38 @@ export function cmd(
         return;
       }
       resolve(stdout?.trim() ?? "");
+    });
+  });
+}
+
+/**
+ * Runs an executable with an explicit argument vector. No shell is involved, so
+ * nothing in `args` is word-split, glob-expanded or interpreted — a path
+ * containing a space, a quote or a `;` arrives at the executable intact.
+ *
+ * Unlike `cmd`, a non-zero exit resolves rather than rejects, so the caller
+ * keeps `stderr` and the exit code together instead of scraping them out of an
+ * error message. Rejection is reserved for the cases that produce no exit code
+ * at all: a process that never ran, one killed by a signal, and a `maxBuffer`
+ * overflow.
+ */
+export function runCommand(
+  executable: string,
+  args: string[] = [],
+): Promise<CommandResult> {
+  return new Promise((resolve, reject) => {
+    execFile(executable, args, (error, stdout, stderr) => {
+      const output = { stdout: stdout.trim(), stderr: stderr.trim() };
+
+      if (!error) {
+        resolve({ ...output, exitCode: 0 });
+        return;
+      }
+      if (typeof error.code === "number") {
+        resolve({ ...output, exitCode: error.code });
+        return;
+      }
+      reject(error);
     });
   });
 }
