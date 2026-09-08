@@ -23,6 +23,7 @@ import {
   gitGetRootPath,
 } from "./git.js";
 import type { ConfigName } from "./types.js";
+import { splitCommandValue } from "./utils.js";
 
 export abstract class BaseCommand extends Command {
   private confirmFirstTimeConfig() {
@@ -182,15 +183,16 @@ export abstract class BaseCommand extends Command {
 
   private async openCodeEditor(path: string) {
     const codeEditor = await gitGetConfigValue("codeEditor");
+    // The configured value may carry leading arguments — `code -n`, the
+    // quoted `open -a "Sublime Text"`, and the interim
+    // `herdr worktree open --focus --path` workaround are all in use — so split
+    // it into an executable plus its arguments and append the worktree path as
+    // its own argv element. Passing the path as an argument rather than
+    // interpolating it into a shell string is what lets a path containing a
+    // space open at all.
+    const [executable, ...editorArgs] = splitCommandValue(codeEditor);
 
-    if (codeEditor) {
-      // The configured value may carry leading arguments — `code -n` and the
-      // interim `herdr worktree open --focus --path` workaround are both in
-      // use — so split it into an executable plus its arguments and append the
-      // worktree path as its own argv element. Passing the path as an argument
-      // rather than interpolating it into a shell string is what lets a path
-      // containing a space open at all.
-      const [executable, ...editorArgs] = codeEditor.trim().split(/\s+/);
+    if (executable) {
       const spinner = ora(`Opening in ${codeEditor}`).start();
 
       // Deliberately not awaited: the previous implementation registered a

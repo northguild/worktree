@@ -120,7 +120,7 @@ Herdr requires agent names matching `[a-z][a-z0-9_-]{0,31}`, unique among live a
 | 3 | `src/integrations/herdr.ts` — detect and open | done | 1 | Schema re-verified live at 0.8.2/protocol 20, no drift; Gate 2 `PASS WITH NOTES`, all notes `P3`, F-003 handed to Phase 4 |
 | 4 | Wire the opener seam to the `opener` key | done | 2, 3 | Three caller suites passed unmodified; F-003 closed by dropping the probe; Gate 2 `PASS WITH NOTES`, highest note `P2`, N2 recorded as F-004 |
 | 5 | Optional agent auto-start (`herdr.agent`) | done | 4 | Own name derivation, fuzzed against Herdr's `[a-z][a-z0-9_-]{0,31}`; agent start is awaited with `--timeout 15000`, which bounds Herdr's readiness wait and **not** the subprocess, so F-004 stays open; Gate 2 `PASS WITH NOTES`, all notes `P3` |
-| 6 | Documentation and shipped skill | not started | 4 | 16 existing `codeEditor` mentions across 9 files |
+| 6 | Documentation and shipped skill | done | 4 | All 16 `codeEditor` mentions updated plus a new Herdr guide; widened by the maintainer to close F-001 (quote-aware split) and F-002 (Windows unsupported); Gate 2 `PASS WITH NOTES`, no blocking findings, all seven `P3` notes applied |
 
 Status is one of `not started`, `in progress`, `blocked`, `done`. `done` only when committed and verified,
 and whoever finishes a phase updates the row in the same commit.

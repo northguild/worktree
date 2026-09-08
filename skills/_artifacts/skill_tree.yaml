@@ -21,10 +21,11 @@ skills:
     path: 'skills/core/SKILL.md'
     description: >
       Complete usage guide for @northguild/worktree. Covers install,
-      worktree config (defaultSourceBranch, codeEditor, github.token,
-      jira.host, jira.email, jira.apiToken, branchPrefix.*), worktree branch,
-      checkout, list, open, remove/rm, cleanup, --github and --jira
-      issue-to-branch workflows, and automatic .env file copying.
+      worktree config (defaultSourceBranch, opener, codeEditor, herdr.focus,
+      herdr.agent, github.token, jira.host, jira.email, jira.apiToken,
+      branchPrefix.*), worktree branch, checkout, list, open, remove/rm,
+      cleanup, --github and --jira issue-to-branch workflows, automatic .env
+      file copying, and opening worktrees as Herdr spaces.
     requires: []
     sources:
       - 'northguild/worktree:README.md'
@@ -39,10 +40,13 @@ skills:
       - 'northguild/worktree:docs/src/app/docs/guides/github-issue-integration/page.mdx'
       - 'northguild/worktree:docs/src/app/docs/guides/jira-integration/page.mdx'
       - 'northguild/worktree:docs/src/app/docs/guides/env-files/page.mdx'
+      - 'northguild/worktree:docs/src/app/docs/guides/editor-integration/page.mdx'
+      - 'northguild/worktree:docs/src/app/docs/guides/herdr-spaces/page.mdx'
       - 'northguild/worktree:src/commands/branch.ts'
       - 'northguild/worktree:src/lib/git.ts'
       - 'northguild/worktree:src/lib/validators.ts'
     subsystems:
       - 'GitHub Issues integration'
       - 'Jira Issues integration'
+      - 'Herdr space opener'
     references: []

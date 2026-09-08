@@ -1,4 +1,8 @@
-import { conjoin, worktreeListEntryToListName } from "./utils.js";
+import {
+  conjoin,
+  splitCommandValue,
+  worktreeListEntryToListName,
+} from "./utils.js";
 
 describe("conjoin", () => {
   it.each`
@@ -211,5 +215,27 @@ describe("worktreeListEntryToListName", () => {
     });
 
     expect(result).not.toContain("uncommitted changes");
+  });
+});
+
+describe("splitCommandValue", () => {
+  it.each`
+    value                                   | expected
+    ${""}                                   | ${[]}
+    ${"   "}                                | ${[]}
+    ${"code"}                               | ${["code"]}
+    ${"  code  "}                           | ${["code"]}
+    ${"code -n"}                            | ${["code", "-n"]}
+    ${"code\t-n\n-w"}                       | ${["code", "-n", "-w"]}
+    ${'open -a "Sublime Text"'}             | ${["open", "-a", "Sublime Text"]}
+    ${"open -a 'Sublime Text'"}             | ${["open", "-a", "Sublime Text"]}
+    ${'--flag="a b"'}                       | ${["--flag=a b"]}
+    ${`code "it's here"`}                   | ${["code", "it's here"]}
+    ${"code 'say \"hi\"'"}                  | ${["code", 'say "hi"']}
+    ${'code ""'}                            | ${["code", ""]}
+    ${'open -a "Sublime Text'}              | ${["open", "-a", "Sublime Text"]}
+    ${"herdr worktree open --focus --path"} | ${["herdr", "worktree", "open", "--focus", "--path"]}
+  `("splits $value", ({ value, expected }) => {
+    expect(splitCommandValue(value)).toEqual(expected);
   });
 });

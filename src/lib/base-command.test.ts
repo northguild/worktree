@@ -82,8 +82,31 @@ describe("openWorktreePath", () => {
       ]);
     });
 
+    it("keeps a quoted argument together as one argv element", async () => {
+      setConfig({ codeEditor: `open -a "Sublime Text"` });
+
+      await openWorktreePath(worktreePath);
+
+      expect(mockRunCommand).toHaveBeenCalledWith("open", [
+        "-a",
+        "Sublime Text",
+        worktreePath,
+      ]);
+    });
+
     it("logs the path and launches nothing when no editor is configured", async () => {
       setConfig({});
+
+      await openWorktreePath(worktreePath);
+
+      expect(mockRunCommand).not.toHaveBeenCalled();
+      expect(mockLog).toHaveBeenCalledWith(
+        `✔ Worktree created in ${worktreePath}`,
+      );
+    });
+
+    it("launches nothing when the editor value is only whitespace", async () => {
+      setConfig({ codeEditor: "   " });
 
       await openWorktreePath(worktreePath);
 

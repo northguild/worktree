@@ -28,6 +28,24 @@ Any editor command that can open a directory. Configure your preferred command w
 worktree config codeEditor <command>
 ```
 
+The value is the executable plus any arguments, run without a shell. See
+[Editor Integration](/docs/guides/editor-integration).
+
+## Can I open worktrees somewhere other than an editor?
+
+Yes. Set `opener` to `herdr` to have each worktree land as a
+[Herdr](https://herdr.dev) space instead:
+
+```bash
+worktree config opener herdr
+```
+
+See [Herdr Spaces](/docs/guides/herdr-spaces).
+
+## Does `worktree` run on Windows?
+
+It is developed and tested on macOS and Linux only. Windows is not supported.
+
 ## Where can I see all command options?
 
 Use the command reference pages under `/docs/commands` and run:

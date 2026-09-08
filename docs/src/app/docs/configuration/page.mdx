@@ -9,7 +9,10 @@ title: Configuration
 ## Common Keys
 
 - `defaultSourceBranch` (example: `origin/main`)
+- `opener` (`editor` or `herdr`, default `editor`)
 - `codeEditor` (example: `code`)
+- `herdr.focus` (`true` or `false`, default `true`)
+- `herdr.agent` (example: `claude`, unset means no agent)
 - `github.token` (GitHub personal access token)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
@@ -26,6 +29,9 @@ worktree config --missing
 worktree config --missing --names defaultSourceBranch,github.token
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
+worktree config opener herdr
+worktree config herdr.focus false
+worktree config herdr.agent claude
 worktree config github.token <token>
 worktree config jira.host https://company.atlassian.net
 worktree config jira.email your-email@example.com
@@ -34,6 +40,16 @@ worktree config branchPrefix.feature feature/
 worktree config branchPrefix.bugfix fix/
 worktree config branchPrefix.chore chore/
 ```
+
+## Opener Notes
+
+- `opener` selects where a finished worktree is handed off: `editor` uses `codeEditor`, `herdr`
+  opens it as a Herdr space. Unset means `editor`.
+- `codeEditor` is the executable plus any arguments; the worktree path is appended as the last one.
+  Quotes group, and no shell is involved, so `~` and `$VAR` are not expanded. See
+  [Editor Integration](/docs/guides/editor-integration).
+- `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`. See
+  [Herdr Spaces](/docs/guides/herdr-spaces).
 
 ## GitHub Integration Notes
 

@@ -30,6 +30,7 @@ worktree config --yes
 ```bash
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
+worktree config opener herdr
 worktree config --list
 worktree config --list --missing
 worktree config --missing
@@ -38,6 +39,13 @@ worktree config --missing --yes --names branchPrefix.feature,branchPrefix.bugfix
 ```
 
 Configuration is stored in local Git config under `northguild.worktree.*`.
+
+## Opener Keys
+
+- `opener` selects where a finished worktree opens: `editor` (default) or `herdr`.
+- `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`.
+- `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
+- `herdr.agent` an agent kind to start in a newly opened Herdr space. Unset means no agent.
 
 ## GitHub Integration Keys
 

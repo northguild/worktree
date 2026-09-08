@@ -2,9 +2,10 @@
 name: core
 description: >
   Complete usage guide for @northguild/worktree. Covers install, first-time
-  setup with worktree config (defaultSourceBranch, codeEditor, github.token,
-  jira.host, jira.email, jira.apiToken, branchPrefix.feature,
-  branchPrefix.bugfix, branchPrefix.chore), worktree branch, worktree checkout,
+  setup with worktree config (defaultSourceBranch, opener, codeEditor,
+  herdr.focus, herdr.agent, github.token, jira.host, jira.email,
+  jira.apiToken, branchPrefix.feature, branchPrefix.bugfix,
+  branchPrefix.chore), worktree branch, worktree checkout,
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
   --github issue-to-branch, --jira issue-to-branch, and automatic .env /
   .env.local copying into new worktrees.
@@ -24,6 +25,8 @@ sources:
   - "northguild/worktree:docs/src/app/docs/guides/github-issue-integration/page.mdx"
   - "northguild/worktree:docs/src/app/docs/guides/jira-integration/page.mdx"
   - "northguild/worktree:docs/src/app/docs/guides/env-files/page.mdx"
+  - "northguild/worktree:docs/src/app/docs/guides/editor-integration/page.mdx"
+  - "northguild/worktree:docs/src/app/docs/guides/herdr-spaces/page.mdx"
   - "northguild/worktree:src/commands/branch.ts"
   - "northguild/worktree:src/lib/git.ts"
   - "northguild/worktree:src/lib/validators.ts"
@@ -43,7 +46,8 @@ npm install -g @northguild/worktree
 
 # Run once inside your git repository
 worktree config
-# prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code)
+# prompts for: defaultSourceBranch (e.g. origin/main), opener (editor or
+# herdr), codeEditor (e.g. code), herdr.focus, herdr.agent
 
 # Create your first worktree
 worktree branch feature/my-feature
@@ -63,7 +67,8 @@ worktree branch feature/add-bulk-actions --source origin/release/1.4
 
 Creates a branch, adds a worktree under `<repo>.worktrees/feature/add-bulk-actions`,
 copies `.env` and `.env.local` from the root worktree, and opens the directory
-in the configured `codeEditor`.
+in the configured `codeEditor` — or, when `opener` is `herdr`, as a Herdr space
+labelled with the branch name.
 
 ### Check out an existing remote branch as a worktree
 
@@ -123,7 +128,10 @@ under `northguild.worktree.*`.
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source` |
-| `codeEditor` | `code` | auto-opening worktrees |
+| `opener` | `editor` or `herdr` | where a worktree opens; defaults to `editor` |
+| `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
+| `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
+| `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
 | `github.token` | `ghp_...` | `--github` flag |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
@@ -210,7 +218,8 @@ worktree branch feature/x
 
 Without `defaultSourceBranch` set, `branch` prompts interactively for a
 source branch, blocking non-interactive runs. Without `codeEditor`, the
-worktree is created but not opened.
+worktree is created but not opened — unless `opener` is `herdr`, which
+ignores `codeEditor` and opens a Herdr space instead.
 
 Source: `README.md` quick start, `docs/getting-started`
 
@@ -260,6 +269,29 @@ interactive prompt asking whether to use a local branch. This hangs
 non-interactive agent runs.
 
 Source: `src/commands/branch.ts` — `confirmNonOriginSource()`
+
+---
+
+### MEDIUM `codeEditor` set to a `herdr` command instead of `opener`
+
+Wrong:
+
+```bash
+worktree config codeEditor "herdr worktree open --focus --path"
+```
+
+Correct:
+
+```bash
+worktree config opener herdr
+```
+
+The `codeEditor` form happens to work only because the worktree path is
+appended as the final argument. It cannot label the space, cannot read
+what Herdr answered, and cannot start an agent. `opener` is the
+supported route.
+
+Source: `docs/guides/herdr-spaces`, `src/lib/base-command.ts` — `openWorktreePath()`
 
 ---
 

@@ -56,3 +56,60 @@ export function sanitizeBranchName(value: string) {
     .replace(/[\s_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+
+/**
+ * Splits a configured command value into an executable plus its arguments,
+ * honouring single and double quotes. `open -a "Sublime Text"` is the value a
+ * macOS user writes, and before quote awareness it reached `execFile` as four
+ * arguments with the quote characters still attached, so `open` launched and
+ * then failed on an application name it could not resolve (F-001).
+ *
+ * Quotes group and are not themselves part of the token. Nothing else is
+ * interpreted: with no shell involved there is nothing to expand `~` or
+ * `$EDITOR`, and an unterminated quote simply runs to the end of the value
+ * rather than throwing — the opener runs after the worktree already exists, so
+ * a bad value is worth a failed launch, never a failed command.
+ */
+export function splitCommandValue(value: string): string[] {
+  const tokens: string[] = [];
+  let token = "";
+  let hasToken = false;
+  let openQuote: '"' | "'" | undefined;
+
+  for (const character of value) {
+    if (openQuote) {
+      if (character === openQuote) {
+        openQuote = undefined;
+      } else {
+        token += character;
+      }
+      continue;
+    }
+
+    if (character === '"' || character === "'") {
+      openQuote = character;
+      // A quote opens a token even when what it encloses is empty, so an
+      // explicit `""` argument survives as one.
+      hasToken = true;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      if (hasToken) {
+        tokens.push(token);
+        token = "";
+        hasToken = false;
+      }
+      continue;
+    }
+
+    token += character;
+    hasToken = true;
+  }
+
+  if (hasToken) {
+    tokens.push(token);
+  }
+
+  return tokens;
+}

@@ -1,0 +1,94 @@
+---
+title: Herdr Spaces
+---
+
+# Herdr Spaces
+
+By default a new worktree opens in your editor. If you work in
+[Herdr](https://herdr.dev), a terminal workspace manager, you can have it land as a Herdr space
+instead — labelled by branch, optionally with an agent already running in it.
+
+The worktree itself is created exactly as before. Only the final step changes.
+
+## Requirements
+
+- The `herdr` CLI on your `PATH`.
+- A running Herdr server.
+
+## Switch the opener
+
+```bash
+worktree config opener herdr
+```
+
+`opener` accepts `editor` or `herdr`. Unset means `editor`, so nothing changes for anyone who
+does not set it.
+
+The key is stored in local Git config under `northguild.worktree.opener`, so it applies to one
+repository. Set it again in each repository you want it in.
+
+Now `worktree branch`, `worktree checkout` and `worktree open` all hand the finished worktree to
+Herdr:
+
+```bash
+worktree branch feature/add-bulk-actions
+```
+
+The space is labelled with the branch name — `feature/add-bulk-actions`, not the repository name —
+so several worktrees of the same repository stay distinguishable in the sidebar.
+
+Re-opening a worktree that already has a space reuses it rather than creating a second one, and
+switches to it unless you have turned focus off below.
+
+## Focus
+
+The space comes to the front by default, because every command that opens a worktree is you asking
+to be taken to it. To leave it in the background:
+
+```bash
+worktree config herdr.focus false
+```
+
+## Start an agent with the space
+
+Optional, and off unless you set it:
+
+```bash
+worktree config herdr.agent claude
+```
+
+The value is the agent kind Herdr should start — `claude`, `codex`, `gemini` and so on. Run
+`herdr agent start --help` for the kinds your Herdr accepts; `worktree` does not keep its own list,
+so a kind added by a Herdr release works immediately, and an unknown one is rejected by Herdr with
+its own message.
+
+The agent starts only for a space this command just opened. Re-opening a worktree does not start a
+second agent, because the one you left running is still in that pane.
+
+The agent name is derived from the branch and coerced to what Herdr accepts. If the start fails —
+most often a name already taken by a live agent from another repository — you get a warning, and
+the space is still open and correct.
+
+## When Herdr cannot be reached
+
+If `herdr` is not installed, the server is not running, or the open fails, `worktree` prints what
+Herdr said and where the worktree is:
+
+```
+✖ Herdr: `herdr` was not found on your PATH.
+The worktree is at /path/to/repo.worktrees/feature/add-bulk-actions
+```
+
+It does not fall back to your editor. Setting `opener herdr` is a deliberate choice, and an
+unexpected editor window is not a useful consolation prize.
+
+The command still exits `0`. By the time the opener runs, the branch, the worktree and the copied
+env files all exist — the only thing that failed is the last step.
+
+## Configuration reference
+
+| Key | Values | Default |
+|---|---|---|
+| `opener` | `editor` or `herdr` | `editor` |
+| `herdr.focus` | `true` or `false` | `true` |
+| `herdr.agent` | an agent kind, such as `claude` | unset — no agent |

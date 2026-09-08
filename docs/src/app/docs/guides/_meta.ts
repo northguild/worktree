@@ -7,6 +7,7 @@ const meta: MetaRecord = {
   "team-conventions": "Team Conventions",
   "env-files": "Environment Files",
   "editor-integration": "Editor Integration",
+  "herdr-spaces": "Herdr Spaces",
 };
 
 export default meta;

@@ -58,6 +58,9 @@ Common values:
 - `defaultSourceBranch`: usually `origin/main`
 - `codeEditor`: usually `code`
 
+To open worktrees as [Herdr](https://herdr.dev) spaces instead of editor windows, set
+`opener` to `herdr` — see [Herdr Spaces](/docs/guides/herdr-spaces).
+
 ## First Workflow
 
 Create your first branch worktree:
@@ -71,15 +74,16 @@ This command will:
 1. Branch from your configured source branch.
 2. Create a worktree under `<repo>.worktrees/feature/improve-readme`.
 3. Copy `.env` and `.env.local` from your main repository.
-4. Open the new worktree in your configured editor.
+4. Open the new worktree in your configured editor, or as a Herdr space when `opener` is `herdr`.
 
 ## Requirements
 
 - Git available on your `PATH`
 - Node.js installed
 - Existing Git repository
+- macOS or Linux — Windows is not supported
 
-If you use automatic editor opening, ensure your editor command is available in your shell (for example, `code`).
+If you use automatic editor opening, ensure your editor command is available on your `PATH` (for example, `code`).
 
 ## Next
 
