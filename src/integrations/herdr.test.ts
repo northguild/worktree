@@ -1,5 +1,5 @@
 import * as cli from "../lib/cli.js";
-import { HerdrError, isHerdrAvailable, openHerdrWorktree } from "./herdr.js";
+import { HerdrError, isHerdrInstalled, openHerdrWorktree } from "./herdr.js";
 
 const mockRunCommand = vi.mocked(cli.runCommand);
 
@@ -7,24 +7,6 @@ const worktreePath =
   "/Users/baldur/Development/northguild/worktree/worktree.worktrees/feature/herdr-space-opener";
 const gitRootPath = "/Users/baldur/Development/northguild/worktree/worktree";
 const branchName = "feature/herdr-space-opener";
-
-/**
- * The `status server --json` payload, verbatim from the live 0.8.2 server.
- */
-function makeServerStatus(overrides: Record<string, unknown> = {}): string {
-  return JSON.stringify({
-    status: "running",
-    running: true,
-    version: "0.8.2",
-    protocol: 20,
-    capabilities: { live_handoff: true, detached_server_daemon: true },
-    compatible: true,
-    socket: "/Users/baldur/.config/herdr/herdr.sock",
-    session: null,
-    restart_needed: false,
-    ...overrides,
-  });
-}
 
 /**
  * A `worktree_opened` success envelope, carrying every field protocol 20 marks
@@ -91,71 +73,26 @@ function openThisWorktree(focus = true) {
   });
 }
 
-describe("isHerdrAvailable", () => {
-  it("is true when the binary exists and the server reports running", async () => {
-    mockRunCommand.mockResolvedValue({
-      stdout: makeServerStatus(),
-      stderr: "",
-      exitCode: 0,
-    });
-
-    await expect(isHerdrAvailable()).resolves.toBe(true);
-    expect(mockRunCommand).toHaveBeenCalledWith("herdr", [
-      "status",
-      "server",
-      "--json",
-    ]);
-  });
-
-  it("is false when the server reports it is not running", async () => {
-    mockRunCommand.mockResolvedValue({
-      stdout: makeServerStatus({ status: "stopped", running: false }),
-      stderr: "",
-      exitCode: 0,
-    });
-
-    await expect(isHerdrAvailable()).resolves.toBe(false);
-    expect(mockRunCommand).toHaveBeenCalled();
+describe("isHerdrInstalled", () => {
+  it("is true when the binary is on PATH", async () => {
+    await expect(isHerdrInstalled()).resolves.toBe(true);
   });
 
   it("is false when the herdr binary is not installed", async () => {
     // Once, not for the rest of the suite: src/test-setup.ts's factory mock has
     // no implementation reset between tests, so a persistent `false` here would
-    // short-circuit every probe test below and leave them unable to fail. The
-    // `toHaveBeenCalled` assertions in those tests are the second guard.
+    // short-circuit every test below and leave them unable to fail.
     vi.spyOn(cli, "commandExists").mockResolvedValueOnce(false);
 
-    await expect(isHerdrAvailable()).resolves.toBe(false);
+    await expect(isHerdrInstalled()).resolves.toBe(false);
+  });
+
+  it("spawns no process of its own to answer", async () => {
+    // The `herdr status server --json` probe was dropped (F-003): liveness is
+    // `openHerdrWorktree`'s business, so nothing here may cost an extra spawn.
+    await isHerdrInstalled();
+
     expect(mockRunCommand).not.toHaveBeenCalled();
-  });
-
-  it("is false when the status probe exits non-zero", async () => {
-    mockRunCommand.mockResolvedValue({
-      stdout: "",
-      stderr: "connection refused",
-      exitCode: 1,
-    });
-
-    await expect(isHerdrAvailable()).resolves.toBe(false);
-    expect(mockRunCommand).toHaveBeenCalled();
-  });
-
-  it("is false when the status output is not JSON", async () => {
-    mockRunCommand.mockResolvedValue({
-      stdout: "herdr: no server running",
-      stderr: "",
-      exitCode: 0,
-    });
-
-    await expect(isHerdrAvailable()).resolves.toBe(false);
-    expect(mockRunCommand).toHaveBeenCalled();
-  });
-
-  it("is false when the binary cannot be spawned at all", async () => {
-    mockRunCommand.mockRejectedValue(new Error("spawn herdr ENOENT"));
-
-    await expect(isHerdrAvailable()).resolves.toBe(false);
-    expect(mockRunCommand).toHaveBeenCalled();
   });
 });
 

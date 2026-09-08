@@ -117,8 +117,7 @@ function toHerdrError(args: string[], stderr: string, exitCode: number): Error {
 
 /**
  * Runs a `herdr` subcommand that answers with the socket-API envelope and
- * returns its `result` for narrowing. `status` does not use the envelope, so it
- * does not go through here.
+ * returns its `result` for narrowing.
  */
 async function runHerdrRequest(args: string[]): Promise<unknown> {
   const { stdout, stderr, exitCode } = await runCommand(HERDR_EXECUTABLE, args);
@@ -139,36 +138,20 @@ async function runHerdrRequest(args: string[]): Promise<unknown> {
 }
 
 /**
- * Whether a Herdr server is running and can be talked to.
+ * Whether the `herdr` binary is on PATH. That is the whole check, and the name
+ * says so: it proves Herdr is installed and nothing about whether its server is
+ * up.
  *
- * Deliberately returns a boolean rather than throwing: an absent binary and an
- * unparseable status are the same answer to the only question being asked, and
- * the caller reports the unavailability itself. A server that is running but
- * rejects the open still throws from `openHerdrWorktree`, so nothing is
- * swallowed there.
+ * A `herdr status server --json` probe used to run here as well. It was dropped
+ * (F-003): it spawned a second process on every open, and it collapsed whatever
+ * Herdr said about a dead server into a bare `false`, so the seam could only
+ * print a generic line for exactly the case a reader most needs the detail.
+ * Liveness is `openHerdrWorktree`'s business instead — a stopped server fails
+ * the open, and that failure arrives carrying Herdr's own `code` and `message`
+ * through `toHerdrError`, which is what D5 asks the seam to print.
  */
-export async function isHerdrAvailable(): Promise<boolean> {
-  if (!(await commandExists(HERDR_EXECUTABLE))) {
-    return false;
-  }
-
-  try {
-    const { stdout, exitCode } = await runCommand(HERDR_EXECUTABLE, [
-      "status",
-      "server",
-      "--json",
-    ]);
-
-    if (exitCode !== 0) {
-      return false;
-    }
-
-    const status = tryParseJson(stdout);
-
-    return isRecord(status) && status.running === true;
-  } catch {
-    return false;
-  }
+export async function isHerdrInstalled(): Promise<boolean> {
+  return commandExists(HERDR_EXECUTABLE);
 }
 
 function readWorktreeOpen(result: unknown): HerdrWorktreeOpen {

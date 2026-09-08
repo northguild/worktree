@@ -77,6 +77,29 @@ narrow fix is resolving the executable through `PATHEXT` before spawning.
 **Closes when:** either the repo states it does not support Windows, or the executable is resolved
 before spawning and Gate 1 re-passes with a test covering a `PATHEXT` extension.
 
+### F-004 — P2 — the awaited `worktree open` has no timeout, so an unresponsive Herdr hangs the command
+
+**Tied to:** herdr-space-opener Phase 5 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent, note N2)
+
+`runCommand` passes no options object to `execFile` (`src/lib/cli.ts:44-59`), so there is no timeout, and
+Phase 4 made the Herdr branch of the seam `await` it (`src/lib/base-command.ts:116`). Before this feature
+the opener never blocked: it registered a callback and `run()` returned. A Herdr that accepts the
+connection and then never answers now freezes `worktree branch` **after** the worktree exists and its env
+files are copied — the user sees a spinner and has no signal that the real work already succeeded.
+
+§5 names the concrete trigger: v0.9.0's `--trust-repository` may leave the open waiting on a decision for
+a repository Herdr has not seen before. §8 records the question and chooses no value.
+
+This is recorded rather than fixed because the fix lives in `src/lib/cli.ts`, which is not in Phase 4's
+**Files:** list, and because §8 folds into the archive at `/feature-close` while this file survives —
+leaving the deferral only in §8 would give it no owner. Phase 5 is the natural home: it decides the
+adjacent §8 question of whether `agent start` is awaited or fire-and-forget, and the two want one answer.
+
+**Closes when:** a timeout bounds the awaited Herdr calls — or the repo states why unbounded is correct —
+and Gate 1 re-passes with a test covering what the seam prints when the call times out.
+
+## Closed
+
 ### F-003 — P3 — the availability probe discards the reason, narrowing what D5 can print
 
 **Tied to:** herdr-space-opener Phase 4 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent)
@@ -96,8 +119,11 @@ and the two should be decided together. The options are: return a reason alongsi
 the probe and let a failed `worktree open` be the only signal; or accept a generic message for the
 server-down case.
 
-**Closes when:** Phase 4 decides which, and its Gate 1 re-passes with a test covering what the seam
-prints when Herdr is unavailable.
-
-## Closed
-
+**Closed:** 2026-09-08 by Phase 4, which chose the second option. The `herdr status server --json` probe
+is gone; `isHerdrAvailable` is now `isHerdrInstalled` and is `commandExists("herdr")` and nothing more
+(`src/integrations/herdr.ts:141-155`). A dead server is no longer detected in advance — it fails
+`worktree open`, and that failure reaches the seam carrying Herdr's own `code` and `message` through
+`toHerdrError`, which is what D5 asks it to print. §4.3 and Phase 3's **Done when** were amended to match.
+This also answers §8's third open question: the probe was not the right liveness signal, and its extra
+spawn per open is gone. Gate 1 re-passed on that change — `pnpm check`, `pnpm typecheck`, `pnpm build`,
+`pnpm test` (233 passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-08.
