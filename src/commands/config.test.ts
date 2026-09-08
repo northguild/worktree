@@ -51,6 +51,7 @@ describe("config command", () => {
         if (key === "codeEditor") return Promise.resolve("code");
         if (key === "opener") return Promise.resolve("herdr");
         if (key === "herdr.focus") return Promise.resolve("false");
+        if (key === "herdr.agent") return Promise.resolve("claude");
         if (key === "defaultSourceBranch")
           return Promise.resolve("origin/main");
         return Promise.resolve("");
@@ -70,6 +71,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("codeEditor=code");
       expect(mockConsoleLog).toHaveBeenCalledWith("opener=herdr");
       expect(mockConsoleLog).toHaveBeenCalledWith("herdr.focus=false");
+      expect(mockConsoleLog).toHaveBeenCalledWith("herdr.agent=claude");
       expect(mockConsoleLog).toHaveBeenCalledWith(
         "defaultSourceBranch=origin/main",
       );
@@ -91,6 +93,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("codeEditor");
       expect(mockConsoleLog).toHaveBeenCalledWith("opener");
       expect(mockConsoleLog).toHaveBeenCalledWith("herdr.focus");
+      expect(mockConsoleLog).toHaveBeenCalledWith("herdr.agent");
       expect(mockConsoleLog).toHaveBeenCalledWith("defaultSourceBranch");
     });
 
@@ -460,6 +463,66 @@ describe("config command", () => {
       );
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({ default: "false", prefill: "editable" }),
+      );
+    });
+
+    it("should set herdr.agent from a prompt run", async () => {
+      mockInput.mockResolvedValue("claude");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "herdr.agent",
+        },
+      });
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message:
+            "Which agent should start in a new Herdr space? (empty for none)",
+          default: "",
+          prefill: "tab",
+        }),
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith("herdr.agent", "claude");
+    });
+
+    it("should let an empty answer decline the agent while still rejecting a malformed kind", async () => {
+      mockInput.mockResolvedValue("");
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "herdr.agent",
+        },
+      });
+
+      await config.run();
+
+      const options = mockInput.mock.calls.at(0)?.[0] as {
+        validate: (value: string) => true | string;
+      };
+
+      // The key is opt-in (D9), so this prompt has to be the way to say no as
+      // well as the way to choose — otherwise a `--missing` run forces an agent
+      // on someone who does not want one.
+      expect(options.validate("")).toBe(true);
+      // A stray space is someone hitting return, not a malformed kind.
+      expect(options.validate("   ")).toBe(true);
+      expect(options.validate("claude")).toBe(true);
+      expect(options.validate("Claude!")).toBe(
+        "Agent kind must be lowercase letters, digits and dashes, for example claude",
       );
     });
   });

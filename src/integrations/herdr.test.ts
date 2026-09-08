@@ -1,5 +1,11 @@
 import * as cli from "../lib/cli.js";
-import { HerdrError, isHerdrInstalled, openHerdrWorktree } from "./herdr.js";
+import {
+  HerdrError,
+  isHerdrInstalled,
+  openHerdrWorktree,
+  startHerdrAgent,
+  toHerdrAgentName,
+} from "./herdr.js";
 
 const mockRunCommand = vi.mocked(cli.runCommand);
 
@@ -223,5 +229,139 @@ describe("openHerdrWorktree", () => {
     await expect(openThisWorktree()).rejects.toThrow(
       "could not parse response as JSON: not json at all",
     );
+  });
+});
+
+describe("toHerdrAgentName", () => {
+  it.each`
+    branch                                                  | expected                              | description
+    ${"feature/herdr-space-opener"}                         | ${"feature-herdr-space-opener"}       | ${"a slash becomes a separator rather than vanishing"}
+    ${"178-automate-package-publishing"}                    | ${"wt-178-automate-package-publishi"} | ${"a leading digit is prefixed, keeping the ticket number that tells branches apart"}
+    ${"feature/a-really-long-branch-name-that-keeps-going"} | ${"feature-a-really-long-branch-nam"} | ${"longer than 32 characters is truncated"}
+    ${"Feature/ABC-123"}                                    | ${"feature-abc-123"}                  | ${"uppercase is folded"}
+    ${"feature/a thing"}                                    | ${"feature-a-thing"}                  | ${"a space is a separator"}
+    ${"fix/oops!!!/again"}                                  | ${"fix-oops-again"}                   | ${"a run of illegal characters collapses to one separator"}
+    ${"release/2026.09.08"}                                 | ${"release-2026-09-08"}               | ${"dots are separators"}
+    ${"chore/tidy/"}                                        | ${"chore-tidy"}                       | ${"a trailing separator is trimmed"}
+    ${"///"}                                                | ${"worktree"}                         | ${"a branch with nothing usable in it still yields a name"}
+  `(
+    'derives "$expected" from "$branch" ($description)',
+    ({ branch, expected }) => {
+      expect(toHerdrAgentName(branch)).toBe(expected);
+    },
+  );
+
+  it.each([
+    "feature/herdr-space-opener",
+    "178-automate-package-publishing",
+    "feature/a-really-long-branch-name-that-keeps-going",
+    "Feature/ABC-123",
+    "feature/a thing",
+    "fix/oops!!!/again",
+    "release/2026.09.08",
+    "chore/tidy/",
+    "///",
+    "-",
+    "9",
+    "x",
+  ])('always answers with a name Herdr accepts, for "%s"', (branch) => {
+    // `[a-z][a-z0-9_-]{0,31}`, per `herdr --skill`. Asserted separately from
+    // the exact strings above so a change to the derivation cannot quietly
+    // start producing names Herdr will refuse.
+    expect(toHerdrAgentName(branch)).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
+  });
+
+  it("does not collapse two branches that differ only in their ticket number", () => {
+    // §5 names collisions as what goes wrong here, which is why the leading
+    // digit is prefixed rather than stripped.
+    expect(toHerdrAgentName("178-automate")).not.toBe(
+      toHerdrAgentName("179-automate"),
+    );
+  });
+});
+
+describe("startHerdrAgent", () => {
+  /** An `agent_started` result, per protocol 20: `type`, `agent` and `argv`. */
+  function makeAgentStartedEnvelope(): string {
+    return JSON.stringify({
+      id: "cli:agent:start",
+      result: {
+        type: "agent_started",
+        argv: ["claude"],
+        agent: {
+          pane_id: "pF1",
+          agent: "claude",
+          agent_status: "idle",
+          name: "feature-herdr-space-opener",
+          focused: true,
+          interactive_ready: true,
+          launch_pending: false,
+        },
+      },
+    });
+  }
+
+  function startAgent() {
+    return startHerdrAgent({
+      name: "feature-herdr-space-opener",
+      kind: "claude",
+      paneId: "pF1",
+    });
+  }
+
+  it("passes the name, kind, pane and an explicit timeout", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: makeAgentStartedEnvelope(),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(startAgent()).resolves.toBeUndefined();
+    expect(mockRunCommand).toHaveBeenCalledWith("herdr", [
+      "agent",
+      "start",
+      "feature-herdr-space-opener",
+      "--kind",
+      "claude",
+      "--pane",
+      "pF1",
+      "--timeout",
+      "15000",
+    ]);
+  });
+
+  it("asks for a timeout Herdr accepts and shorter than its own default", async () => {
+    // `AgentStartParams.timeout_ms`: greater than 3000, at most 300000. The
+    // default is 30000, and §5 asks for less than that because the call is
+    // awaited after the worktree already exists.
+    mockRunCommand.mockResolvedValue({
+      stdout: makeAgentStartedEnvelope(),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await startAgent();
+
+    const args = mockRunCommand.mock.calls[0]?.[1] as string[];
+    const timeout = Number(args[args.indexOf("--timeout") + 1]);
+
+    expect(timeout).toBeGreaterThan(3000);
+    expect(timeout).toBeLessThan(30000);
+  });
+
+  it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: "",
+      stderr: makeErrorEnvelope(
+        "agent_name_in_use",
+        "agent feature-herdr-space-opener is already running",
+      ),
+      exitCode: 1,
+    });
+
+    const error = await startAgent().catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(HerdrError);
+    expect(error).toMatchObject({ code: "agent_name_in_use" });
   });
 });

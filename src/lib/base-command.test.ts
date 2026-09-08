@@ -8,12 +8,14 @@ import type { ConfigName } from "./types.js";
 const spinnerMocks = vi.hoisted(() => {
   const succeed = vi.fn();
   const fail = vi.fn();
-  const start = vi.fn().mockReturnValue({ succeed, fail });
+  const warn = vi.fn();
+  const start = vi.fn().mockReturnValue({ succeed, fail, warn });
   const oraFactory = vi.fn().mockReturnValue({ start });
 
   return {
     succeed,
     fail,
+    warn,
     start,
     oraFactory,
   };
@@ -249,6 +251,115 @@ describe("openWorktreePath", () => {
       expect(mockOpenHerdrWorktree).toHaveBeenCalledWith(
         expect.objectContaining({ label: "detached" }),
       );
+    });
+
+    describe("the optional agent", () => {
+      const spacePath = `${gitRootPath}.worktrees/feature/a thing`;
+
+      // `startHerdrAgent` is deliberately left unmocked here, so what these
+      // assert is the argv that would reach the `herdr` binary — the seam's
+      // decision and the integration's assembly of it, together.
+      function mockAgentStarted() {
+        mockRunCommand.mockResolvedValue({
+          stdout: JSON.stringify({
+            id: "cli:agent:start",
+            result: {
+              type: "agent_started",
+              argv: ["claude"],
+              agent: { pane_id: "pF1", agent_status: "idle" },
+            },
+          }),
+          stderr: "",
+          exitCode: 0,
+        });
+      }
+
+      it("starts the configured kind in the pane the space was built around", async () => {
+        setConfig({ opener: "herdr", "herdr.agent": "claude" });
+        mockAgentStarted();
+
+        await openWorktreePath(spacePath);
+
+        expect(mockRunCommand).toHaveBeenCalledWith("herdr", [
+          "agent",
+          "start",
+          "feature-a-thing",
+          "--kind",
+          "claude",
+          "--pane",
+          "pF1",
+          "--timeout",
+          "15000",
+        ]);
+        expect(spinnerMocks.succeed).toHaveBeenCalledWith(
+          "Started claude as feature-a-thing",
+        );
+      });
+
+      it("issues no agent-start argv when herdr.agent is unset", async () => {
+        setConfig({ opener: "herdr" });
+
+        await openWorktreePath(spacePath);
+
+        // D9: 22 kinds and no canonical one, and `agent start` blocks until the
+        // agent answers — nobody pays for it who did not ask for it.
+        expect(mockRunCommand).not.toHaveBeenCalled();
+      });
+
+      it("issues no agent-start argv when the space was already open", async () => {
+        setConfig({ opener: "herdr", "herdr.agent": "claude" });
+        mockOpenHerdrWorktree.mockResolvedValue({
+          workspaceId: "wF",
+          paneId: "pF1",
+          alreadyOpen: true,
+        });
+
+        await openWorktreePath(spacePath);
+
+        // The agent the user left running is still in that pane.
+        expect(mockRunCommand).not.toHaveBeenCalled();
+      });
+
+      it("warns but still reports the space as opened when the agent fails to start", async () => {
+        setConfig({ opener: "herdr", "herdr.agent": "claude" });
+        mockRunCommand.mockResolvedValue({
+          stdout: "",
+          stderr: JSON.stringify({
+            error: {
+              code: "agent_name_in_use",
+              message: "agent feature-a-thing is already running",
+            },
+            id: "cli:agent:start",
+          }),
+          exitCode: 1,
+        });
+
+        await openWorktreePath(spacePath);
+
+        expect(spinnerMocks.warn).toHaveBeenCalledWith(
+          "Herdr: agent feature-a-thing is already running (agent_name_in_use)",
+        );
+        // The space is open and correct by this point, so the open stands (§5).
+        expect(spinnerMocks.succeed).toHaveBeenCalledWith(
+          "Opened Herdr space feature/a thing",
+        );
+        expect(spinnerMocks.fail).not.toHaveBeenCalled();
+        expect(mockLog).not.toHaveBeenCalledWith(
+          `The worktree is at ${spacePath}`,
+        );
+      });
+
+      it("derives a name Herdr accepts from a branch it would otherwise reject", async () => {
+        setConfig({ opener: "herdr", "herdr.agent": "claude" });
+        mockAgentStarted();
+
+        await openWorktreePath(`${gitRootPath}.worktrees/178-automate`);
+
+        expect(mockRunCommand).toHaveBeenCalledWith(
+          "herdr",
+          expect.arrayContaining(["wt-178-automate"]),
+        );
+      });
     });
   });
 });

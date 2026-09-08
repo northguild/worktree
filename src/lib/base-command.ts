@@ -10,7 +10,12 @@ import ora from "ora";
 // every command inherits — it already reaches for `./git.js` and
 // `@inquirer/prompts` — not a leaf utility. Satisfying the boundary strictly
 // means moving this file out of `lib/`, a wider refactor than this feature buys.
-import { isHerdrInstalled, openHerdrWorktree } from "../integrations/herdr.js";
+import {
+  isHerdrInstalled,
+  openHerdrWorktree,
+  startHerdrAgent,
+  toHerdrAgentName,
+} from "../integrations/herdr.js";
 import { runCommand } from "./cli.js";
 import {
   gitGetAbsoluteWorktreesPath,
@@ -113,7 +118,7 @@ export abstract class BaseCommand extends Command {
         gitGetConfigValue("herdr.focus"),
       ]);
 
-      const { alreadyOpen } = await openHerdrWorktree({
+      const { alreadyOpen, paneId } = await openHerdrWorktree({
         path,
         gitRootPath,
         label,
@@ -128,6 +133,13 @@ export abstract class BaseCommand extends Command {
           ? `Herdr space ${label} was already open`
           : `Opened Herdr space ${label}`,
       );
+
+      // Only for a space this command just built. Re-opening a worktree is how
+      // someone returns to work already in progress, and the agent they left
+      // running is still in that pane — a second start would collide with it.
+      if (!alreadyOpen) {
+        await this.startConfiguredAgent(label, paneId);
+      }
     } catch (error) {
       // D5 — no editor as a consolation prize. Someone who set `opener=herdr`
       // gets told what Herdr said and where the worktree is, and that is all.
@@ -136,6 +148,35 @@ export abstract class BaseCommand extends Command {
       // what actually happened.
       spinner.fail(error instanceof Error ? error.message : String(error));
       this.log(`The worktree is at ${path}`);
+    }
+  }
+
+  /**
+   * Starts the agent kind named by `herdr.agent` in the pane the new space was
+   * built around. Opt-in, and unset means no agent at all (D9): there are 22
+   * kinds and no canonical one, and `agent start` blocks until the agent
+   * answers, so nobody pays for this who did not ask for it.
+   *
+   * Never throws. By the time it runs the space is open and correct, so a name
+   * that collides with a live agent from another repo, or an agent that does not
+   * reach its prompt in time, is a warning about the agent and not a failure of
+   * the open (§5).
+   */
+  private async startConfiguredAgent(label: string, paneId: string) {
+    const kind = await gitGetConfigValue("herdr.agent");
+
+    if (!kind) {
+      return;
+    }
+
+    const name = toHerdrAgentName(label);
+    const spinner = ora(`Starting ${kind} in ${label}`).start();
+
+    try {
+      await startHerdrAgent({ name, kind, paneId });
+      spinner.succeed(`Started ${kind} as ${name}`);
+    } catch (error) {
+      spinner.warn(error instanceof Error ? error.message : String(error));
     }
   }
 

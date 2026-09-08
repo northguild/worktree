@@ -2,6 +2,23 @@ import { commandExists, runCommand } from "../lib/cli.js";
 
 const HERDR_EXECUTABLE = "herdr";
 
+/** Herdr's cap on an agent name: `[a-z][a-z0-9_-]{0,31}` (§4.4). */
+const AGENT_NAME_MAX_LENGTH = 32;
+
+/**
+ * How long Herdr waits for the agent to reach an interactive prompt.
+ *
+ * Herdr's own default is 30 s, and `AgentStartParams.timeout_ms` accepts
+ * "greater than 3000 and at most 300000". The call is awaited, so whatever sits
+ * here is time someone spends watching a spinner *after* the worktree exists
+ * and its env files are copied — which is why the default is not good enough
+ * (§5). Half of it is the trade: still room for an agent that has to boot cold,
+ * but no longer half a minute when one never answers. Erring long is
+ * deliberate — a start that times out on an agent which did come up warns about
+ * an agent that is in fact running, and that is the more confusing failure.
+ */
+const AGENT_START_TIMEOUT_MS = 15_000;
+
 /**
  * A worktree open, narrowed to the three fields this feature reads. Herdr's
  * socket-API doc tells clients to ignore unknown fields, so the parsing below
@@ -11,6 +28,16 @@ export interface HerdrWorktreeOpen {
   workspaceId: string;
   paneId: string;
   alreadyOpen: boolean;
+}
+
+export interface HerdrAgentStartOptions {
+  /** Agent name, which Herdr requires to be unique among live agents. */
+  name: string;
+  /** The `herdr.agent` value, passed through unvalidated against any kind list
+   *  so Herdr is the one that rejects an unknown kind (D10). */
+  kind: string;
+  /** The pane the space was built around, from the open's `root_pane`. */
+  paneId: string;
 }
 
 export interface HerdrOpenOptions {
@@ -208,4 +235,63 @@ export async function openHerdrWorktree({
   ]);
 
   return readWorktreeOpen(result);
+}
+
+/**
+ * Turns a branch name into an agent name Herdr will accept — `[a-z][a-z0-9_-]`
+ * up to 32 characters (§4.4).
+ *
+ * `sanitizeBranchName` in `src/lib/utils.ts` is deliberately not reused: its
+ * `/[^\w\s-]/g` strip drops a `/` without putting a separator in its place, so
+ * `feature/add-agent-mode` collapses to `featureadd-agent-mode`, and it leaves a
+ * leading digit alone, so `178-automate-publishing` comes out invalid.
+ *
+ * A leading digit is prefixed rather than stripped: the ticket number is
+ * usually the part that distinguishes one branch from the next, and dropping it
+ * turns `178-automate` and `179-automate` into the same name — a collision, and
+ * §5 already names collisions as the thing that goes wrong here.
+ */
+export function toHerdrAgentName(branchName: string): string {
+  const slug = branchName
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+
+  if (!slug) {
+    return "worktree";
+  }
+
+  // Only the first character is constrained, so this is the whole of the fix.
+  const named = /^[a-z]/.test(slug) ? slug : `wt-${slug}`;
+
+  // Trailing separators are legal, but truncation is what tends to leave one,
+  // and a name ending in `-` reads as though it were cut off — which it was.
+  return named.slice(0, AGENT_NAME_MAX_LENGTH).replace(/[-_]+$/, "");
+}
+
+/**
+ * Starts an agent in a pane Herdr has already opened. Resolves when Herdr
+ * reports the agent interactive-ready, and rejects with what Herdr said
+ * otherwise — the caller decides how loud that is, and the seam treats it as a
+ * warning because the space is already open by then (§5).
+ *
+ * Nothing is read from the response: `agent_started` answers with the pane's
+ * `AgentInfo` and the `argv` it ran, and this feature needs neither.
+ */
+export async function startHerdrAgent({
+  name,
+  kind,
+  paneId,
+}: HerdrAgentStartOptions): Promise<void> {
+  await runHerdrRequest([
+    "agent",
+    "start",
+    name,
+    "--kind",
+    kind,
+    "--pane",
+    paneId,
+    "--timeout",
+    String(AGENT_START_TIMEOUT_MS),
+  ]);
 }

@@ -10,6 +10,7 @@ export const CONFIG_NAMES = [
   "opener",
   "codeEditor",
   "herdr.focus",
+  "herdr.agent",
   "defaultSourceBranch",
 ] as const;
 

@@ -2,6 +2,7 @@ import * as cli from "./cli.js";
 import * as git from "./git.js";
 import {
   InvalidConfigValueError,
+  isValidAgentKind,
   isValidBoolean,
   isValidBranch,
   isValidBranchName,
@@ -188,14 +189,48 @@ describe("isValidBoolean", () => {
   );
 });
 
+describe("isValidAgentKind", () => {
+  const shapeMessage =
+    "Agent kind must be lowercase letters, digits and dashes, for example claude";
+
+  it.each`
+    value              | expected        | description
+    ${"claude"}        | ${true}         | ${"a kind Herdr lists"}
+    ${"codex"}         | ${true}         | ${"another kind Herdr lists"}
+    ${"qodercli"}      | ${true}         | ${"a kind with digits-free letters only"}
+    ${"some-agent2"}   | ${true}         | ${"kebab with a trailing digit"}
+    ${"not-a-kind"}    | ${true}         | ${"a well-shaped kind Herdr does not list, which Herdr rejects, not us (D10)"}
+    ${""}              | ${shapeMessage} | ${"empty string"}
+    ${"Claude"}        | ${shapeMessage} | ${"the right kind in the wrong case"}
+    ${"2fast"}         | ${shapeMessage} | ${"a leading digit"}
+    ${"claude code"}   | ${shapeMessage} | ${"a space"}
+    ${"claude;rm -rf"} | ${shapeMessage} | ${"shell punctuation"}
+    ${"claude_code"}   | ${shapeMessage} | ${"an underscore, which is not kebab"}
+  `(
+    'should return $expected for "$value" ($description)',
+    ({ value, expected }) => {
+      expect(isValidAgentKind(value)).toBe(expected);
+    },
+  );
+
+  it("does not check the value against a list of known kinds", async () => {
+    // D10: the 22 kinds live in Herdr's help text and behind
+    // `server.agent_manifests`, not in the socket schema, so a copy here would
+    // rot on the next release. Shape is all this file is allowed to know.
+    expect(isValidAgentKind("an-agent-invented-tomorrow")).toBe(true);
+  });
+});
+
 describe("isValidConfigValue", () => {
   it.each`
-    configName        | value         | expected                            | description
-    ${"opener"}       | ${"herdr"}    | ${true}                             | ${"a known opener"}
-    ${"opener"}       | ${"bogus"}    | ${"Opener must be editor or herdr"} | ${"an unknown opener"}
-    ${"herdr.focus"}  | ${"false"}    | ${true}                             | ${"a boolean focus value"}
-    ${"herdr.focus"}  | ${"maybe"}    | ${"Value must be true or false"}    | ${"a non-boolean focus value"}
-    ${"github.token"} | ${"anything"} | ${true}                             | ${"a key with no validation case"}
+    configName        | value         | expected                                                                         | description
+    ${"opener"}       | ${"herdr"}    | ${true}                                                                          | ${"a known opener"}
+    ${"opener"}       | ${"bogus"}    | ${"Opener must be editor or herdr"}                                              | ${"an unknown opener"}
+    ${"herdr.focus"}  | ${"false"}    | ${true}                                                                          | ${"a boolean focus value"}
+    ${"herdr.focus"}  | ${"maybe"}    | ${"Value must be true or false"}                                                 | ${"a non-boolean focus value"}
+    ${"herdr.agent"}  | ${"claude"}   | ${true}                                                                          | ${"a well-shaped agent kind"}
+    ${"herdr.agent"}  | ${"Claude!"}  | ${"Agent kind must be lowercase letters, digits and dashes, for example claude"} | ${"a badly-shaped agent kind"}
+    ${"github.token"} | ${"anything"} | ${true}                                                                          | ${"a key with no validation case"}
   `(
     'should return $expected for $configName="$value" ($description)',
     async ({ configName, value, expected }) => {
@@ -221,5 +256,17 @@ describe("validateConfigValue", () => {
     await expect(validateConfigValue("herdr.focus", "maybe")).rejects.toThrow(
       InvalidConfigValueError,
     );
+  });
+
+  it("should throw InvalidConfigValueError for a badly-shaped herdr.agent", async () => {
+    await expect(validateConfigValue("herdr.agent", "Claude!")).rejects.toThrow(
+      InvalidConfigValueError,
+    );
+  });
+
+  it("should resolve for a well-shaped herdr.agent", async () => {
+    await expect(
+      validateConfigValue("herdr.agent", "claude"),
+    ).resolves.toBeUndefined();
   });
 });

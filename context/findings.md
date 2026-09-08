@@ -95,6 +95,15 @@ This is recorded rather than fixed because the fix lives in `src/lib/cli.ts`, wh
 leaving the deferral only in §8 would give it no owner. Phase 5 is the natural home: it decides the
 adjacent §8 question of whether `agent start` is awaited or fire-and-forget, and the two want one answer.
 
+**Still open after Phase 5 (2026-09-08).** Phase 5 answered the §8 half — agent start is awaited, and it
+passes `--timeout 15000` — but that flag bounds *Herdr's* wait for the agent to become interactive-ready,
+not the `execFile` this repo spawned. `src/lib/cli.ts:49` still calls `execFile(executable, args, cb)`
+with no options object, so a `herdr` client that accepts the connection and never answers hangs both the
+open and the agent start exactly as described above. Phase 5 did not widen into `src/lib/cli.ts`, which is
+absent from its **Files:** list too. **This finding now has no phase left to land in** — Phase 6 is
+documentation — so it is a maintainer's call: bound `runCommand` with a timeout as a separate
+`/orchestrate` change, or state in the repo why unbounded is correct.
+
 **Closes when:** a timeout bounds the awaited Herdr calls — or the repo states why unbounded is correct —
 and Gate 1 re-passes with a test covering what the seam prints when the call times out.
 

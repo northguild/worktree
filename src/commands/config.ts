@@ -8,6 +8,7 @@ import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
 import type { ConfigName } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
 import {
+  isValidAgentKind,
   isValidBoolean,
   isValidBranch,
   isValidCommand,
@@ -257,6 +258,21 @@ export default class Config extends BaseCommand {
           validate: isValidBoolean,
         });
         await gitSetConfigValue("herdr.focus", herdrFocus);
+      }
+
+      if (shouldPrompt("herdr.agent")) {
+        const herdrAgent = await input({
+          message:
+            "Which agent should start in a new Herdr space? (empty for none)",
+          ...(await this.getInputConfig("herdr.agent")),
+          // Empty is not a valid kind, but it is a valid answer: the key is
+          // opt-in (D9), so this prompt has to be the way to decline as well as
+          // the way to choose, or a `--missing` run would force an agent on
+          // someone who does not want one.
+          validate: (value: string) =>
+            value.trim() === "" || isValidAgentKind(value.trim()),
+        });
+        await gitSetConfigValue("herdr.agent", herdrAgent.trim());
       }
     }
 
