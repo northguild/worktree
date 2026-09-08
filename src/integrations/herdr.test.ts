@@ -7,7 +7,7 @@ import {
   toHerdrAgentName,
 } from "./herdr.js";
 
-const mockRunCommand = vi.mocked(cli.runCapturing);
+const mockRunCapturing = vi.mocked(cli.runCapturing);
 
 const worktreePath =
   "/Users/baldur/Development/northguild/worktree/worktree.worktrees/feature/herdr-space-opener";
@@ -94,17 +94,17 @@ describe("isHerdrInstalled", () => {
   });
 
   it("spawns no process of its own to answer", async () => {
-    // The `herdr status server --json` probe was dropped (F-003): liveness is
+    // The `herdr status server --json` probe was dropped (F-040): liveness is
     // `openHerdrWorktree`'s business, so nothing here may cost an extra spawn.
     await isHerdrInstalled();
 
-    expect(mockRunCommand).not.toHaveBeenCalled();
+    expect(mockRunCapturing).not.toHaveBeenCalled();
   });
 });
 
 describe("openHerdrWorktree", () => {
   it("passes the path, cwd, label and an explicit focus flag", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: makeWorktreeOpenedEnvelope(false),
       stderr: "",
       exitCode: 0,
@@ -115,7 +115,7 @@ describe("openHerdrWorktree", () => {
       paneId: "pF1",
       alreadyOpen: false,
     });
-    expect(mockRunCommand).toHaveBeenCalledWith("herdr", [
+    expect(mockRunCapturing).toHaveBeenCalledWith("herdr", [
       "worktree",
       "open",
       "--path",
@@ -129,7 +129,7 @@ describe("openHerdrWorktree", () => {
   });
 
   it("sends --no-focus when focus is off", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: makeWorktreeOpenedEnvelope(false),
       stderr: "",
       exitCode: 0,
@@ -137,18 +137,18 @@ describe("openHerdrWorktree", () => {
 
     await openThisWorktree(false);
 
-    expect(mockRunCommand).toHaveBeenCalledWith(
+    expect(mockRunCapturing).toHaveBeenCalledWith(
       "herdr",
       expect.arrayContaining(["--no-focus"]),
     );
-    expect(mockRunCommand).not.toHaveBeenCalledWith(
+    expect(mockRunCapturing).not.toHaveBeenCalledWith(
       "herdr",
       expect.arrayContaining(["--focus"]),
     );
   });
 
   it("reports a space that was already open", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: makeWorktreeOpenedEnvelope(true),
       stderr: "",
       exitCode: 0,
@@ -160,7 +160,7 @@ describe("openHerdrWorktree", () => {
   });
 
   it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: "",
       stderr: makeErrorEnvelope(
         "worktree_not_found",
@@ -180,7 +180,7 @@ describe("openHerdrWorktree", () => {
   });
 
   it("surfaces a non-zero exit that is not an error envelope verbatim", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: "",
       stderr: "herdr: could not connect to the server socket",
       exitCode: 2,
@@ -195,7 +195,7 @@ describe("openHerdrWorktree", () => {
   });
 
   it("rejects when the success envelope carries no result", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: JSON.stringify({ id: "cli:worktree:open" }),
       stderr: "",
       exitCode: 0,
@@ -205,7 +205,7 @@ describe("openHerdrWorktree", () => {
   });
 
   it("rejects when the result is missing the fields it reads", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: JSON.stringify({
         id: "cli:worktree:open",
         result: { type: "worktree_opened", already_open: false },
@@ -220,7 +220,7 @@ describe("openHerdrWorktree", () => {
   });
 
   it("rejects when stdout is not JSON", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: "not json at all",
       stderr: "",
       exitCode: 0,
@@ -310,14 +310,14 @@ describe("startHerdrAgent", () => {
   }
 
   it("passes the name, kind, pane and an explicit timeout", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: makeAgentStartedEnvelope(),
       stderr: "",
       exitCode: 0,
     });
 
     await expect(startAgent()).resolves.toBeUndefined();
-    expect(mockRunCommand).toHaveBeenCalledWith("herdr", [
+    expect(mockRunCapturing).toHaveBeenCalledWith("herdr", [
       "agent",
       "start",
       "feature-herdr-space-opener",
@@ -334,7 +334,7 @@ describe("startHerdrAgent", () => {
     // `AgentStartParams.timeout_ms`: greater than 3000, at most 300000. The
     // default is 30000, and §5 asks for less than that because the call is
     // awaited after the worktree already exists.
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: makeAgentStartedEnvelope(),
       stderr: "",
       exitCode: 0,
@@ -342,7 +342,7 @@ describe("startHerdrAgent", () => {
 
     await startAgent();
 
-    const args = mockRunCommand.mock.calls[0]?.[1] as string[];
+    const args = mockRunCapturing.mock.calls[0]?.[1] as string[];
     const timeout = Number(args[args.indexOf("--timeout") + 1]);
 
     expect(timeout).toBeGreaterThan(3000);
@@ -350,7 +350,7 @@ describe("startHerdrAgent", () => {
   });
 
   it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
-    mockRunCommand.mockResolvedValue({
+    mockRunCapturing.mockResolvedValue({
       stdout: "",
       stderr: makeErrorEnvelope(
         "agent_name_in_use",

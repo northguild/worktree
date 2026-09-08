@@ -115,10 +115,10 @@ Herdr requires agent names matching `[a-z][a-z0-9_-]{0,31}`, unique among live a
 
 | # | Phase | Status | Depends on | Note |
 |---|---|---|---|---|
-| 1 | Argv command runner and quoted opener | done | — | `runCapturing` on `execFile`; Gate 2 raised F-039 and the Windows defect `main` tracks as F-012, both `P2` and non-blocking |
+| 1 | Argv command runner and quoted opener | done | — | `runCapturing` on `execFile`; Gate 2 raised F-039 and the Windows defect `main` tracks as F-012, both `P2` and non-blocking; the merge with `main` briefly dropped the §2 workaround test and it is restored (`base-command.test.ts`), and F-042 records the apostrophe cost of quote-awareness |
 | 2 | `opener` and `herdr.focus` config keys | done | — | Both keys promptable and validated; Gate 2 `PASS WITH NOTES`, all notes `P3` |
 | 3 | `src/integrations/herdr.ts` — detect and open | done | 1 | Schema re-verified live at 0.8.2/protocol 20, no drift; Gate 2 `PASS WITH NOTES`, all notes `P3`, F-040 handed to Phase 4 |
-| 4 | Wire the opener seam to the `opener` key | done | 2, 3 | Three caller suites passed unmodified; F-040 closed by dropping the probe; Gate 2 `PASS WITH NOTES`, highest note `P2`, N2 recorded as F-041 |
+| 4 | Wire the opener seam to the `opener` key | done | 2, 3 | Three caller suites passed unmodified; F-040 closed by dropping the probe; Gate 2 `PASS WITH NOTES`, highest note `P2`, N2 recorded as F-041; the merge with `main` briefly dropped the `opener` unset and explicit-`editor` dispatch cases and both are restored |
 | 5 | Optional agent auto-start (`herdr.agent`) | done | 4 | Own name derivation, fuzzed against Herdr's `[a-z][a-z0-9_-]{0,31}`; agent start is awaited with `--timeout 15000`, which bounds Herdr's readiness wait and **not** the subprocess, so F-041 stays open; Gate 2 `PASS WITH NOTES`, all notes `P3` |
 | 6 | Documentation and shipped skill | done | 4 | All 16 `codeEditor` mentions updated plus a new Herdr guide; widened by the maintainer to close F-039 (quote-aware split) and F-012 (Windows unsupported); Gate 2 `PASS WITH NOTES`, no blocking findings, all seven `P3` notes applied |
 

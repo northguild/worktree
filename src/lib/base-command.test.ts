@@ -45,12 +45,25 @@ describe("openWorktreePath", () => {
   const worktreePath = "/repo/project.worktrees/feature/test";
   let command: TestCommand;
 
+  /**
+   * Answers per key, rather than one value for every key. The seam reads
+   * `opener` before anything else, so a blanket `mockResolvedValue` would hand
+   * the editor's command string back as the opener kind — these tests would
+   * still reach the editor, but only because "code" is not "herdr", which is
+   * not what they mean to assert.
+   */
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     command = new TestCommand([], { runCommand: vi.fn() } as any);
     // git.ts reads the value through the mocked run(); stub it so the only
     // subprocess call each test sees is the editor launch itself.
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("code");
+    setConfig({ codeEditor: "code" });
   });
 
   it("passes the worktree path as one argument, spaces and all", async () => {
@@ -67,7 +80,7 @@ describe("openWorktreePath", () => {
 
   it("splits a configured command line into program and leading arguments", async () => {
     expectCommands(`code -n ${worktreePath}`);
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("code -n");
+    setConfig({ codeEditor: "code -n" });
     mockRun.mockResolvedValueOnce("");
 
     await command.open(worktreePath);
@@ -77,7 +90,7 @@ describe("openWorktreePath", () => {
 
   it("collapses repeated whitespace instead of passing an empty argument", async () => {
     expectCommands(`code -n ${worktreePath}`);
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("  code   -n  ");
+    setConfig({ codeEditor: "  code   -n  " });
     mockRun.mockResolvedValueOnce("");
 
     await command.open(worktreePath);
@@ -109,12 +122,40 @@ describe("openWorktreePath", () => {
     expect(spinnerMocks.succeed).not.toHaveBeenCalled();
   });
 
+  it("keeps the interim herdr workaround working as executable plus arguments", async () => {
+    // The §2 constraint: multi-word `codeEditor` values are in the wild
+    // precisely because this one worked before `opener` existed, and it has to
+    // go on working for anyone who has not migrated.
+    const workaround = "herdr worktree open --focus --path";
+    expectCommands(`herdr worktree open --focus --path ${worktreePath}`);
+    setConfig({ codeEditor: workaround });
+    mockRun.mockResolvedValueOnce("");
+
+    await command.open(worktreePath);
+
+    expect(mockRun).toHaveBeenCalledWith("herdr", [
+      "worktree",
+      "open",
+      "--focus",
+      "--path",
+      worktreePath,
+    ]);
+  });
+
+  it("is what an explicit opener of editor selects", async () => {
+    expectCommands(`code ${worktreePath}`);
+    setConfig({ opener: "editor", codeEditor: "code" });
+    mockRun.mockResolvedValueOnce("");
+
+    await command.open(worktreePath);
+
+    expect(mockRun).toHaveBeenCalledWith("code", [worktreePath]);
+  });
+
   it("keeps a quoted argument together as one argv element", async () => {
     expectCommands(`open -a "Sublime Text" ${worktreePath}`);
     mockRun.mockResolvedValueOnce("");
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue(
-      `open -a "Sublime Text"`,
-    );
+    setConfig({ codeEditor: `open -a "Sublime Text"` });
 
     await command.open(worktreePath);
 
@@ -126,7 +167,7 @@ describe("openWorktreePath", () => {
   });
 
   it("launches nothing when the editor value is only whitespace", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("   ");
+    setConfig({ codeEditor: "   " });
     const logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
 
     await command.open(worktreePath);
@@ -138,7 +179,7 @@ describe("openWorktreePath", () => {
   });
 
   it("logs the path and launches nothing when no editor is configured", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    setConfig({});
     const logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
 
     await command.open(worktreePath);

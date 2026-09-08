@@ -67,14 +67,18 @@ export function runCapturing(
   });
 }
 
+/**
+ * Looks up one program name, verbatim. It is not given a command line: every
+ * caller splits first — the two validators through `splitCommandValue`, so a
+ * quoted program path containing a space arrives here as one name rather than
+ * truncated at its first space, which is what makes validation agree with
+ * execution.
+ */
 export async function commandExists(command: string): Promise<boolean> {
   try {
-    // Extract the base command
-    const baseCommand = command.split(" ")[0];
-
     // Use 'which' on *nix, 'where' on Windows
     const checkCommand = process.platform === "win32" ? "where" : "which";
-    await run(checkCommand, [baseCommand]);
+    await run(checkCommand, [command]);
     return true;
   } catch {
     return false;

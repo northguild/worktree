@@ -304,7 +304,7 @@ describe("isValidAgentKind", () => {
   });
 });
 
-describe("isValidConfigValue", () => {
+describe("isValidConfigValue — the opener keys", () => {
   it.each`
     configName        | value         | expected                                                                         | description
     ${"opener"}       | ${"herdr"}    | ${true}                                                                          | ${"a known opener"}

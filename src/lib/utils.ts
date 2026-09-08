@@ -88,7 +88,7 @@ export function sanitizeBranchName(value: string) {
  * honouring single and double quotes. `open -a "Sublime Text"` is the value a
  * macOS user writes, and before quote awareness it reached `execFile` as four
  * arguments with the quote characters still attached, so `open` launched and
- * then failed on an application name it could not resolve (F-001).
+ * then failed on an application name it could not resolve (F-039).
  *
  * Quotes group and are not themselves part of the token. Nothing else is
  * interpreted: with no shell involved there is nothing to expand `~` or

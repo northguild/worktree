@@ -5,6 +5,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
@@ -24,6 +25,7 @@ const printCwd = "process.stdout.write(process.cwd())";
 
 let tempPath: string;
 let spacedPath: string;
+let spacedExecutable: string;
 let originalPath: string | undefined;
 
 beforeAll(() => {
@@ -32,6 +34,11 @@ beforeAll(() => {
   tempPath = realpathSync(mkdtempSync(join(tmpdir(), "worktree-cli-")));
   spacedPath = join(tempPath, "space demo");
   mkdirSync(spacedPath);
+
+  // A real executable whose path contains a space, for the lookup that used to
+  // be truncated at the first space.
+  spacedExecutable = join(spacedPath, "my editor");
+  writeFileSync(spacedExecutable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
   // commandExists searches PATH. Put this node binary's own directory on it so
   // the lookup has a guaranteed hit however the suite was launched.
@@ -193,10 +200,16 @@ describe("commandExists", () => {
 
   // Only the head of the command line is looked up; the arguments after it are
   // not part of the check, and never reach the lookup as argv either.
-  it("checks only the first word of a command line", async () => {
+  it("looks the value up verbatim rather than to its first space", async () => {
+    // A command line is never passed here — callers split first — so the whole
+    // value is the program name, and one containing a space is not truncated.
     await expect(commandExists(`${nodeName} --no-warnings`)).resolves.toBe(
-      true,
+      false,
     );
+  });
+
+  it("resolves true for a program whose path contains a space", async () => {
+    await expect(commandExists(spacedExecutable)).resolves.toBe(true);
   });
 });
 

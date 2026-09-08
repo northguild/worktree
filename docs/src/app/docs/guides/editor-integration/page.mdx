@@ -44,6 +44,14 @@ character rather than an escape — quote `an argument like this` instead of wri
 `an\ argument\ like\ this`. Use an absolute path, or a wrapper script on your `PATH`, instead of
 relying on expansion.
 
+Quote characters group wherever they appear, as a shell's do, so a path containing an apostrophe has to
+be quoted to survive:
+
+```bash
+worktree config codeEditor "/Users/o'brien/bin/ed"     # correct
+worktree config codeEditor /Users/o'brien/bin/ed       # the apostrophe is consumed
+```
+
 ## Opening somewhere other than an editor
 
 Set `opener` to `herdr` to have worktrees land as Herdr spaces instead. See

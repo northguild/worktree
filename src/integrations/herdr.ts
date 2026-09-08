@@ -173,7 +173,7 @@ async function runHerdrRequest(args: string[]): Promise<unknown> {
  * up.
  *
  * A `herdr status server --json` probe used to run here as well. It was dropped
- * (F-003): it spawned a second process on every open, and it collapsed whatever
+ * (F-040): it spawned a second process on every open, and it collapsed whatever
  * Herdr said about a dead server into a bare `false`, so the seam could only
  * print a generic line for exactly the case a reader most needs the detail.
  * Liveness is `openHerdrWorktree`'s business instead — a stopped server fails

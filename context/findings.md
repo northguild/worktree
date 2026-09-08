@@ -638,8 +638,8 @@ claim — that is, jointly with F-034.
 
 **Tied to:** herdr-space-opener Phase 5 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent, note N2)
 
-`runCommand` passes no options object to `execFile` (`src/lib/cli.ts:44-59`), so there is no timeout, and
-Phase 4 made the Herdr branch of the seam `await` it (`src/lib/base-command.ts:116`). Before this feature
+The capturing runner sets no `timeout` on `execFile` (`src/lib/cli.ts:48-68`), and Phase 4 made the Herdr
+branch of the seam `await` it (`src/lib/base-command.ts:114`). Before this feature
 the opener never blocked: it registered a callback and `run()` returned. A Herdr that accepts the
 connection and then never answers now freezes `worktree branch` **after** the worktree exists and its env
 files are copied — the user sees a spinner and has no signal that the real work already succeeded.
@@ -652,11 +652,15 @@ This is recorded rather than fixed because the fix lives in `src/lib/cli.ts`, wh
 leaving the deferral only in §8 would give it no owner. Phase 5 is the natural home: it decides the
 adjacent §8 question of whether `agent start` is awaited or fire-and-forget, and the two want one answer.
 
+**Renamed at the merge with `main` (2026-09-08).** The runner this finding was raised against is now
+`runCapturing`, `main`'s `run` having taken the plain name. The defect is unchanged: `runCapturing` grew
+a `cwd` option in the merge and still sets no `timeout`.
+
 **Still open after Phase 5 (2026-09-08).** Phase 5 answered the §8 half — agent start is awaited, and it
 passes `--timeout 15000` — but that flag bounds *Herdr's* wait for the agent to become interactive-ready,
-not the `execFile` this repo spawned. `src/lib/cli.ts:49` still calls `execFile(executable, args, cb)`
-with no options object, so a `herdr` client that accepts the connection and never answers hangs both the
-open and the agent start exactly as described above. Phase 5 did not widen into `src/lib/cli.ts`, which is
+not the `execFile` this repo spawned. `src/lib/cli.ts:54` passes an options object carrying only `cwd`
+and no `timeout`, so a `herdr` client that accepts the connection and never answers hangs both the open
+and the agent start exactly as described above. Phase 5 did not widen into `src/lib/cli.ts`, which is
 absent from its **Files:** list too. **This finding now has no phase left to land in** — Phase 6 is
 documentation — so it is a maintainer's call: bound `runCommand` with a timeout as a separate
 `/orchestrate` change, or state in the repo why unbounded is correct.
@@ -665,6 +669,30 @@ documentation — so it is a maintainer's call: bound `runCommand` with a timeou
 and Gate 1 re-passes with a test covering what the seam prints when the call times out.
 
 **Renumbered on merge (2026-09-08).** Raised as F-004 on the `herdr-space-opener` branch, which numbered from the same starting point as `main` and collided with it. The finding is unchanged.
+
+### F-042 — P2 — an unquoted apostrophe is consumed by the command-value split
+
+**Tied to:** herdr-space-opener Phase 1 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent, note N1)
+
+`splitCommandValue` treats a quote as grouping wherever it appears (`src/lib/utils.ts:99-141`), so an
+unquoted apostrophe inside a token is removed: `/Users/o'brien/bin/ed` splits to
+`["/Users/obrien/bin/ed"]`. `main`'s `trim().split(/\s+/)` preserved it, so this is a change for a
+`codeEditor` or `agent.command` value that worked before the merge, against §2's "Non-Herdr users must
+see no change".
+
+The behaviour is what a shell does with the same characters, and it fails visibly — the launch reports
+`ENOENT` for a path that does not exist — rather than corrupting anything. It is the cost of the
+quote-awareness the maintainer chose at Phase 6, which is why it is recorded rather than treated as a
+departure. `docs/src/app/docs/guides/editor-integration/page.mdx` now documents it with the working form
+(quote the whole path).
+
+The narrow alternative, if it is ever worth the complexity: open a quote only at a token boundary, which
+would keep `open -a "Sublime Text"` and `--flag="a b"` working while leaving a bare apostrophe alone. It
+trades one surprising rule for a subtler one, so it is not taken here.
+
+**Closes when:** either the split leaves an unquoted apostrophe alone and Gate 1 re-passes with a test
+covering it, or the documented behaviour is accepted as final and this entry is retired at
+`/feature-close`.
 
 ## Closed
 
@@ -691,13 +719,13 @@ or keep a shell for the editor branch and use the argv runner only for Herdr.
 correction inside Phase 6, or a split change inside Phase 1's files.
 
 **Closed:** 2026-09-08 by Phase 6, which took the second of the three options at the maintainer's
-decision. `splitCommandValue` (`src/lib/utils.ts:73-115`) splits the configured value honouring both
-quote styles, and the editor branch calls it (`src/lib/base-command.ts:193`), so `open -a "Sublime
+decision. `splitCommandValue` (`src/lib/utils.ts:99-141`) splits the configured value honouring both
+quote styles, and the editor branch calls it (`src/lib/base-command.ts:185`), so `open -a "Sublime
 Text"` again yields argv `["open", "-a", "Sublime Text", <path>]` — asserted at
-`src/lib/base-command.test.ts:85-95` and across 14 table rows at `src/lib/utils.test.ts:221-241`.
+`src/lib/base-command.test.ts:155-169` and across 14 table rows at `src/lib/utils.test.ts:222-241`.
 The `~` and `$EDITOR` half is **not** restored and is not a defect: nothing expands those without a
-shell. It is now stated where a reader meets the key — `README.md:196-197`,
-`docs/src/app/docs/configuration/page.mdx:48-50` and the rewritten
+shell. It is now stated where a reader meets the key — `README.md:217-220`,
+`docs/src/app/docs/configuration/page.mdx:25-49` and the rewritten
 `docs/src/app/docs/guides/editor-integration/page.mdx:23-45`, which also covers backslashes and
 replaces the "matching shell command" sentence this finding named. Gate 1 re-passed on that change —
 `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (297 passed) and `pnpm docs:test`
