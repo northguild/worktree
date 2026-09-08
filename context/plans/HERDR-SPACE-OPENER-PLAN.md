@@ -121,6 +121,7 @@ Herdr requires agent names matching `[a-z][a-z0-9_-]{0,31}`, unique among live a
 | 4 | Wire the opener seam to the `opener` key | done | 2, 3 | Three caller suites passed unmodified; F-040 closed by dropping the probe; Gate 2 `PASS WITH NOTES`, highest note `P2`, N2 recorded as F-041; the merge with `main` briefly dropped the `opener` unset and explicit-`editor` dispatch cases and both are restored |
 | 5 | Optional agent auto-start (`herdr.agent`) | done | 4 | Own name derivation, fuzzed against Herdr's `[a-z][a-z0-9_-]{0,31}`; agent start is awaited with `--timeout 15000`, which bounds Herdr's readiness wait and **not** the subprocess, so F-041 stays open; Gate 2 `PASS WITH NOTES`, all notes `P3` |
 | 6 | Documentation and shipped skill | done | 4 | All 16 `codeEditor` mentions updated plus a new Herdr guide; widened by the maintainer to close F-039 (quote-aware split) and F-012 (Windows unsupported); Gate 2 `PASS WITH NOTES`, no blocking findings, all seven `P3` notes applied |
+| 7 | Hide the Herdr keys when `herdr` is absent | done | 2, 5 | Gates the `opener` and `herdr.*` prompts, the `--missing` listing and the unknown-name error on `commandExists("herdr")`; un-hidden by an explicit `opener=herdr`, by a key that holds a value, or by `--names`; verified end to end with `herdr` on and off `PATH`; Gate 2 `PASS WITH NOTES`, no blocking findings |
 
 Status is one of `not started`, `in progress`, `blocked`, `done`. `done` only when committed and verified,
 and whoever finishes a phase updates the row in the same commit.
@@ -177,6 +178,33 @@ differently-shaped one nearby is a decoy that gets read by mistake.
 **Scope:** Document `opener`, `herdr.focus` and `herdr.agent` everywhere `codeEditor` is documented today — 16 mentions across the nine files above (`README.md:79,189`, `configuration/page.mdx:12,28`, `getting-started/page.mdx:59`, `faq/page.mdx:28`, `commands/config/page.mdx:32`, `guides/editor-integration/page.mdx:10,23`, and five in `skills/core/SKILL.md`). Add a Herdr guide page and register it in `docs/src/app/docs/guides/_meta.ts`, which is a hand-maintained `MetaRecord`. Update the shipped skill: the config table at `skills/core/SKILL.md:126`, the description at `SKILL.md:5`, the opener sentence at `SKILL.md:66`, the pitfall at `SKILL.md:212`, the key list at `skills/_artifacts/skill_tree.yaml:24` and the mistake entry at `skills/_artifacts/domain_map.yaml:87-90`. Do **not** touch `library_version:` in `SKILL.md` or `  version:` in `skill_tree.yaml` — `scripts/sync-intent-version.mjs` owns both lines and CI hard-fails on drift ([`stack.md`](../stack.md)).
 
 **Done when:** the config reference in `README.md`, `docs/src/app/docs/configuration/page.mdx` and `skills/core/SKILL.md` each list all three new keys; the new guide is reachable through `guides/_meta.ts`; no file named `biome.json` or `biome.jsonc` was added anywhere ([`../verify.md`](../verify.md)); the version-bearing lines in `skills/` are unchanged; the standing stack in [`../verify.md`](../verify.md) passes.
+
+#### Phase 7 — Hide the Herdr keys when `herdr` is absent
+
+**Files:** `src/lib/constants.ts`, `src/commands/config.ts`, `src/commands/config.test.ts`, `docs/src/app/docs/configuration/page.mdx`, `docs/src/app/docs/commands/config/page.mdx`, `docs/src/app/docs/guides/herdr-spaces/page.mdx`, `skills/core/SKILL.md`, `../verify.md`
+
+**Scope:** Added 2026-09-08 at the maintainer's request, after Phase 6 established that the opener itself
+is unreachable without `opener=herdr` but the *config surface* is not: `worktree config` asks two extra
+confirms and `worktree config --list --missing` lists three more keys, for everyone. Gate both on
+`commandExists("herdr")`.
+
+A key is hidden only when `herdr` is absent **and** the key has no value, so a machine that has configured
+Herdr and later lost the binary still shows what it set. An explicit `--names` request is always honoured —
+naming a key is asking for it, and someone configuring ahead of installing Herdr must not be silently
+ignored. `worktree config opener herdr` as a direct set is untouched: it returns before any of this
+(`config.ts` `run()`), and `isValidOpener` still accepts `herdr` whether or not it is installed, because
+D5 already prints Herdr's own reason at open time.
+
+The probe costs one `commandExists` spawn per `worktree config` invocation, and none on any other command —
+`verifyConfig` never receives these keys, so `branch`, `checkout` and `open` are untouched. This is the
+same trade Phase 4 refused for the *opener* path (F-040) and accepts here: `config` is interactive and runs
+once, where the opener runs on every worktree.
+
+**Done when:** with `herdr` absent, `worktree config --list --missing` lists none of `opener`,
+`herdr.focus`, `herdr.agent`, and a prompt run asks neither the opener nor the Herdr confirm; with `herdr`
+present, all three are listed and both confirms are asked; a key that already holds a value is listed even
+when `herdr` is absent; `worktree config --missing --names opener` prompts for it regardless; the standing
+stack in [`../verify.md`](../verify.md) passes.
 
 ## 7. Verification
 

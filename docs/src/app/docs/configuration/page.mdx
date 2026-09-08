@@ -110,6 +110,11 @@ worktree config branchPrefix.chore chore/
   the [Editor Integration](/docs/guides/editor-integration) guide.
 - `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`. See
   [Herdr Spaces](/docs/guides/herdr-spaces).
+- `opener`, `herdr.focus` and `herdr.agent` are shown by `worktree config` only when the `herdr` CLI is on
+  your `PATH`. Without it they are neither listed nor prompted for, so the feature stays out of the way.
+  This gating never hides a key that already holds a value, and setting `opener` to `herdr` un-hides all
+  three whether or not the CLI is found. Naming a key with `--names`, or setting it directly, always
+  works.
 
 ## GitHub Integration Notes
 

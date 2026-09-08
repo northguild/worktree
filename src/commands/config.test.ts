@@ -658,4 +658,175 @@ describe("config command", () => {
       );
     });
   });
+
+  // Phase 7: someone without the `herdr` binary should never be shown the keys
+  // that only mean something with it. `commandExists` is stubbed true globally
+  // in test-setup, so "installed" is the default every other suite sees.
+  describe("hiding the Herdr keys when herdr is absent", () => {
+    const herdrKeys = ["opener", "herdr.focus", "herdr.agent"];
+
+    // vitest.config.ts sets no restoreMocks, and clearAllMocks keeps
+    // implementations, so a commandExists stub left here would leak into any
+    // test appended after this block.
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function listedNames(): string[] {
+      return mockConsoleLog.mock.calls.map((call: unknown[]) =>
+        String(call[0]),
+      );
+    }
+
+    it("omits them from --list when herdr is not installed", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: true },
+      });
+
+      await config.run();
+
+      for (const key of herdrKeys) {
+        expect(listedNames()).not.toContain(key);
+      }
+      // The rest of the surface is untouched.
+      expect(listedNames()).toContain("codeEditor");
+      expect(listedNames()).toContain("agent.command");
+    });
+
+    it("lists them when herdr is installed", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: true },
+      });
+
+      await config.run();
+
+      for (const key of herdrKeys) {
+        expect(listedNames()).toContain(key);
+      }
+    });
+
+    it("still lists a Herdr key that already holds a value", async () => {
+      // opener stays unset here, so this exercises the per-key carve-out on its
+      // own rather than the opener=herdr opt-in covered below.
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "herdr.agent") return Promise.resolve("claude");
+        return Promise.resolve("");
+      });
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: false },
+      });
+
+      await config.run();
+
+      expect(listedNames()).toContain("herdr.agent=claude");
+      // The two that hold no value stay hidden.
+      expect(listedNames()).not.toContain("opener");
+      expect(listedNames()).not.toContain("herdr.focus");
+    });
+
+    it("asks neither the opener nor the Herdr confirm when herdr is absent", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      mockConfirm.mockResolvedValue(false);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: true, yes: false },
+      });
+
+      await config.run();
+
+      const asked = mockConfirm.mock.calls.map((call) => call[0]?.message);
+      expect(asked).not.toContain(
+        "Do you want to choose where new worktrees are opened?",
+      );
+      expect(asked).not.toContain(
+        "Do you want to configure Herdr space options?",
+      );
+    });
+
+    it("asks both confirms when herdr is installed", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      mockConfirm.mockResolvedValue(false);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: true, yes: false },
+      });
+
+      await config.run();
+
+      const asked = mockConfirm.mock.calls.map((call) => call[0]?.message);
+      expect(asked).toContain(
+        "Do you want to choose where new worktrees are opened?",
+      );
+      expect(asked).toContain("Do you want to configure Herdr space options?");
+    });
+
+    it("un-hides every Herdr key when opener is explicitly herdr", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "opener") return Promise.resolve("herdr");
+        return Promise.resolve("");
+      });
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: true },
+      });
+
+      await config.run();
+
+      // opener itself has a value so --missing skips it; the two it governs
+      // have none and must still be offered.
+      expect(listedNames()).toContain("herdr.focus");
+      expect(listedNames()).toContain("herdr.agent");
+    });
+
+    it("leaves the Herdr keys out of the unknown-name error when herdr is absent", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      const errorSpy = vi
+        .spyOn(config, "error")
+        .mockImplementation((() => {}) as any);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "bogus" },
+        flags: { list: false, missing: false },
+      });
+
+      await config.run();
+
+      const message = String(errorSpy.mock.calls[0]?.[0]);
+      expect(message).toContain("codeEditor");
+      for (const key of herdrKeys) {
+        expect(message).not.toContain(key);
+      }
+    });
+
+    it("honours an explicit --names request even when herdr is absent", async () => {
+      // Naming the key is asking for it: someone configuring ahead of
+      // installing Herdr must not be silently ignored.
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      const setConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("herdr");
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: true, yes: false, names: "opener" },
+      });
+
+      await config.run();
+
+      const asked = mockConfirm.mock.calls.map((call) => call[0]?.message);
+      expect(asked).toContain(
+        "Do you want to choose where new worktrees are opened?",
+      );
+      expect(setConfigValue).toHaveBeenCalledWith("opener", "herdr");
+    });
+  });
 });

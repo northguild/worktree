@@ -48,6 +48,10 @@ Configuration is stored in local Git config under `northguild.worktree.*`.
 - `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
 - `herdr.agent` an agent kind to start in a newly opened Herdr space. Unset means no agent.
 
+The three opener keys above are listed and prompted for only when the `herdr` CLI is on your `PATH`, or
+when one of them already has a value. `--names` and a direct `worktree config <key> <value>` always work
+regardless, so a machine can be configured before Herdr is installed.
+
 ## GitHub Integration Keys
 
 - `github.token` for GitHub API access.

@@ -49,9 +49,9 @@ npm install -g @northguild/worktree
 
 # Run once inside your git repository
 worktree config
-# prompts for: defaultSourceBranch (e.g. origin/main), opener (editor or
-# herdr), codeEditor (e.g. code), herdr.focus, herdr.agent and agent.command
-# (e.g. claude --bg) — everything after defaultSourceBranch behind a confirm
+# prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code)
+# and agent.command (e.g. claude --bg), each behind a confirm. The opener keys
+# (opener, herdr.focus, herdr.agent) are offered only when `herdr` is on PATH.
 
 # Create your first worktree
 worktree branch feature/my-feature

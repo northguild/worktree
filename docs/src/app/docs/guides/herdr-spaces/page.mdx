@@ -15,6 +15,15 @@ The worktree itself is created exactly as before. Only the final step changes.
 - The `herdr` CLI on your `PATH`.
 - A running Herdr server.
 
+Without the `herdr` CLI, `worktree config` neither lists nor prompts for any of the keys below — the
+feature is invisible until Herdr is installed. You can still set one explicitly by name, which is what to
+do if you are configuring a machine ahead of installing Herdr:
+
+```bash
+worktree config opener herdr                      # works whether or not herdr is installed yet
+worktree config --missing --names opener          # prompts for it regardless
+```
+
 ## Switch the opener
 
 ```bash
