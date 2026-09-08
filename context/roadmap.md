@@ -34,3 +34,21 @@ Herdr space instead, without giving up the Jira/GitHub branch naming and env-fil
 
 - **Size:** medium — one integration module, a config key, and the opener seam shared by three commands
 - **Doc:** [`plans/HERDR-SPACE-OPENER-PLAN.md`](plans/HERDR-SPACE-OPENER-PLAN.md) — plan, built on the captured Herdr 0.8.2 API notes
+
+### worktree-churn-stats — `pending`
+
+`list` says how far ahead or behind a worktree is, but not how much has actually changed in it, so there is
+no way to tell a one-line fix from a rewrite without entering the directory.
+
+- **Size:** small — one `git diff --shortstat` per worktree behind an opt-in flag, plus three fields on
+  `WorktreeListEntry`
+- **Doc:** none yet — cut out of `agent-mode` on 2026-09-06 as unrelated scope; its merge-base design is
+  already settled in that plan's D7, and its cost concern in that plan's R4
+
+### chat-input-multiline — `pending`
+
+The docs chatbot's message field is a single-line `<input>`, so a longer question cannot contain newlines
+and the text scrolls out of sight instead of the field growing.
+
+- **Size:** small — one component (`ChatInput`) plus its ref type and submit key handling in `ChatForm`
+- **Doc:** none yet

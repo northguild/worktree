@@ -1,5 +1,5 @@
 import { input } from "@inquirer/prompts";
-import { cmd, commandExists } from "../lib/cli.js";
+import { commandExists, run } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
 
 interface GitHubRepository {
@@ -110,7 +110,7 @@ function parseGitHubRepositoryFromRemote(remoteUrl: string): GitHubRepository {
 
 async function getCurrentGitHubRepository(): Promise<GitHubRepository> {
   try {
-    const remoteUrl = await cmd("git remote get-url origin");
+    const remoteUrl = await run("git", ["remote", "get-url", "origin"]);
     return parseGitHubRepositoryFromRemote(remoteUrl);
   } catch (error) {
     if (error instanceof Error) {
@@ -144,7 +144,7 @@ async function getGitHubTokenFromGhCli(): Promise<string> {
     return "";
   }
   try {
-    return await cmd("gh auth token");
+    return await run("gh", ["auth", "token"]);
   } catch {
     return "";
   }

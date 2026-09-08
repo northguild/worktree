@@ -39,6 +39,7 @@ vi.mock("ora", () => ({
 describe("branch command", () => {
   let branch: Branch;
   let mockOpenWorktreePath: ReturnType<typeof vi.spyOn>;
+  let mockDispatchAgent: ReturnType<typeof vi.spyOn>;
   const mockInput = vi.mocked(input);
   const mockConfirm = vi.mocked(confirm);
   const mockCopyEnvFiles = vi.mocked(copyEnvFilesFromRootPath);
@@ -51,6 +52,9 @@ describe("branch command", () => {
     branch = new Branch([], mockConfig);
     mockOpenWorktreePath = vi
       .spyOn(branch as any, "openWorktreePath")
+      .mockResolvedValue(undefined);
+    mockDispatchAgent = vi
+      .spyOn(branch as any, "dispatchAgent")
       .mockResolvedValue(undefined);
 
     // Mock config verification to prevent first-time config prompts
@@ -585,6 +589,86 @@ describe("branch command", () => {
       expect(mockError).toHaveBeenCalledWith(
         "Please provide either --github or --jira, not both.",
       );
+    });
+  });
+
+  describe("--agent flag", () => {
+    beforeEach(() => {
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "defaultSourceBranch")
+          return Promise.resolve("origin/main");
+        return Promise.resolve("");
+      });
+    });
+
+    it("hands the new worktree to the agent with the prompt", async () => {
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "implement the issue" },
+      });
+
+      await branch.run();
+
+      expect(mockDispatchAgent).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        "implement the issue",
+      );
+    });
+
+    it("dispatches after the env files are copied and before the editor opens", async () => {
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "implement the issue" },
+      });
+
+      await branch.run();
+
+      // The agent starts working immediately, so the worktree has to be
+      // complete before it is handed over.
+      expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
+        mockDispatchAgent.mock.invocationCallOrder[0],
+      );
+      expect(mockDispatchAgent.mock.invocationCallOrder[0]).toBeLessThan(
+        mockOpenWorktreePath.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("opens the editor as well, since the two are independent", async () => {
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "implement the issue" },
+      });
+
+      await branch.run();
+
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+    });
+
+    it("still dispatches when the prompt is empty, since the flag was given", async () => {
+      // `--agent ""` is a request for an agent with no prompt, not an absent
+      // flag: the prompt reaches the agent as an empty argument.
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "" },
+      });
+
+      await branch.run();
+
+      expect(mockDispatchAgent).toHaveBeenCalledWith("/path/to/worktree", "");
+    });
+
+    it("dispatches nothing when the flag is absent", async () => {
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: {},
+      });
+
+      await branch.run();
+
+      expect(mockDispatchAgent).not.toHaveBeenCalled();
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
     });
   });
 });

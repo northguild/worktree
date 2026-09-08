@@ -79,6 +79,11 @@ grep -rn "<old-path>\|<OLD-FILENAME>" --include='*.md' . | grep -v node_modules
 Move every **closed** finding tied to this feature out of `context/findings.md` and into the archived plan's
 own log. `findings.md` must not grow for the life of the project.
 
+Then read [`context/git.md`](../../../context/git.md) before committing anything. `git mv` stages a rename
+and writes no history, so it is safe under either answer — but the commit that carries it is the agent's to
+make only where that file says so. If it does not exist, the answer is *the user commits*: show the whole
+retirement as one reviewable change and hand it over.
+
 ## Mode 2 — `--dropped`
 
 For an entry that will not be built. **There is no ledger check in this mode** — unfinished phases are
@@ -97,6 +102,6 @@ expected.
 - **Never delete a plan document.** Archiving keeps the reasoning; deleting throws away the record of a
   decision someone will otherwise re-litigate.
 - **Never leave `roadmap.md` and `history.md` inconsistent.** An entry is in exactly one of them.
-- **Never commit the sweep unreviewed.**
+- **Never commit the sweep unreviewed** — and never commit it at all unless `git.md` says the agent commits.
 - **Never mark a phase `done` to get past the refusal.** If phases are unfinished, the feature is
   unfinished.

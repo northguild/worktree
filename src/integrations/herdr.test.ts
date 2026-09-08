@@ -7,7 +7,7 @@ import {
   toHerdrAgentName,
 } from "./herdr.js";
 
-const mockRunCommand = vi.mocked(cli.runCommand);
+const mockRunCommand = vi.mocked(cli.runCapturing);
 
 const worktreePath =
   "/Users/baldur/Development/northguild/worktree/worktree.worktrees/feature/herdr-space-opener";

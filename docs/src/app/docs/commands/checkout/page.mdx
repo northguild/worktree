@@ -10,6 +10,7 @@ Check out an existing remote branch into its own worktree.
 
 ```bash
 worktree checkout <remote-branch>
+worktree checkout <remote-branch> --agent "<prompt>"
 ```
 
 If omitted, `worktree checkout` will show an interactive branch picker.
@@ -19,6 +20,14 @@ If omitted, `worktree checkout` will show an interactive branch picker.
 ```bash
 worktree checkout feature/fix-login-timeout
 worktree checkout origin/feature/fix-login-timeout
+worktree checkout feature/fix-login-timeout --agent "find the cause of the timeout"
 ```
 
 This creates a local tracking branch and worktree directory for that branch.
+
+## Agent Dispatch
+
+`--agent` (short: `-a`) works exactly as it does on [`worktree branch`](/docs/commands/branch#agent-dispatch):
+the checked-out worktree is handed to the agent configured as
+[`agent.command`](/docs/configuration#agent-command), with the flag's value as its prompt and the worktree
+as its working directory. The editor still opens as well.

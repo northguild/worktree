@@ -11,6 +11,7 @@ export const CONFIG_NAMES = [
   "codeEditor",
   "herdr.focus",
   "herdr.agent",
+  "agent.command",
   "defaultSourceBranch",
 ] as const;
 

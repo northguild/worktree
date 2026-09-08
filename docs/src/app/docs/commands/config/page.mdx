@@ -31,6 +31,7 @@ worktree config --yes
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
 worktree config opener herdr
+worktree config agent.command "claude --bg"
 worktree config --list
 worktree config --list --missing
 worktree config --missing
@@ -53,3 +54,10 @@ Configuration is stored in local Git config under `northguild.worktree.*`.
 - `branchPrefix.feature` optional prefix used for `Feature` issues.
 - `branchPrefix.bugfix` optional prefix used for `Bug` issues.
 - `branchPrefix.chore` optional prefix used for `Task` issues.
+
+## Agent Key
+
+- `agent.command` the coding agent to hand a worktree to. Read by
+  [`branch --agent`](/docs/commands/branch#agent-dispatch) and `checkout --agent`, by
+  [`list --agents`](/docs/commands/list), and by [`cleanup`](/docs/commands/cleanup)'s agent check. See
+  [Configuration](/docs/configuration#agent-command).

@@ -33,9 +33,13 @@ describe("list command", () => {
 
     (list as any).parse = vi.fn().mockResolvedValue({
       args: {},
-      flags: {},
+      flags: { agents: false },
     });
   });
+
+  function withFlags(flags: Record<string, unknown>) {
+    (list as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
+  }
 
   it("logs each worktree list item", async () => {
     const worktrees: WorktreeListEntry[] = [
@@ -63,7 +67,10 @@ describe("list command", () => {
     await list.run();
 
     expect((list as any).parse).toHaveBeenCalledWith(List);
-    expect(mockGetWorktreeList).toHaveBeenCalledWith({ includeCurrent: true });
+    expect(mockGetWorktreeList).toHaveBeenCalledWith({
+      includeCurrent: true,
+      includeAgents: false,
+    });
     expect(ora).toHaveBeenCalledWith("Gathering worktree list");
     expect(spinnerMocks.start).toHaveBeenCalledTimes(1);
     expect(spinnerMocks.stop).toHaveBeenCalledTimes(1);
@@ -83,5 +90,70 @@ describe("list command", () => {
     expect(spinnerMocks.stop).toHaveBeenCalledTimes(1);
     expect(mockListName).not.toHaveBeenCalled();
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  // Without the flag the session lookup must not happen at all: `list` pays for
+  // no agent runtime today and must not start. See AGENT-MODE-PLAN §5 R4.
+  it("asks for no session lookup and renders no agent details by default", async () => {
+    const worktrees: WorktreeListEntry[] = [
+      {
+        path: "/tmp/project.worktrees/feature/one",
+        branchName: "feature/one",
+        remote: "origin/feature/one",
+        agent: { name: "feature-one-1f", pid: 9187 },
+      },
+    ];
+
+    const mockGetWorktreeList = vi
+      .spyOn(git, "gitGetWorktreeList")
+      .mockResolvedValue(worktrees);
+    const mockListName = vi
+      .spyOn(utils, "worktreeListEntryToListName")
+      .mockReturnValue("feature/one");
+    vi.spyOn(list, "log").mockImplementation(() => {});
+
+    await list.run();
+
+    expect(mockGetWorktreeList).toHaveBeenCalledWith({
+      includeCurrent: true,
+      includeAgents: false,
+    });
+    expect(mockListName).toHaveBeenCalledWith(worktrees[0], "gray", {
+      agents: false,
+    });
+  });
+
+  it("performs the session lookup and renders agent details with --agents", async () => {
+    withFlags({ agents: true });
+
+    const worktrees: WorktreeListEntry[] = [
+      {
+        path: "/tmp/project.worktrees/feature/one",
+        branchName: "feature/one",
+        remote: "origin/feature/one",
+        agent: { name: "feature-one-1f", pid: 9187 },
+      },
+    ];
+
+    const mockGetWorktreeList = vi
+      .spyOn(git, "gitGetWorktreeList")
+      .mockResolvedValue(worktrees);
+    const mockListName = vi
+      .spyOn(utils, "worktreeListEntryToListName")
+      .mockReturnValue("feature/one (Agent: feature-one-1f)");
+    const logSpy = vi.spyOn(list, "log").mockImplementation(() => {});
+
+    await list.run();
+
+    expect(mockGetWorktreeList).toHaveBeenCalledWith({
+      includeCurrent: true,
+      includeAgents: true,
+    });
+    expect(mockListName).toHaveBeenCalledWith(worktrees[0], "gray", {
+      agents: true,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      "- feature/one (Agent: feature-one-1f)",
+    );
   });
 });

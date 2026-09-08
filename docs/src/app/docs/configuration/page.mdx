@@ -13,6 +13,7 @@ title: Configuration
 - `codeEditor` (example: `code`)
 - `herdr.focus` (`true` or `false`, default `true`)
 - `herdr.agent` (example: `claude`, unset means no agent)
+- `agent.command` (the coding agent to hand a new worktree to, example: `claude --bg`)
 - `github.token` (GitHub personal access token)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
@@ -20,6 +21,65 @@ title: Configuration
 - `branchPrefix.feature` (example: `feature/`)
 - `branchPrefix.bugfix` (example: `fix/`)
 - `branchPrefix.chore` (example: `chore/`)
+
+## Editor Command
+
+`codeEditor` is a command line, not just a program name. It is split on whitespace: the first word is the
+program to launch, and anything after it is passed to that program as arguments, ahead of the worktree
+path.
+
+```bash
+worktree config codeEditor code       # runs: code <worktree-path>
+worktree config codeEditor "code -n"  # runs: code -n <worktree-path>
+```
+
+The worktree path is always passed as a single argument, so a project or branch whose path contains a
+space opens correctly.
+
+**Quotes group, so an argument containing a space survives:**
+
+```bash
+worktree config codeEditor 'open -a "Sublime Text"'   # runs: open -a "Sublime Text" <worktree-path>
+```
+
+Quote characters are removed by the split and never reach the program. Nothing else is interpreted: no
+shell parses this value, so `~` and `$EDITOR` are passed through literally rather than expanded, and a
+backslash is an ordinary character rather than an escape. Quote `an argument like this` instead of writing
+`an\ argument\ like\ this`, and use an absolute path or a wrapper script on your `PATH` rather than
+relying on expansion.
+
+## Agent Command
+
+`agent.command` names the coding agent that a worktree can be handed to. Like `codeEditor` it is a command
+line, not just a program name, and it is split the same way: the first word is the program to launch, and
+anything after it is passed to that program as leading arguments.
+
+```bash
+worktree config agent.command claude
+worktree config agent.command "claude --bg"
+worktree config agent.command "codex exec"
+```
+
+Only the first word is checked when you set the value, so flags and subcommands do not have to resolve to
+anything on their own:
+
+```bash
+worktree config agent.command "claude --bg"   # accepted — only `claude` is looked up
+worktree config agent.command "nope --bg"     # rejected — Command not found: nope
+```
+
+`worktree` does not assume a particular agent. There is no default value, and nothing about this key is
+specific to one vendor — any agent CLI of the same shape works. The same rules as
+[Editor Command](#editor-command) apply: no shell parses the value, quotes group an argument containing a
+space, and `~` and `$VAR` are not expanded.
+
+The key is optional and unset by default.
+
+## Platform Support
+
+`worktree` is developed and tested on macOS and Linux. **Windows is not supported.** Nothing here is
+launched through a shell, so a `.cmd` or `.bat` shim — which is what `code` is on Windows — cannot be
+started, and Herdr is a unix-socket application.
 
 ## Commands
 
@@ -32,6 +92,7 @@ worktree config codeEditor code
 worktree config opener herdr
 worktree config herdr.focus false
 worktree config herdr.agent claude
+worktree config agent.command "claude --bg"
 worktree config github.token <token>
 worktree config jira.host https://company.atlassian.net
 worktree config jira.email your-email@example.com
@@ -45,9 +106,8 @@ worktree config branchPrefix.chore chore/
 
 - `opener` selects where a finished worktree is handed off: `editor` uses `codeEditor`, `herdr`
   opens it as a Herdr space. Unset means `editor`.
-- `codeEditor` is the executable plus any arguments; the worktree path is appended as the last one.
-  Quotes group, and no shell is involved, so `~` and `$VAR` are not expanded. See
-  [Editor Integration](/docs/guides/editor-integration).
+- `codeEditor` is used only by the `editor` opener — see [Editor Command](#editor-command) above and
+  the [Editor Integration](/docs/guides/editor-integration) guide.
 - `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`. See
   [Herdr Spaces](/docs/guides/herdr-spaces).
 

@@ -1,4 +1,4 @@
-import { commandExists, runCommand } from "../lib/cli.js";
+import { commandExists, runCapturing } from "../lib/cli.js";
 
 const HERDR_EXECUTABLE = "herdr";
 
@@ -147,7 +147,10 @@ function toHerdrError(args: string[], stderr: string, exitCode: number): Error {
  * returns its `result` for narrowing.
  */
 async function runHerdrRequest(args: string[]): Promise<unknown> {
-  const { stdout, stderr, exitCode } = await runCommand(HERDR_EXECUTABLE, args);
+  const { stdout, stderr, exitCode } = await runCapturing(
+    HERDR_EXECUTABLE,
+    args,
+  );
 
   if (exitCode !== 0) {
     throw toHerdrError(args, stderr, exitCode);

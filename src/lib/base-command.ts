@@ -16,7 +16,7 @@ import {
   startHerdrAgent,
   toHerdrAgentName,
 } from "../integrations/herdr.js";
-import { runCommand } from "./cli.js";
+import { run, spawnDetached } from "./cli.js";
 import {
   gitGetAbsoluteWorktreesPath,
   gitGetConfigValue,
@@ -66,14 +66,6 @@ export abstract class BaseCommand extends Command {
     }
   }
 
-  /**
-   * Hands a worktree that now exists on disk to whichever destination the
-   * `opener` key names. One seam, three callers: `branch`, `checkout` and
-   * `open` all end in this call and none of them knows which opener ran (§4.2).
-   *
-   * `opener` unset means `editor`, which is byte for byte what every install
-   * did before the key existed.
-   */
   protected async openWorktreePath(path: string) {
     const opener = await gitGetConfigValue("opener");
 
@@ -183,35 +175,59 @@ export abstract class BaseCommand extends Command {
 
   private async openCodeEditor(path: string) {
     const codeEditor = await gitGetConfigValue("codeEditor");
-    // The configured value may carry leading arguments — `code -n`, the
-    // quoted `open -a "Sublime Text"`, and the interim
-    // `herdr worktree open --focus --path` workaround are all in use — so split
-    // it into an executable plus its arguments and append the worktree path as
-    // its own argv element. Passing the path as an argument rather than
-    // interpolating it into a shell string is what lets a path containing a
-    // space open at all.
-    const [executable, ...editorArgs] = splitCommandValue(codeEditor);
+    // codeEditor is a command line, not a bare program name: the head is the
+    // file to launch and the tail is leading arguments, with the worktree path
+    // passed last as one argument however many spaces it contains. This is the
+    // contract commandExists already validates by — it looks up the head alone
+    // (cli.ts) — so validation and execution now agree. No shell parses this
+    // value; quotes group an argument that contains spaces and are not passed
+    // through, so `~` and `$VAR` still reach the program unexpanded.
+    const [editor, ...editorArgs] = splitCommandValue(codeEditor);
 
-    if (executable) {
+    // Unset, whitespace-only and quote-only are the same fact: nothing to
+    // launch. The head is what execFile would receive, so it is what decides.
+    if (editor) {
       const spinner = ora(`Opening in ${codeEditor}`).start();
-
-      // Deliberately not awaited: the previous implementation registered a
-      // callback and returned, so the command does not stay open for the
-      // lifetime of the editor process. Keep that timing.
-      runCommand(executable, [...editorArgs, path])
-        .then(({ stderr, exitCode }) => {
-          if (exitCode === 0) {
-            spinner.succeed();
-            return;
-          }
-          spinner.fail(stderr || `${executable} exited with code ${exitCode}`);
-        })
-        .catch((error: unknown) => {
-          spinner.fail(error instanceof Error ? error.message : String(error));
-        });
+      // Deliberately not awaited, exactly as the exec callback was not: the
+      // editor outlives this command, and the spinner settles when it exits.
+      run(editor, [...editorArgs, path]).then(
+        () => spinner.succeed(),
+        (error: Error) => spinner.fail(error.message),
+      );
     } else {
       this.log(`${chalk.green("✔")} Worktree created in ${path}`);
     }
+  }
+
+  protected async dispatchAgent(path: string, prompt: string) {
+    const agentCommand = await gitGetConfigValue("agent.command");
+    // Split exactly as openWorktreePath splits codeEditor: the head is the
+    // program to launch and the tail is leading arguments, with quotes grouping
+    // an argument that contains spaces. The prompt is appended as one argument
+    // however many quotes or spaces it contains — no shell parses any of this,
+    // which is what keeps arbitrary prompt text out of command position.
+    // See AGENT-MODE-PLAN §3 D2.
+    const [agent, ...agentArgs] = splitCommandValue(agentCommand);
+
+    // Unset and whitespace-only are the same fact: no agent to run. The head is
+    // what spawn would receive, so it is what decides — an empty one makes spawn
+    // throw synchronously, which would take the editor launch down with it. The
+    // command named here has to be one that works: `worktree config <name>` with
+    // no value reads the key and discards the result (config.ts:273-274).
+    if (!agent) {
+      this.log(
+        `No agent configured. Run ${chalk.cyan('worktree config agent.command "<command>"')} to set one.`,
+      );
+      return;
+    }
+
+    // Fire-and-forget: the agent outlives this command, so there is no exit
+    // status to report and no spinner that could ever settle.
+    spawnDetached(agent, [...agentArgs, prompt], {
+      cwd: path,
+      onError: (error: Error) => this.log(chalk.red(`Error: ${error.message}`)),
+    });
+    this.log(`${chalk.green("✔")} Agent started in ${path}`);
   }
 
   protected async catch(error: CommandError) {
