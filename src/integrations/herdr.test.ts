@@ -1,0 +1,290 @@
+import * as cli from "../lib/cli.js";
+import { HerdrError, isHerdrAvailable, openHerdrWorktree } from "./herdr.js";
+
+const mockRunCommand = vi.mocked(cli.runCommand);
+
+const worktreePath =
+  "/Users/baldur/Development/northguild/worktree/worktree.worktrees/feature/herdr-space-opener";
+const gitRootPath = "/Users/baldur/Development/northguild/worktree/worktree";
+const branchName = "feature/herdr-space-opener";
+
+/**
+ * The `status server --json` payload, verbatim from the live 0.8.2 server.
+ */
+function makeServerStatus(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    status: "running",
+    running: true,
+    version: "0.8.2",
+    protocol: 20,
+    capabilities: { live_handoff: true, detached_server_daemon: true },
+    compatible: true,
+    socket: "/Users/baldur/.config/herdr/herdr.sock",
+    session: null,
+    restart_needed: false,
+    ...overrides,
+  });
+}
+
+/**
+ * A `worktree_opened` success envelope, carrying every field protocol 20 marks
+ * required so the narrowing is exercised against the real shape rather than
+ * against only the three fields it reads.
+ */
+function makeWorktreeOpenedEnvelope(alreadyOpen: boolean): string {
+  return JSON.stringify({
+    id: "cli:worktree:open",
+    result: {
+      type: "worktree_opened",
+      already_open: alreadyOpen,
+      workspace: {
+        workspace_id: "wF",
+        number: 6,
+        label: branchName,
+        focused: true,
+        pane_count: 1,
+        tab_count: 1,
+        active_tab_id: "tF1",
+        agent_status: "idle",
+      },
+      tab: {
+        tab_id: "tF1",
+        workspace_id: "wF",
+        number: 1,
+        label: "shell",
+        focused: true,
+        pane_count: 1,
+        agent_status: "idle",
+      },
+      root_pane: {
+        pane_id: "pF1",
+        terminal_id: "term-f1",
+        workspace_id: "wF",
+        tab_id: "tF1",
+        focused: true,
+        agent_status: "idle",
+        revision: 1,
+      },
+      worktree: {
+        branch: branchName,
+        is_bare: false,
+        is_detached: false,
+        is_linked_worktree: true,
+        is_prunable: false,
+        label: branchName,
+        path: worktreePath,
+      },
+    },
+  });
+}
+
+function makeErrorEnvelope(code: string, message: string): string {
+  return JSON.stringify({ error: { code, message }, id: "cli:worktree:open" });
+}
+
+function openThisWorktree(focus = true) {
+  return openHerdrWorktree({
+    path: worktreePath,
+    gitRootPath,
+    label: branchName,
+    focus,
+  });
+}
+
+describe("isHerdrAvailable", () => {
+  it("is true when the binary exists and the server reports running", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: makeServerStatus(),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(isHerdrAvailable()).resolves.toBe(true);
+    expect(mockRunCommand).toHaveBeenCalledWith("herdr", [
+      "status",
+      "server",
+      "--json",
+    ]);
+  });
+
+  it("is false when the server reports it is not running", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: makeServerStatus({ status: "stopped", running: false }),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(isHerdrAvailable()).resolves.toBe(false);
+    expect(mockRunCommand).toHaveBeenCalled();
+  });
+
+  it("is false when the herdr binary is not installed", async () => {
+    // Once, not for the rest of the suite: src/test-setup.ts's factory mock has
+    // no implementation reset between tests, so a persistent `false` here would
+    // short-circuit every probe test below and leave them unable to fail. The
+    // `toHaveBeenCalled` assertions in those tests are the second guard.
+    vi.spyOn(cli, "commandExists").mockResolvedValueOnce(false);
+
+    await expect(isHerdrAvailable()).resolves.toBe(false);
+    expect(mockRunCommand).not.toHaveBeenCalled();
+  });
+
+  it("is false when the status probe exits non-zero", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: "",
+      stderr: "connection refused",
+      exitCode: 1,
+    });
+
+    await expect(isHerdrAvailable()).resolves.toBe(false);
+    expect(mockRunCommand).toHaveBeenCalled();
+  });
+
+  it("is false when the status output is not JSON", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: "herdr: no server running",
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(isHerdrAvailable()).resolves.toBe(false);
+    expect(mockRunCommand).toHaveBeenCalled();
+  });
+
+  it("is false when the binary cannot be spawned at all", async () => {
+    mockRunCommand.mockRejectedValue(new Error("spawn herdr ENOENT"));
+
+    await expect(isHerdrAvailable()).resolves.toBe(false);
+    expect(mockRunCommand).toHaveBeenCalled();
+  });
+});
+
+describe("openHerdrWorktree", () => {
+  it("passes the path, cwd, label and an explicit focus flag", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: makeWorktreeOpenedEnvelope(false),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(openThisWorktree()).resolves.toEqual({
+      workspaceId: "wF",
+      paneId: "pF1",
+      alreadyOpen: false,
+    });
+    expect(mockRunCommand).toHaveBeenCalledWith("herdr", [
+      "worktree",
+      "open",
+      "--path",
+      worktreePath,
+      "--cwd",
+      gitRootPath,
+      "--label",
+      branchName,
+      "--focus",
+    ]);
+  });
+
+  it("sends --no-focus when focus is off", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: makeWorktreeOpenedEnvelope(false),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await openThisWorktree(false);
+
+    expect(mockRunCommand).toHaveBeenCalledWith(
+      "herdr",
+      expect.arrayContaining(["--no-focus"]),
+    );
+    expect(mockRunCommand).not.toHaveBeenCalledWith(
+      "herdr",
+      expect.arrayContaining(["--focus"]),
+    );
+  });
+
+  it("reports a space that was already open", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: makeWorktreeOpenedEnvelope(true),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(openThisWorktree()).resolves.toMatchObject({
+      alreadyOpen: true,
+    });
+  });
+
+  it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: "",
+      stderr: makeErrorEnvelope(
+        "worktree_not_found",
+        `worktree ${worktreePath} not found`,
+      ),
+      exitCode: 1,
+    });
+
+    const error = await openThisWorktree().catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(HerdrError);
+    expect(error).toMatchObject({ code: "worktree_not_found" });
+    expect(error).toHaveProperty(
+      "message",
+      `Herdr: worktree ${worktreePath} not found (worktree_not_found)`,
+    );
+  });
+
+  it("surfaces a non-zero exit that is not an error envelope verbatim", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: "",
+      stderr: "herdr: could not connect to the server socket",
+      exitCode: 2,
+    });
+
+    await expect(openThisWorktree()).rejects.toThrow(
+      "Herdr: `herdr worktree open --path",
+    );
+    await expect(openThisWorktree()).rejects.toThrow(
+      "exited with code 2: herdr: could not connect to the server socket",
+    );
+  });
+
+  it("rejects when the success envelope carries no result", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: JSON.stringify({ id: "cli:worktree:open" }),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(openThisWorktree()).rejects.toThrow("returned no result");
+  });
+
+  it("rejects when the result is missing the fields it reads", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: JSON.stringify({
+        id: "cli:worktree:open",
+        result: { type: "worktree_opened", already_open: false },
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(openThisWorktree()).rejects.toThrow(
+      "Herdr: `worktree open` returned no workspace id.",
+    );
+  });
+
+  it("rejects when stdout is not JSON", async () => {
+    mockRunCommand.mockResolvedValue({
+      stdout: "not json at all",
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(openThisWorktree()).rejects.toThrow(
+      "could not parse response as JSON: not json at all",
+    );
+  });
+});

@@ -77,5 +77,27 @@ narrow fix is resolving the executable through `PATHEXT` before spawning.
 **Closes when:** either the repo states it does not support Windows, or the executable is resolved
 before spawning and Gate 1 re-passes with a test covering a `PATHEXT` extension.
 
+### F-003 — P3 — the availability probe discards the reason, narrowing what D5 can print
+
+**Tied to:** herdr-space-opener Phase 4 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent)
+
+`isHerdrAvailable` destructures only `stdout` and `exitCode` from the probe
+(`src/integrations/herdr.ts:156`) and returns `false` on a non-zero exit without reading `stderr`
+(`herdr.ts:162-163`). D5 requires the seam to print Herdr's own `error.code` and `error.message` when
+"Herdr is unavailable **or** the open fails" — but for a case where the binary exists and the server is
+dead, whatever structured envelope Herdr writes to stderr is discarded before Phase 4 can reach it. The
+seam can only print a generic "Herdr is not available" for that half of D5.
+
+This is Phase 3 behaving exactly as §4.3 prescribes ("The `running` boolean is the probe"), so it is a
+design consequence, not a departure. It is recorded because it lands on Phase 4's **Done when**, which
+names printing the `code` and `message`. §8 already carries the adjacent open question — whether
+`herdr status server --json` is the right probe at all, given it costs an extra spawn on every open —
+and the two should be decided together. The options are: return a reason alongside the boolean; drop
+the probe and let a failed `worktree open` be the only signal; or accept a generic message for the
+server-down case.
+
+**Closes when:** Phase 4 decides which, and its Gate 1 re-passes with a test covering what the seam
+prints when Herdr is unavailable.
+
 ## Closed
 

@@ -117,7 +117,7 @@ Herdr requires agent names matching `[a-z][a-z0-9_-]{0,31}`, unique among live a
 |---|---|---|---|---|
 | 1 | Argv command runner and quoted opener | done | — | `runCommand` on `execFile`; Gate 2 raised F-001 and F-002, both `P2` and non-blocking |
 | 2 | `opener` and `herdr.focus` config keys | done | — | Both keys promptable and validated; Gate 2 `PASS WITH NOTES`, all notes `P3` |
-| 3 | `src/integrations/herdr.ts` — detect and open | not started | 1 | No live server needed; canned envelopes from §1/§4.3 |
+| 3 | `src/integrations/herdr.ts` — detect and open | done | 1 | Schema re-verified live at 0.8.2/protocol 20, no drift; Gate 2 `PASS WITH NOTES`, all notes `P3`, F-003 handed to Phase 4 |
 | 4 | Wire the opener seam to the `opener` key | not started | 2, 3 | Three caller suites must pass unmodified |
 | 5 | Optional agent auto-start (`herdr.agent`) | not started | 4 | Own name derivation; not `sanitizeBranchName` |
 | 6 | Documentation and shipped skill | not started | 4 | 16 existing `codeEditor` mentions across 9 files |
