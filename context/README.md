@@ -35,7 +35,8 @@ generated "current state" file — hand-editing a ledger row changes every comma
 | [`stack.md`](stack.md) | this project's runtime, layout, conventions, where it documents itself, and an index of your own files | project |
 | [`verify.md`](verify.md) | this project's real lint / typecheck / build / test commands | project |
 | [`executors.md`](executors.md) | how this project dispatches a coder and a reviewer | project |
-| [`git.md`](git.md) | who commits the work an agent produces, and at what granularity | project |
+| [`git.md`](git.md) | who commits the work an agent produces, where it lands, whether it is pushed, and at what granularity | project |
+| [`tracking.md`](tracking.md) | where the backlog, the plans and the phase ledgers live — the files below, or an issue tracker | project |
 | [`roadmap.md`](roadmap.md) | Tier 1 — the backlog. `pending` and `active` entries only | project |
 | [`history.md`](history.md) | index of retired features, newest last | project |
 | [`findings.md`](findings.md) | open findings that gate a phase from being marked `done` | project |
@@ -65,7 +66,7 @@ hash, `update` walks that manifest, and a project-owned file is not in it — so
 
 | Tool-owned — replaced on `update` | Project-owned — unreachable by the updater |
 |---|---|
-| `README.md`, `workflow.md`, `plan-template*.md`, `roles/` | `stack.md`, `verify.md`, `executors.md`, `git.md` |
+| `README.md`, `workflow.md`, `plan-template*.md`, `roles/` | `stack.md`, `verify.md`, `executors.md`, `git.md`, `tracking.md` |
 | the skill and agent trees, the `AGENTS.md` block | `roadmap.md`, `history.md`, `findings.md` |
 | `standards/` while it is ours and unmodified | `drafts/`, `plans/`, `archive/`, `CLAUDE.md` |
 

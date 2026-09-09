@@ -33,10 +33,10 @@ never a prerequisite for anything.
 | `/feature-plan` | Tier 1 → a plan document | `plans/<NAME>-PLAN.md`; the `active` marker only with `--activate` |
 | `/feature-implement` | activation, and the phases within a plan | the plan's ledger, `findings.md`, the code |
 | `/feature-status` | nothing — read-only | — |
-| `/feature-close` | Tier 2 → retired | `history.md`, `archive/`, the reference sweep |
+| `/feature-close` | Tier 2 → retired | `history.md`, `archive/`, the reference sweep, and the push and pull request where [`git.md`](git.md) says so |
 | `/orchestrate` | one ad-hoc gated change | the code, and `findings.md` |
 | `/prototype` | one throwaway HTML/CSS mockup — no gates, no application code | `prototypes/<NAME>/`, and nothing else |
-| `/onboard` | the project-owned stubs | `verify.md`, `executors.md`, `git.md`, `stack.md`, and the pruning of what they replace |
+| `/onboard` | the project-owned stubs | `verify.md`, `executors.md`, `git.md`, `tracking.md`, `stack.md`, and the pruning of what they replace |
 
 ## One source of truth per fact
 
@@ -73,10 +73,18 @@ the drift this design exists to prevent.
 
 ### One active feature
 
-> **At most one roadmap entry is `active`. Any command that sets the marker checks this first.**
+> **At most one roadmap entry is `active` in a working tree. Any command that sets the marker checks this
+> first.**
 
 `/feature-plan --activate` and `/feature-implement` both check it. Planning is *not* activation — several
 features may hold plans at once, and that is what makes planning ahead possible.
+
+*In a working tree* matters only under [`git.md`](git.md)'s worktree answer, where each feature is worked
+in its own tree and sets the marker there. That marker never reaches the default branch — `/feature-close`
+removes the entry before the branch merges — so what is in flight across the repository is answered by
+`git worktree list` and by nothing else. **"In flight" is not a status; it is the observation that a
+worktree exists**, the same way "planned" is the observation that a document exists in `plans/`. Everywhere
+else there is one tree, and the rule reads as it always did.
 
 ### Feature or task?
 
@@ -86,15 +94,36 @@ features may hold plans at once, and that is what makes planning ahead possible.
 `/orchestrate` is the ad-hoc escape hatch, not the way to skip planning. It refuses anything larger than a
 commit-sized unit and anything an existing roadmap entry already covers.
 
-### Nothing commits unless `git.md` says so
+### Nothing commits, branches or pushes unless `git.md` says so
 
 > **Read [`git.md`](git.md) before closing out any command that lands code. If it does not exist, or does
 > not say the agent commits, the work is left in the working tree and the user commits it.**
 
 This workflow has always described phases as commit-sized and `done` as landed — which an agent, given no
 policy, resolves by committing on its own every phase. That is a call about someone else's repository, so
-it is a written answer rather than an inference. Branching and pushing are outside it: nothing here creates
-a branch, pushes, or opens a pull request under either answer.
+it is a written answer rather than an inference.
+
+[`git.md`](git.md) answers three more of the same shape, each independent of the others and each shipping
+as the most conservative option: **where work lands** (the main working tree, a branch per feature, or a
+worktree per feature), **whether the agent pushes and opens a pull request** (it does not), and at what
+**granularity** it commits. A push happens once per feature, at `/feature-close` — never at the end of a
+phase — and nothing here merges a pull request, deletes a branch, or removes a worktree under any answer.
+
+### Where this state lives is an answer, not an assumption
+
+> **Read [`tracking.md`](tracking.md) before reading or writing any workflow state. If it does not exist,
+> or does not say otherwise, the backlog is `roadmap.md`, a plan is a document under `plans/`, and a
+> retired feature is a `history.md` row.**
+
+Everything above describes the working-tree answer, which is the default and what every install does
+until someone changes it. The second answer puts the same tiers in an issue tracker — a feature is an
+issue, a phase is a sub-issue, a closed issue is the archive — because **a file cannot be the shared home
+for several agents at once.** A worktree carries only what its ref holds, so a plan on one branch is
+invisible to every other tree; a tracker sits outside all of them.
+
+**The tier model is identical under both.** What changes is where a fact is read, and only
+[`tracking.md`](tracking.md) says how — no skill names a tracker, which is what keeps a different one a
+rewrite of that file rather than of every command.
 
 ### Documentation is part of the change
 

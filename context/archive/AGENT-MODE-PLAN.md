@@ -1,6 +1,6 @@
 # agent-mode Plan
 
-Retired — its outcome and date are in [`../history.md`](../history.md).
+Retired — its outcome and date are in [issue #45](https://github.com/northguild/worktree/issues/45) (`agent-mode`, closed). `context/history.md` held this until 2026-09-09, when [`../tracking.md`](../tracking.md) moved the outcome index into GitHub issues.
 
 Hands a freshly created worktree to a coding agent, and makes the other worktree commands aware that an
 agent may be living inside one: `branch --agent` and `checkout --agent` dispatch one into the new worktree,
@@ -316,7 +316,7 @@ and it was the fourth serial subprocess per worktree on the `list` path, in a to
 installation here has 51 of them (R4). It is also what would have made Phase 5 a dashboard rather than a
 read surface — see Phase 5 below.
 
-Re-filed as the `worktree-churn-stats` entry in [`../roadmap.md`](../roadmap.md); **D7 above is retained as
+Re-filed as [issue #39](https://github.com/northguild/worktree/issues/39) (`worktree-churn-stats`); **D7 above is retained as
 the design that entry should start from.** The phase number is retained and never reused — see §6.1.
 
 #### Phase 5 — `list --agents`
