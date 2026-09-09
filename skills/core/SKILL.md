@@ -3,9 +3,9 @@ name: core
 description: >
   Complete usage guide for @northguild/worktree. Covers install, first-time
   setup with worktree config (defaultSourceBranch, opener, codeEditor,
-  herdr.focus, herdr.agent, agent.command, github.token, jira.host,
-  jira.email, jira.apiToken, branchPrefix.feature, branchPrefix.bugfix,
-  branchPrefix.chore), worktree branch, worktree checkout,
+  herdr.focus, herdr.agent, agent.command, github.token, github.autoAssign,
+  jira.host, jira.email, jira.apiToken, branchPrefix.feature,
+  branchPrefix.bugfix, branchPrefix.chore), worktree branch, worktree checkout,
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
   --github issue-to-branch, --jira issue-to-branch, handing a new worktree to a
   coding agent with --agent, worktree list --agents, worktree cleanup
@@ -167,6 +167,7 @@ under `northguild.worktree.*`.
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
 | `agent.command` | `claude --bg` | `--agent`, `list --agents`, `cleanup`'s agent check |
 | `github.token` | `ghp_...` | `--github` flag |
+| `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |

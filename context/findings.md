@@ -727,7 +727,131 @@ adding assertions after Gate 2 had already passed would land unreviewed test cod
 asserting `expect(runSpy).toHaveBeenCalledTimes(1)`, in the idiom of `src/lib/git.test.ts:371` and
 `src/lib/agent.test.ts:89`.
 
+### F-046 — P3 — `skills/_artifacts/skill_tree.yaml` enumerates the pre-`autoAssign` config surface
+
+**Tied to:** github-issue-auto-assign Phase 2 · **Raised:** 2026-09-09 (Gate 2, reviewer subagent, Phase 2)
+
+`skills/_artifacts/skill_tree.yaml:25` carries a hand-written `description` reading
+`agent.command, github.token, jira.host, jira.email,` with no `github.autoAssign` — the same enumeration
+Phase 2 correctly updated at `skills/core/SKILL.md:7`.
+
+The plan's §7 "Checked and not changed" list names `skills/_artifacts/domain_map.yaml` and
+`skills/_artifacts/skill_spec.md` and argues both are frozen 1.2.0 records. It does **not** name
+`skill_tree.yaml`, and F-036 classes that file with `SKILL.md` as one of the *maintained* artifacts —
+`scripts/sync-intent-version.mjs` writes its `library_version`, so it is not frozen the way the other two
+are. The file is outside Phase 2's **Files** line, so this is a gap the plan handed the phase rather than an
+implementation error.
+
+Recorded rather than edited, per the F-005 precedent: an unreviewed edit to a surface the phase was not
+scoped to is worse than a tracked line.
+
+**Closes when:** a Gate 1 run passes with `skill_tree.yaml:24`'s key list naming `github.autoAssign`,
+whether that lands in Phase 3's documentation sweep or at `/feature-close`.
+
+### F-047 — P3 — a whitespace-only answer at either token prompt overwrites the stored token
+
+**Tied to:** github-issue-auto-assign Phase 2 · **Raised:** 2026-09-09 (Gate 2 re-review, reviewer subagent, Phase 2)
+
+`@inquirer/input` does not trim, so `"   "` is truthy at `src/commands/config.ts`'s guarded
+`if (githubToken)` and writes three spaces over a stored PAT. The guard added for F-044 stops the empty
+answer, which is the one the prompt's own instruction line invites; it does not stop this one.
+
+`jira.apiToken` (`src/commands/config.ts:225-228`) has the identical untrimmed shape, so **the defect is a
+pair, not a new inconsistency** — and that is why it is recorded rather than fixed here. Fixing only
+`github.token` would make two adjacent prompts in one function disagree about whitespace, which is worse to
+read than the shared gap; fixing both means editing `jira.apiToken`, which is outside Phase 2's **Files**
+line and outside anything the plan scopes. The neighbouring `github.autoAssign` prompt does trim
+(`config.ts`, the `.trim()` on its write), because its empty answer is a meaningful third state and had to be.
+
+Low severity on its own terms: it needs someone to deliberately type spaces into a token prompt, and it is
+recoverable exactly as F-044 was — `resolveGitHubToken` (`src/integrations/github.ts:157-173`) re-derives
+from `gh auth token` or re-prompts.
+
+**Closes when:** a Gate 1 run passes with both token prompts guarding on the trimmed value and writing the
+trimmed value, and a `config.test.ts` case covering a whitespace-only answer at each.
+
 ## Closed
+
+### F-044 — P2 — the new `github.token` prompt clears a stored PAT when answered empty, which its own text invites
+
+**Tied to:** github-issue-auto-assign Phase 2 · **Raised:** 2026-09-09 (Gate 2, reviewer subagent, Phase 2)
+
+`src/commands/config.ts` writes the token prompt's answer unconditionally:
+
+```ts
+const githubToken = await input({
+  message: "GitHub personal access token",
+});
+await gitSetConfigValue("github.token", githubToken);
+```
+
+On a bare `worktree config` — `missing: false`, so `shouldPrompt("github.token")` is true whatever the key
+already holds — someone who answers the GitHub group confirm yes and then presses return writes `""` over a
+stored PAT. Before this phase no code path could clear `github.token`; the key was in `CONFIG_NAMES` with no
+prompt block at all, which is the dead shape §4.2 describes and the Q4 decision on
+[#48](https://github.com/northguild/worktree/issues/48) set out to fix.
+
+`jira.apiToken` (`src/commands/config.ts:225-228`) has the identical shape, and the block's own comment
+cites that parity. The parity is real but it is not the whole defect: **this prompt's instruction line ends
+"Leave this empty to let `gh auth token` supply one instead."** So the text actively directs the user to the
+one answer that destroys the value, which `jira.apiToken` never does. That contradiction is authored by this
+phase, not inherited.
+
+Recoverable rather than P1: `resolveGitHubToken` (`src/integrations/github.ts:157-173`) re-derives a token
+from `gh auth token` or re-prompts for a paste, so the next `--github` run restores it.
+
+Reached from `verifyConfig`'s first-run branch (`src/lib/base-command.ts:42-46`), which runs `config` with no
+flags. **Not** reachable from `worktree branch --github <n>`: `src/commands/branch.ts:176-182` never puts a
+`github.*` key in the array it hands `verifyConfig`, so the `--missing --yes --names` route cannot see the
+GitHub group at all.
+
+**Closes when:** a Gate 1 run passes with the write guarded so an empty answer leaves an existing token
+alone, and a `config.test.ts` case asserting that — a stored token plus an empty answer leaves
+`gitSetConfigValue` uncalled for `github.token`.
+
+**Closed:** 2026-09-09 by the fix inside Phase 2 itself, before the phase's commit. The write is now
+guarded — an empty answer leaves a stored token alone — and `src/commands/config.test.ts` carries "should
+keep a stored github.token when the prompt is answered empty", which is the case this finding's **Closes
+when** names. The guard was mutation-tested from both sides: removing it fails that case, and adding
+`...(await this.getInputConfig("github.token"))` to the prompt fails the tightened `default`/`prefill`
+absence assertions. Gate 1 re-passed on that change — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (469
+passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-09, and Gate 2 re-passed on the fixed diff
+with no blocking findings.
+
+There is now no in-tool way to clear `github.token`, which is **not** a regression this introduced: before
+this phase the key had no prompt block at all, so no path could clear it either. `git config --unset
+northguild.worktree.github.token` remains the way. The narrower whitespace case is open as **F-047**.
+
+### F-045 — P2 — the config command page tells the reader the opposite of what an empty `github.autoAssign` answer does
+
+**Tied to:** github-issue-auto-assign Phase 2 · **Raised:** 2026-09-09 (Gate 2, reviewer subagent, Phase 2)
+
+`docs/src/app/docs/commands/config/page.mdx` closes its GitHub section with:
+
+> Leaving the `github.autoAssign` prompt empty keeps it unset, which is the "ask me" state rather
+> than a missing answer.
+
+The first clause is true and the reviewer verified it empirically. The second is false. An empty answer
+writes `""`, and `""` is falsy at both `src/commands/config.ts:92` (`if (missing && value) continue`) and
+`src/commands/config.ts:139` (`if (!(await gitGetConfigValue(name)))`), so `worktree config --list --missing`
+goes on listing the key and `worktree config --missing` goes on prompting it. It *is* a missing answer, and
+that is exactly what makes it the "ask me" state — the sentence denies the mechanism that delivers the
+behaviour it is describing.
+
+Authored by this phase, so it falls under the standing rule in
+[`workflow.md`](workflow.md): whatever a change makes untrue is fixed by the phase that makes it untrue.
+
+**Closes when:** a Gate 1 run passes with the clause replaced by one that matches the tool — unset stays
+unset, and `--missing` keeps offering the prompt until it is settled.
+
+**Closed:** 2026-09-09 by the fix inside Phase 2 itself, before the phase's commit. The false clause is
+replaced by one that matches the tool: unset stays the "ask me" state and `--missing` goes on offering the
+prompt until it is settled either way. Verified empirically by the Gate 2 re-review against the built
+`bin/run.js` — an empty `github.autoAssign` is still listed by `config --list --missing` and still
+re-prompted. The replacement also states that an empty `github.token` answer keeps an existing token, which
+is true of the F-044 guard as written. Gate 1 re-passed on that change — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (469
+passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-09, and Gate 2 re-passed on the fixed diff
+with no blocking findings.
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches
 
