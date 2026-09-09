@@ -322,6 +322,35 @@ describe("isValidConfigValue — the opener keys", () => {
   );
 });
 
+describe("isValidConfigValue — github.autoAssign", () => {
+  it.each`
+    value      | expected                         | description
+    ${"true"}  | ${true}                          | ${"always assign"}
+    ${"false"} | ${true}                          | ${"never assign"}
+    ${"maybe"} | ${"Value must be true or false"} | ${"a non-boolean value"}
+    ${"True"}  | ${"Value must be true or false"} | ${"a capitalised boolean"}
+    ${"1"}     | ${"Value must be true or false"} | ${"a numeric boolean"}
+    ${""}      | ${"Value must be true or false"} | ${"an empty value passed to the setter"}
+  `(
+    'should return $expected for "$value" ($description)',
+    async ({ value, expected }) => {
+      expect(await isValidConfigValue("github.autoAssign", value)).toBe(
+        expected,
+      );
+    },
+  );
+
+  // The key is tri-state through unset (D3), and unset is the absence of the
+  // key rather than an empty value written into it — which is why the empty
+  // row above is rejected here while the prompt in `config.ts` accepts an empty
+  // answer and writes nothing readable back.
+  it("routes to isValidBoolean rather than leaving the key unvalidated", async () => {
+    expect(await isValidConfigValue("github.autoAssign", "yes")).toBe(
+      "Value must be true or false",
+    );
+  });
+});
+
 describe("validateConfigValue", () => {
   it("should throw InvalidConfigValueError for an unknown opener", async () => {
     await expect(validateConfigValue("opener", "bogus")).rejects.toThrow(
@@ -350,6 +379,21 @@ describe("validateConfigValue", () => {
   it("should resolve for a well-shaped herdr.agent", async () => {
     await expect(
       validateConfigValue("herdr.agent", "claude"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("should throw InvalidConfigValueError for a non-boolean github.autoAssign", async () => {
+    await expect(
+      validateConfigValue("github.autoAssign", "maybe"),
+    ).rejects.toThrow(InvalidConfigValueError);
+  });
+
+  it("should resolve for a boolean github.autoAssign", async () => {
+    await expect(
+      validateConfigValue("github.autoAssign", "true"),
+    ).resolves.toBeUndefined();
+    await expect(
+      validateConfigValue("github.autoAssign", "false"),
     ).resolves.toBeUndefined();
   });
 });

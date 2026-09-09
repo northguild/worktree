@@ -3,16 +3,16 @@ name: core
 description: >
   Complete usage guide for @northguild/worktree. Covers install, first-time
   setup with worktree config (defaultSourceBranch, opener, codeEditor,
-  herdr.focus, herdr.agent, agent.command, github.token, jira.host,
-  jira.email, jira.apiToken, branchPrefix.feature, branchPrefix.bugfix,
-  branchPrefix.chore), worktree branch, worktree checkout,
+  herdr.focus, herdr.agent, agent.command, github.token, github.autoAssign,
+  jira.host, jira.email, jira.apiToken, branchPrefix.feature,
+  branchPrefix.bugfix, branchPrefix.chore), worktree branch, worktree checkout,
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
   --github issue-to-branch, --jira issue-to-branch, handing a new worktree to a
   coding agent with --agent, worktree list --agents, worktree cleanup
   --ignore-agents, and automatic .env / .env.local copying into new worktrees.
 type: core
 library: '@northguild/worktree'
-library_version: "1.4.0"
+library_version: "1.5.0"
 sources:
   - "northguild/worktree:README.md"
   - "northguild/worktree:docs/src/app/docs/commands/branch/page.mdx"
@@ -94,10 +94,20 @@ Use `branch` to create something new.
 worktree branch --github 42
 worktree branch --github "#42"
 
+# Assign the issue to yourself while creating the branch.
+# Needs a token with push access; --no-assign skips it for one run.
+worktree branch --github 42 --assign
+worktree branch --github 42 --no-assign
+
 # Jira — requires jira.host, jira.email, jira.apiToken in config
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
 ```
+
+With neither flag, `github.autoAssign` decides whether the issue is
+assigned: `true` always, `false` never, and unset means you are asked once
+and the answer is saved to the key. A failed assignment warns and the
+worktree is still created.
 
 The generated branch name is pre-filled in an interactive prompt and
 editable before confirmation. Branch prefixes are applied when configured:
@@ -167,6 +177,7 @@ under `northguild.worktree.*`.
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
 | `agent.command` | `claude --bg` | `--agent`, `list --agents`, `cleanup`'s agent check |
 | `github.token` | `ghp_...` | `--github` flag |
+| `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |

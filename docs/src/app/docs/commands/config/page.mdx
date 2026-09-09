@@ -32,6 +32,7 @@ worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
 worktree config opener herdr
 worktree config agent.command "claude --bg"
+worktree config github.autoAssign true
 worktree config --list
 worktree config --list --missing
 worktree config --missing
@@ -55,9 +56,17 @@ regardless, so a machine can be configured before Herdr is installed.
 ## GitHub Integration Keys
 
 - `github.token` for GitHub API access.
+- `github.autoAssign` whether reading a GitHub issue also assigns it to you: `true` always, `false`
+  never, unset means you are asked once and your answer is saved. See
+  [Configuration](/docs/configuration#github-integration-notes).
 - `branchPrefix.feature` optional prefix used for `Feature` issues.
 - `branchPrefix.bugfix` optional prefix used for `Bug` issues.
 - `branchPrefix.chore` optional prefix used for `Task` issues.
+
+`github.token` and `github.autoAssign` are asked together behind one confirm, so declining costs a single
+yes/no. Leaving the `github.autoAssign` prompt empty keeps it unset, which is the "ask me" state — so
+`--missing` goes on offering the prompt until you settle it either way. Leaving the `github.token` prompt
+empty keeps any token you already have, rather than clearing it.
 
 ## Agent Key
 

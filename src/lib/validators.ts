@@ -125,6 +125,8 @@ export async function isValidConfigValue(
       return await isValidCommand(value);
     case "opener":
       return isValidOpener(value);
+    case "github.autoAssign":
+      return isValidBoolean(value);
     case "herdr.focus":
       return isValidBoolean(value);
     case "herdr.agent":

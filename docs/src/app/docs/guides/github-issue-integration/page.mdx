@@ -4,13 +4,15 @@ title: GitHub Issue Integration
 
 # GitHub Issue Integration
 
-`worktree` can derive branch names directly from GitHub issues in the current repository.
+`worktree` can derive branch names directly from GitHub issues in the current repository, and assign the
+issue to you at the same time.
 
 ## Basic Usage
 
 ```bash
 worktree branch --github 42
 worktree branch --github "#42"
+worktree branch --github 42 --assign
 ```
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
@@ -37,10 +39,33 @@ Authentication is resolved in this order:
 2. `gh auth token` from GitHub CLI.
 3. Interactive prompt for a token, then save to local git config.
 
+Reading an issue and assigning one need different amounts of access. A public repository answers an
+unauthenticated read, which is why `--github` has never required a token there. **Assigning always requires
+a token, and that token needs push access to the repository** — so the first time you assign on such a
+repository you may be asked for one, unless the resolution order above already supplies it.
+
+## Assigning the Issue
+
+Creating the branch is the moment you have demonstrably started work, so `worktree` can say so on the issue
+for you.
+
+- `--assign` assigns it to the authenticated user; `--no-assign` skips it for that run.
+- With neither flag, `github.autoAssign` decides: `true` always, `false` never.
+- If that key is unset you are asked once, and your answer is saved to it. To change your mind later:
+
+```bash
+worktree config github.autoAssign true
+```
+
+`worktree` confirms the assignment against the API response rather than assuming it worked, and reports a
+warning if the issue comes back without you on it. **A failed assignment never stops the branch** — the
+worktree is created regardless.
+
 ## Suggested Setup
 
 ```bash
 worktree config github.token <token>
+worktree config github.autoAssign true
 worktree config branchPrefix.feature feature/
 worktree config branchPrefix.bugfix fix/
 worktree config branchPrefix.chore chore/
@@ -49,5 +74,5 @@ worktree config branchPrefix.chore chore/
 You can also configure only missing values:
 
 ```bash
-worktree config --missing --names github.token,branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
+worktree config --missing --names github.token,github.autoAssign,branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
 ```

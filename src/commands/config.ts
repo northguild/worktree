@@ -174,6 +174,9 @@ export default class Config extends BaseCommand {
     const hasHerdrPrompt = configNames.some((name) =>
       name.startsWith("herdr."),
     );
+    const hasGithubPrompt = configNames.some((name) =>
+      name.startsWith("github."),
+    );
 
     // First check if there is anything to prompt
     if (configNames.length === 0) {
@@ -223,6 +226,58 @@ export default class Config extends BaseCommand {
           message: "Jira API token",
         });
         await gitSetConfigValue("jira.apiToken", jiraApiToken);
+      }
+    }
+
+    // Both GitHub keys sit behind one confirm, in the shape the Jira and Herdr
+    // groups use. `github.token` had no block at all until this group existed:
+    // it was in CONFIG_NAMES, so `--missing` listed it as missing and then
+    // prompted nothing. A key without a block is a key that cannot be answered
+    // here, which is the dead shape `github.autoAssign` would have inherited.
+    if (
+      hasGithubPrompt &&
+      (await this.maybePrompt(
+        "Do you want to configure GitHub issue options?",
+        flags.yes,
+      ))
+    ) {
+      if (shouldPrompt("github.token")) {
+        const githubTokenInstructions = [
+          "To find or create your token, follow these steps:",
+          " - Go to https://github.com/settings/personal-access-tokens/new",
+          " - Give the token access to the repositories you use worktree with",
+          " - Copy your new token",
+          "Leave this empty to let `gh auth token` supply one instead.",
+        ];
+
+        this.log(githubTokenInstructions.join(EOL) + EOL);
+        // No default and no prefill, exactly as `jira.apiToken` is asked: a
+        // token is not echoed back as a prompt default.
+        const githubToken = await input({
+          message: "GitHub personal access token",
+        });
+        // Only a real answer is written. The instruction line above invites an
+        // empty one — it is how you say "use `gh auth token` instead" — and an
+        // unconditional write would make taking that invitation clear a stored
+        // PAT, on a bare `worktree config` that prompts every key whatever it
+        // already holds.
+        if (githubToken) {
+          await gitSetConfigValue("github.token", githubToken);
+        }
+      }
+
+      if (shouldPrompt("github.autoAssign")) {
+        const githubAutoAssign = await input({
+          message:
+            "Should `branch --github` assign the issue to you? (leave unset to be asked each time)",
+          ...(await this.getInputConfig("github.autoAssign")),
+          // Empty is a valid answer as well as a valid state: the key is
+          // tri-state through unset (D3), so this prompt has to be the way to
+          // keep being asked at branch time, not only the way to settle it.
+          validate: (value: string) =>
+            value.trim() === "" || isValidBoolean(value.trim()),
+        });
+        await gitSetConfigValue("github.autoAssign", githubAutoAssign.trim());
       }
     }
 

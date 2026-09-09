@@ -694,6 +694,178 @@ trades one surprising rule for a subtler one, so it is not taken here.
 covering it, or the documented behaviour is accepted as final and this entry is retired at
 `/feature-close`.
 
+### F-043 — P2 — `requireGitHubToken`'s configured-token short-circuit is pinned by a comment, not an assertion
+
+**Tied to:** github-issue-auto-assign Phase 1 · **Raised:** 2026-09-09 (Gate 2, reviewer subagent, Phase 1)
+
+`src/integrations/github.test.ts:260-262` states the behaviour in a comment and then does not assert it:
+
+```ts
+// fetchGitHubLogin needs a token and nothing else — it never reads the
+// origin remote, so the config lookup is the only run() call it makes.
+vi.spyOn(cli, "run").mockResolvedValueOnce("ghp_test_token");
+```
+
+Mutate `requireGitHubToken` to `return resolveGitHubToken();`, dropping the `if (configuredToken)` guard at
+`src/integrations/github.ts:208-210`, and the test still passes: `commandExists` is stubbed `true` in
+`src/test-setup.ts:16`, so the single `mockResolvedValueOnce` is consumed by `gh auth token` rather than the
+config read, the resulting token string is identical, and the `Authorization` assertion at
+`github.test.ts:275` is unaffected. The `expectCommands` net does not catch it either — `test-setup.ts:55-57`
+emits a `console.warn` for unexpected subprocess calls and `vitest.config.ts` sets no `onConsoleLog` hook, so
+an unexpected call never fails a run.
+
+That guard is why an assign against an already-configured repository does not shell out to `gh` and rewrite
+git config on every run, and it is half of what keeps the PAT prompt off the plain `--github` path (§4.1, R3).
+It is correct today and untested.
+
+Non-blocking: Gate 2 returned `PASS WITH NOTES` on the diff, and Phase 1's **Done when** is met in full — the
+three required response shapes are covered and `grep -r "assignGitHubIssue" src/commands` is empty. The
+assertion gap is not on that list. Left open rather than fixed for the reason F-002, F-003 and F-004 record:
+adding assertions after Gate 2 had already passed would land unreviewed test code.
+
+**Closes when:** a Gate 1 run passes with `github.test.ts`'s configured-token case capturing the spy and
+asserting `expect(runSpy).toHaveBeenCalledTimes(1)`, in the idiom of `src/lib/git.test.ts:371` and
+`src/lib/agent.test.ts:89`.
+
+### F-046 — P3 — `skills/_artifacts/skill_tree.yaml` enumerates the pre-`autoAssign` config surface
+
+**Tied to:** github-issue-auto-assign Phase 2 · **Raised:** 2026-09-09 (Gate 2, reviewer subagent, Phase 2)
+
+`skills/_artifacts/skill_tree.yaml:25` carries a hand-written `description` reading
+`agent.command, github.token, jira.host, jira.email,` with no `github.autoAssign` — the same enumeration
+Phase 2 correctly updated at `skills/core/SKILL.md:7`.
+
+The plan's §7 "Checked and not changed" list names `skills/_artifacts/domain_map.yaml` and
+`skills/_artifacts/skill_spec.md` and argues both are frozen 1.2.0 records. It does **not** name
+`skill_tree.yaml`, and F-036 classes that file with `SKILL.md` as one of the *maintained* artifacts —
+`scripts/sync-intent-version.mjs` writes its `library_version`, so it is not frozen the way the other two
+are. The file is outside Phase 2's **Files** line, so this is a gap the plan handed the phase rather than an
+implementation error.
+
+Recorded rather than edited, per the F-005 precedent: an unreviewed edit to a surface the phase was not
+scoped to is worse than a tracked line.
+
+**Phase 3 widened the same drift** (2026-09-09): `skill_tree.yaml:27-29` enumerates the flag surface —
+`--github and --jira issue-to-branch workflows, handing a new worktree to a coding agent with --agent, list
+--agents, cleanup --ignore-agents` — and `--assign` is not in it. Same file, same reason for leaving it, and
+recorded here rather than as a second finding because it closes with the same edit.
+
+**Closes when:** a Gate 1 run passes with `skill_tree.yaml`'s key list naming `github.autoAssign` (`:25`)
+and its flag list naming `--assign` (`:27-28`), whether that lands at `/feature-close` or in a later sweep.
+
+### F-047 — P3 — a whitespace-only answer at either token prompt overwrites the stored token
+
+**Tied to:** github-issue-auto-assign Phase 2 · **Raised:** 2026-09-09 (Gate 2 re-review, reviewer subagent, Phase 2)
+
+`@inquirer/input` does not trim, so `"   "` is truthy at `src/commands/config.ts`'s guarded
+`if (githubToken)` and writes three spaces over a stored PAT. The guard added for F-044 stops the empty
+answer, which is the one the prompt's own instruction line invites; it does not stop this one.
+
+`jira.apiToken` (`src/commands/config.ts:225-228`) has the identical untrimmed shape, so **the defect is a
+pair, not a new inconsistency** — and that is why it is recorded rather than fixed here. Fixing only
+`github.token` would make two adjacent prompts in one function disagree about whitespace, which is worse to
+read than the shared gap; fixing both means editing `jira.apiToken`, which is outside Phase 2's **Files**
+line and outside anything the plan scopes. The neighbouring `github.autoAssign` prompt does trim
+(`config.ts`, the `.trim()` on its write), because its empty answer is a meaningful third state and had to be.
+
+Low severity on its own terms: it needs someone to deliberately type spaces into a token prompt, and it is
+recoverable exactly as F-044 was — `resolveGitHubToken` (`src/integrations/github.ts:157-173`) re-derives
+from `gh auth token` or re-prompts.
+
+**Closes when:** a Gate 1 run passes with both token prompts guarding on the trimmed value and writing the
+trimmed value, and a `config.test.ts` case covering a whitespace-only answer at each.
+
+### F-048 — P3 — §8 step 3 was not run, so Q1 is still unanswered and Q2 only half-answered
+
+**Tied to:** github-issue-auto-assign Phase 3 · **Raised:** 2026-09-09 (hand, during Phase 3 acceptance)
+
+The plan's §8 lists four manual checks against a real token. Steps 1, 2 and 4 were run; **step 3 — the same
+call from a token *without* push access — was not**, because manufacturing that condition needs either a
+fine-grained PAT the maintainer creates, or a write attempt against a repository the token cannot write,
+which is somebody else's repository. Neither was done, and the step is recorded as not run rather than
+approximated.
+
+What steps 1 and 2 did establish, against `northguild/worktree` issue #49 on 2026-09-09:
+
+- `POST /repos/{owner}/{repo}/issues/{n}/assignees` → **`201 Created`**, and the login appears in the
+  returned issue's `assignees`.
+- Repeating the identical call → **`201` again, one assignee, no duplicate.** The endpoint's documented
+  "users already assigned are not replaced" holds, which is what R2 leans on when a worktree fails to
+  create after the assignment has already gone through.
+- `GET /repos/{owner}/{repo}/assignees/{assignee}` → **`204 No Content`**, the documented "this user can be
+  assigned" answer. Not used by the implementation, per D6, and this run is the reason to keep it that way:
+  it costs a round-trip and answers a permission, not an outcome.
+
+**Q1 — what an unprivileged POST does** — remains open. It blocks no design: D6's post-check reports a
+warning whether the failure arrives as an error status or as a `201` whose `assignees` never gained the
+login, and both shapes are covered by unit tests.
+
+**Q2 — the exact fine-grained PAT permission label** — is half-answered, and the answer corrects the
+question. The token on this machine is a **classic-scoped OAuth token** (from `gh auth token` — the response
+carries `X-Oauth-Client-Id`, so it is the GitHub CLI's OAuth app rather than a hand-created PAT), and
+for it GitHub returns
+**`X-Accepted-Oauth-Scopes: repo`**. The `X-Accepted-GitHub-Permissions` header the plan expects to read is
+**not sent at all** for a classic token — it is the fine-grained-token counterpart. So §8 step 3 has to be
+run with a fine-grained PAT specifically, not merely with any token lacking push access, or it will not
+produce the header the plan asks for.
+
+**Closes when:** step 3 is run with a fine-grained PAT lacking issues:write, recording the status code, the
+`assignees` array, and the `X-Accepted-GitHub-Permissions` value — and the docs quote that label instead of
+today's deliberately unlabelled "a token with push access to the repository".
+
+### F-050 — P3 — the persistence catch drops the cause, against this project's own error-handling standard
+
+**Tied to:** github-issue-auto-assign Phase 3 · **Raised:** 2026-09-09 (Gate 2 re-review, reviewer subagent, Phase 3)
+
+The guard added for **F-049** binds no error:
+
+```ts
+} catch {
+  this.warn(
+    "Could not save github.autoAssign, so you will be asked again next time.",
+  );
+}
+```
+
+`context/standards/typescript/error-handling.md:6` says *"Never hide the original error context"* and `:30`
+*"Log with context, not just a message"*. Its own sibling four lines away does carry it — the assignment
+catch appends `error instanceof Error ? error.message : String(error)` — and so does the precedent F-049
+cites, `src/lib/base-command.ts:172`.
+
+The consequence is narrow but real: a user hitting the exact trigger F-049 describes is told what will
+happen next and not why it happened, so `error: could not lock config file .git/config` — the one string
+that would point them at a concurrent git process — never reaches them.
+
+Not fixed here because Gate 2 had already passed on this diff, which is the reason F-002, F-003, F-004 and
+F-043 record: an edit made after the gate is an edit the gate did not review.
+
+**Closes when:** a Gate 1 run passes with the catch binding its error and appending the message, in the
+idiom of the assignment catch beside it.
+
+### F-051 — P3 — only one of the two `spinner.warn` sites is pinned, so the throwing path can still turn red unnoticed
+
+**Tied to:** github-issue-auto-assign Phase 3 · **Raised:** 2026-09-09 (Gate 2 re-review, reviewer subagent, Phase 3)
+
+§2's guarantee is *"never `fail`, never a throw"*, and `assignGithubIssue` has two `spinner.warn` sites: the
+`assigned: false` branch and the catch. The Gate 2 re-review verified by mutation that the first is pinned —
+swapping it for `spinner.fail` fails `still creates the worktree when the issue comes back unassigned` — and
+that **the second is not**: the same swap in the catch passes all 40 tests.
+
+So a change that made a failed assignment render as a red ✖ rather than a warning would land green. The
+run still completes and the worktree is still created, so this is presentation, not behaviour — but it is
+the half of §2 that reads *"never `fail`"*, and it is currently asserted for one branch out of two.
+
+This is residue rather than a regression: the prior finding's stated fix was scoped to the `assigned: false`
+case and was carried out exactly.
+
+Two test-placement nits close with the same edit: `still creates the worktree when persisting the answer
+fails` and `never reaches the assignment seam without --github or --jira` both sit under
+`describe("the other issue sources")` in `src/commands/branch.test.ts`, and neither is about another issue
+source — the first belongs under `describe("the worktree is the deliverable")`.
+
+**Closes when:** a Gate 1 run passes with the three-line spinner assertion added to *still creates and opens
+the worktree when the assignment throws*, in the shape the unassigned case already uses.
+
 ## Closed
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches

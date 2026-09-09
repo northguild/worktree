@@ -15,6 +15,7 @@ title: Configuration
 - `herdr.agent` (example: `claude`, unset means no agent)
 - `agent.command` (the coding agent to hand a new worktree to, example: `claude --bg`)
 - `github.token` (GitHub personal access token)
+- `github.autoAssign` (`true` or `false`, unset means you are asked)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
@@ -121,6 +122,19 @@ worktree config branchPrefix.chore chore/
 - `worktree branch --github <issue-number>` reads issues from the current repository remote.
 - Branch prefix keys are optional. If missing, `worktree` uses no prefix.
 - If `github.token` is missing, `worktree` can attempt to use `gh auth token` and then prompt.
+- `github.autoAssign` decides whether reading an issue also assigns it to you. It has three states, not
+  two: `true` always assigns, `false` never does, and leaving it **unset** means you are asked, once, and
+  your answer is saved to this key. Assigning needs a token with push access to the repository.
+- `worktree branch --assign` and `--no-assign` override the key for a single run, whatever it holds. See
+  [`branch`](/docs/commands/branch#assigning-the-issue-to-yourself).
+- If you answered no and want the offer back, set the key directly:
+
+```bash
+worktree config github.autoAssign true
+```
+
+- `github.token` and `github.autoAssign` are prompted together, behind one confirm, so `worktree config`
+  costs a single yes/no to anyone who does not use GitHub issues.
 
 ## Jira Integration Notes
 

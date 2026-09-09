@@ -12,6 +12,8 @@ Create a new branch in a dedicated worktree.
 worktree branch <name>
 worktree branch <name> --source <remote-branch>
 worktree branch --github <issue-number>
+worktree branch --github <issue-number> --assign
+worktree branch --github <issue-number> --no-assign
 worktree branch --jira <issue-id>
 worktree branch <name> --agent "<prompt>"
 ```
@@ -23,6 +25,8 @@ worktree branch feature/add-bulk-actions
 worktree branch feature/add-bulk-actions --source origin/release/1.4
 worktree branch --github 42
 worktree branch --github "#42"
+worktree branch --github 42 --assign
+worktree branch --github 42 --no-assign
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
@@ -47,6 +51,33 @@ GitHub authentication is resolved in this order:
 1. `northguild.worktree.github.token` from local git config.
 2. `gh auth token` if GitHub CLI is installed and authenticated.
 3. Interactive token prompt, which is then saved in local git config.
+
+### Assigning the issue to yourself
+
+`--assign` assigns the issue to the authenticated user as part of creating the branch, and `--no-assign`
+skips it for that one run. Without either flag the decision comes from
+[`github.autoAssign`](/docs/configuration#github-integration-notes), and if that key is unset you are asked
+once — your answer is saved to it, so the question is not repeated.
+
+```bash
+worktree branch --github 42 --assign
+worktree branch --github 42 --no-assign
+worktree config github.autoAssign true    # always assign, stop asking
+```
+
+- **Assigning requires a token with push access to the repository.** Reading an issue does not, so a public
+  repository that `--github` has always worked against without a token may ask for one the first time you
+  assign — the resolution order above still applies, so an authenticated `gh` supplies it silently.
+- Success is confirmed against the API response rather than assumed. If the issue comes back without you on
+  it, `worktree` says so instead of reporting success — GitHub can accept an assignee change and ignore it
+  when the token lacks push access.
+- **A failed assignment never stops the branch.** The worktree is created either way; you get a warning, not
+  an error.
+- The assignment happens before the worktree is created, so the question is never buried behind creation
+  output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees — so
+  retrying after a failed creation is harmless.
+- `--assign` and `--no-assign` both require `--github` or `--jira`; on their own there is no issue to act
+  on. `--assign --jira` warns that Jira assignment is not supported yet and carries on.
 
 ## Jira Issue Branching
 
@@ -89,8 +120,9 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 
 ## What It Does
 
-1. Creates a branch from your configured source branch.
-2. Adds a worktree under `<repo>.worktrees/<branch-name>`.
-3. Copies `.env` files into the new worktree.
-4. Starts the configured coding agent in it (with `--agent`).
-5. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`.
+1. Assigns the issue to you, when creating from `--github` and assignment is enabled.
+2. Creates a branch from your configured source branch.
+3. Adds a worktree under `<repo>.worktrees/<branch-name>`.
+4. Copies `.env` files into the new worktree.
+5. Starts the configured coding agent in it (with `--agent`).
+6. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`.

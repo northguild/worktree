@@ -88,6 +88,10 @@ export interface GitHubIssueApiResponse {
     login: string;
     html_url: string;
   };
+  assignees: {
+    login: string;
+    html_url: string;
+  }[];
 }
 
 function parseGitHubRepositoryFromRemote(remoteUrl: string): GitHubRepository {
@@ -125,7 +129,7 @@ async function getCurrentGitHubRepository(): Promise<GitHubRepository> {
   }
 }
 
-function getGitHubHeaders(token?: string): HeadersInit {
+function getGitHubHeaders(token?: string): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "User-Agent": "@northguild/worktree",
@@ -168,10 +172,44 @@ async function resolveGitHubToken(): Promise<string> {
   return token;
 }
 
-function fetchGitHub(path: string, token?: string): Promise<Response> {
-  return fetch(`https://api.github.com${path}`, {
-    headers: getGitHubHeaders(token),
-  });
+interface GitHubRequestOptions {
+  method?: string;
+  body?: unknown;
+}
+
+function fetchGitHub(
+  path: string,
+  token?: string,
+  { method, body }: GitHubRequestOptions = {},
+): Promise<Response> {
+  const headers = getGitHubHeaders(token);
+  const init: RequestInit = { headers };
+
+  if (method) {
+    init.method = method;
+  }
+
+  // Only a request that carries a body announces a content type, so a GET is
+  // sent exactly as it was before this argument existed.
+  if (body !== undefined) {
+    init.headers = { ...headers, "Content-Type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
+
+  return fetch(`https://api.github.com${path}`, init);
+}
+
+// fetchGitHubIssue resolves a token lazily, because a public repository answers
+// its unauthenticated probe and never needs one. A write always needs one, so
+// this is the eager counterpart: the configured token, or a freshly resolved
+// one, which may prompt for a PAT.
+async function requireGitHubToken(): Promise<string> {
+  const configuredToken = await gitGetConfigValue("github.token");
+  if (configuredToken) {
+    return configuredToken;
+  }
+
+  return resolveGitHubToken();
 }
 
 export async function fetchGitHubIssue(issueId: number | string) {
@@ -241,6 +279,60 @@ export async function fetchGitHubIssue(issueId: number | string) {
       htmlUrl: issue.user.html_url,
     },
   } satisfies GitHubIssue;
+}
+
+export async function fetchGitHubLogin(token?: string): Promise<string> {
+  const resolvedToken = token ?? (await requireGitHubToken());
+  const response = await fetchGitHub("/user", resolvedToken);
+
+  if (!response.ok) {
+    const errorMessage = await response.text();
+    throw new Error(
+      `GitHub: Failed to resolve the authenticated user. ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`,
+    );
+  }
+
+  const user = (await response.json()) as { login: string };
+
+  return user.login;
+}
+
+export async function assignGitHubIssue(issueId: number | string) {
+  const normalizedIssueId = String(issueId).trim();
+
+  if (!/^\d+$/.test(normalizedIssueId)) {
+    throw new Error(`GitHub: Invalid issue id "${issueId}".`);
+  }
+
+  const { owner, name } = await getCurrentGitHubRepository();
+  // Resolved once and passed on, so a run that has to prompt for a PAT prompts
+  // exactly once even if the write to git config does not stick.
+  const token = await requireGitHubToken();
+  const login = await fetchGitHubLogin(token);
+
+  const response = await fetchGitHub(
+    `/repos/${owner}/${name}/issues/${normalizedIssueId}/assignees`,
+    token,
+    { method: "POST", body: { assignees: [login] } },
+  );
+
+  if (!response.ok) {
+    const errorMessage = await response.text();
+    throw new Error(
+      `GitHub: Failed to assign issue ${normalizedIssueId} in ${owner}/${name}. ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`,
+    );
+  }
+
+  // Confirmed against the response rather than assumed: GitHub documents that an
+  // assignee change made without push access is silently ignored, which is a 201
+  // whose assignees never gained the login.
+  const issue = (await response.json()) as GitHubIssueApiResponse;
+  const assignees = issue.assignees ?? [];
+
+  return {
+    login,
+    assigned: assignees.some((assignee) => assignee.login === login),
+  };
 }
 
 export { parseGitHubRepositoryFromRemote };

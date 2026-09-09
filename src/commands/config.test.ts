@@ -87,6 +87,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("jira.apiToken");
       expect(mockConsoleLog).toHaveBeenCalledWith("codeEditor");
       expect(mockConsoleLog).toHaveBeenCalledWith("defaultSourceBranch");
+      expect(mockConsoleLog).toHaveBeenCalledWith("github.autoAssign");
     });
 
     it("should handle --missing flag with no missing values", async () => {
@@ -655,6 +656,203 @@ describe("config command", () => {
       expect(options.validate("claude")).toBe(true);
       expect(options.validate("Claude!")).toBe(
         "Agent kind must be lowercase letters, digits and dashes, for example claude",
+      );
+    });
+  });
+
+  // `github.token` was in CONFIG_NAMES with no prompt block, so `--missing`
+  // listed it as missing and then asked nothing. These pin that both GitHub
+  // keys are actually answerable — the dead-key shape is what they guard.
+  describe("GitHub issue prompts", () => {
+    it("should set both github.token and github.autoAssign from a prompt run", async () => {
+      mockInput
+        .mockResolvedValueOnce("ghp_prompted_token")
+        .mockResolvedValueOnce("true");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "github.token,github.autoAssign",
+        },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "GitHub personal access token",
+        }),
+      );
+      // objectContaining cannot assert an absence, and absence is the point: a
+      // stored token must never be echoed back as a prompt default, the way
+      // `jira.apiToken` is never echoed back either.
+      const tokenPromptOptions = mockInput.mock.calls.at(0)?.[0] as {
+        default?: string;
+        prefill?: string;
+      };
+      expect(tokenPromptOptions.default).toBeUndefined();
+      expect(tokenPromptOptions.prefill).toBeUndefined();
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message:
+            "Should `branch --github` assign the issue to you? (leave unset to be asked each time)",
+          default: "",
+          prefill: "tab",
+        }),
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "github.token",
+        "ghp_prompted_token",
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "github.autoAssign",
+        "true",
+      );
+    });
+
+    it("should ask one confirm for the group and skip both prompts when declined", async () => {
+      mockConfirm.mockResolvedValue(false);
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: false,
+          names: "github.token,github.autoAssign",
+        },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Do you want to configure GitHub issue options?",
+      });
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it("should keep a stored github.token when the prompt is answered empty", async () => {
+      mockInput.mockResolvedValue("");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "github.token") return Promise.resolve("ghp_stored_token");
+        return Promise.resolve("");
+      });
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "github.token",
+        },
+      });
+
+      await config.run();
+
+      // The prompt's own instruction line invites an empty answer — it is how
+      // you say "use `gh auth token` instead" — so taking that invitation must
+      // not clear the token. A bare `worktree config` prompts every key
+      // whatever it already holds, which is what makes this reachable.
+      expect(mockInput).toHaveBeenCalled();
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "github.token",
+        expect.anything(),
+      );
+    });
+
+    it("should pre-fill github.autoAssign with the configured value", async () => {
+      mockInput.mockResolvedValue("false");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "github.autoAssign") return Promise.resolve("false");
+        return Promise.resolve("");
+      });
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "github.autoAssign",
+        },
+      });
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({ default: "false", prefill: "editable" }),
+      );
+    });
+
+    it("should let an empty answer keep github.autoAssign unset while rejecting a non-boolean", async () => {
+      mockInput.mockResolvedValue("");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "github.autoAssign",
+        },
+      });
+
+      await config.run();
+
+      const options = mockInput.mock.calls.at(0)?.[0] as {
+        validate: (value: string) => true | string;
+      };
+
+      // The key is tri-state through unset (D3): unset means "ask me at branch
+      // time", so this prompt has to be the way to stay unset as well as the
+      // way to settle it. A `--missing` run must not be able to force a
+      // permanent yes or no on someone who has not decided.
+      expect(options.validate("")).toBe(true);
+      expect(options.validate("   ")).toBe(true);
+      expect(options.validate("true")).toBe(true);
+      expect(options.validate("false")).toBe(true);
+      expect(options.validate("maybe")).toBe("Value must be true or false");
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith("github.autoAssign", "");
+    });
+
+    it("should not ask the GitHub confirm when no GitHub key is being prompted", async () => {
+      mockInput.mockResolvedValue("code");
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: false,
+          names: "codeEditor",
+        },
+      });
+
+      await config.run();
+
+      const asked = mockConfirm.mock.calls.map(
+        (call: unknown[]) => (call[0] as { message: string }).message,
+      );
+      expect(asked).not.toContain(
+        "Do you want to configure GitHub issue options?",
       );
     });
   });
