@@ -88,7 +88,7 @@ skills:
         mechanism: >
           defaultSourceBranch is not set; branch will prompt interactively for a source
           branch, which blocks non-interactive agent runs. codeEditor not set means the
-          worktree is created but not opened.
+          worktree is created but not opened, unless opener is set to herdr.
         wrong_pattern: |
           # Fresh global install — immediately try to branch
           worktree branch feature/x
@@ -98,6 +98,20 @@ skills:
           worktree branch feature/x
         source: 'README quick start, docs/getting-started'
         priority: 'HIGH'
+        status: 'active'
+
+      - mistake: 'Setting codeEditor to a herdr command instead of setting opener'
+        mechanism: >
+          A codeEditor value such as "herdr worktree open --focus --path" happens to work
+          because the worktree path is appended as the final argument, but it cannot label
+          the space, cannot read what herdr answered, and cannot start an agent. The opener
+          key is the supported route.
+        wrong_pattern: |
+          worktree config codeEditor "herdr worktree open --focus --path"
+        correct_pattern: |
+          worktree config opener herdr
+        source: 'docs/guides/herdr-spaces, src/lib/base-command.ts — openWorktreePath()'
+        priority: 'MEDIUM'
         status: 'active'
 
       - mistake: '--source flag given without origin/ prefix causes interactive prompt'

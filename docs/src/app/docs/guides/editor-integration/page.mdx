@@ -20,6 +20,44 @@ If omitted, `worktree open` will show an interactive branch picker.
 
 Similarly, if omitted, `worktree checkout` will show an interactive remote branch picker.
 
-For non-VS Code editors, set `codeEditor` to the matching command. No shell is involved: the value is a
-command line split on whitespace, so `code -n` works and quoted arguments do not — see
-[Configuration](/docs/configuration).
+## The `codeEditor` value
+
+Set it to the executable plus any arguments it needs. The worktree path is appended as the final
+argument:
+
+```bash
+worktree config codeEditor code          # code <path>
+worktree config codeEditor "code -n"     # code -n <path>
+worktree config codeEditor "subl -w"     # subl -w <path>
+```
+
+The value is split on whitespace, and quotes group — so an argument containing a space survives:
+
+```bash
+worktree config codeEditor 'open -a "Sublime Text"'
+```
+
+No shell is involved. The executable is run directly with those arguments, which is what lets a
+worktree path containing a space open correctly. It also means nothing is expanded: `~` and
+`$EDITOR` are passed through literally rather than resolved, and a backslash is an ordinary
+character rather than an escape — quote `an argument like this` instead of writing
+`an\ argument\ like\ this`. Use an absolute path, or a wrapper script on your `PATH`, instead of
+relying on expansion.
+
+Quote characters group wherever they appear, as a shell's do, so a path containing an apostrophe has to
+be quoted to survive:
+
+```bash
+worktree config codeEditor "/Users/o'brien/bin/ed"     # correct
+worktree config codeEditor /Users/o'brien/bin/ed       # the apostrophe is consumed
+```
+
+## Opening somewhere other than an editor
+
+Set `opener` to `herdr` to have worktrees land as Herdr spaces instead. See
+[Herdr Spaces](/docs/guides/herdr-spaces).
+
+## Platform support
+
+`worktree` is developed and tested on macOS and Linux. Windows is not supported: the editor is
+launched without a shell, so a `PATHEXT` wrapper such as `code.cmd` is not resolved.

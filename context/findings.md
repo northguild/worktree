@@ -223,40 +223,6 @@ and F-009 record.
 `git branch -D`, and asserts both `rejects.toThrow` and that `gitNukeWorktree` fails rather than succeeds
 on that path.
 
-### F-012 — P2 — a Windows `.cmd`/`.bat` editor can no longer be launched, and `code` is one there
-
-**Tied to:** shell-argv-safety Phase 6 · **Raised:** 2026-09-05 (hand, R6)
-
-`openWorktreePath` now launches the editor through `run` (`src/lib/base-command.ts:65`), which is
-`execFile` with no shell. On Windows that cannot start a `.cmd` or `.bat` file, and the usual `codeEditor`
-value — `code` — is `code.cmd` there. The pre-change `exec` form always went through `cmd.exe`, so this is
-a behaviour change a Windows user would see, against §2 of the plan.
-
-**Measured from source rather than asserted, and the design answer is in the plan's R6:** Node 24.19.0's
-JavaScript layer has no batch-file handling at all (371 builtin module sources scanned via
-`process.binding("natives")`: zero `.bat` lines, and all 16 `.cmd` lines are property reads —
-`message.cmd`, `msg.cmd`, `ex.cmd`); `src/process_wrap.cc` on `v24.x` returns `UV_EINVAL` for
-`IsWindowsBatchFile(options.file)` because batch-file arguments "cannot be unambiguously escaped"; and
-libuv's `path_search_walk_ext` appends only `.com` and `.exe`, so an extension-less `code` fails `ENOENT`
-before the guard is reached. Adding `shell: true` on `win32` would restore the exact hazard this feature
-removes, at the one site that interpolates a user-supplied config value, so it was rejected.
-
-**Config-time validation does not catch it, and on Windows it actively hides it.** The plan's R7 note
-argues the new `spawn <editor> ENOENT` text is narrow because `commandExists` rejects an unfound editor
-before it can be stored. On Windows that inverts: `commandExists` runs `where` (`src/lib/cli.ts:31`), which
-resolves `PATHEXT` and therefore *finds* `code.cmd`, while libuv's spawn path tries only `.com` and `.exe`.
-Validation passes and the launch then fails — the one configuration where the "narrow" argument does not
-hold. **This half is reasoned from documented behaviour, not measured**, which is why it lives here rather
-than anywhere that reads as settled.
-
-**Not observed on a Windows host.** This repository has no Windows CI — every workflow is `ubuntu-latest`
-— and the phase was implemented and verified on macOS. The configuration page documents the limitation
-(`docs/src/app/docs/configuration/page.mdx`), which is the user-facing half; this finding is the half that
-is still unproved.
-
-**Closes when:** the behaviour is observed on a real Windows host and the configuration page's note is
-made to match what was seen — corrected and removed if `code` launches anyway, or kept with the observed
-error text if it does not.
 
 ### F-013 — P2 — the editor launch is unpinned as fire-and-forget, so an added `await` would land green
 
@@ -668,7 +634,180 @@ defect. It closes with F-034 or not at all.
 **Closes when:** a Lint gate run passes with `SKILL.md:145` and `page.mdx:35` carrying the same qualified
 claim — that is, jointly with F-034.
 
+### F-041 — P2 — the awaited `worktree open` has no timeout, so an unresponsive Herdr hangs the command
+
+**Tied to:** herdr-space-opener Phase 5 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent, note N2)
+
+The capturing runner sets no `timeout` on `execFile` (`src/lib/cli.ts:48-68`), and Phase 4 made the Herdr
+branch of the seam `await` it (`src/lib/base-command.ts:114`). Before this feature
+the opener never blocked: it registered a callback and `run()` returned. A Herdr that accepts the
+connection and then never answers now freezes `worktree branch` **after** the worktree exists and its env
+files are copied — the user sees a spinner and has no signal that the real work already succeeded.
+
+§5 names the concrete trigger: v0.9.0's `--trust-repository` may leave the open waiting on a decision for
+a repository Herdr has not seen before. §8 records the question and chooses no value.
+
+This is recorded rather than fixed because the fix lives in `src/lib/cli.ts`, which is not in Phase 4's
+**Files:** list, and because §8 folds into the archive at `/feature-close` while this file survives —
+leaving the deferral only in §8 would give it no owner. Phase 5 is the natural home: it decides the
+adjacent §8 question of whether `agent start` is awaited or fire-and-forget, and the two want one answer.
+
+**Renamed at the merge with `main` (2026-09-08).** The runner this finding was raised against is now
+`runCapturing`, `main`'s `run` having taken the plain name. The defect is unchanged: `runCapturing` grew
+a `cwd` option in the merge and still sets no `timeout`.
+
+**Still open after Phase 5 (2026-09-08).** Phase 5 answered the §8 half — agent start is awaited, and it
+passes `--timeout 15000` — but that flag bounds *Herdr's* wait for the agent to become interactive-ready,
+not the `execFile` this repo spawned. `src/lib/cli.ts:54` passes an options object carrying only `cwd`
+and no `timeout`, so a `herdr` client that accepts the connection and never answers hangs both the open
+and the agent start exactly as described above. Phase 5 did not widen into `src/lib/cli.ts`, which is
+absent from its **Files:** list too. **This finding now has no phase left to land in** — Phase 6 is
+documentation — so it is a maintainer's call: bound `runCommand` with a timeout as a separate
+`/orchestrate` change, or state in the repo why unbounded is correct.
+
+**Closes when:** a timeout bounds the awaited Herdr calls — or the repo states why unbounded is correct —
+and Gate 1 re-passes with a test covering what the seam prints when the call times out.
+
+**Renumbered on merge (2026-09-08).** Raised as F-004 on the `herdr-space-opener` branch, which numbered from the same starting point as `main` and collided with it. The finding is unchanged.
+
+### F-042 — P2 — an unquoted apostrophe is consumed by the command-value split
+
+**Tied to:** herdr-space-opener Phase 1 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent, note N1)
+
+`splitCommandValue` treats a quote as grouping wherever it appears (`src/lib/utils.ts:99-141`), so an
+unquoted apostrophe inside a token is removed: `/Users/o'brien/bin/ed` splits to
+`["/Users/obrien/bin/ed"]`. `main`'s `trim().split(/\s+/)` preserved it, so this is a change for a
+`codeEditor` or `agent.command` value that worked before the merge, against §2's "Non-Herdr users must
+see no change".
+
+The behaviour is what a shell does with the same characters, and it fails visibly — the launch reports
+`ENOENT` for a path that does not exist — rather than corrupting anything. It is the cost of the
+quote-awareness the maintainer chose at Phase 6, which is why it is recorded rather than treated as a
+departure. `docs/src/app/docs/guides/editor-integration/page.mdx` now documents it with the working form
+(quote the whole path).
+
+The narrow alternative, if it is ever worth the complexity: open a quote only at a token boundary, which
+would keep `open -a "Sublime Text"` and `--flag="a b"` working while leaving a bare apostrophe alone. It
+trades one surprising rule for a subtler one, so it is not taken here.
+
+**Closes when:** either the split leaves an unquoted apostrophe alone and Gate 1 re-passes with a test
+covering it, or the documented behaviour is accepted as final and this entry is retired at
+`/feature-close`.
+
 ## Closed
+
+### F-039 — P2 — a quoted `codeEditor` value no longer launches
+
+**Tied to:** herdr-space-opener Phase 1 · **Raised:** 2026-09-07 (Gate 2, the `reviewer` subagent)
+
+`openWorktreePath` splits the configured value on `/\s+/` with no quote awareness
+(`src/lib/base-command.ts:61`). A macOS-idiomatic value like `open -a "Sublime Text"` used to reach
+`/bin/sh` through `exec` and work; it now produces argv `["-a", "\"Sublime", "Text\"", <path>]` and fails.
+Same class: `~/bin/editor` and `$EDITOR` no longer expand, because nothing expands them any more.
+
+This is what the plan prescribes — §4.2 says "splits the configured value on whitespace" and Phase 1's
+**Done when** tests only the unquoted cases — so it is a gap in the design, not a departure from it. It
+does sit against §2's "Non-Herdr users must see no change", which is why it is recorded rather than
+waved through: the two statements cannot both be true for a quoted value.
+
+Deciding it is a maintainer's call, and there are three ways out: accept it and correct
+`docs/src/app/docs/guides/editor-integration/page.mdx:23`, which today tells the reader to set
+`codeEditor` to "the matching shell command" and becomes wrong; parse the value with quote awareness;
+or keep a shell for the editor branch and use the argv runner only for Herdr.
+
+**Closes when:** the decision is made and Gate 1 re-passes on whichever branch it lands in — a doc
+correction inside Phase 6, or a split change inside Phase 1's files.
+
+**Closed:** 2026-09-08 by Phase 6, which took the second of the three options at the maintainer's
+decision. `splitCommandValue` (`src/lib/utils.ts:99-141`) splits the configured value honouring both
+quote styles, and the editor branch calls it (`src/lib/base-command.ts:185`), so `open -a "Sublime
+Text"` again yields argv `["open", "-a", "Sublime Text", <path>]` — asserted at
+`src/lib/base-command.test.ts:155-169` and across 14 table rows at `src/lib/utils.test.ts:222-241`.
+The `~` and `$EDITOR` half is **not** restored and is not a defect: nothing expands those without a
+shell. It is now stated where a reader meets the key — `README.md:217-220`,
+`docs/src/app/docs/configuration/page.mdx:25-49` and the rewritten
+`docs/src/app/docs/guides/editor-integration/page.mdx:23-45`, which also covers backslashes and
+replaces the "matching shell command" sentence this finding named. Gate 1 re-passed on that change —
+`pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (297 passed) and `pnpm docs:test`
+(49 passed), all exit 0, 2026-09-08.
+
+**Renumbered on merge (2026-09-08).** Raised as F-001 on the `herdr-space-opener` branch, which numbered from the same starting point as `main` and collided with it. The finding is unchanged.
+
+### F-040 — P3 — the availability probe discards the reason, narrowing what D5 can print
+
+**Tied to:** herdr-space-opener Phase 4 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent)
+
+`isHerdrAvailable` destructures only `stdout` and `exitCode` from the probe
+(`src/integrations/herdr.ts:156`) and returns `false` on a non-zero exit without reading `stderr`
+(`herdr.ts:162-163`). D5 requires the seam to print Herdr's own `error.code` and `error.message` when
+"Herdr is unavailable **or** the open fails" — but for a case where the binary exists and the server is
+dead, whatever structured envelope Herdr writes to stderr is discarded before Phase 4 can reach it. The
+seam can only print a generic "Herdr is not available" for that half of D5.
+
+This is Phase 3 behaving exactly as §4.3 prescribes ("The `running` boolean is the probe"), so it is a
+design consequence, not a departure. It is recorded because it lands on Phase 4's **Done when**, which
+names printing the `code` and `message`. §8 already carries the adjacent open question — whether
+`herdr status server --json` is the right probe at all, given it costs an extra spawn on every open —
+and the two should be decided together. The options are: return a reason alongside the boolean; drop
+the probe and let a failed `worktree open` be the only signal; or accept a generic message for the
+server-down case.
+
+**Closed:** 2026-09-08 by Phase 4, which chose the second option. The `herdr status server --json` probe
+is gone; `isHerdrAvailable` is now `isHerdrInstalled` and is `commandExists("herdr")` and nothing more
+(`src/integrations/herdr.ts:141-155`). A dead server is no longer detected in advance — it fails
+`worktree open`, and that failure reaches the seam carrying Herdr's own `code` and `message` through
+`toHerdrError`, which is what D5 asks it to print. §4.3 and Phase 3's **Done when** were amended to match.
+This also answers §8's third open question: the probe was not the right liveness signal, and its extra
+spawn per open is gone. Gate 1 re-passed on that change — `pnpm check`, `pnpm typecheck`, `pnpm build`,
+`pnpm test` (233 passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-08.
+
+**Renumbered on merge (2026-09-08).** Raised as F-003 on the `herdr-space-opener` branch, which numbered from the same starting point as `main` and collided with it. The finding is unchanged.
+
+### F-012 — P2 — a Windows `.cmd`/`.bat` editor can no longer be launched, and `code` is one there
+
+**Tied to:** shell-argv-safety Phase 6 · **Raised:** 2026-09-05 (hand, R6)
+
+`openWorktreePath` now launches the editor through `run` (`src/lib/base-command.ts:65`), which is
+`execFile` with no shell. On Windows that cannot start a `.cmd` or `.bat` file, and the usual `codeEditor`
+value — `code` — is `code.cmd` there. The pre-change `exec` form always went through `cmd.exe`, so this is
+a behaviour change a Windows user would see, against §2 of the plan.
+
+**Measured from source rather than asserted, and the design answer is in the plan's R6:** Node 24.19.0's
+JavaScript layer has no batch-file handling at all (371 builtin module sources scanned via
+`process.binding("natives")`: zero `.bat` lines, and all 16 `.cmd` lines are property reads —
+`message.cmd`, `msg.cmd`, `ex.cmd`); `src/process_wrap.cc` on `v24.x` returns `UV_EINVAL` for
+`IsWindowsBatchFile(options.file)` because batch-file arguments "cannot be unambiguously escaped"; and
+libuv's `path_search_walk_ext` appends only `.com` and `.exe`, so an extension-less `code` fails `ENOENT`
+before the guard is reached. Adding `shell: true` on `win32` would restore the exact hazard this feature
+removes, at the one site that interpolates a user-supplied config value, so it was rejected.
+
+**Config-time validation does not catch it, and on Windows it actively hides it.** The plan's R7 note
+argues the new `spawn <editor> ENOENT` text is narrow because `commandExists` rejects an unfound editor
+before it can be stored. On Windows that inverts: `commandExists` runs `where` (`src/lib/cli.ts:31`), which
+resolves `PATHEXT` and therefore *finds* `code.cmd`, while libuv's spawn path tries only `.com` and `.exe`.
+Validation passes and the launch then fails — the one configuration where the "narrow" argument does not
+hold. **This half is reasoned from documented behaviour, not measured**, which is why it lives here rather
+than anywhere that reads as settled.
+
+**Not observed on a Windows host.** This repository has no Windows CI — every workflow is `ubuntu-latest`
+— and the phase was implemented and verified on macOS. The configuration page documents the limitation
+(`docs/src/app/docs/configuration/page.mdx`), which is the user-facing half; this finding is the half that
+is still unproved.
+
+**Closes when:** the behaviour is observed on a real Windows host and the configuration page's note is
+made to match what was seen — corrected and removed if `code` launches anyway, or kept with the observed
+error text if it does not.
+
+**Closed:** 2026-09-08 by the `herdr-space-opener` merge, which answers the question rather than
+observing it. The maintainer's call at that branch's Phase 6 was that this repository does not support
+Windows, so there is no longer a claim for a Windows host to verify: the CLI is developed and tested on
+macOS and Linux, and `docs/src/app/docs/configuration/page.mdx` now says so under **Platform Support**
+instead of describing how to work around `.cmd`. `README.md`, `docs/.../getting-started/page.mdx`,
+`docs/.../faq/page.mdx` and `docs/.../guides/editor-integration/page.mdx` carry the same statement, the
+last naming the `PATHEXT` mechanism this finding measured so the reasoning is not lost. That branch had
+raised the identical defect independently as its own F-002; this entry is the surviving one. Gate 1
+re-passed on the merge — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` and `pnpm docs:test`,
+all exit 0.
 
 Closed findings leave this file — a feature's at `/feature-close`, folded into the retiring plan's own log;
 an `ad-hoc` one at the start of the next `/orchestrate`.

@@ -30,6 +30,7 @@ worktree config --yes
 ```bash
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
+worktree config opener herdr
 worktree config agent.command "claude --bg"
 worktree config --list
 worktree config --list --missing
@@ -39,6 +40,17 @@ worktree config --missing --yes --names branchPrefix.feature,branchPrefix.bugfix
 ```
 
 Configuration is stored in local Git config under `northguild.worktree.*`.
+
+## Opener Keys
+
+- `opener` selects where a finished worktree opens: `editor` (default) or `herdr`.
+- `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`.
+- `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
+- `herdr.agent` an agent kind to start in a newly opened Herdr space. Unset means no agent.
+
+The three opener keys above are listed and prompted for only when the `herdr` CLI is on your `PATH`, or
+when one of them already has a value. `--names` and a direct `worktree config <key> <value>` always work
+regardless, so a machine can be configured before Herdr is installed.
 
 ## GitHub Integration Keys
 

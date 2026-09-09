@@ -9,7 +9,10 @@ title: Configuration
 ## Common Keys
 
 - `defaultSourceBranch` (example: `origin/main`)
+- `opener` (`editor` or `herdr`, default `editor`)
 - `codeEditor` (example: `code`)
+- `herdr.focus` (`true` or `false`, default `true`)
+- `herdr.agent` (example: `claude`, unset means no agent)
 - `agent.command` (the coding agent to hand a new worktree to, example: `claude --bg`)
 - `github.token` (GitHub personal access token)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
@@ -33,14 +36,17 @@ worktree config codeEditor "code -n"  # runs: code -n <worktree-path>
 The worktree path is always passed as a single argument, so a project or branch whose path contains a
 space opens correctly.
 
-**Quoted arguments are not supported.** No shell parses this value, so the quotes in
-`open -a "Visual Studio Code"` are never removed — the value splits into `open` plus the four arguments
-`-a`, `"Visual`, `Studio` and `Code"`, quote characters and all. Point `codeEditor` at a program or at a wrapper
-script instead.
+**Quotes group, so an argument containing a space survives:**
 
-**On Windows the editor has to be a real executable.** `.cmd` and `.bat` shims — which is what `code` is
-on Windows — cannot be launched without a shell, and `worktree` no longer uses one. Name the `.exe`, or a
-wrapper that is one.
+```bash
+worktree config codeEditor 'open -a "Sublime Text"'   # runs: open -a "Sublime Text" <worktree-path>
+```
+
+Quote characters are removed by the split and never reach the program. Nothing else is interpreted: no
+shell parses this value, so `~` and `$EDITOR` are passed through literally rather than expanded, and a
+backslash is an ordinary character rather than an escape. Quote `an argument like this` instead of writing
+`an\ argument\ like\ this`, and use an absolute path or a wrapper script on your `PATH` rather than
+relying on expansion.
 
 ## Agent Command
 
@@ -63,11 +69,17 @@ worktree config agent.command "nope --bg"     # rejected — Command not found: 
 ```
 
 `worktree` does not assume a particular agent. There is no default value, and nothing about this key is
-specific to one vendor — any agent CLI of the same shape works. The same caveats as
-[Editor Command](#editor-command) apply: no shell parses the value, so quoted arguments are not supported
-and the program has to be a real executable rather than a `.cmd` or `.bat` shim.
+specific to one vendor — any agent CLI of the same shape works. The same rules as
+[Editor Command](#editor-command) apply: no shell parses the value, quotes group an argument containing a
+space, and `~` and `$VAR` are not expanded.
 
 The key is optional and unset by default.
+
+## Platform Support
+
+`worktree` is developed and tested on macOS and Linux. **Windows is not supported.** Nothing here is
+launched through a shell, so a `.cmd` or `.bat` shim — which is what `code` is on Windows — cannot be
+started, and Herdr is a unix-socket application.
 
 ## Commands
 
@@ -77,6 +89,9 @@ worktree config --missing
 worktree config --missing --names defaultSourceBranch,github.token
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
+worktree config opener herdr
+worktree config herdr.focus false
+worktree config herdr.agent claude
 worktree config agent.command "claude --bg"
 worktree config github.token <token>
 worktree config jira.host https://company.atlassian.net
@@ -86,6 +101,20 @@ worktree config branchPrefix.feature feature/
 worktree config branchPrefix.bugfix fix/
 worktree config branchPrefix.chore chore/
 ```
+
+## Opener Notes
+
+- `opener` selects where a finished worktree is handed off: `editor` uses `codeEditor`, `herdr`
+  opens it as a Herdr space. Unset means `editor`.
+- `codeEditor` is used only by the `editor` opener — see [Editor Command](#editor-command) above and
+  the [Editor Integration](/docs/guides/editor-integration) guide.
+- `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`. See
+  [Herdr Spaces](/docs/guides/herdr-spaces).
+- `opener`, `herdr.focus` and `herdr.agent` are shown by `worktree config` only when the `herdr` CLI is on
+  your `PATH`. Without it they are neither listed nor prompted for, so the feature stays out of the way.
+  This gating never hides a key that already holds a value, and setting `opener` to `herdr` un-hides all
+  three whether or not the CLI is found. Naming a key with `--names`, or setting it directly, always
+  works.
 
 ## GitHub Integration Notes
 

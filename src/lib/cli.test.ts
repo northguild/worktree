@@ -5,10 +5,11 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
-import { commandExists, run, spawnDetached } from "./cli.js";
+import { commandExists, run, runCapturing, spawnDetached } from "./cli.js";
 
 // src/test-setup.ts mocks ./lib/cli.js for every suite so command tests never
 // execute anything. This file covers the real helper, so it opts back out.
@@ -24,6 +25,7 @@ const printCwd = "process.stdout.write(process.cwd())";
 
 let tempPath: string;
 let spacedPath: string;
+let spacedExecutable: string;
 let originalPath: string | undefined;
 
 beforeAll(() => {
@@ -32,6 +34,11 @@ beforeAll(() => {
   tempPath = realpathSync(mkdtempSync(join(tmpdir(), "worktree-cli-")));
   spacedPath = join(tempPath, "space demo");
   mkdirSync(spacedPath);
+
+  // A real executable whose path contains a space, for the lookup that used to
+  // be truncated at the first space.
+  spacedExecutable = join(spacedPath, "my editor");
+  writeFileSync(spacedExecutable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
   // commandExists searches PATH. Put this node binary's own directory on it so
   // the lookup has a guaranteed hit however the suite was launched.
@@ -122,6 +129,62 @@ describe("run", () => {
   });
 });
 
+describe("runCapturing", () => {
+  it("resolves stdout and a zero exit code on success", async () => {
+    const result = await runCapturing(node, [
+      "-e",
+      "process.stdout.write('hi')",
+    ]);
+
+    expect(result).toEqual({ stdout: "hi", stderr: "", exitCode: 0 });
+  });
+
+  it("resolves — not rejects — with stderr and the code on a non-zero exit", async () => {
+    const result = await runCapturing(node, [
+      "-e",
+      "process.stderr.write(JSON.stringify({error:{code:'nope'}})); process.exit(1)",
+    ]);
+
+    expect(result).toEqual({
+      stdout: "",
+      stderr: '{"error":{"code":"nope"}}',
+      exitCode: 1,
+    });
+  });
+
+  it("keeps stdout and stderr apart on a failing run", async () => {
+    const result = await runCapturing(node, [
+      "-e",
+      "process.stdout.write('out'); process.stderr.write('err'); process.exit(3)",
+    ]);
+
+    expect(result).toEqual({ stdout: "out", stderr: "err", exitCode: 3 });
+  });
+
+  it("does not interpret an argument as shell syntax", async () => {
+    const argument = "/tmp/a b/c; echo pwned > /tmp/*";
+
+    const result = await runCapturing(node, ["-e", printFirstArg, argument]);
+
+    expect(result.stdout).toBe(argument);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("runs the command in the directory given as cwd", async () => {
+    const result = await runCapturing(node, ["-e", printCwd], {
+      cwd: spacedPath,
+    });
+
+    expect(result.stdout).toBe(spacedPath);
+  });
+
+  it("rejects when the file does not exist, having no exit code to report", async () => {
+    await expect(
+      runCapturing("northguild-worktree-no-such-executable"),
+    ).rejects.toThrow();
+  });
+});
+
 describe("commandExists", () => {
   // basename because process.execPath is absolute, and the point of these cases
   // is to exercise a real PATH lookup rather than hand it a path to stat.
@@ -137,10 +200,16 @@ describe("commandExists", () => {
 
   // Only the head of the command line is looked up; the arguments after it are
   // not part of the check, and never reach the lookup as argv either.
-  it("checks only the first word of a command line", async () => {
+  it("looks the value up verbatim rather than to its first space", async () => {
+    // A command line is never passed here — callers split first — so the whole
+    // value is the program name, and one containing a space is not truncated.
     await expect(commandExists(`${nodeName} --no-warnings`)).resolves.toBe(
-      true,
+      false,
     );
+  });
+
+  it("resolves true for a program whose path contains a space", async () => {
+    await expect(commandExists(spacedExecutable)).resolves.toBe(true);
   });
 });
 

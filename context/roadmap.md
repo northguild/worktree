@@ -27,6 +27,14 @@ this, appended under **Features** below:
 
 ## Features
 
+### herdr-space-opener — `active`
+
+Worktrees always open in a code editor. Someone who works in Herdr wants a new worktree to land as a new
+Herdr space instead, without giving up the Jira/GitHub branch naming and env-file copying that creates it.
+
+- **Size:** medium — one integration module, a config key, and the opener seam shared by three commands
+- **Doc:** [`plans/HERDR-SPACE-OPENER-PLAN.md`](plans/HERDR-SPACE-OPENER-PLAN.md) — plan, built on the captured Herdr 0.8.2 API notes
+
 ### worktree-churn-stats — `pending`
 
 `list` says how far ahead or behind a worktree is, but not how much has actually changed in it, so there is

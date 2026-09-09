@@ -78,6 +78,7 @@ The setup flow can configure:
 
 - `defaultSourceBranch` for new worktrees, such as `origin/main`
 - `codeEditor` for automatically opening a worktree, such as `code`
+- `opener` for where a worktree opens — `editor` (default) or `herdr`
 - `agent.command` for handing a worktree to a coding agent, such as `claude --bg`
 
 Then create your first worktree:
@@ -91,7 +92,7 @@ That will:
 1. create a new branch from your configured source branch
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
 3. copy `.env` and `.env.local` files from the main repository
-4. open the new worktree in your configured editor, if one is set
+4. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
 
 ## Common Workflows
 
@@ -207,10 +208,16 @@ Examples:
 ```bash
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
+worktree config opener herdr
 worktree config agent.command "claude --bg"
 worktree config --list
 worktree config --missing
 ```
+
+`codeEditor` is the executable plus any arguments, run without a shell — quotes group, but `~` and
+`$VAR` are not expanded. Set `opener` to `herdr` to open worktrees as
+[Herdr](https://herdr.dev) spaces instead of editor windows; `herdr.focus` and `herdr.agent` tune
+that. See the [configuration docs](https://northguild.github.io/worktree/docs/configuration).
 
 ## What The README Covers
 
@@ -229,8 +236,11 @@ The documentation website should be the place for:
 - Git installed and available on your `PATH`
 - Node.js available to run the CLI
 - an existing Git repository where you want to manage worktrees
+- macOS or Linux — Windows is not supported
 
-If you want automatic editor launching, make sure your editor command is available in the shell, for example `code` for Visual Studio Code.
+If you want automatic editor launching, make sure your editor command is available on your `PATH`, for example `code` for Visual Studio Code.
+
+If you want worktrees to open as Herdr spaces, make sure the `herdr` CLI is on your `PATH` and its server is running.
 
 ## License
 

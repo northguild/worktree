@@ -3,13 +3,17 @@
 // be listed here — one that is missing is undefined at call time, and the caller
 // fails with "x is not a function" rather than a useful assertion.
 const mockRun: ReturnType<typeof vi.fn> = vi.fn();
+const mockRunCapturing: ReturnType<typeof vi.fn> = vi.fn();
 const mockSpawnDetached: ReturnType<typeof vi.fn> = vi.fn();
 let expectedCommands: string[] = [];
 
+// This factory replaces the whole module, so anything cli.js exports has to be
+// listed here or it is undefined in every suite in the repo.
 vi.mock("./lib/cli.js", () => ({
   run: mockRun,
   spawnDetached: mockSpawnDetached,
   commandExists: vi.fn().mockResolvedValue(true),
+  runCapturing: mockRunCapturing,
 }));
 
 // A run() call reads as its argv joined, with the cwd appended when one is
@@ -34,6 +38,10 @@ function describeRunCall(call: unknown[]): string {
 beforeEach(() => {
   // Clear all mocks before each test
   vi.clearAllMocks();
+  // A successful, silent run is the benign default. Without it a suite that
+  // reaches runCapturing without mocking it gets undefined back rather than a
+  // promise, and fails somewhere unrelated to what it is testing.
+  mockRunCapturing.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
   expectedCommands = [];
 });
 
@@ -59,4 +67,4 @@ function expectCommands(...commands: string[]) {
 }
 
 // Export the mocks and helper for use in tests
-export { expectCommands, mockRun, mockSpawnDetached };
+export { expectCommands, mockRun, mockRunCapturing, mockSpawnDetached };

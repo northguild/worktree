@@ -3,15 +3,23 @@ import { confirm, input } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
 import { BaseCommand } from "../lib/base-command.js";
-import { CONFIG_NAMES } from "../lib/constants.js";
+import { commandExists } from "../lib/cli.js";
+import {
+  CONFIG_NAMES,
+  HERDR_CONFIG_NAMES,
+  OPENER_KINDS,
+} from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
 import type { ConfigName } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
 import {
+  isValidAgentKind,
+  isValidBoolean,
   isValidBranch,
   isValidCommand,
   isValidCommandLine,
   isValidEmail,
+  isValidOpener,
   validateConfigValue,
 } from "../lib/validators.js";
 
@@ -41,10 +49,44 @@ export default class Config extends BaseCommand {
     }),
   };
 
+  /**
+   * The Herdr keys to keep out of sight. Someone without the `herdr` binary has
+   * no use for any of them, and listing or prompting for them is the whole of
+   * what this feature would otherwise cost them.
+   *
+   * A key that already holds a value is never hidden: a machine that configured
+   * Herdr and later lost the binary should still be told what it set.
+   */
+  private async getHiddenConfigNames(): Promise<Set<ConfigName>> {
+    // An explicit `opener=herdr` is an opt-in, and it governs the other two, so
+    // it un-hides all of them. A shell that has not picked up `herdr` on PATH
+    // yet should not make the keys of someone who plainly uses it disappear.
+    if ((await gitGetConfigValue("opener")) === "herdr") {
+      return new Set();
+    }
+
+    if (await commandExists("herdr")) {
+      return new Set();
+    }
+
+    const hidden = new Set<ConfigName>();
+    for (const name of HERDR_CONFIG_NAMES) {
+      if (!(await gitGetConfigValue(name))) {
+        hidden.add(name);
+      }
+    }
+    return hidden;
+  }
+
   private async renderList(missing: boolean) {
     let count = 0;
+    const hidden = await this.getHiddenConfigNames();
 
     for (const variable of CONFIG_NAMES) {
+      if (hidden.has(variable)) {
+        continue;
+      }
+
       const value = await gitGetConfigValue(variable);
 
       if (missing && value) {
@@ -60,7 +102,12 @@ export default class Config extends BaseCommand {
     }
   }
 
-  private getApplicableConfigNames(names?: string): ConfigName[] {
+  private getApplicableConfigNames(
+    names?: string,
+    hidden?: Set<ConfigName>,
+  ): ConfigName[] {
+    // Naming a key is asking for it. Someone configuring ahead of installing
+    // Herdr has said what they want, so an explicit --names is never filtered.
     if (names) {
       return names
         .split(",")
@@ -68,7 +115,7 @@ export default class Config extends BaseCommand {
         .map((name) => name.trim() as ConfigName);
     }
 
-    return [...CONFIG_NAMES];
+    return CONFIG_NAMES.filter((name) => !hidden?.has(name));
   }
 
   private async getPromptConfigNames(flags: {
@@ -76,7 +123,15 @@ export default class Config extends BaseCommand {
     yes: boolean;
     names?: string;
   }): Promise<ConfigName[]> {
-    const applicableConfigNames = this.getApplicableConfigNames(flags.names);
+    // Not computed for a --names run: that path returns before the filter, and
+    // `branch` delegates to exactly that form (base-command.ts), so probing
+    // there would put a `which herdr` behind a plain `worktree branch`.
+    const applicableConfigNames = flags.names
+      ? this.getApplicableConfigNames(flags.names)
+      : this.getApplicableConfigNames(
+          undefined,
+          await this.getHiddenConfigNames(),
+        );
 
     if (flags.missing) {
       const configNames: ConfigName[] = [];
@@ -115,6 +170,9 @@ export default class Config extends BaseCommand {
     const hasJiraPrompt = configNames.some((name) => name.startsWith("jira"));
     const hasBranchPrefixPrompt = configNames.some((name) =>
       name.startsWith("branchPrefix"),
+    );
+    const hasHerdrPrompt = configNames.some((name) =>
+      name.startsWith("herdr."),
     );
 
     // First check if there is anything to prompt
@@ -210,6 +268,21 @@ export default class Config extends BaseCommand {
     }
 
     if (
+      shouldPrompt("opener") &&
+      (await this.maybePrompt(
+        "Do you want to choose where new worktrees are opened?",
+        flags.yes,
+      ))
+    ) {
+      const opener = await input({
+        message: `Which opener should new worktrees use? (${conjoin(OPENER_KINDS, "or")})`,
+        ...(await this.getInputConfig("opener", "editor")),
+        validate: isValidOpener,
+      });
+      await gitSetConfigValue("opener", opener);
+    }
+
+    if (
       shouldPrompt("codeEditor") &&
       (await this.maybePrompt(
         "Do you want to automatically open the worktree in a code editor?",
@@ -222,6 +295,38 @@ export default class Config extends BaseCommand {
         validate: isValidCommand,
       });
       await gitSetConfigValue("codeEditor", codeEditor);
+    }
+
+    if (
+      hasHerdrPrompt &&
+      (await this.maybePrompt(
+        "Do you want to configure Herdr space options?",
+        flags.yes,
+      ))
+    ) {
+      if (shouldPrompt("herdr.focus")) {
+        const herdrFocus = await input({
+          message: "Should opening a worktree focus its Herdr space?",
+          ...(await this.getInputConfig("herdr.focus", "true")),
+          validate: isValidBoolean,
+        });
+        await gitSetConfigValue("herdr.focus", herdrFocus);
+      }
+
+      if (shouldPrompt("herdr.agent")) {
+        const herdrAgent = await input({
+          message:
+            "Which agent should start in a new Herdr space? (empty for none)",
+          ...(await this.getInputConfig("herdr.agent")),
+          // Empty is not a valid kind, but it is a valid answer: the key is
+          // opt-in (D9), so this prompt has to be the way to decline as well as
+          // the way to choose, or a `--missing` run would force an agent on
+          // someone who does not want one.
+          validate: (value: string) =>
+            value.trim() === "" || isValidAgentKind(value.trim()),
+        });
+        await gitSetConfigValue("herdr.agent", herdrAgent.trim());
+      }
     }
 
     if (
@@ -257,10 +362,15 @@ export default class Config extends BaseCommand {
 
     if (args.name) {
       if (!this.isValidArgName(args.name)) {
+        // Offer only what this machine can use: naming the Herdr keys here is
+        // the last place the feature would show itself to someone without it.
+        const hidden = await this.getHiddenConfigNames();
+        const available = CONFIG_NAMES.filter((name) => !hidden.has(name));
+
         this.error(
           [
             `Unknown config name: ${args.name}`,
-            `Available variables: ${conjoin(CONFIG_NAMES)}`,
+            `Available variables: ${conjoin(available)}`,
           ].join(EOL),
         );
       }

@@ -1,12 +1,17 @@
 import * as cli from "./cli.js";
 import * as git from "./git.js";
 import {
+  InvalidConfigValueError,
+  isValidAgentKind,
+  isValidBoolean,
   isValidBranch,
   isValidBranchName,
   isValidCommand,
   isValidCommandLine,
   isValidConfigValue,
   isValidEmail,
+  isValidOpener,
+  validateConfigValue,
 } from "./validators.js";
 
 describe("isValidEmail", () => {
@@ -47,23 +52,32 @@ describe("isValidCommand", () => {
   });
 
   it.each`
-    command                    | commandExists | expected                                      | description
-    ${"git"}                   | ${true}       | ${true}                                       | ${"existing command"}
-    ${"node"}                  | ${true}       | ${true}                                       | ${"another existing command"}
-    ${"git status"}            | ${true}       | ${true}                                       | ${"command with arguments"}
-    ${"nonexistent"}           | ${false}      | ${"Command not found: nonexistent"}           | ${"non-existing command"}
-    ${"fake-cmd"}              | ${false}      | ${"Command not found: fake-cmd"}              | ${"another non-existing command"}
-    ${"bad command with args"} | ${false}      | ${"Command not found: bad command with args"} | ${"non-existing command with args"}
+    command                       | commandExists | expected                                      | lookedUp             | description
+    ${"git"}                      | ${true}       | ${true}                                       | ${"git"}             | ${"existing command"}
+    ${"node"}                     | ${true}       | ${true}                                       | ${"node"}            | ${"another existing command"}
+    ${"git status"}               | ${true}       | ${true}                                       | ${"git"}             | ${"command with arguments"}
+    ${`open -a "Sublime Text"`}   | ${true}       | ${true}                                       | ${"open"}            | ${"command with a quoted argument"}
+    ${`"/opt/my apps/ed" --wait`} | ${true}       | ${true}                                       | ${"/opt/my apps/ed"} | ${"quoted program path containing a space"}
+    ${"nonexistent"}              | ${false}      | ${"Command not found: nonexistent"}           | ${"nonexistent"}     | ${"non-existing command"}
+    ${"fake-cmd"}                 | ${false}      | ${"Command not found: fake-cmd"}              | ${"fake-cmd"}        | ${"another non-existing command"}
+    ${"bad command with args"}    | ${false}      | ${"Command not found: bad command with args"} | ${"bad"}             | ${"non-existing command with args"}
   `(
     'should return $expected for "$command" when commandExists returns $commandExists ($description)',
-    async ({ command, commandExists, expected }) => {
+    async ({ command, commandExists, expected, lookedUp }) => {
       // Mock the commandExists function
       vi.spyOn(cli, "commandExists").mockResolvedValue(commandExists);
 
       expect(await isValidCommand(command)).toBe(expected);
-      expect(cli.commandExists).toHaveBeenCalledWith(command);
+      // The head alone is looked up, split the same way the value is executed,
+      // so a quoted program path arrives as one name. The message still quotes
+      // the whole value back.
+      expect(cli.commandExists).toHaveBeenCalledWith(lookedUp);
     },
   );
+
+  it("rejects a value with no program in it", async () => {
+    expect(await isValidCommand("   ")).toBe("Command cannot be empty");
+  });
 });
 
 describe("isValidCommandLine", () => {
@@ -222,4 +236,120 @@ describe("isValidBranchName", () => {
       expect(result).toBe(expected);
     },
   );
+});
+
+describe("isValidOpener", () => {
+  it.each`
+    opener      | expected                            | description
+    ${"editor"} | ${true}                             | ${"the default opener"}
+    ${"herdr"}  | ${true}                             | ${"the Herdr opener"}
+    ${"bogus"}  | ${"Opener must be editor or herdr"} | ${"an unknown opener"}
+    ${"Editor"} | ${"Opener must be editor or herdr"} | ${"the right kind in the wrong case"}
+    ${""}       | ${"Opener must be editor or herdr"} | ${"empty string"}
+    ${"herdr "} | ${"Opener must be editor or herdr"} | ${"a trailing space"}
+  `(
+    'should return $expected for "$opener" ($description)',
+    ({ opener, expected }) => {
+      expect(isValidOpener(opener)).toBe(expected);
+    },
+  );
+});
+
+describe("isValidBoolean", () => {
+  it.each`
+    value      | expected                         | description
+    ${"true"}  | ${true}                          | ${"true"}
+    ${"false"} | ${true}                          | ${"false"}
+    ${"yes"}   | ${"Value must be true or false"} | ${"a truthy word that is not true"}
+    ${"1"}     | ${"Value must be true or false"} | ${"a numeric flag"}
+    ${"True"}  | ${"Value must be true or false"} | ${"the right word in the wrong case"}
+    ${""}      | ${"Value must be true or false"} | ${"empty string"}
+  `(
+    'should return $expected for "$value" ($description)',
+    ({ value, expected }) => {
+      expect(isValidBoolean(value)).toBe(expected);
+    },
+  );
+});
+
+describe("isValidAgentKind", () => {
+  const shapeMessage =
+    "Agent kind must be lowercase letters, digits and dashes, for example claude";
+
+  it.each`
+    value              | expected        | description
+    ${"claude"}        | ${true}         | ${"a kind Herdr lists"}
+    ${"codex"}         | ${true}         | ${"another kind Herdr lists"}
+    ${"qodercli"}      | ${true}         | ${"a kind with digits-free letters only"}
+    ${"some-agent2"}   | ${true}         | ${"kebab with a trailing digit"}
+    ${"not-a-kind"}    | ${true}         | ${"a well-shaped kind Herdr does not list, which Herdr rejects, not us (D10)"}
+    ${""}              | ${shapeMessage} | ${"empty string"}
+    ${"Claude"}        | ${shapeMessage} | ${"the right kind in the wrong case"}
+    ${"2fast"}         | ${shapeMessage} | ${"a leading digit"}
+    ${"claude code"}   | ${shapeMessage} | ${"a space"}
+    ${"claude;rm -rf"} | ${shapeMessage} | ${"shell punctuation"}
+    ${"claude_code"}   | ${shapeMessage} | ${"an underscore, which is not kebab"}
+  `(
+    'should return $expected for "$value" ($description)',
+    ({ value, expected }) => {
+      expect(isValidAgentKind(value)).toBe(expected);
+    },
+  );
+
+  it("does not check the value against a list of known kinds", async () => {
+    // D10: the 22 kinds live in Herdr's help text and behind
+    // `server.agent_manifests`, not in the socket schema, so a copy here would
+    // rot on the next release. Shape is all this file is allowed to know.
+    expect(isValidAgentKind("an-agent-invented-tomorrow")).toBe(true);
+  });
+});
+
+describe("isValidConfigValue — the opener keys", () => {
+  it.each`
+    configName        | value         | expected                                                                         | description
+    ${"opener"}       | ${"herdr"}    | ${true}                                                                          | ${"a known opener"}
+    ${"opener"}       | ${"bogus"}    | ${"Opener must be editor or herdr"}                                              | ${"an unknown opener"}
+    ${"herdr.focus"}  | ${"false"}    | ${true}                                                                          | ${"a boolean focus value"}
+    ${"herdr.focus"}  | ${"maybe"}    | ${"Value must be true or false"}                                                 | ${"a non-boolean focus value"}
+    ${"herdr.agent"}  | ${"claude"}   | ${true}                                                                          | ${"a well-shaped agent kind"}
+    ${"herdr.agent"}  | ${"Claude!"}  | ${"Agent kind must be lowercase letters, digits and dashes, for example claude"} | ${"a badly-shaped agent kind"}
+    ${"github.token"} | ${"anything"} | ${true}                                                                          | ${"a key with no validation case"}
+  `(
+    'should return $expected for $configName="$value" ($description)',
+    async ({ configName, value, expected }) => {
+      expect(await isValidConfigValue(configName, value)).toBe(expected);
+    },
+  );
+});
+
+describe("validateConfigValue", () => {
+  it("should throw InvalidConfigValueError for an unknown opener", async () => {
+    await expect(validateConfigValue("opener", "bogus")).rejects.toThrow(
+      InvalidConfigValueError,
+    );
+  });
+
+  it("should resolve for a known opener", async () => {
+    await expect(
+      validateConfigValue("opener", "herdr"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("should throw InvalidConfigValueError for a non-boolean herdr.focus", async () => {
+    await expect(validateConfigValue("herdr.focus", "maybe")).rejects.toThrow(
+      InvalidConfigValueError,
+    );
+  });
+
+  it("should throw InvalidConfigValueError for a badly-shaped herdr.agent", async () => {
+    await expect(validateConfigValue("herdr.agent", "Claude!")).rejects.toThrow(
+      InvalidConfigValueError,
+    );
+  });
+
+  it("should resolve for a well-shaped herdr.agent", async () => {
+    await expect(
+      validateConfigValue("herdr.agent", "claude"),
+    ).resolves.toBeUndefined();
+  });
 });
