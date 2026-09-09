@@ -126,16 +126,35 @@ phase finished, no open `P0` or `P1` — and so is everything about pushing.
 | Above | Becomes |
 |---|---|
 | resolve from `roadmap.md` | resolve from the issues carrying the backlog label |
-| every phase `done` | **every sub-issue closed** |
-| remove the entry, append a `history.md` row | **close the issue** — *completed* for shipped, *not planned* for `--dropped` |
+| every phase `done` | **unchanged** — every row in the body's ledger reads `done` |
+| remove the entry, append a `history.md` row | **the issue is closed** — *completed* for shipped, *not planned* for `--dropped`. See *Who closes it* |
 | the one-line why | the closing comment |
 | `git mv` the plan to `archive/` | nothing moves; the issue keeps its body and its whole thread |
 | rewrite the document header | nothing — a closed issue does not claim to be open |
 | the reference sweep | **nothing to sweep.** No path changed, so no link broke |
 
 **The archive is the closed issue**, and it is more than the file it replaces: the plan, the discussion
-that shaped it, every phase as a closed sub-issue, and the pull request, all at one id that nothing had to
-rewrite. This is why the sweep and the header rewrite both disappear rather than being ported.
+that shaped it, the finished ledger with every phase's Note, and the pull request, all at one id that
+nothing had to rewrite. This is why the sweep and the header rewrite both disappear rather than being
+ported.
+
+### Who closes it
+
+**Where [`context/git.md`](../../../context/git.md) says the agent pushes and opens a pull request**, put
+`Closes #<issue>` in the pull request body and let the merge close it. The close then rides the same change
+as the work — which is exactly what appending the `history.md` row does under the other answer.
+
+**Where it says anything else, close the issue here**, with the closing comment, and say that is what
+happened. Nothing else will: the trailer fires only when the commit reaches the default branch, and under
+those answers it never gets there.
+
+**`--dropped` always closes here, whatever `git.md` says.** A trailer closes an issue as *completed*, and
+that is the wrong outcome for an idea that will not be built — the two close reasons are how this answer
+records what `history.md`'s Outcome column used to.
+
+This is the only place `git.md`'s answer changes what this command does, and it is why
+[`context/tracking.md`](../../../context/tracking.md) recommends pairing this substrate with the push
+answer rather than requiring it.
 
 **Keep the label and keep the assignee.** The label is what makes retired features findable later, and the
 assignee is the record of who ran it. Neither means anything once the issue is closed, and removing either
@@ -149,9 +168,7 @@ comment is what stops the idea being re-proposed, so a vague one makes it worthl
 `history.md` row was for.
 
 **Then push, if `git.md` says so.** Unchanged, except that the pull request body links the issue rather
-than an archived path, and the commit or pull request carries the trailer that closes it. **Under this
-answer that trailer is not optional**: it is how the close lands in the same change as the work, which is
-the dependency [`context/tracking.md`](../../../context/tracking.md) records between the two answers.
+than an archived path, and carries the trailer described above.
 
 ## Rules
 

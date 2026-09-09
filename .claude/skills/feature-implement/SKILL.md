@@ -1,13 +1,14 @@
 ---
 name: feature-implement
-description: "Activate a planned feature and run the next phase of its plan through implementation, verification and review, updating that phase's status where context/tracking.md says it lives. Explicit invocation only — run this when the user types /feature-implement. Do NOT match on 'implement X', 'build this', 'let's code it', or any general request to write code."
+description: "Activate a planned feature and run the next phase of its plan — or, with --all, phase after phase until something stops it — through implementation, verification and review, updating that phase's status where context/tracking.md says it lives. Explicit invocation only — run this when the user types /feature-implement. Do NOT match on 'implement X', 'build this', 'let's code it', or any general request to write code."
 disable-model-invocation: true
 ---
 
 # /feature-implement
 
 Owns the transition from *has a plan* to *being worked*, **and** the phases within it. One invocation runs
-**one phase**: pick it, do it, gate it, close out its ledger row.
+**one phase**: pick it, do it, gate it, close out its ledger row. `--all` (step 14) runs that same loop
+back to back instead of stopping after the first.
 
 Read [`context/workflow.md`](../../../context/workflow.md) for the tier model, the one-active-feature rule
 and the gate contract. This skill cites those rather than restating them.
@@ -20,6 +21,7 @@ is written for the working-tree answer**; *Under the tracker answer* at the end 
 ```
 /feature-implement            # resolve or choose a feature, then run the next phase
 /feature-implement "<name>"   # a named feature
+/feature-implement --all      # keep going, phase after phase, until step 14's stop list says otherwise
 ```
 
 ## 1. Resolve the feature
@@ -208,27 +210,81 @@ feature and turns every phase after it into a force-push.
 references — that is a tier boundary, and crossing it is an explicit command the user runs, not a
 side-effect of the last phase finishing.
 
+## 14. `--all` — the next phase without a second invocation
+
+Without the flag, this invocation is over at step 13. With it, **go back to step 3 and run the next
+phase**, and keep going until the stop list below says otherwise.
+
+Phase to phase is not a tier boundary — this command already owns "activation, and the phases within a
+plan" — so the flag crosses nothing. What it removes is the pause where a user reads a phase's report
+before the next one builds on it, and everything below exists to replace that pause with something
+written down.
+
+**Step 2 does not run again.** The approval checkpoint, the branch or worktree, and the marker are all
+once per feature and happened before the first phase. That is what makes this a loop over steps 3–13
+rather than a second invocation of the command.
+
+**Step 13 reports every phase, as that phase ends** — never held back for one summary at the end. The
+report is the evidence a phase actually passed, and a run that dies four phases deep has to leave that
+evidence behind it. It is step 9's argument about the transcript, one level up.
+
+### Say two things before the first phase
+
+1. **Which reviewer step 9 will run**, from [`context/executors.md`](../../../context/executors.md). Where
+   it is the host reading its own diff, **say that plainly**: one phase of the weakest answer with a user
+   reading the report afterwards is not four phases of it unattended, each built on the last.
+2. **What [`context/git.md`](../../../context/git.md) says about who commits.** Under *the user commits*,
+   step 12 leaves each phase in the working tree — so **run this phase, decline the continuation, and name
+   that answer as the reason.** *One commit per phase* is that file's answer about the shape the tree is
+   left in, and a tree carrying four phases at once cannot be cut back into four commits. Nothing is lost:
+   the user commits and runs it again. Under *the agent commits*, each phase is its own commit and the
+   loop runs.
+
+### Stop, and hand back
+
+The flag is permission to continue, not an instruction to finish. **Stop after the phase that just ended,
+report, and name the line that stopped you**, when:
+
+- it closed `blocked`, or stayed `in progress` because only part of its scope landed
+- a gate hit its two-loop cap — step 10 has already written the finding and escalated
+- an open `P0` or `P1` is tied to it, the same condition that refuses `done` in step 11
+- step 5's disagreement holds for the next phase: the ledger's claim contradicts the repo
+- nothing is runnable: the lowest phase that is not `done` has a `Depends on` that is not `done`
+- **every phase is `done`** → say so and name `/feature-close`, exactly as step 13 does
+
+**`--all` never crosses into `/feature-close`.** That is a tier boundary, and a flag on this command is not
+the user typing that one.
+
+A Gate 2 `PASS WITH NOTES` continues, and so does a `FAIL` that passes on its loopback. Only the cap stops.
+
+**Never widen the flag to cover what it does not.** It runs the phases of one plan. It does not pick a
+second feature, re-plan a phase whose scope turned out wrong, or lift any refusal above — a stop list
+worked around once is not a stop list.
+
 ## Under the tracker answer
 
 Read [`context/tracking.md`](../../../context/tracking.md) first. Every step above holds — the approval
-checkpoint, both gates, the loopback cap, the refusal to mark `done` on a self-report. Only where status is
-written changes, plus two mechanisms that exist because more than one agent can be running.
+checkpoint, both gates, the loopback cap, the refusal to mark `done` on a self-report — and **the ledger is
+the same table it always was.** What changes is that the table lives in the issue body, plus two mechanisms
+that exist because more than one agent can be running.
 
 | Above | Becomes |
 |---|---|
 | the `active` marker | the issue's assignee |
-| the plan's phase list, order and `Depends on` | the issue body — unchanged, it is still the plan |
-| the ledger's Status column | its sub-issues |
-| a phase's Status | open and unassigned is `not started`, open and assigned is `in progress`, the blocked label is `blocked`, closed is `done` |
-| a phase's Note | a comment on that sub-issue |
-| step 6, open the row | assign yourself the sub-issue |
-| step 11, close the row | `Closes #<sub-issue>` in the commit, so the forge closes it when the branch lands |
+| the plan, its phase list, its `Depends on` and its ledger | the issue body — **unchanged**, it is still the plan and still the same table |
+| step 6, open the row | edit that row's Status to `in progress` in the body |
+| step 11, close the row | edit that row again, naming the commit's sha in the Note |
 
-**Step 3 reads both.** The body says which phases exist and what each depends on; the sub-issue says where
-that phase stands. Pick the same way — lowest-numbered phase not `done` whose `Depends on` are all `done` —
-and **stop if the two disagree**: a listed phase with no sub-issue, or a sub-issue naming no listed phase,
-is step 5's disagreement rule, and a half-created plan is not something to work around by picking whatever
-is there.
+**Step 3 reads one place.** The body holds the phase list, the dependencies and the status together,
+exactly as a plan document does. Pick the same way — the lowest-numbered phase that is not `done` and whose
+`Depends on` are all `done` — and step 5's disagreement rule reads unchanged.
+
+### The body is a read-modify-write
+
+**Re-read the body immediately before editing it, and change only the row.** The body is text a person may
+be editing at the same time — refining the plan while you flip a status — and a stale copy written back
+loses their edit with no trace. This hazard does not exist under the working-tree answer, where the plan
+sits in a tree only you are working in.
 
 ### Claiming, in step 2
 
@@ -238,7 +294,8 @@ issue that already has a different assignee is held; name the holder and stop, e
 one-active-feature rule does above.
 
 **The rule is per working tree and per agent, not per repository.** Several features may be assigned at
-once — that is the point of this answer. What must not happen is two agents on one feature.
+once — that is the point of this answer. What must not happen is two agents on one feature, which is also
+what makes the body safe to edit: a feature has exactly one writer, and it is whoever holds the assignee.
 
 ### The heartbeat, at every phase boundary
 
@@ -248,23 +305,35 @@ the commit. Two lines is enough.
 An assignee is a lock with no expiry: an agent that dies holding one leaves the issue assigned and nothing
 reclaims it. The comment cannot prevent that — it makes it **visible**, from a machine that is not the one
 that died. *"Phase 2 opened six hours ago and nothing since"* is a reclaimable state; an assignee alone is
-not. This is step 6's argument for the opening row write, one level up, and it is why that write is a
-comment here as well as an assignment.
+not. This is step 6's argument for the opening row write, one level up.
 
 **Reclaiming is not this command's job.** If you find a stale claim, say so and stop. Do not un-assign
 someone else's agent.
 
-### Closing out, in steps 11 and 12
+**Under `--all` the heartbeat is the only thing outside the run that can see it.** A loop that dies four
+phases deep leaves the same assignee it would have left after one, and nothing in the transcript reached
+anyone. Comment at every boundary the loop crosses, not once at the end.
 
-- **`done`** → put `Closes #<sub-issue>` in the commit message. Do not close the sub-issue by hand: the
-  point is that the closing write rides the same change as the work, which is what the ledger row did.
-  Where the user commits rather than the agent, say the trailer is needed and leave it in the message you
-  hand over.
-- **stays `in progress`** → leave it assigned and comment what remains.
-- **`blocked`** → add the blocked label and comment the blocker. Remove that label when it unblocks;
-  nothing else does.
+### The closing write, in steps 11 and 12
 
-**Never close a sub-issue to get past a refusal**, exactly as no phase is marked `done` to get past one.
+**The row cannot ride the commit here, and the sha is what replaces it.** Under the working-tree answer the
+row is a line in a file that travels inside the commit, so the row and the code can never disagree. A body
+edit is a remote write and cannot be part of a commit — so the evidence goes into the row instead:
+
+- **`done`** → make the commit, then edit the row immediately, **with that commit's sha in the Note.** A
+  `done` row whose sha is in the branch is checkable against the repository; **a `done` row with no sha is
+  a disagreement, and step 5 stops on it.**
+- **stays `in progress`** → rewrite the Note to name exactly what remains, and leave the issue assigned.
+- **`blocked`** → write `blocked` in the Status column and the blocker in the Note. There is no label for
+  this and none is needed: the column carries all four values.
+
+**Where [`context/git.md`](../../../context/git.md) says the user commits, there is no sha to write.** Say
+so in the Note — the change is in a named working tree and uncommitted — and write the row anyway. A row
+that is never written is worse than one whose evidence is still owed, and this is the pairing
+[`context/tracking.md`](../../../context/tracking.md) says is worth avoiding: under it, a phase reads
+`done` from every machine while its code exists on exactly one.
+
+**Never edit a row to get past a refusal**, exactly as no phase is marked `done` to get past one.
 
 **`findings.md` is unchanged.** It stays a file. A finding is raised and swept inside one branch's life, so
 it is never contended — and an open `P0` or `P1` blocks the phase here the same way.

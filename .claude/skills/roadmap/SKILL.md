@@ -101,12 +101,28 @@ backlog is a set of issues rather than a file.
 | read `context/roadmap.md` | list the open issues carrying the backlog label |
 | append an entry | open one issue: the title is the kebab-case name, the body is the one or two lines |
 | a `drafts/<NAME>.md` file | the same material, in that issue's body |
-| set **Doc:** | nothing — a plan is the observation that the issue has sub-issues |
+| set **Doc:** | nothing — a plan is the observation that the issue body holds a phase ledger |
+| the entry's `Size:` field | a `Size:` line in the body, joined by a `Priority:` line |
 | check `context/history.md` for a dropped idea | search **closed** issues; *closed as not planned* is the dropped case, and its closing comment is the reason |
 
 **Write no file.** No entry, no draft, no `Doc` field. The issue body carries the one or two lines, and the
 reference material goes into that same body under a heading rather than into a separate document — the
 draft and the plan are one object here, edited in place, which is why `/feature-plan` can keep the id.
+
+**Set two things the file answer has no room for**, both named in
+[`context/tracking.md`](../../../context/tracking.md) and neither read by anything in this workflow's loop:
+
+- **A `Priority:` line in the body.** Ask for it if the user's wording does not imply one, and write
+  `Medium` if they have no view. An issues list has no manual order, so this is the only place *what
+  matters more* can be said under this answer — `/feature-plan`'s ranking reads it and nothing else does.
+- **The issue's type**, if this project has types configured. It is a **guess from one or two lines** and
+  it is meant to be: `/feature-plan` corrects it once there is research to correct it from. Where the
+  project has no types, or the write is silently dropped for want of push access, skip it and say so once
+  — it is metadata, not a gate.
+
+**Do not branch on either one.** Neither the type nor the priority changes what this command does; they are
+recorded for the tracker's readers, and a command that started reading them would be adding a vocabulary
+[`context/workflow.md`](../../../context/workflow.md) does not have.
 
 Everything the *Capturing reference material* section says still holds, including the credential rule:
 **an issue body is a tracked file for that purpose and probably a more public one.**
@@ -128,6 +144,11 @@ thing. Add a comment saying it has entered the backlog, and leave the body alone
   `/orchestrate` work — fixed and closed by the commit, never labelled, never in the backlog.
 - **The label says nothing about kind.** A bug large enough to plan is a feature in this workflow's
   vocabulary. Leave every label the issue already carries exactly where it is.
+- **Never overwrite a type someone else set**, and never retype an adopted issue. Whoever filed it
+  classified it, and the same argument that keeps their wording keeps their type. Set one only where the
+  field is empty.
+- **Ask for a priority rather than inventing one.** An adopted issue arrives with no view on where it sits
+  against the rest of the backlog, and guessing puts a stranger's work in your ranking's top slot.
 - **The title may not be a kebab-case name**, and other people's issue titles are not yours to rewrite. Say
   what name the workflow will use for it and put that name in your comment.
 
