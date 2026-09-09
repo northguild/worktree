@@ -125,6 +125,8 @@ worktree config branchPrefix.chore chore/
 - `github.autoAssign` decides whether reading an issue also assigns it to you. It has three states, not
   two: `true` always assigns, `false` never does, and leaving it **unset** means you are asked, once, and
   your answer is saved to this key. Assigning needs a token with push access to the repository.
+- `worktree branch --assign` and `--no-assign` override the key for a single run, whatever it holds. See
+  [`branch`](/docs/commands/branch#assigning-the-issue-to-yourself).
 - If you answered no and want the offer back, set the key directly:
 
 ```bash

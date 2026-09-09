@@ -1,5 +1,6 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { confirm, input } from "@inquirer/prompts";
+import ora from "ora";
 import * as githubIntegration from "../integrations/github.js";
 import * as jiraIntegration from "../integrations/jira.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
@@ -28,6 +29,9 @@ vi.mock("ora", () => ({
       return this;
     }),
     fail: vi.fn(function (this: any) {
+      return this;
+    }),
+    warn: vi.fn(function (this: any) {
       return this;
     }),
     stop: vi.fn(function (this: any) {
@@ -61,6 +65,19 @@ describe("branch command", () => {
     vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
       if (key === "has-called-config") return Promise.resolve("true");
       return Promise.resolve("");
+    });
+
+    // From this phase on, any --github run can reach the assignment seam: an
+    // unset `github.autoAssign` means ask (D3), so a case that never mentions
+    // assignment still passes through the confirm. Neither the config write nor
+    // the API call belongs in a test that is not about assignment — without
+    // these two, whichever value `confirm` happens to be left returning decides
+    // it, which is order-dependent. config.test.ts guards gitSetConfigValue for
+    // the same reason.
+    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
+      login: "octocat",
+      assigned: true,
     });
   });
 
@@ -589,6 +606,356 @@ describe("branch command", () => {
       expect(mockError).toHaveBeenCalledWith(
         "Please provide either --github or --jira, not both.",
       );
+    });
+  });
+
+  describe("--assign flag", () => {
+    // One place to set up a --github run whose only variable is the assignment
+    // decision, so each precedence case below reads as just its own inputs.
+    function githubRun(
+      flags: Record<string, unknown>,
+      configValues: Record<string, string> = {},
+    ) {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "defaultSourceBranch")
+          return Promise.resolve("origin/main");
+        return Promise.resolve(configValues[key] ?? "");
+      });
+      mockInput.mockResolvedValue("42-add-dark-mode");
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42", ...flags },
+      });
+    }
+
+    describe("precedence: flag, then config, then prompt", () => {
+      it("assigns on --assign, outranking a configured false, without prompting", async () => {
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        githubRun({ assign: true }, { "github.autoAssign": "false" });
+
+        await branch.run();
+
+        // The flag outranks a configured `false` — that is what makes it a
+        // one-run override rather than a second way to spell the key.
+        expect(mockAssign).toHaveBeenCalledWith(42);
+        expect(mockConfirm).not.toHaveBeenCalled();
+      });
+
+      it("does not assign on --no-assign, even with autoAssign true", async () => {
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        githubRun({ assign: false }, { "github.autoAssign": "true" });
+
+        await branch.run();
+
+        expect(mockAssign).not.toHaveBeenCalled();
+        expect(mockConfirm).not.toHaveBeenCalled();
+      });
+
+      it("assigns when autoAssign is true and no flag is given", async () => {
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        githubRun({}, { "github.autoAssign": "true" });
+
+        await branch.run();
+
+        expect(mockAssign).toHaveBeenCalledWith(42);
+        expect(mockConfirm).not.toHaveBeenCalled();
+      });
+
+      it("does not assign when autoAssign is false and no flag is given", async () => {
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        githubRun({}, { "github.autoAssign": "false" });
+
+        await branch.run();
+
+        expect(mockAssign).not.toHaveBeenCalled();
+        expect(mockConfirm).not.toHaveBeenCalled();
+      });
+
+      it("asks when the key is unset, and assigns on yes", async () => {
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        mockConfirm.mockResolvedValue(true);
+        githubRun({});
+
+        await branch.run();
+
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Assign this issue to you? (saved as github.autoAssign; change it later with `worktree config github.autoAssign <true|false>`)",
+        });
+        expect(mockAssign).toHaveBeenCalledWith(42);
+        // D5: the answer persists, so the most common path is taxed once and
+        // not forever. The message above has to name the key it writes (R1).
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "github.autoAssign",
+          "true",
+        );
+      });
+
+      it("asks when the key is unset, and persists a no without assigning", async () => {
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        mockConfirm.mockResolvedValue(false);
+        githubRun({});
+
+        await branch.run();
+
+        expect(mockAssign).not.toHaveBeenCalled();
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "github.autoAssign",
+          "false",
+        );
+      });
+    });
+
+    describe("the worktree is the deliverable", () => {
+      it("still creates and opens the worktree when the assignment throws", async () => {
+        vi.spyOn(githubIntegration, "assignGitHubIssue").mockRejectedValue(
+          new Error("GitHub: Failed to assign issue 42 in o/r. 403 Forbidden"),
+        );
+        githubRun({ assign: true });
+        const mockGitCreateWorktree = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockResolvedValue("/path/to/worktree");
+
+        // §2: nothing here may abort `branch`. A rejected assignment is a
+        // warning on the spinner, never a `fail` and never a re-throw.
+        await expect(branch.run()).resolves.toBeUndefined();
+
+        expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+          "42-add-dark-mode",
+          "origin/main",
+        );
+        expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      });
+
+      it("still creates the worktree when the issue comes back unassigned", async () => {
+        // D6's silent no-op shape: a 201 whose assignees never gained the
+        // login. Reported as a warning, not as success.
+        vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
+          login: "octocat",
+          assigned: false,
+        });
+        githubRun({ assign: true });
+        const mockGitCreateWorktree = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockResolvedValue("/path/to/worktree");
+
+        await expect(branch.run()).resolves.toBeUndefined();
+
+        expect(mockGitCreateWorktree).toHaveBeenCalled();
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+
+        // §2 is "never `fail`, never a throw", and only the throw half is
+        // pinned by the case above. The last spinner of the run is the
+        // assignment's; without this, swapping `warn` for `fail` or `succeed`
+        // is invisible to the whole suite.
+        const spinner = vi.mocked(ora).mock.results.at(-1)?.value;
+        expect(spinner.warn).toHaveBeenCalled();
+        expect(spinner.fail).not.toHaveBeenCalled();
+        expect(spinner.succeed).not.toHaveBeenCalled();
+      });
+
+      it("assigns before the worktree is created", async () => {
+        const calls: string[] = [];
+        vi.spyOn(githubIntegration, "assignGitHubIssue").mockImplementation(
+          async () => {
+            calls.push("assign");
+            return { login: "octocat", assigned: true };
+          },
+        );
+        githubRun({ assign: true });
+        vi.spyOn(git, "gitCreateWorktree").mockImplementation(async () => {
+          calls.push("createWorktree");
+          return "/path/to/worktree";
+        });
+
+        await branch.run();
+
+        // D7: deciding early is what keeps the prompt off the far side of the
+        // creation spinners and a launched editor.
+        expect(calls).toEqual(["assign", "createWorktree"]);
+      });
+    });
+
+    describe("the other issue sources", () => {
+      it("still creates the worktree when persisting the answer fails", async () => {
+        // The write is bookkeeping about whether to assign, not the assignment
+        // itself, so §2 covers it just as firmly: a stale .git/config.lock must
+        // not cost the user the branch they asked for.
+        mockConfirm.mockResolvedValue(true);
+        vi.spyOn(git, "gitSetConfigValue").mockRejectedValue(
+          new Error("error: could not lock config file .git/config"),
+        );
+        githubRun({});
+        const mockGitCreateWorktree = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockResolvedValue("/path/to/worktree");
+
+        await expect(branch.run()).resolves.toBeUndefined();
+
+        expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+          "42-add-dark-mode",
+          "origin/main",
+        );
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      });
+
+      it("never reaches the assignment seam without --github or --jira", async () => {
+        // The global spies in beforeEach would absorb a stray call silently,
+        // so the plain path needs its own assertion that nothing is reached.
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+          "/path/to/worktree",
+        );
+
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: { branchName: "my-branch" },
+          flags: {},
+        });
+
+        await branch.run();
+
+        expect(mockAssign).not.toHaveBeenCalled();
+        // Not "no confirm at all" — verifyConfig asks its own missing-config
+        // question on this path. Only the assignment one must be absent.
+        const asked = mockConfirm.mock.calls.map(
+          (call: unknown[]) => (call[0] as { message: string }).message,
+        );
+        expect(
+          asked.some((message) => message.includes("Assign this issue")),
+        ).toBe(false);
+        expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+          "github.autoAssign",
+          expect.anything(),
+        );
+      });
+
+      it("warns and continues for --jira --assign", async () => {
+        vi.spyOn(
+          jiraIntegration,
+          "getJiraBranchNameFromIssue",
+        ).mockResolvedValue("DEV-123-add-dark-mode");
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        const mockWarn = vi
+          .spyOn(branch, "warn")
+          .mockImplementation((input: any) => input);
+        mockInput.mockResolvedValue("DEV-123-add-dark-mode");
+        const mockGitCreateWorktree = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockResolvedValue("/path/to/worktree");
+
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { jira: "DEV-123", assign: true },
+        });
+
+        await branch.run();
+
+        // D2 reserves the flag name for Jira; only the GitHub path is built.
+        expect(mockWarn).toHaveBeenCalledWith(
+          "Assignment is not supported for Jira issues yet.",
+        );
+        expect(mockAssign).not.toHaveBeenCalled();
+        expect(mockGitCreateWorktree).toHaveBeenCalled();
+      });
+
+      it.each([
+        [true],
+        [false],
+      ])("errors when the assign flag is %s with neither --github nor --jira", async (assign) => {
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          return Promise.resolve("");
+        });
+        const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
+          throw new Error(
+            "--assign/--no-assign requires either --github or --jira.",
+          );
+        });
+
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: { branchName: "my-branch" },
+          flags: { assign },
+        });
+
+        // Both spellings are one flag under `allowNo`, and neither has an
+        // issue to act on here.
+        await expect(branch.run()).rejects.toThrow(
+          "--assign/--no-assign requires either --github or --jira.",
+        );
+        expect(mockError).toHaveBeenCalledWith(
+          "--assign/--no-assign requires either --github or --jira.",
+        );
+      });
+
+      it("leaves a plain --github run untouched when no flag and no key", async () => {
+        // The confirm is the only new prompt on this path, and a `no` must
+        // leave the run exactly as it was before this feature.
+        const mockAssign = vi
+          .spyOn(githubIntegration, "assignGitHubIssue")
+          .mockResolvedValue({ login: "octocat", assigned: true });
+        vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        mockConfirm.mockResolvedValue(false);
+        githubRun({});
+        const mockGitCreateWorktree = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockResolvedValue("/path/to/worktree");
+
+        await branch.run();
+
+        expect(mockAssign).not.toHaveBeenCalled();
+        expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+          "42-add-dark-mode",
+          "origin/main",
+        );
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      });
+    });
+
+    it("derives the issue number the same way the branch name does", async () => {
+      const mockAssign = vi
+        .spyOn(githubIntegration, "assignGitHubIssue")
+        .mockResolvedValue({ login: "octocat", assigned: true });
+      githubRun({ assign: true, github: "#42" });
+
+      await branch.run();
+
+      // Both readers of --github go through one helper, so a leading `#`
+      // cannot be stripped for the branch name and left on for the assignment.
+      expect(githubIntegration.fetchGitHubIssue).toHaveBeenCalledWith(42);
+      expect(mockAssign).toHaveBeenCalledWith(42);
     });
   });
 

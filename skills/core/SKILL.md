@@ -94,10 +94,20 @@ Use `branch` to create something new.
 worktree branch --github 42
 worktree branch --github "#42"
 
+# Assign the issue to yourself while creating the branch.
+# Needs a token with push access; --no-assign skips it for one run.
+worktree branch --github 42 --assign
+worktree branch --github 42 --no-assign
+
 # Jira — requires jira.host, jira.email, jira.apiToken in config
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
 ```
+
+With neither flag, `github.autoAssign` decides whether the issue is
+assigned: `true` always, `false` never, and unset means you are asked once
+and the answer is saved to the key. A failed assignment warns and the
+worktree is still created.
 
 The generated branch name is pre-filled in an interactive prompt and
 editable before confirmation. Branch prefixes are applied when configured:

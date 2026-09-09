@@ -1,7 +1,7 @@
 import { confirm, input } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import ora from "ora";
-import { fetchGitHubIssue } from "../integrations/github.js";
+import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
 import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
 import { BaseCommand } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
@@ -10,6 +10,7 @@ import {
   gitGetConfigValue,
   gitGetLocalBranches,
   gitGetRemoteBranches,
+  gitSetConfigValue,
 } from "../lib/git.js";
 import type { ConfigName } from "../lib/types.js";
 import { sanitizeBranchName } from "../lib/utils.js";
@@ -24,6 +25,7 @@ export default class Branch extends BaseCommand {
     "<%= config.bin %> <%= command.id %> my-new-branch",
     "<%= config.bin %> <%= command.id %> my-new-branch --source origin/main",
     "<%= config.bin %> <%= command.id %> --github 42",
+    "<%= config.bin %> <%= command.id %> --github 42 --assign",
     "<%= config.bin %> <%= command.id %> --jira DEV-123",
     '<%= config.bin %> <%= command.id %> --github 42 --agent "implement the issue"',
   ];
@@ -45,6 +47,14 @@ export default class Branch extends BaseCommand {
       char: "a",
       description:
         "Start the configured coding agent in the new worktree with this prompt",
+    }),
+    // Source-agnostic on purpose (D2). Jira has assignees too, and the
+    // per-integration difference belongs in the config key rather than in the
+    // flag name. `allowNo` gives `--no-assign` as the one-run override.
+    assign: Flags.boolean({
+      allowNo: true,
+      description:
+        "Assign the issue to you when creating a branch from --github",
     }),
   };
 
@@ -108,12 +118,22 @@ export default class Branch extends BaseCommand {
     return "";
   }
 
-  private async getGithubIssueBranchName(issueNumberFlag: string) {
-    const issueNumber = Number(
+  /**
+   * One normalisation for both readers of `--github`. The branch-name path and
+   * the assignment path derive the same number from the same flag, so a leading
+   * `#` stripped in one place and not the other is a drift this exists to make
+   * impossible.
+   */
+  private getGithubIssueNumber(issueNumberFlag: string) {
+    return Number(
       issueNumberFlag.startsWith("#")
         ? issueNumberFlag.slice(1)
         : issueNumberFlag,
     );
+  }
+
+  private async getGithubIssueBranchName(issueNumberFlag: string) {
+    const issueNumber = this.getGithubIssueNumber(issueNumberFlag);
     const spinner = ora(`Fetching GitHub issue #${issueNumber}`).start();
     try {
       const issue = await fetchGitHubIssue(issueNumber);
@@ -137,6 +157,77 @@ export default class Branch extends BaseCommand {
     } catch (error) {
       spinner.fail();
       throw error;
+    }
+  }
+
+  /**
+   * Flag, then config, then prompt (D4). The key is tri-state through unset
+   * (D3): `true` always assigns, `false` never does, and unset means ask.
+   *
+   * The prompt persists its own answer (D5) and its text names the key it
+   * writes, because a declined answer is otherwise invisible and permanent —
+   * the feature would simply stop offering itself with nothing to point at.
+   */
+  private async shouldAssignGithubIssue(assignFlag?: boolean) {
+    if (assignFlag !== undefined) {
+      return assignFlag;
+    }
+
+    const configured = await gitGetConfigValue("github.autoAssign");
+    if (configured === "true") {
+      return true;
+    }
+    if (configured === "false") {
+      return false;
+    }
+
+    const answer = await confirm({
+      message:
+        "Assign this issue to you? (saved as github.autoAssign; change it later with `worktree config github.autoAssign <true|false>`)",
+    });
+    // The worktree is the deliverable (§2), and this write is only bookkeeping
+    // about whether to assign. `gitSetConfigValue` does not swallow the way
+    // `gitGetConfigValue` does, so an unwrapped failure here — a stale
+    // `.git/config.lock` from a concurrent git process is the realistic one —
+    // would reach BaseCommand.catch and cost the user the branch they asked
+    // for, on a run they may well have answered "no" to.
+    try {
+      await gitSetConfigValue("github.autoAssign", String(answer));
+    } catch {
+      this.warn(
+        "Could not save github.autoAssign, so you will be asked again next time.",
+      );
+    }
+
+    return answer;
+  }
+
+  /**
+   * The worktree is the deliverable (§2), so nothing here aborts `branch`. A
+   * failed assignment warns and the command carries on, the way
+   * `startConfiguredAgent` does — never `fail`, never a throw.
+   *
+   * Success is confirmed against the response rather than assumed (D6):
+   * `assigned` is false when the login never appeared in the returned issue's
+   * assignees, which is what a write without push access looks like.
+   */
+  private async assignGithubIssue(issueNumberFlag: string) {
+    const issueNumber = this.getGithubIssueNumber(issueNumberFlag);
+    const spinner = ora(`Assigning GitHub issue #${issueNumber}`).start();
+
+    try {
+      const { login, assigned } = await assignGitHubIssue(issueNumber);
+      if (assigned) {
+        spinner.succeed(`Assigned issue #${issueNumber} to ${login}`);
+        return;
+      }
+      spinner.warn(
+        `Issue #${issueNumber} was not assigned to ${login}. Assigning requires a token with push access to the repository.`,
+      );
+    } catch (error) {
+      spinner.warn(
+        `Could not assign issue #${issueNumber}. ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -173,6 +264,13 @@ export default class Branch extends BaseCommand {
       this.error("Please provide either --github or --jira, not both.");
     }
 
+    // There is no issue to assign without one of them. Checked here rather than
+    // beside the assignment itself so a malformed command line fails before the
+    // issue fetch and the branch-name prompt, in the shape of the check above.
+    if (flags.assign !== undefined && !flags.github && !flags.jira) {
+      this.error("--assign/--no-assign requires either --github or --jira.");
+    }
+
     const configNames: ConfigName[] = !flags.source
       ? ["defaultSourceBranch"]
       : [];
@@ -184,6 +282,19 @@ export default class Branch extends BaseCommand {
     // If there is no source flag provided, make sure defaultSourceBranch is configured
     await this.verifyConfig(configNames);
     const branchName = await this.getBranchName(args.branchName, flags);
+
+    // Decided before the worktree exists (D7), so the prompt cannot appear
+    // after the creation spinners or behind a launched editor. Being assigned
+    // when creation then fails is bounded by the endpoint's own idempotency:
+    // it does not replace existing assignees, so the retry is harmless.
+    if (flags.jira && flags.assign) {
+      this.warn("Assignment is not supported for Jira issues yet.");
+    } else if (flags.github) {
+      if (await this.shouldAssignGithubIssue(flags.assign)) {
+        await this.assignGithubIssue(flags.github);
+      }
+    }
+
     const sourceBranch = await this.getSourceBranch(flags.source);
     const projectPath = await gitCreateWorktree(branchName, sourceBranch);
     // Env files first: the agent starts working immediately, so it has to find a

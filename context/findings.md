@@ -745,8 +745,13 @@ implementation error.
 Recorded rather than edited, per the F-005 precedent: an unreviewed edit to a surface the phase was not
 scoped to is worse than a tracked line.
 
-**Closes when:** a Gate 1 run passes with `skill_tree.yaml:24`'s key list naming `github.autoAssign`,
-whether that lands in Phase 3's documentation sweep or at `/feature-close`.
+**Phase 3 widened the same drift** (2026-09-09): `skill_tree.yaml:27-29` enumerates the flag surface —
+`--github and --jira issue-to-branch workflows, handing a new worktree to a coding agent with --agent, list
+--agents, cleanup --ignore-agents` — and `--assign` is not in it. Same file, same reason for leaving it, and
+recorded here rather than as a second finding because it closes with the same edit.
+
+**Closes when:** a Gate 1 run passes with `skill_tree.yaml`'s key list naming `github.autoAssign` (`:25`)
+and its flag list naming `--assign` (`:27-28`), whether that lands at `/feature-close` or in a later sweep.
 
 ### F-047 — P3 — a whitespace-only answer at either token prompt overwrites the stored token
 
@@ -770,7 +775,140 @@ from `gh auth token` or re-prompts.
 **Closes when:** a Gate 1 run passes with both token prompts guarding on the trimmed value and writing the
 trimmed value, and a `config.test.ts` case covering a whitespace-only answer at each.
 
+### F-048 — P3 — §8 step 3 was not run, so Q1 is still unanswered and Q2 only half-answered
+
+**Tied to:** github-issue-auto-assign Phase 3 · **Raised:** 2026-09-09 (hand, during Phase 3 acceptance)
+
+The plan's §8 lists four manual checks against a real token. Steps 1, 2 and 4 were run; **step 3 — the same
+call from a token *without* push access — was not**, because manufacturing that condition needs either a
+fine-grained PAT the maintainer creates, or a write attempt against a repository the token cannot write,
+which is somebody else's repository. Neither was done, and the step is recorded as not run rather than
+approximated.
+
+What steps 1 and 2 did establish, against `northguild/worktree` issue #49 on 2026-09-09:
+
+- `POST /repos/{owner}/{repo}/issues/{n}/assignees` → **`201 Created`**, and the login appears in the
+  returned issue's `assignees`.
+- Repeating the identical call → **`201` again, one assignee, no duplicate.** The endpoint's documented
+  "users already assigned are not replaced" holds, which is what R2 leans on when a worktree fails to
+  create after the assignment has already gone through.
+- `GET /repos/{owner}/{repo}/assignees/{assignee}` → **`204 No Content`**, the documented "this user can be
+  assigned" answer. Not used by the implementation, per D6, and this run is the reason to keep it that way:
+  it costs a round-trip and answers a permission, not an outcome.
+
+**Q1 — what an unprivileged POST does** — remains open. It blocks no design: D6's post-check reports a
+warning whether the failure arrives as an error status or as a `201` whose `assignees` never gained the
+login, and both shapes are covered by unit tests.
+
+**Q2 — the exact fine-grained PAT permission label** — is half-answered, and the answer corrects the
+question. The token on this machine is a **classic-scoped OAuth token** (from `gh auth token` — the response
+carries `X-Oauth-Client-Id`, so it is the GitHub CLI's OAuth app rather than a hand-created PAT), and
+for it GitHub returns
+**`X-Accepted-Oauth-Scopes: repo`**. The `X-Accepted-GitHub-Permissions` header the plan expects to read is
+**not sent at all** for a classic token — it is the fine-grained-token counterpart. So §8 step 3 has to be
+run with a fine-grained PAT specifically, not merely with any token lacking push access, or it will not
+produce the header the plan asks for.
+
+**Closes when:** step 3 is run with a fine-grained PAT lacking issues:write, recording the status code, the
+`assignees` array, and the `X-Accepted-GitHub-Permissions` value — and the docs quote that label instead of
+today's deliberately unlabelled "a token with push access to the repository".
+
+### F-050 — P3 — the persistence catch drops the cause, against this project's own error-handling standard
+
+**Tied to:** github-issue-auto-assign Phase 3 · **Raised:** 2026-09-09 (Gate 2 re-review, reviewer subagent, Phase 3)
+
+The guard added for **F-049** binds no error:
+
+```ts
+} catch {
+  this.warn(
+    "Could not save github.autoAssign, so you will be asked again next time.",
+  );
+}
+```
+
+`context/standards/typescript/error-handling.md:6` says *"Never hide the original error context"* and `:30`
+*"Log with context, not just a message"*. Its own sibling four lines away does carry it — the assignment
+catch appends `error instanceof Error ? error.message : String(error)` — and so does the precedent F-049
+cites, `src/lib/base-command.ts:172`.
+
+The consequence is narrow but real: a user hitting the exact trigger F-049 describes is told what will
+happen next and not why it happened, so `error: could not lock config file .git/config` — the one string
+that would point them at a concurrent git process — never reaches them.
+
+Not fixed here because Gate 2 had already passed on this diff, which is the reason F-002, F-003, F-004 and
+F-043 record: an edit made after the gate is an edit the gate did not review.
+
+**Closes when:** a Gate 1 run passes with the catch binding its error and appending the message, in the
+idiom of the assignment catch beside it.
+
+### F-051 — P3 — only one of the two `spinner.warn` sites is pinned, so the throwing path can still turn red unnoticed
+
+**Tied to:** github-issue-auto-assign Phase 3 · **Raised:** 2026-09-09 (Gate 2 re-review, reviewer subagent, Phase 3)
+
+§2's guarantee is *"never `fail`, never a throw"*, and `assignGithubIssue` has two `spinner.warn` sites: the
+`assigned: false` branch and the catch. The Gate 2 re-review verified by mutation that the first is pinned —
+swapping it for `spinner.fail` fails `still creates the worktree when the issue comes back unassigned` — and
+that **the second is not**: the same swap in the catch passes all 40 tests.
+
+So a change that made a failed assignment render as a red ✖ rather than a warning would land green. The
+run still completes and the worktree is still created, so this is presentation, not behaviour — but it is
+the half of §2 that reads *"never `fail`"*, and it is currently asserted for one branch out of two.
+
+This is residue rather than a regression: the prior finding's stated fix was scoped to the `assigned: false`
+case and was carried out exactly.
+
+Two test-placement nits close with the same edit: `still creates the worktree when persisting the answer
+fails` and `never reaches the assignment seam without --github or --jira` both sit under
+`describe("the other issue sources")` in `src/commands/branch.test.ts`, and neither is about another issue
+source — the first belongs under `describe("the worktree is the deliverable")`.
+
+**Closes when:** a Gate 1 run passes with the three-line spinner assertion added to *still creates and opens
+the worktree when the assignment throws*, in the shape the unassigned case already uses.
+
 ## Closed
+
+### F-049 — P2 — persisting the prompted answer can abort `branch` and cost the worktree
+
+**Tied to:** github-issue-auto-assign Phase 3 · **Raised:** 2026-09-09 (Gate 2, reviewer subagent, Phase 3)
+
+`shouldAssignGithubIssue` writes the prompted answer straight through:
+
+```ts
+await gitSetConfigValue("github.autoAssign", String(answer));
+```
+
+`gitSetConfigValue` is `await run("git", ["config", ...])` with no try/catch (`src/lib/git.ts:34-36`),
+unlike its sibling `gitGetConfigValue`, which swallows and returns `""` (`:24-30`). A failed write
+propagates out of `shouldAssignGithubIssue`, out of `run()`, into `BaseCommand.catch`
+(`src/lib/base-command.ts:233-244`), which logs and returns — **and no worktree is created.**
+
+The user answered a one-keystroke convenience question and lost the deliverable. That is exactly what §2
+forbids: *"The worktree is the deliverable. Nothing here may abort `branch`."* §2's own gloss says "a failed
+*assignment* warns and the command carries on", and this is not the assignment — it is the bookkeeping about
+whether to assign, which is worse, because it can fire on a run the user answered *no* to.
+
+The trigger is realistic rather than theoretical: a stale `.git/config.lock` from a concurrent git process,
+in a tool whose whole purpose is running several worktrees over one repository at once.
+
+It also sits on the most common path — a plain `worktree branch --github <n>` with the key unset — and it is
+the one failure mode neither of the phase's two mutation tests covers, because both mutate the assignment
+call rather than the persistence beside it.
+
+**Closes when:** a Gate 1 run passes with the persistence unable to abort the command, and a
+`branch.test.ts` case proving a rejected `gitSetConfigValue` still leaves `gitCreateWorktree` called.
+
+**Closed:** 2026-09-09 by the fix inside Phase 3 itself, before the phase's commit. The persistence is
+wrapped, so a failed write warns and the run carries on to create the worktree, and
+`src/commands/branch.test.ts` carries "still creates the worktree when persisting the answer fails" — the
+case this finding's **Closes when** names. Verified by mutation from both sides: unwrapping the write makes
+that test fail on the propagation itself (`promise rejected … instead of resolving`), and the baseline run
+emits the catch's warning text, proving the branch is reached rather than short-circuited. The Gate 2
+re-review confirmed independently that no un-`try`'d `await` remains in either method that can abort the
+command — `gitGetConfigValue` swallows, `confirm`'s `ExitPromptError` is the documented silent exit, and
+`this.warn` returns. Gate 1 re-passed — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (485
+passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-09, and Gate 2 re-passed with no blocking
+findings.
 
 ### F-044 — P2 — the new `github.token` prompt clears a stored PAT when answered empty, which its own text invites
 
