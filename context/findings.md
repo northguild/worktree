@@ -694,6 +694,39 @@ trades one surprising rule for a subtler one, so it is not taken here.
 covering it, or the documented behaviour is accepted as final and this entry is retired at
 `/feature-close`.
 
+### F-043 — P2 — `requireGitHubToken`'s configured-token short-circuit is pinned by a comment, not an assertion
+
+**Tied to:** github-issue-auto-assign Phase 1 · **Raised:** 2026-09-09 (Gate 2, reviewer subagent, Phase 1)
+
+`src/integrations/github.test.ts:260-262` states the behaviour in a comment and then does not assert it:
+
+```ts
+// fetchGitHubLogin needs a token and nothing else — it never reads the
+// origin remote, so the config lookup is the only run() call it makes.
+vi.spyOn(cli, "run").mockResolvedValueOnce("ghp_test_token");
+```
+
+Mutate `requireGitHubToken` to `return resolveGitHubToken();`, dropping the `if (configuredToken)` guard at
+`src/integrations/github.ts:208-210`, and the test still passes: `commandExists` is stubbed `true` in
+`src/test-setup.ts:16`, so the single `mockResolvedValueOnce` is consumed by `gh auth token` rather than the
+config read, the resulting token string is identical, and the `Authorization` assertion at
+`github.test.ts:275` is unaffected. The `expectCommands` net does not catch it either — `test-setup.ts:55-57`
+emits a `console.warn` for unexpected subprocess calls and `vitest.config.ts` sets no `onConsoleLog` hook, so
+an unexpected call never fails a run.
+
+That guard is why an assign against an already-configured repository does not shell out to `gh` and rewrite
+git config on every run, and it is half of what keeps the PAT prompt off the plain `--github` path (§4.1, R3).
+It is correct today and untested.
+
+Non-blocking: Gate 2 returned `PASS WITH NOTES` on the diff, and Phase 1's **Done when** is met in full — the
+three required response shapes are covered and `grep -r "assignGitHubIssue" src/commands` is empty. The
+assertion gap is not on that list. Left open rather than fixed for the reason F-002, F-003 and F-004 record:
+adding assertions after Gate 2 had already passed would land unreviewed test code.
+
+**Closes when:** a Gate 1 run passes with `github.test.ts`'s configured-token case capturing the spy and
+asserting `expect(runSpy).toHaveBeenCalledTimes(1)`, in the idiom of `src/lib/git.test.ts:371` and
+`src/lib/agent.test.ts:89`.
+
 ## Closed
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches

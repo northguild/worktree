@@ -1,7 +1,9 @@
 import * as cli from "../lib/cli.js";
 import { expectCommands } from "../test-setup.js";
 import {
+  assignGitHubIssue,
   fetchGitHubIssue,
+  fetchGitHubLogin,
   type GitHubIssueApiResponse,
   type GitHubIssueTypeApiResponse,
   parseGitHubRepositoryFromRemote,
@@ -57,6 +59,7 @@ function makeIssueApiResponse(
     closed_at: null,
     author_association: "CONTRIBUTOR",
     html_url: `https://github.com/northguild/worktree/issues/${number}`,
+    assignees: [],
     ...restOverrides,
     type: overrideType === undefined ? defaultType : overrideType,
     user: {
@@ -244,5 +247,146 @@ describe("GitHub integration", () => {
         }),
       },
     );
+  });
+
+  function makeUserResponse(login = "baldurpan") {
+    return {
+      login,
+      html_url: `https://github.com/${login}`,
+    };
+  }
+
+  it("resolves the authenticated login from a configured token", async () => {
+    // fetchGitHubLogin needs a token and nothing else — it never reads the
+    // origin remote, so the config lookup is the only run() call it makes.
+    vi.spyOn(cli, "run").mockResolvedValueOnce("ghp_test_token");
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(makeOkJsonResponse(makeUserResponse()));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchGitHubLogin()).resolves.toBe("baldurpan");
+    expect(fetchSpy).toHaveBeenCalledWith("https://api.github.com/user", {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "@northguild/worktree",
+        "X-GitHub-Api-Version": "2022-11-28",
+        Authorization: "Bearer ghp_test_token",
+      },
+    });
+  });
+
+  it("throws when the authenticated user cannot be resolved", async () => {
+    vi.spyOn(cli, "run").mockResolvedValueOnce("ghp_test_token");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+      }),
+    );
+
+    await expect(fetchGitHubLogin()).rejects.toThrow(
+      'GitHub: Failed to resolve the authenticated user. 401 Unauthorized - {"message":"Bad credentials"}',
+    );
+  });
+
+  it("assigns the authenticated user to the issue", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
+
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce(makeOkJsonResponse(makeUserResponse()));
+    fetchSpy.mockResolvedValueOnce(
+      makeOkJsonResponse(
+        makeIssueApiResponse({ assignees: [makeUserResponse()] }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(assignGitHubIssue(42)).resolves.toEqual({
+      login: "baldurpan",
+      assigned: true,
+    });
+
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
+      "https://api.github.com/repos/northguild/worktree/issues/42/assignees",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "@northguild/worktree",
+          "X-GitHub-Api-Version": "2022-11-28",
+          Authorization: "Bearer ghp_test_token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ assignees: ["baldurpan"] }),
+      },
+    );
+  });
+
+  // The silent no-op shape: GitHub documents that an assignee change made
+  // without push access is ignored rather than refused, so a 201 proves nothing
+  // on its own.
+  it.each([
+    { label: "no assignees at all", assignees: [] },
+    {
+      label: "only somebody else",
+      assignees: [makeUserResponse("someone-else")],
+    },
+  ])("reports the issue as not assigned when the response carries $label", async ({
+    assignees,
+  }) => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
+
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce(makeOkJsonResponse(makeUserResponse()));
+    fetchSpy.mockResolvedValueOnce(
+      makeOkJsonResponse(makeIssueApiResponse({ assignees })),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(assignGitHubIssue(42)).resolves.toEqual({
+      login: "baldurpan",
+      assigned: false,
+    });
+  });
+
+  it("throws when the assignment request is refused", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
+
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce(makeOkJsonResponse(makeUserResponse()));
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      text: vi.fn().mockResolvedValue('{"message":"Resource not accessible"}'),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(assignGitHubIssue(42)).rejects.toThrow(
+      'GitHub: Failed to assign issue 42 in northguild/worktree. 403 Forbidden - {"message":"Resource not accessible"}',
+    );
+  });
+
+  it("throws for an invalid issue id without reaching the network", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(assignGitHubIssue("abc")).rejects.toThrow(
+      'GitHub: Invalid issue id "abc".',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
