@@ -51,11 +51,27 @@ Two alternatives were considered and rejected on 2026-09-05:
 invocations that carry that out live here, for the same reason the reviewer's does — a skill that hardcodes
 one machine's setup ships it everywhere.
 
-**This project is the tool being invoked.** Verified on 2026-09-09: `worktree` resolves to
-`/opt/homebrew/bin/worktree`, reporting `@northguild/worktree/1.5.0`, which is the **published** build and
-not this checkout's `dist/`. That is deliberate and worth keeping — a working tree mid-refactor must not
-cost you the ability to create the next worktree. It also means the tree-creating tool can lag the source
-by a release, so **never assume a flag you just added to `src/` exists in the binary that makes the tree.**
+**This project is the tool being invoked, and the `worktree` on your `PATH` is not this checkout.** It is
+the published package — `npm install -g @northguild/worktree`, per the README — and never this working
+tree's `dist/`. That is deliberate and worth keeping: a working tree mid-refactor must not cost you the
+ability to create the next worktree.
+
+The consequence is that **the tree-creating binary can lag the source by a release**, so never assume a
+flag you just added to `src/` exists in the binary that makes the tree. Check rather than assume:
+
+```bash
+worktree --version                             # what will actually make the tree
+node -p "require('./package.json').version"    # what this checkout is
+```
+
+Where the binary is behind, `npx @northguild/worktree@latest branch …` runs the published latest, and
+`git worktree add` makes the tree by hand.
+
+**This file names no install path, deliberately.** The binary lands in the global bin directory of
+whichever Node install you have — a Homebrew prefix, nvm, pnpm, a system Node — so a path recorded here
+would be one contributor's machine shipped to everyone, which is what the paragraph opening this section
+refuses. Do not read a matching version as reassurance either: on 2026-09-09 the binary and this checkout
+both read 1.5.0, which was a coincidence of timing and not the binary tracking the source.
 
 ### Create a worktree for a feature
 
