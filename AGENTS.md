@@ -28,6 +28,7 @@ the standing rules, and every command cites it rather than restating it.
 | `/orchestrate` | one ad-hoc, gated, commit-sized change — no roadmap entry, no ledger |
 | `/prototype` | a throwaway HTML/CSS mockup under `prototypes/` — no gates, no ledger, no application code |
 | `/onboard` | fills in this project's own stubs — `verify.md`, `executors.md`, `git.md`, `tracking.md`, `stack.md` — adopting what an existing `AGENTS.md` already said |
+| `/tracking-migrate` | moves existing entries, drafts and plans onto the substrate `tracking.md` names — after `/onboard` sets it, never instead |
 
 | Read | For |
 |---|---|

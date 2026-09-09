@@ -10,7 +10,7 @@ running something else.
                         ▼
                   a plan exists                  Tier 2 — one plan, with a phase status ledger
                         │
-                  /feature-implement             activates, then runs phases: plan → code → verify → review
+                  /feature-implement [--all]     activates, then runs phases: plan → code → verify → review
                         ▼
                   /feature-close                 ──▶ context/archive/ + a context/history.md row
 ```
@@ -18,7 +18,7 @@ running something else.
 | Transition | Command |
 |---|---|
 | Tier 1 → a plan | `/feature-plan` |
-| a plan → being worked, then phase by phase | `/feature-implement` |
+| a plan → being worked, then phase by phase | `/feature-implement`, or `/feature-implement --all` |
 | Tier 2 → retired | `/feature-close` |
 | no tier crossed | `/orchestrate` — one ad-hoc gated change; `/feature-status` — read-only; `/prototype` — a throwaway mockup |
 
@@ -37,6 +37,7 @@ never a prerequisite for anything.
 | `/orchestrate` | one ad-hoc gated change | the code, and `findings.md` |
 | `/prototype` | one throwaway HTML/CSS mockup — no gates, no application code | `prototypes/<NAME>/`, and nothing else |
 | `/onboard` | the project-owned stubs | `verify.md`, `executors.md`, `git.md`, `tracking.md`, `stack.md`, and the pruning of what they replace |
+| `/tracking-migrate` | moving existing state onto the substrate `tracking.md` names | issues, and the tree files they replace — never `history.md` or `archive/` |
 
 ## One source of truth per fact
 
@@ -117,13 +118,20 @@ phase — and nothing here merges a pull request, deletes a branch, or removes a
 
 Everything above describes the working-tree answer, which is the default and what every install does
 until someone changes it. The second answer puts the same tiers in an issue tracker — a feature is an
-issue, a phase is a sub-issue, a closed issue is the archive — because **a file cannot be the shared home
-for several agents at once.** A worktree carries only what its ref holds, so a plan on one branch is
+issue, a plan is that issue's body, a closed issue is the archive — because **a file cannot be the shared
+home for several agents at once.** A worktree carries only what its ref holds, so a plan on one branch is
 invisible to every other tree; a tracker sits outside all of them.
 
 **The tier model is identical under both.** What changes is where a fact is read, and only
 [`tracking.md`](tracking.md) says how — no skill names a tracker, which is what keeps a different one a
 rewrite of that file rather than of every command.
+
+**Changing the answer is not moving the work.** `/onboard` sets which substrate this project uses;
+`/tracking-migrate` carries what already exists onto it. They are two commands because the second is a
+data migration with remote writes that can fail partway, and running one off the back of the other is the
+side-effect this tier model refuses everywhere else. A repository whose answer says *tracker* while its
+entries sit in `roadmap.md` reads as an empty backlog to every command — which is why `/onboard` refuses to
+write that state and names the migration instead.
 
 ### Documentation is part of the change
 
@@ -167,6 +175,13 @@ file, not in a TODO list, not in a commit message.
 To pick the next phase: take the **lowest-numbered phase that is not `done` and whose `Depends on` entries
 are all `done`.** State which one you picked before starting. If it is already `in progress`, read its Note
 and resume — do not restart it.
+
+**One run is one phase, unless `--all` says otherwise.** That flag repeats the pick above, and stops
+exactly where a single run would: a phase that ended `blocked` or part-landed, a gate at its loopback cap,
+an open `P0` or `P1` tied to the phase, a ledger that disagrees with the repo. Phase to phase is not a tier
+boundary, so nothing above changes — and when the last phase goes `done` it stops there and names
+`/feature-close`. **That boundary is still crossed by an explicit command**, and a flag on the command
+below it is not one.
 
 **A phase's row is written twice.** It opens to `in progress` when the work starts, before any code, and
 closes to `done`, `in progress` or `blocked` when the phase ends. The opening write is what makes an

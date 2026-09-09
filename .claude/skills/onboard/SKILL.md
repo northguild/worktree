@@ -197,21 +197,60 @@ Ask where the backlog, the plans and the phase ledgers live, and write the answe
 - **In the working tree** — the default, and what the workflow has always done. `roadmap.md` is the
   backlog, a plan is a document under `plans/` carrying its own phase ledger, retired features are indexed
   in `history.md` with their documents in `archive/`. One tree, one reader at a time.
-- **In an issue tracker** — a feature is an issue, a phase is a sub-issue of it, and the tracker is the
-  shared home every working tree can reach. This is the answer for **several agents working several
-  features at once**: the tracker is the only thing outside every worktree that all of them can write to.
+- **In an issue tracker** — a feature is an issue, its plan is that issue's body, and the phase ledger is
+  a table inside that body. The tracker is the shared home every working tree can reach. This is the answer
+  for **several agents working several features at once**: it is the only thing outside every worktree that
+  all of them can write to.
 
-**Check the precondition before you ask, and state it inside the question.** The tracker answer needs a git
-repository with a GitHub remote. Find out first — a repository check and a remote check — and where either
-comes back empty, **say so in the question and do not offer that answer**: *"tracking in an issue tracker
-requires this project to be a git repository with a GitHub remote, and it is neither, so the working-tree
-answer is the only one available."* Offering an answer that cannot be carried out is worse than not
-offering it, and this is the same shape as Step 2's *"offer this only where the host has such a mechanism."*
+**Say which answer this project got, and why, in one line — always, including when only one was
+available.** This step is silent in exactly the case it most needs to speak: a brand-new repository often
+has no remote yet, and Step 4's shipped answer is *neither* a push nor a pull request, so both of the
+checks below can close at once and leave nothing to ask. A step that asks nothing must still **report**,
+or the user never learns the second answer exists.
 
-**Refuse the impossible pair.** The tracker answer depends on Step 4's *Push and pull request* answer being
-*the agent pushes and opens a pull request* — a phase closes its sub-issue through `Closes #N` on the
-commit, which only fires once the branch reaches the default branch. If Step 4 said *neither*, say plainly
-that the two cannot both hold and ask which one changes. **Do not write a pair that cannot both be true.**
+**Check the precondition first.** The tracker answer needs a git repository with a GitHub remote — a
+repository check and a remote check. Where either comes back empty, do not offer that answer, and **name
+what would make it available**: *"tracking in an issue tracker needs a GitHub remote and this project has
+none yet — add one and re-run `/onboard` if you want it."* Offering an answer that cannot be carried out is
+worse than not offering it; leaving unsaid that it exists is worse than both.
+
+**Step 4's answer does not constrain this one, and never removes it.** The tracker answer works under
+every *Push and pull request* answer — nothing in it waits for a commit to reach the default branch. What
+the pairing buys is not mechanical: this substrate exists so several agents in several trees can share
+state, and **work that is never pushed is visible to exactly one of them.**
+
+So where Step 4 said *neither* — which is what it ships saying — offer the tracker answer anyway, say
+plainly that the pair is weaker than it looks and why, and **offer to change Step 4's answer along with
+it**. A default taken three questions ago is not a decision about this question. Either pair may be
+written; only the silent one is forbidden.
+
+### Look at what the tree already holds before writing the answer
+
+**This is a check, not a question, and it runs before the answer is written.** Read `roadmap.md`, `drafts/`
+and `plans/`, and say what is there — the entry count, which entry is `active`, which entries hold a plan.
+**Always say it**, including when the answer is *nothing*, for the same reason this step reports at all.
+
+Setting the answer does not move the work. A repository whose `tracking.md` says *tracker* while its
+entries sit in `roadmap.md` reads as an **empty backlog** to every command in this workflow: `/roadmap`
+prints nothing, `/feature-plan` says the backlog is empty, and the active feature and its ledger become
+invisible. That is not a mixed state anyone chose — it is the state a switch produces if nobody says so.
+
+Three outcomes, and only the first writes the answer alone:
+
+- **The tree holds nothing** — no entries, no drafts, no plans. The switch is free, because there is
+  nothing to migrate. Write the answer and carry on.
+- **The tree holds entries, drafts or plans, and no phase is `in progress`.** Write the answer, then **name
+  `/tracking-migrate` as the required next step** and say plainly that until it runs the backlog reads as
+  empty. Record that in `context/tracking.md` too: a split that is written down is a task, and one that is
+  not is a trap. **Remove nothing** — the removal is the migration's last act, not this command's.
+- **A phase is `in progress`.** **Refuse the tracker answer**, name the feature and the phase, and leave
+  the working-tree answer standing. An agent may be inside that phase right now, in this tree or another,
+  and [`workflow.md`](../../../context/workflow.md)'s read-fresh model assumes the substrate does not move
+  underneath a running phase. Say the answer is available once the phase finishes or is parked back to
+  `not started` — that is a person's decision, not this command's.
+
+**Never write the tracker answer and delete the tree files in the same run.** Removal is what makes the
+migration irreversible, and this command has no way to show a remote write as a diff first.
 
 ### Under the tracker answer
 
@@ -219,28 +258,41 @@ Collect these and write them into the file, then delete the answer that was not 
 subsection's heading:
 
 1. **The repository**, as `OWNER/REPO`. Confirm it against the remote rather than asking blind.
-2. **The two label names.** They ship as `workflow:feature` and `workflow:blocked`. **List the
-   repository's existing labels first** and say what you found: a project that already uses one of these
-   names for something else needs a different one, and a project with an `enhancement` or `feature` label
-   is exactly why these are namespaced. Say that `feature` here is [`workflow.md`](../../../context/workflow.md)'s
-   word — work you would want a history row for — and not a claim that the issue is not a bug.
-3. **Create the labels if they are absent**, and say so before doing it. This is the first thing this
-   command does that is visible to anyone else with access to the repository.
+2. **The label name.** It ships as `workflow:feature`, and it is the only one — phase status lives in the
+   ledger's Status column, so nothing needs a label for `blocked`. **List the repository's existing labels
+   first** and say what you found: a project already using that name for something else needs a different
+   one, and a project with an `enhancement` or `feature` label is exactly why this is namespaced. Say that
+   `feature` here is [`workflow.md`](../../../context/workflow.md)'s word — work you would want a history
+   row for — and not a claim that the issue is not a bug.
+3. **Whether this project has issue types**, and their names. Look rather than asking: a project with none
+   gets no `Types:` line and the workflow simply records no kind. Where it has them, say which, and say
+   that the workflow **sets a type and never reads one** — no refusal, ranking or report branches on it.
+   Warn about the collision if the set includes `Task`: that word means work too small for this loop in
+   [`workflow.md`](../../../context/workflow.md), and an issue typed `Task` is still a workflow feature.
+4. **Create the label if it is absent**, and say so before doing it. This is the first thing this
+   command does that is visible to anyone else with access to the repository — which is why the check
+   above runs first: a refusal that fires after the label exists is a refusal that already wrote.
 
 Then say plainly what the workflow will **not** touch: this project's own labels, its Projects, and its
 milestones. Nothing in the loop reads or writes any of them, so a board or a release milestone can be used
 alongside the workflow without interference.
 
-### Then offer to remove what the answer makes dead
+### Then say what the answer makes dead — and remove only what is already empty
 
 Under the tracker answer five installed files have nothing to write to them — `roadmap.md`, `history.md`,
 and the `drafts/`, `plans/` and `archive/` directories. The installer wrote them before this question
 existed and could not have known.
 
-**Offer to remove them, and only where they are empty.** An empty file is a stub nobody used; a file with
-entries or rows in it is the record of the work done before the switch, and that record stays. Show the
+**Offer to remove them, and only where they are empty.** An empty file is a stub nobody used. Show the
 removal the way Step 9 shows its pruning — as a diff, applied on confirmation — and never remove one you
 cannot show is empty.
+
+**A non-empty one is not this command's to touch, and the reason differs by file:**
+
+| Non-empty | Belongs to |
+|---|---|
+| `roadmap.md`, `drafts/`, `plans/` | `/tracking-migrate` — the entries and documents move, then the files go |
+| `history.md`, `archive/` | nobody. They are the frozen record of the era before the switch and are never converted, in either direction — fabricating closed issues for features shipped months ago produces wrong dates, empty threads, and an audit trail that looks real and is not |
 
 **`findings.md` stays under both answers.** A finding is raised and swept inside a single branch's life, so
 it is never the thing two agents contend over.

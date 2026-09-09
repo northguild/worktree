@@ -1,6 +1,6 @@
 ---
 name: feature-plan
-description: "Promote one item from the Tier-1 backlog into a Tier-2 plan with a phase ledger — a document under context/plans/, or the issue and its sub-issues where context/tracking.md says so — then stop without implementing. Explicit invocation only — run this when the user types /feature-plan. Do NOT match on 'plan out X', 'how should we build X', or any general planning or design request."
+description: "Promote one item from the Tier-1 backlog into a Tier-2 plan with a phase ledger — a document under context/plans/, or the issue body where context/tracking.md says so — then stop without implementing. Explicit invocation only — run this when the user types /feature-plan. Do NOT match on 'plan out X', 'how should we build X', or any general planning or design request."
 disable-model-invocation: true
 ---
 
@@ -173,55 +173,53 @@ research, write, report — and only where the plan lands changes.
 | Above | Becomes |
 |---|---|
 | pick from `context/roadmap.md` | pick from the open issues carrying the backlog label |
+| the ranking's first key | **the issue's `Priority:` line**, above everything below it |
 | ranking's *has a draft* | the issue body already holds researched material rather than one or two lines |
+| ranking's *backlog order* | nothing — an issues list has no manual order, which is what `Priority:` replaces |
 | `git mv` a draft into `plans/` | nothing moves — **the plan replaces the body of the same issue** |
 | copy `plan-template.md` to a new path | write the template's sections into that issue's body |
-| the ledger's Status column | **one sub-issue per phase**, titled `[<n>] <phase name>` |
-| the rest of the ledger — `#`, `Phase`, `Depends on`, `Files:` | **stays in the body**, with the Status column dropped |
-| step 6, repoint **Doc** | nothing — a plan is the observation that sub-issues exist |
-| step 2's *already planned* check | the issue already has sub-issues |
+| the phase ledger, Status column and all | **unchanged** — the same table, written into the body |
+| step 6, repoint **Doc** | nothing — a plan is the observation that the body holds a ledger |
+| step 2's *already planned* check | the body already holds a phase ledger |
 
-**The body keeps the phase list; the sub-issues keep the status.** Those are different facts and they get
-different homes: the body is the authoritative answer to *which phases exist, in what order, depending on
-what*, and a sub-issue is the answer to *where that one stands*. **Drop the Status column from the body's
-table** — leaving it would be a second home for a fact the sub-issue already owns, which is the drift the
-whole design refuses.
+**The ledger does not change shape.** `#`, `Phase`, `Depends on`, `Status`, `Note` — the table a plan
+document carries, written into the body with every row `not started`. There is no second object to create,
+nothing to reconcile it against, and **no window in which a plan is half-written: the body is one write.**
 
-That split is what makes the next part checkable rather than merely careful.
+### Priority leads the ranking
 
-**The write order is fixed, and a mismatch is an error, not a judgement call.**
+`Priority:` is read **above *has a draft***, and that is the only place this command's ranking changes.
+Overriding the default order is the entire purpose of marking something urgent, so a key that only broke
+ties between equally-prepared entries would not do the job it was added for. An issue carrying no
+`Priority:` line ranks as `Medium`.
 
-1. **Write the body first** — the full template shape, with §6's phase list complete.
-2. **Then create one sub-issue per listed phase.** The sub-issues are the **commit point**: an issue with
-   none is a draft, an issue with them is a plan.
-3. **Reconcile the two before doing anything else, on every run.** The body's phase list is the expected
-   set; the sub-issues are what exists. Compare **count and names**:
+**Name the priority in the entry's one-line reason**, alongside whatever else put it where it is. The cost
+of this placement is that the top candidate can now be unresearched — acceptable only because this command
+still **asks**, and it would not be if it silently took the top entry.
 
-| Body says | Sub-issues | Verdict |
-|---|---|---|
-| 5 phases | none | a draft — write the plan |
-| 5 phases | 5, names match | a finished plan — do not rewrite it |
-| 5 phases | 3, all matching a listed phase | **an interrupted run** — create the two missing ones and stop |
-| 5 phases | a sub-issue naming no listed phase | **stop and say so** — the two disagree and neither is obviously right |
+### The type, corrected here
 
-**State which row you matched before you write anything.** Rows three and four are the reason this
-reconciliation exists: without it, a run that died between the body and the sub-issues leaves a complete
-plan that reads as a draft for good, and nothing ever notices.
+`/roadmap` guessed the issue's type from one or two lines. **You have the research it lacked: correct the
+type if the guess was wrong, and leave it alone if it was right.** That is the whole of this command's
+involvement with it. Nothing here reads it, and no refusal, ranking or report may start to.
+
+Where the project has no types configured, or the write is silently dropped for want of push access, skip
+it and say so once — it is metadata, not a gate.
+
+### The rest
 
 **`--activate` assigns the issue** rather than editing a marker, subject to the same one-active-feature
 rule and the same outcome when the slot is held: write the plan, skip the activation, name the holder.
-
-**No phase status is written anywhere.** A new sub-issue is open and unassigned, which is `not started`.
-There is no ledger to fill in and nothing to set.
 
 **Step 7's ordering problem disappears, and that is worth knowing.** Under the working-tree answer the plan
 has to be committed and pushed *before* a worktree exists, because a tree carries only what its source ref
 holds. An issue is in no ref: it is visible from every tree the moment it exists. Plan, then create the
 tree, in whatever order suits — nothing here has to land first.
 
-**Step 5's `**Status:**` rule applies to the issue body verbatim.** The body holds the plan and never a
-line claiming where the work stands. That fact is the assignee and the sub-issues, and a second copy in the
-body is exactly the drift the rule exists to stop.
+**Step 5's `**Status:**` rule applies to the issue body verbatim, and only to the feature.** The body holds
+the plan and never a line claiming where the *feature* stands; that fact is the assignee. The ledger's
+Status column answers a different question at a different scope, and it belongs in the body exactly as it
+belongs in a plan document.
 
 ## Rules
 
