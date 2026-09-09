@@ -39,7 +39,17 @@ a phase. A phase ends with a local commit and nothing more.
 ## Granularity
 
 **One commit per phase.** A phase is a commit-sized unit with one checkable outcome — that is what a plan's
-ledger is a list of. The row and the code it describes go in together.
+ledger is a list of.
+
+**The row cannot ride the commit under this project's tracking answer.** [`tracking.md`](tracking.md) puts
+the ledger in a GitHub issue body, and a remote write is not part of a commit. The order is fixed instead:
+commit, then edit the row immediately, **naming that commit's sha in the Note.** The sha is what replaces
+the guarantee a same-change row used to give — a `done` row whose sha is in the branch is checkable, and
+one with no sha is a disagreement that stops the next phase.
+
+**`/feature-implement --all` runs here**, because that flag declines under *the user commits* and this
+project takes the other answer. Each phase is still its own commit; the flag only removes the pause
+between them.
 
 **Conventional Commits with a scope**, which is what this repository's history uses without exception:
 `feat(cleanup):`, `docs(context):`, `refactor(git):`, `chore(release):`, `test(remove):`.
@@ -67,8 +77,9 @@ a branch, or removes a worktree, under any answer above. The pull request is ope
 
 ## The rules that hold either way
 
-- **The ledger row lands with the work.** Whoever makes the commit, the row and the code it describes are
-  one change. A row updated separately is a row that disagrees with the repository in between.
+- **The ledger row lands with the work**, by the strongest means the substrate allows. In a tree that is
+  one change; in an issue body it is the commit sha written into the row the moment the commit exists. A
+  row left unwritten is a row that disagrees with the repository until someone notices.
 - **`done` is a verdict about the gates, not about git.** A phase is `done` when its scope landed and both
   gates passed.
 - **If this file is missing, the answer is the most conservative one** — the user commits, work lands in

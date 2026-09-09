@@ -52,7 +52,7 @@ invocations that carry that out live here, for the same reason the reviewer's do
 one machine's setup ships it everywhere.
 
 **This project is the tool being invoked.** Verified on 2026-09-09: `worktree` resolves to
-`/opt/homebrew/bin/worktree`, reporting `@northguild/worktree/1.4.0`, which is the **published** build and
+`/opt/homebrew/bin/worktree`, reporting `@northguild/worktree/1.5.0`, which is the **published** build and
 not this checkout's `dist/`. That is deliberate and worth keeping — a working tree mid-refactor must not
 cost you the ability to create the next worktree. It also means the tree-creating tool can lag the source
 by a release, so **never assume a flag you just added to `src/` exists in the binary that makes the tree.**

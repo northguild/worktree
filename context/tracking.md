@@ -4,7 +4,10 @@ Where the backlog, the plans and the phase ledgers live. **Every command reads t
 writes any workflow state** — it is what keeps a different tracker a rewrite of this one file rather than of
 every skill. No skill names a tracker.
 
-Configured by `/onboard` on 2026-09-09, when `@baldurpan/create-ai-workflow` 0.8.0 introduced this file.
+Configured by `/onboard` on 2026-09-09, when `@baldurpan/create-ai-workflow` 0.8.0 introduced this file,
+and **rewritten by `/onboard` on 2026-09-09 under 0.10.0**, which replaced this answer's mechanism. The
+answer did not change; how a phase is recorded did. See *What 0.10.0 changed* at the end — that section is
+kept because plan bodies written under 0.8.0 still describe the old shape.
 
 ## The answer
 
@@ -24,72 +27,124 @@ them and every tree can reach it.
 | To know | Read |
 |---|---|
 | the backlog | open issues labelled `workflow:feature` |
-| whether a feature has a plan | whether its issue body holds one |
-| whether a feature is being worked | whether a worktree exists for it — `git worktree list`, per [`git.md`](git.md) |
-| where a phase stands | its sub-issue: open and unassigned, open and assigned, `workflow:blocked`, or closed |
-| what a retired feature's outcome was | the closed issue |
+| what matters more within it | the issue body's `Priority:` line — see *Priority* below |
+| whether a feature has a plan | whether its body holds a phase ledger |
+| whether a feature is being worked | the issue's assignee |
+| where a phase stands | **the Status column of the ledger in that issue's body** |
+| what a retired feature's outcome was | the closed issue — *completed* for shipped, *not planned* for dropped |
 
-The phase vocabulary maps as follows. Spell the phase words exactly as
-[`workflow.md`](workflow.md) does when they appear in prose:
+## The plan and its ledger both live in the issue body
 
-| Phase status | In the tracker |
+**One object, one write.** The plan's prose is the feature issue's body and the phase ledger is a table
+inside that same body — `#`, `Phase`, `Depends on`, `Status`, `Note`, exactly the table a plan document
+carries. `plans/` is not written to.
+
+There is no second object to create and nothing to reconcile against, so **there is no window in which a
+plan is half-written.** The phase vocabulary needs no mapping either: `not started`, `in progress`,
+`blocked` and `done` are written into the Status column as [`workflow.md`](workflow.md) spells them.
+
+### The body is a read-modify-write
+
+**Re-read the body immediately before editing it, and change only the row.** A person may be refining the
+plan while an agent flips a status, and a stale copy written back loses their edit with no trace. This
+hazard does not exist under the working-tree answer, where the plan sits in a tree only one agent is in.
+
+What makes that safe enough to rely on is the assignee: **a feature has exactly one writer**, and it is
+whoever holds it. Several features may be assigned at once — that is the point of this answer — but never
+two agents on one feature.
+
+### A `done` row carries its commit sha
+
+**The row cannot ride the commit here.** Under the working-tree answer the ledger row is a line in a file
+that travels inside the commit, so the row and the code can never disagree. A body edit is a remote write
+and cannot be part of a commit — so the evidence goes into the row instead: make the commit, then edit the
+row immediately, **with that commit's sha in the Note.**
+
+A `done` row whose sha is in the branch is checkable against the repository. **A `done` row with no sha is
+a disagreement**, and `/feature-implement`'s step 5 stops on it. This project takes
+[`git.md`](git.md)'s *the agent commits* answer, so there is always a sha to write.
+
+**Comment at every phase boundary.** An assignee is a lock with no expiry: an agent that dies holding one
+leaves the issue assigned and nothing reclaims it. The comment is what makes that visible from a machine
+that is not the one that died — and under `/feature-implement --all` it is the only thing outside the run
+that can see it at all.
+
+## Priority
+
+**A `Priority:` line in the issue body**, written by `/roadmap` and read by `/feature-plan` above *has a
+draft*. An issues list has no manual order, so this line is the only place *what matters more* can be said
+under this answer — it is what replaces the file answer's backlog ordering.
+
+An issue carrying no `Priority:` line ranks as `Medium`. **Nothing else in the loop reads it**, and no
+refusal or report may start to.
+
+The two open backlog issues predate the field and carry no line, so both rank `Medium`:
+[#39](https://github.com/northguild/worktree/issues/39) and
+[#40](https://github.com/northguild/worktree/issues/40). Left deliberately on 2026-09-09 rather than
+backfilled — `/roadmap` writes a real value the next time either is touched.
+
+## Issue types
+
+**The `northguild` org has three enabled**, and they are org-level rather than per-repository:
+
+| Type | GitHub's description |
 |---|---|
-| `not started` | sub-issue open, no assignee |
-| `in progress` | sub-issue open, assigned |
-| `blocked` | sub-issue open, `workflow:blocked` |
-| `done` | sub-issue closed |
+| `Task` | A specific piece of work |
+| `Bug` | An unexpected problem or behavior |
+| `Feature` | A request, idea, or new functionality |
 
-**A phase closes its sub-issue through `Closes #N` in the commit**, which only fires once the branch
-reaches the default branch — which is why this answer requires [`git.md`](git.md)'s push-and-pull-request
-answer, and cannot be held alongside "neither".
+**The workflow sets a type and never reads one.** `/roadmap` guesses it from one or two lines,
+`/feature-plan` corrects the guess once there is research to correct it from, and no refusal, ranking or
+report branches on it. Where a write is silently dropped for want of push access, it is skipped and said
+once — metadata, not a gate.
 
-## Labels
+**`Task` collides, and the collision is only in the word.** In [`workflow.md`](workflow.md) a *task* is
+work too small for this loop. An issue typed `Task` on GitHub is still a workflow feature if it carries the
+label — the label is what the backlog is read from, and the type says nothing about it.
 
-Two, both created by `/onboard` on 2026-09-09 — neither existed before:
+None of the seven `workflow:feature` issues carries a type as of 2026-09-09; every one predates the field.
 
-| Label | Colour | Means |
-|---|---|---|
-| `workflow:feature` | `#1D76DB` | a planning-workflow feature: an issue whose phases are sub-issues |
-| `workflow:blocked` | `#B60205` | a phase held up by an open finding or a dependency |
+## The label
+
+**One: `workflow:feature`** (`#1D76DB`) — a planning-workflow feature, an issue whose body holds the plan
+and its phase ledger.
+
+**There is no `blocked` label and none is needed**: the ledger's Status column carries all four values.
+A `workflow:blocked` label was created on 2026-09-09 under 0.8.0, when a phase was a sub-issue and a label
+was the only place `blocked` could be written. Nothing writes it under 0.10.0, and it was **deleted from
+the repository on 2026-09-09**. No issue carried it.
 
 **`feature` here is [`workflow.md`](workflow.md)'s word** — work you would want a history row for — and not
-a claim that the issue is not a bug. A bugfix worked through this loop carries `workflow:feature` too.
+a claim that the issue is not a bug. A bugfix worked through this loop carries `workflow:feature` too, and
+may carry the `Bug` type at the same time.
 
-The repository's nine existing labels were listed before these were created: GitHub's defaults, including
-`enhancement`, which is exactly why these two are namespaced. Nothing collided.
+The repository's nine existing labels were listed before this one was created: GitHub's defaults, including
+`enhancement`, which is exactly why this one is namespaced. Nothing collided.
 
 ## What the workflow will not touch
 
 **This project's own labels, its Projects, and its milestones.** Nothing in the loop reads or writes any of
-them, so a board or a release milestone can be used alongside this workflow without interference. The two
-`workflow:*` labels above are the whole of its footprint.
+them, so a board or a release milestone can be used alongside this workflow without interference. The one
+`workflow:feature` label above is the whole of its footprint, plus the type field on issues it opens.
 
 Nothing here merges a pull request, deletes a branch, or removes a worktree either — see
 [`git.md`](git.md).
 
-## Sub-issues go through `gh api`, not `gh issue`
+## How a feature issue is closed
 
-`gh` 2.87.3 has no sub-issue subcommand and no `--parent` flag on `gh issue create`. Sub-issues are reached
-through the REST API:
+[`git.md`](git.md) says the agent pushes and opens a pull request, so **`/feature-close` puts
+`Closes #<issue>` in the pull request body and lets the merge close it.** The close then rides the same
+change as the work.
 
-```bash
-# POST /repos/{owner}/{repo}/issues/{parent_number}/sub_issues
-gh api repos/northguild/worktree/issues/<parent_number>/sub_issues -f sub_issue_id=<id>
-```
+**`--dropped` closes the issue directly**, whatever `git.md` says: a trailer closes an issue as *completed*,
+and that is the wrong outcome for an idea that will not be built. The two close reasons are how this answer
+records what `history.md`'s Outcome column used to.
 
-**`sub_issue_id` is the issue's database id, not its number.** This is the trap in the endpoint: everything
-else in `gh` speaks in issue numbers. Get the id with
+**This substrate does not require the push answer** — it works under every one of them. What the pairing
+buys is not mechanical: this substrate exists so several agents in several trees can share state, and work
+that is never pushed is visible to exactly one of them. This project holds the strong pair.
 
-```bash
-gh api repos/northguild/worktree/issues/<number> --jq .id
-```
-
-`GET .../sub_issues` lists them back. Both endpoints were verified against docs.github.com on 2026-09-09;
-**neither has been exercised against this repository yet**, so the first `/feature-plan` under this answer
-is the real test. The docs also warn about secondary rate limiting when creating sub-issues rapidly — add
-them one at a time rather than in a burst.
-
-## The migration, and what is left in the tree
+## The 0.8.0 migration, and what is left in the tree
 
 **`context/roadmap.md` is gone.** All four of its entries were migrated to issues on 2026-09-09 and the
 file was removed — under this answer the backlog is the tracker, and a second copy in the tree is the
@@ -99,11 +154,8 @@ drift this workflow exists to prevent.
 |---|---|---|
 | [#39](https://github.com/northguild/worktree/issues/39) | `worktree-churn-stats` | backlog |
 | [#40](https://github.com/northguild/worktree/issues/40) | `chat-input-multiline` | backlog |
-| [#41](https://github.com/northguild/worktree/issues/41) | `github-issue-auto-assign` | backlog; its draft is now a comment on the issue |
-| [#42](https://github.com/northguild/worktree/issues/42) | `herdr-space-opener` | **all seven phases `done`** — awaiting `/feature-close` |
-
-None had sub-issues created: the three backlog entries have no plan and therefore no phases, and #42's
-phases were already finished, so its ledger is history rather than state to track.
+| [#41](https://github.com/northguild/worktree/issues/41) | `github-issue-auto-assign` | backlog; its draft became a comment on the issue. **Shipped since**, in 7e59e95 (#50) |
+| [#42](https://github.com/northguild/worktree/issues/42) | `herdr-space-opener` | all seven phases `done`. **Closed since** |
 
 **`context/history.md` and `context/drafts/` are gone too.** The three history rows became closed issues
 on 2026-09-09, and the one draft became a comment on its own issue:
@@ -121,19 +173,11 @@ Closed issues are a better index than a table that conflicts on every merge; the
 archived plan, [`findings.md`](findings.md) still links into `archive/`, and a clone of this repository
 still contains its own engineering history.
 
-### Where a plan lives
-
-**In the issue.** A plan's prose is the feature issue's body, and its phases are sub-issues — that is the
-whole of the phase ledger under this answer. `plans/` is not written to.
-
-This corrects what this file said when it was first written on 2026-09-09, which was that `/feature-plan`
-would go on writing `plans/<NAME>-PLAN.md` with the issue pointing at it. That is wrong, and wrong in the
-way this answer exists to prevent: **a plan committed on one branch is invisible to every other worktree**,
-so a plan in the tree cannot be the shared home that several agents in several trees all read.
-
-One document outlives that rule: `plans/HERDR-SPACE-OPENER-PLAN.md`, the record of
-[#42](https://github.com/northguild/worktree/issues/42), whose seven phases were finished before the switch.
-`/feature-close` moves it into `archive/` and closes the issue. After that, `plans/` is empty and can go.
+**`context/plans/` is empty.** `HERDR-SPACE-OPENER-PLAN.md` was the one document that outlived the
+migration — the record of [#42](https://github.com/northguild/worktree/issues/42), whose seven phases
+finished before the switch. That issue was closed without the move being made; `/onboard` moved the
+document to `archive/` on 2026-09-09 to settle it. The directory is kept with its `.gitkeep` rather than
+removed, so nothing has to be recreated if this answer is ever revisited.
 
 **Two open issues predate the workflow and are outside it** —
 [#21](https://github.com/northguild/worktree/issues/21) (Gitlab support) and
@@ -143,3 +187,26 @@ ordinary issues until someone labels them.
 
 **`findings.md` stays under both answers**, unchanged. A finding is raised and swept inside a single
 branch's life, so it is never the thing two agents contend over.
+
+## What 0.10.0 changed
+
+Recorded because **[#41](https://github.com/northguild/worktree/issues/41)'s body still describes the old
+shape**, in a sentence that is now false: *"Phase status lives in this issue's sub-issues, and nowhere
+else."* It is a closed, shipped feature and its body is history, so it was left as written rather than
+rewritten after the fact. Read it as a record of how that feature was worked, not as instruction.
+
+| Under 0.8.0 | Under 0.10.0 |
+|---|---|
+| one sub-issue per phase, titled `[<n>] <phase name>` | no sub-issues — the ledger is a table in the body |
+| the body's phase table dropped its Status column | the body carries the full table, Status and all |
+| status was open / assigned / `workflow:blocked` / closed | the four status words, written into the column |
+| a phase closed via `Closes #<sub-issue>` on the commit | the row is edited after the commit, with the sha in its Note |
+| two labels | one — `workflow:blocked` deleted |
+| the tracker answer **required** git.md's push answer | it works under every push answer; the pairing is recommended |
+| — | `Priority:` and the issue type, both new, neither read by the loop |
+
+**`gh` has no sub-issue support and this answer no longer needs any.** The `gh api .../sub_issues` recipe
+this file carried under 0.8.0 was removed with the mechanism it served. It was never exercised against this
+repository: the three sub-issues that did exist, on #41, were created before that note was written and
+were **closed as completed on 2026-09-09** — they had stayed open under a closed parent, which under the
+old reading meant three phases `in progress` on a shipped feature.
