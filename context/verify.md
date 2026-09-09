@@ -8,7 +8,7 @@ in `context/`, that copy is the one that is wrong.
 
 Keep it in step with CI. If a command here fails while CI is green, this file is the one that is wrong.
 
-**Every command below was run from the repo root on 2026-09-06 and exited 0.** Anything that did not is
+**Every command below was run from the repo root on 2026-09-09 and exited 0** (re-verified by `/onboard`; first verified 2026-09-06). Anything that did not is
 recorded as such rather than written into a section.
 
 ## Prerequisites

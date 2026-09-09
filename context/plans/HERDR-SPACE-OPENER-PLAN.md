@@ -1,6 +1,6 @@
 # Herdr Space Opener Plan
 
-Written 2026-09-07. Makes a newly created or selected worktree land as a Herdr space instead of an editor window, without touching the Jira/GitHub naming and env-file copying that produce it. The `herdr-space-opener` entry in [`../roadmap.md`](../roadmap.md) is where this feature's status lives.
+Written 2026-09-07. Makes a newly created or selected worktree land as a Herdr space instead of an editor window, without touching the Jira/GitHub naming and env-file copying that produce it. This feature's status lives in [issue #42](https://github.com/northguild/worktree/issues/42) — `context/roadmap.md` was removed on 2026-09-09 when [`../tracking.md`](../tracking.md) moved the backlog into GitHub issues. All seven phases below are `done`; the ledger in §6.1 remains the record of how.
 
 **Phase status lives in §6.1 of this document, and nowhere else.**
 

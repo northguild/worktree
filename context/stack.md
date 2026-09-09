@@ -89,8 +89,10 @@ sweeping the tree finds every surface.
 
 - **`.github/agents/` is not maintained.** Documentation only, nothing executes it, the `scripts/run-agents.js`
   runner it proposes was never written, and no workflow references the directory. **Do not propose updates
-  to it as part of a feature** — treat it as a note to contributors. Its suggest-only commit rule is
-  adopted, and now superseded, by [`git.md`](git.md).
+  to it as part of a feature** — treat it as a note to contributors. Its suggest-only commit rule was
+  adopted by [`git.md`](git.md) in 2026-09-06 and **reversed there on 2026-09-09**: the agent now commits.
+  The manifest is scoped to suggesting lint fixes on a PR, not to the phase loop, so the two disagree on
+  paper and `git.md` is the executable answer.
 - **`skills/` is hand-written prose with two generated lines in it.** `pnpm sync-version` rewrites *only*
   the `library_version:` field of `skills/core/SKILL.md` and the `version:` field of
   `skills/_artifacts/skill_tree.yaml` — `scripts/sync-intent-version.mjs:20-45` is a two-field regex
@@ -153,4 +155,6 @@ Nothing beyond what the tool installs. Index anything you add here — not in `c
 tool-owned and replaced on every update.
 
 Verification commands are in [`verify.md`](verify.md), not here. Executor dispatch is in
-[`executors.md`](executors.md), and who commits is in [`git.md`](git.md).
+[`executors.md`](executors.md); who commits, where work lands and whether it is pushed are in
+[`git.md`](git.md); and where the backlog, the plans and the phase ledgers live is in
+[`tracking.md`](tracking.md).

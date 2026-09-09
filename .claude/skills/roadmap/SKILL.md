@@ -1,6 +1,6 @@
 ---
 name: roadmap
-description: "Print the Tier-1 feature backlog in context/roadmap.md, or append one new pending entry to it. Explicit invocation only — run this when the user types /roadmap. Do NOT match on general planning talk, 'what should we build next', or any request to design, plan, or implement a feature."
+description: "Print the Tier-1 feature backlog, or append one new pending entry to it — in context/roadmap.md, or in the issue tracker where context/tracking.md says so. Explicit invocation only — run this when the user types /roadmap. Do NOT match on general planning talk, 'what should we build next', or any request to design, plan, or implement a feature."
 disable-model-invocation: true
 ---
 
@@ -13,13 +13,17 @@ It *may* write a **draft** in `context/drafts/` — raw reference material the u
 `/feature-plan` later turns into a plan. Keep that line straight: capturing what someone told you is not
 designing.
 
-Read [`context/workflow.md`](../../../context/workflow.md) for the tier model.
+Read [`context/workflow.md`](../../../context/workflow.md) for the tier model, and
+[`context/tracking.md`](../../../context/tracking.md) for where the backlog lives. **Everything below is
+written for the working-tree answer**, which is the default and the one a missing file means; *Under the
+tracker answer* at the end says what changes.
 
 ## Usage
 
 ```
 /roadmap              # print the backlog — read-only
 /roadmap "some idea"  # append one pending entry
+/roadmap #123         # adopt an existing issue — tracker answer only
 ```
 
 ## No arguments — print the backlog
@@ -86,13 +90,55 @@ What to write in it:
 
 Keep the entry itself one or two lines regardless.
 
+## Under the tracker answer
+
+Read [`context/tracking.md`](../../../context/tracking.md) first — it names the repository and the labels,
+and its table is the only place the tracker's own vocabulary appears. The tier model does not change; the
+backlog is a set of issues rather than a file.
+
+| Above | Becomes |
+|---|---|
+| read `context/roadmap.md` | list the open issues carrying the backlog label |
+| append an entry | open one issue: the title is the kebab-case name, the body is the one or two lines |
+| a `drafts/<NAME>.md` file | the same material, in that issue's body |
+| set **Doc:** | nothing — a plan is the observation that the issue has sub-issues |
+| check `context/history.md` for a dropped idea | search **closed** issues; *closed as not planned* is the dropped case, and its closing comment is the reason |
+
+**Write no file.** No entry, no draft, no `Doc` field. The issue body carries the one or two lines, and the
+reference material goes into that same body under a heading rather than into a separate document — the
+draft and the plan are one object here, edited in place, which is why `/feature-plan` can keep the id.
+
+Everything the *Capturing reference material* section says still holds, including the credential rule:
+**an issue body is a tracked file for that purpose and probably a more public one.**
+
+### Adoption — a second way to append
+
+Someone else's issue can enter the backlog without being retyped:
+
+```
+/roadmap #123          # adopt an existing issue into the backlog
+```
+
+Apply the backlog label to it and stop. **Copy nothing and rewrite nothing** — the reporter's wording, the
+discussion and everyone subscribed are the reason this is better than opening a second issue about the same
+thing. Add a comment saying it has entered the backlog, and leave the body alone until `/feature-plan`.
+
+- **Check it is worth adopting first.** [`context/workflow.md`](../../../context/workflow.md)'s test is
+  unchanged: adopt it only if you would want a history row for it. An issue smaller than that is
+  `/orchestrate` work — fixed and closed by the commit, never labelled, never in the backlog.
+- **The label says nothing about kind.** A bug large enough to plan is a feature in this workflow's
+  vocabulary. Leave every label the issue already carries exactly where it is.
+- **The title may not be a kebab-case name**, and other people's issue titles are not yours to rewrite. Say
+  what name the workflow will use for it and put that name in your comment.
+
 ## Rules
 
 - **One or two lines of why. No more.** If you find yourself writing a third paragraph, that is a signal the
   idea is ready for `/feature-plan`, not that the entry should be longer.
 - **Never guess at a design.** The entry records that a thing is wanted, not how it would work.
 - **Never mark anything `active`.** Only `/feature-plan --activate` and `/feature-implement` do that.
-- **Never remove an entry.** Entries leave only via `/feature-close`, which records why. Deleting one loses
-  the reason it was dropped, which is the whole point of `history.md`.
+- **Never remove an entry**, and under the tracker answer never close an issue. Entries leave only via
+  `/feature-close`, which records why. Losing that reason is the whole point of `history.md` — and of the
+  close reason that replaces it.
 - If the idea is really several ideas, say so and offer to add them as separate entries rather than writing
   one vague entry covering all of them.

@@ -1,6 +1,6 @@
 ---
 name: feature-status
-description: "Read-only report of where the active feature stands — its plan's phase ledger, open findings, and git state — ending with exactly one next action. Explicit invocation only — run this when the user types /feature-status. Do NOT match on 'what's the status', 'where are we', or general progress questions."
+description: "Read-only report of where the active feature stands — its plan's phase ledger, open findings, and git state, plus every other worktree in flight where the project works that way — ending with exactly one next action. Explicit invocation only — run this when the user types /feature-status. Do NOT match on 'what's the status', 'where are we', or general progress questions."
 disable-model-invocation: true
 ---
 
@@ -12,7 +12,9 @@ agent.**
 **It is never a prerequisite.** Every other command resolves its own starting point — nobody has to run
 this first. It exists for when *you* want to know.
 
-Read [`context/workflow.md`](../../../context/workflow.md) for the tier model.
+Read [`context/workflow.md`](../../../context/workflow.md) for the tier model, and
+[`context/tracking.md`](../../../context/tracking.md) for where the state it reports lives. **Everything
+below is written for the working-tree answer**; *Under the tracker answer* at the end says what changes.
 
 ## 1. Read, in this order
 
@@ -24,7 +26,34 @@ Read [`context/workflow.md`](../../../context/workflow.md) for the tier model.
 **Nothing is cached and nothing is parsed by a script.** Read the ledger every time. That is the property
 that makes hand-editing a row change this command's answer immediately, with no regeneration step.
 
-## 2. Reconcile before trusting the ledger
+## 2. In worktree mode, sweep the worktrees
+
+Read [`context/git.md`](../../../context/git.md). **If *Where work lands* is not the worktree answer, skip
+this step entirely** — there is one working tree and step 1 has already read it.
+
+Under that answer, `roadmap.md` on the default branch cannot see what is in flight: each feature's `active`
+marker and its ledger advance inside that feature's own tree, and reach the default branch only when the
+branch merges. So enumerate them.
+
+1. `git worktree list` — every working tree, its path and its branch. **That is the state.** Nothing
+   records which features are in flight; a worktree existing is the claim, and removing it withdraws the
+   claim. Do not write a file to track this, and do not read one if you find it.
+2. For each tree other than this one, read `<path>/context/roadmap.md` for its `active` entry and that
+   entry's ledger at `<path>/context/plans/<NAME>-PLAN.md`. Two numbers per tree — phases `done` out of
+   phases total — and its lowest not-`done` phase.
+3. Whether an agent session is live in a tree is not a git fact. If
+   [`context/executors.md`](../../../context/executors.md) names a way to ask, run it and say which trees
+   are occupied. If it does not, say the report cannot tell rather than guessing from a dirty tree.
+
+**Two things that are not discrepancies here:**
+
+- **A worktree with no `active` entry.** It is a tree nobody has started in, or one whose feature is closed
+  and whose branch is waiting to merge. Report it as idle.
+- **A plan reading `not started` on the default branch while its own worktree's copy reads phase 3.** That
+  is one document at two commits, which is what a branch is. Step 3 reconciles a ledger against the tree it
+  lives in, never across two trees — report the worktree's copy, which is the one being worked.
+
+## 3. Reconcile before trusting the ledger
 
 Report and **stop** on any of these:
 
@@ -46,7 +75,7 @@ stale. That is the exact failure this workflow exists to prevent.
   the user commits. Name it in the report; do not stop on it, and do not commit it: this command writes
   nothing.
 
-## 3. Report
+## 4. Report
 
 Keep it short. The user is asking a question, not reading a document.
 
@@ -59,10 +88,18 @@ Findings: <n> open (<severities>)  (or: none open)
 Next: <exactly one action>
 ```
 
+Under the worktree answer, and only there, one block above **Next** — one line per tree the sweep found,
+and nothing for a repository that has none:
+
+```
+In flight: <n> worktrees
+  <branch>  <feature>  <n>/<n> phases  <idle | agent live | unknown>
+```
+
 Under the header, list only the phases that are **not** `done`, one line each with their Note. Do not
 re-print the whole ledger.
 
-## 4. Name exactly one next action
+## 5. Name exactly one next action
 
 In priority order — take the **first** that applies and name only it:
 
@@ -78,12 +115,66 @@ In priority order — take the **first** that applies and name only it:
    contradict it.
 8. **Nothing at all** → `/roadmap "some idea"`.
 
+**Run from the default branch in worktree mode**, apply that same order across every tree the sweep found
+and name the tree the action belongs to — where to be, then what to do there. It is still exactly one. A
+fleet of three features with three next actions is precisely the list this command exists to replace: name
+the most urgent one, and the other two keep.
+
+**Run from inside a worktree**, the answer is about that tree. Other trees are somebody else's turn, and
+the report says so in one line rather than ranking them.
+
 "Exactly one" is the point. A list of three things to consider is what this command exists to replace.
+
+## Under the tracker answer
+
+Read [`context/tracking.md`](../../../context/tracking.md) first. This command still writes nothing and
+still ends with exactly one next action.
+
+| Above | Becomes |
+|---|---|
+| step 1's `roadmap.md` | the open issues carrying the backlog label |
+| step 1's status ledger | that issue's sub-issues |
+| step 1's `findings.md` and git state | unchanged — both are still files in this tree |
+| step 2's worktree sweep | **one query: the assigned issues** |
+
+**Step 2 gets shorter and stronger, and it is the clearest payoff of this answer.** The sweep exists
+because `roadmap.md` on the default branch cannot see what is in flight, so it walks every tree and reads
+each one's files. That only ever worked for trees **on this machine**. The tracker is outside every tree:
+one query for the assigned issues answers what is in flight across every machine, and it answers it for
+agents this checkout has never heard of.
+
+Keep `git worktree list` anyway, and report the two side by side. They answer different questions — which
+trees exist *here*, and which features are claimed *anywhere* — and the interesting line is where they
+disagree:
+
+- **Assigned with no local tree** — normal. Someone else's agent has it.
+- **A local tree whose feature is unassigned** — a claim that was dropped, or a tree left behind after a
+  close. Report it; do not assign anything.
+
+### Two reconciliations that only exist here
+
+Add these to step 3, and stop on them the same way:
+
+- **A stale claim.** An issue assigned whose last comment is old — the phase opened and nothing since. The
+  heartbeat is what makes this visible; say how long, and that reclaiming is a person's decision. **Never
+  un-assign someone else's agent.**
+- **A sub-issue closed whose phase's `Files:` do not exist.** Same shape as a `done` row with no files, one
+  substrate over.
+- **The sub-issues do not match the body's phase list** — a listed phase with no sub-issue, or a sub-issue
+  naming no listed phase. The body is the authoritative list of what the phases *are*; the sub-issues are
+  only where each one stands. A count that disagrees is usually a `/feature-plan` run that died partway;
+  say which side has the extra and stop.
+
+**A sub-issue closed while its commit is still unpushed is not a discrepancy** — the same way a `done` row
+with uncommitted changes is not. It is the normal state between the gates passing and the branch landing.
 
 ## Rules
 
 - **Read-only. No exceptions.** Not the ledger, not the roadmap, not a finding, not a "quick fix while I'm
   here". If you spot something that needs changing, name it as the next action and let the user decide.
-- **Never invoke another agent.**
+- **Never create, remove or switch a working tree.** The sweep reads `git worktree list` and the files it
+  points at. Naming a tree to go to is this command's job; going there is not.
+- **Never invoke another agent**, and under the tracker answer never assign, un-assign, label or close
+  anything. Reading is the whole of this command.
 - **Never mark anything.** Reporting that a phase looks finished is not marking it `done`; only
   `/feature-implement` does that, on gate evidence.

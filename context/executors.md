@@ -4,7 +4,8 @@ How this project dispatches a **coder** and a **reviewer**. Hand-written prose, 
 time — the exact parallel to [`verify.md`](verify.md), and for the same reason: a skill that hardcodes an
 invocation bakes one machine's setup into a tool that ships everywhere.
 
-Configured by `/onboard` on 2026-09-05.
+Configured by `/onboard` on 2026-09-05. The **Worktree operations** section below was added on
+2026-09-09, when [`git.md`](git.md) took the worktree-per-feature answer.
 
 ## Coder
 
@@ -43,6 +44,50 @@ Two alternatives were considered and rejected on 2026-09-05:
   executor. It remains useful when a human wants a deeper look; it is not the gate.
 - **The host reviewing its own diff** is the fallback if the subagent is ever unavailable. It is weaker
   than an independent reviewer, and any gate run that falls back to it must say so.
+
+## Worktree operations
+
+[`git.md`](git.md) says work lands in a worktree per feature and that the agent commits and pushes. The
+invocations that carry that out live here, for the same reason the reviewer's does — a skill that hardcodes
+one machine's setup ships it everywhere.
+
+**This project is the tool being invoked.** Verified on 2026-09-09: `worktree` resolves to
+`/opt/homebrew/bin/worktree`, reporting `@northguild/worktree/1.4.0`, which is the **published** build and
+not this checkout's `dist/`. That is deliberate and worth keeping — a working tree mid-refactor must not
+cost you the ability to create the next worktree. It also means the tree-creating tool can lag the source
+by a release, so **never assume a flag you just added to `src/` exists in the binary that makes the tree.**
+
+### Create a worktree for a feature
+
+```bash
+worktree branch <branch-name> --source origin/main
+```
+
+It creates the tree, copies the root's `.env` files into it, and then hands it to the configured opener.
+Two consequences for an agent using it:
+
+- **It is interactive.** With no `--source` it prompts, and it confirms a non-`origin/` source. Give
+  `--source` explicitly so the run does not block on a prompt that has no TTY behind it.
+- **It opens an editor or a Herdr space as its last act**, per the `opener` config key. That is a side
+  effect on the user's desktop, not a failure.
+
+`worktree branch --github <n>` derives the branch name from a GitHub issue, which is the natural form under
+[`tracking.md`](tracking.md)'s issue-tracker answer.
+
+### Ask whether an agent session is live in a tree
+
+```bash
+worktree list --agents
+```
+
+`/feature-status` reports this where it can and says it cannot tell where it cannot; here it can. The flag
+is opt-in precisely because the session lookup costs something — without it the command costs what it
+always did. What comes back per worktree is a session name and pid, and markers for live, interactive and
+waiting.
+
+**A missing marker is not proof of absence.** `WorktreeAgent.live` is optional and the codebase's own
+safety check treats an absent value as live (`!== false`), which is the direction that fails safe. Read it
+the same way: no answer means assume someone is working there.
 
 ## The contract, whatever is configured
 

@@ -1,6 +1,6 @@
 # Cleanup Data Loss Plan
 
-Retired — its outcome and date are in [`../history.md`](../history.md).
+Retired — its outcome and date are in [issue #43](https://github.com/northguild/worktree/issues/43) (`cleanup-data-loss`, closed). `context/history.md` held this until 2026-09-09, when [`../tracking.md`](../tracking.md) moved the outcome index into GitHub issues.
 
 Made `safeToRemove` mean what its name says, so `worktree cleanup` stops force-removing worktrees that hold
 uncommitted work.

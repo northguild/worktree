@@ -1,6 +1,6 @@
 # shell-argv-safety Plan
 
-Retired — its outcome and date are in [`../history.md`](../history.md).
+Retired — its outcome and date are in [issue #44](https://github.com/northguild/worktree/issues/44) (`shell-argv-safety`, closed). `context/history.md` held this until 2026-09-09, when [`../tracking.md`](../tracking.md) moved the outcome index into GitHub issues.
 
 Removed the shell from this CLI's subprocess calls, replacing an interpolated command-string contract with
 an argv-array one. `cmd()`, the `exec` inside it, and the one `exec` that bypassed it are all gone; every

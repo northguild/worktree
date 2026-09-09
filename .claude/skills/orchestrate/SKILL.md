@@ -65,8 +65,10 @@ exist or has no filled-in section, stop and say so. Docs-only changes run Lint p
 
 ## 4. Gate 2 — review
 
-Dispatch per [`context/executors.md`](../../../context/executors.md). With no independent reviewer
-configured, review the diff yourself against the standards — weaker, and **say which one you ran.**
+Dispatch per [`context/executors.md`](../../../context/executors.md) — an external reviewer, a **reviewer
+subagent if your runtime provides one**, or the host reading its own diff. The last is the default and the
+weakest, so **say which one you ran.** Where the runtime has no subagent mechanism, review the diff
+yourself against the standards and say that is what happened.
 
 Require concrete evidence — file paths, command output — for every verdict, and a `P0`–`P3` severity on
 every blocking finding.
@@ -88,7 +90,11 @@ feedback. **Escalating is not a substitute for recording.**
 ## 6. Land it — read [`context/git.md`](../../../context/git.md)
 
 **Do not commit unless that file says the agent does.** If it does not exist, the answer is *the user
-commits*: say so once, and name `/onboard`. Nothing branches or pushes under either answer.
+commits*: say so once, and name `/onboard`.
+
+**Nothing here branches or pushes**, whatever *Where work lands* and *Push and pull request* say. Both of
+those answers are about a feature — one branch or tree per entry, one push at `/feature-close` — and an
+ad-hoc change has no entry and no feature to close. It lands on whatever branch is already checked out.
 
 - **The user commits** → leave the change in the working tree and hand it over.
 - **The agent commits** → one commit, at the granularity that file names.
