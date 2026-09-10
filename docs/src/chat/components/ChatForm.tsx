@@ -68,7 +68,15 @@ export function ChatForm({ onSubmit, disabled }: ChatFormProps) {
             <ChatInput
               ref={inputRef}
               label="Message"
-              placeholder="Type a message... (Shift+Enter for a new line)"
+              // Deliberately short. Naming the Shift+Enter convention here made
+              // the string 328px wide against a field that has about 286px in
+              // the 400px drawer, so it wrapped to a second line the collapsed
+              // one-row field could not show: the sentence was clipped after
+              // "for a" and the overflow put a scrollbar in an empty field.
+              // The convention is the near-universal one and goes undocumented
+              // in Slack, Discord and ChatGPT alike; a placeholder that fits is
+              // worth more than one that explains itself and is cut in half.
+              placeholder="Type a message..."
               className="flex-1 px-4 py-2 border rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-gray-100 border-gray-200 dark:border-neutral-700 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500"
               disabled={disabled}
               maxLength={MAX_MESSAGE_LENGTH}

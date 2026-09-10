@@ -907,6 +907,8 @@ file records the exclusion deliberately and says why. Whichever is chosen, a Gat
 evidence. Clearing the 23 errors is the prerequisite for the first option, and the `"types"` line above is
 22 of them.
 
+## Closed
+
 ### F-053 — P2 — the placeholder that is this feature's only user-facing documentation is clipped mid-sentence
 
 **Tied to:** chat-input-multiline Phase 1 · **Raised:** 2026-09-10 (hand, during Phase 3's verification)
@@ -936,7 +938,14 @@ headless measurement showing `scrollHeight` equal to `clientHeight` while the fi
 cannot close this one** — no command in [`verify.md`](verify.md) renders the drawer — so unlike
 [F-052](#f-052) the evidence is that hand check, cited by whatever change makes it.
 
-## Closed
+**Closed:** 2026-09-10 by the post-review fix on this branch, which took the first option at the
+maintainer's direction — the placeholder is `"Type a message..."` again and the Shift+Enter convention is
+not surfaced in the UI at all. Measured against the real compiled CSS and font at three drawer widths
+(400px, and 360px/320px phones): the empty field reports `scrollHeight` **24** against a `clientHeight` of
+**24** at every one, where it was 48/24 before. Nothing is clipped and the empty field no longer carries a
+scrollbar. §7 of the plan was corrected in the same change, since it named that placeholder as the one
+place the convention was written down.
+
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches
 
