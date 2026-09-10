@@ -70,6 +70,14 @@ function makeErrorEnvelope(code: string, message: string): string {
   return JSON.stringify({ error: { code, message }, id: "cli:worktree:open" });
 }
 
+/** The `timeout` a given runCapturing call was bounded with, if any. */
+function timeoutOf(callIndex: number): number | undefined {
+  const options = mockRunCapturing.mock.calls[callIndex]?.[2] as
+    | { timeout?: number }
+    | undefined;
+  return options?.timeout;
+}
+
 function openThisWorktree(focus = true) {
   return openHerdrWorktree({
     path: worktreePath,
@@ -115,17 +123,21 @@ describe("openHerdrWorktree", () => {
       paneId: "pF1",
       alreadyOpen: false,
     });
-    expect(mockRunCapturing).toHaveBeenCalledWith("herdr", [
-      "worktree",
-      "open",
-      "--path",
-      worktreePath,
-      "--cwd",
-      gitRootPath,
-      "--label",
-      branchName,
-      "--focus",
-    ]);
+    expect(mockRunCapturing).toHaveBeenCalledWith(
+      "herdr",
+      [
+        "worktree",
+        "open",
+        "--path",
+        worktreePath,
+        "--cwd",
+        gitRootPath,
+        "--label",
+        branchName,
+        "--focus",
+      ],
+      { timeout: expect.any(Number) },
+    );
   });
 
   it("sends --no-focus when focus is off", async () => {
@@ -140,10 +152,12 @@ describe("openHerdrWorktree", () => {
     expect(mockRunCapturing).toHaveBeenCalledWith(
       "herdr",
       expect.arrayContaining(["--no-focus"]),
+      expect.anything(),
     );
     expect(mockRunCapturing).not.toHaveBeenCalledWith(
       "herdr",
       expect.arrayContaining(["--focus"]),
+      expect.anything(),
     );
   });
 
@@ -317,17 +331,21 @@ describe("startHerdrAgent", () => {
     });
 
     await expect(startAgent()).resolves.toBeUndefined();
-    expect(mockRunCapturing).toHaveBeenCalledWith("herdr", [
-      "agent",
-      "start",
-      "feature-herdr-space-opener",
-      "--kind",
-      "claude",
-      "--pane",
-      "pF1",
-      "--timeout",
-      "15000",
-    ]);
+    expect(mockRunCapturing).toHaveBeenCalledWith(
+      "herdr",
+      [
+        "agent",
+        "start",
+        "feature-herdr-space-opener",
+        "--kind",
+        "claude",
+        "--pane",
+        "pF1",
+        "--timeout",
+        "15000",
+      ],
+      { timeout: expect.any(Number) },
+    );
   });
 
   it("asks for a timeout Herdr accepts and shorter than its own default", async () => {
@@ -349,6 +367,26 @@ describe("startHerdrAgent", () => {
     expect(timeout).toBeLessThan(30000);
   });
 
+  it("bounds the call at longer than the wait it asks Herdr to make", async () => {
+    // Herdr holds `agent start` open for the `--timeout` this sends while the
+    // agent boots. A local bound at or below that number would kill the call
+    // while Herdr was doing exactly what it was asked to, so the two are
+    // ordered rather than equal — which is what catches a future edit that
+    // collapses them onto a single constant.
+    mockRunCapturing.mockResolvedValue({
+      stdout: makeAgentStartedEnvelope(),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await startAgent();
+
+    const args = mockRunCapturing.mock.calls[0]?.[1] as string[];
+    const herdrWait = Number(args[args.indexOf("--timeout") + 1]);
+
+    expect(timeoutOf(0)).toBeGreaterThan(herdrWait);
+  });
+
   it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
     mockRunCapturing.mockResolvedValue({
       stdout: "",
@@ -363,5 +401,72 @@ describe("startHerdrAgent", () => {
 
     expect(error).toBeInstanceOf(HerdrError);
     expect(error).toMatchObject({ code: "agent_name_in_use" });
+  });
+});
+
+/**
+ * F-041: every Herdr call here is awaited, so an unresponsive server freezes
+ * the command that spawned it. These pin that the bound exists rather than its
+ * value — a number re-typed in a test is a number nobody may tune.
+ */
+describe("the request timeout", () => {
+  it("bounds a worktree open", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: makeWorktreeOpenedEnvelope(false),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await openThisWorktree();
+
+    const timeout = timeoutOf(0);
+
+    expect(timeout).toBeGreaterThan(0);
+    expect(Number.isFinite(timeout)).toBe(true);
+  });
+
+  /** The shape Node reports for a child it killed when the timeout expired. */
+  function makeKilledError(): Error {
+    return Object.assign(new Error("Command failed: herdr worktree open"), {
+      killed: true,
+      signal: "SIGTERM",
+      code: null,
+    });
+  }
+
+  it("reports a timed-out call as a timeout, naming the command and the wait", async () => {
+    // Node's own message for a killed child is `Command failed: <argv>`, which
+    // says nothing about a timeout. The seam prints `error.message` verbatim,
+    // so the rewording has to happen here or the user is told only that
+    // something failed (F-052).
+    mockRunCapturing.mockRejectedValue(makeKilledError());
+
+    const error = await openThisWorktree().catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/did not answer within 10s\.$/);
+    expect((error as Error).message).toContain("herdr worktree open");
+    // It is not reshaped into a parse failure for the stdout that never came.
+    expect((error as Error).message).not.toMatch(/parse/i);
+  });
+
+  it("keeps the killed child as the cause", async () => {
+    const killed = makeKilledError();
+    mockRunCapturing.mockRejectedValue(killed);
+
+    const error = await openThisWorktree().catch((thrown: unknown) => thrown);
+
+    expect((error as Error).cause).toBe(killed);
+  });
+
+  it("passes a rejection that is not a timeout through untouched", async () => {
+    // An absent binary or a maxBuffer overflow already says what went wrong;
+    // only the kill is reworded, so this must not be relabelled a timeout.
+    const enoent = Object.assign(new Error("spawn herdr ENOENT"), {
+      code: "ENOENT",
+    });
+    mockRunCapturing.mockRejectedValue(enoent);
+
+    await expect(openThisWorktree()).rejects.toBe(enoent);
   });
 });

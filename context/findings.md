@@ -634,42 +634,6 @@ defect. It closes with F-034 or not at all.
 **Closes when:** a Lint gate run passes with `SKILL.md:145` and `page.mdx:35` carrying the same qualified
 claim — that is, jointly with F-034.
 
-### F-041 — P2 — the awaited `worktree open` has no timeout, so an unresponsive Herdr hangs the command
-
-**Tied to:** herdr-space-opener Phase 5 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent, note N2)
-
-The capturing runner sets no `timeout` on `execFile` (`src/lib/cli.ts:48-68`), and Phase 4 made the Herdr
-branch of the seam `await` it (`src/lib/base-command.ts:114`). Before this feature
-the opener never blocked: it registered a callback and `run()` returned. A Herdr that accepts the
-connection and then never answers now freezes `worktree branch` **after** the worktree exists and its env
-files are copied — the user sees a spinner and has no signal that the real work already succeeded.
-
-§5 names the concrete trigger: v0.9.0's `--trust-repository` may leave the open waiting on a decision for
-a repository Herdr has not seen before. §8 records the question and chooses no value.
-
-This is recorded rather than fixed because the fix lives in `src/lib/cli.ts`, which is not in Phase 4's
-**Files:** list, and because §8 folds into the archive at `/feature-close` while this file survives —
-leaving the deferral only in §8 would give it no owner. Phase 5 is the natural home: it decides the
-adjacent §8 question of whether `agent start` is awaited or fire-and-forget, and the two want one answer.
-
-**Renamed at the merge with `main` (2026-09-08).** The runner this finding was raised against is now
-`runCapturing`, `main`'s `run` having taken the plain name. The defect is unchanged: `runCapturing` grew
-a `cwd` option in the merge and still sets no `timeout`.
-
-**Still open after Phase 5 (2026-09-08).** Phase 5 answered the §8 half — agent start is awaited, and it
-passes `--timeout 15000` — but that flag bounds *Herdr's* wait for the agent to become interactive-ready,
-not the `execFile` this repo spawned. `src/lib/cli.ts:54` passes an options object carrying only `cwd`
-and no `timeout`, so a `herdr` client that accepts the connection and never answers hangs both the open
-and the agent start exactly as described above. Phase 5 did not widen into `src/lib/cli.ts`, which is
-absent from its **Files:** list too. **This finding now has no phase left to land in** — Phase 6 is
-documentation — so it is a maintainer's call: bound `runCommand` with a timeout as a separate
-`/orchestrate` change, or state in the repo why unbounded is correct.
-
-**Closes when:** a timeout bounds the awaited Herdr calls — or the repo states why unbounded is correct —
-and Gate 1 re-passes with a test covering what the seam prints when the call times out.
-
-**Renumbered on merge (2026-09-08).** Raised as F-004 on the `herdr-space-opener` branch, which numbered from the same starting point as `main` and collided with it. The finding is unchanged.
-
 ### F-042 — P2 — an unquoted apostrophe is consumed by the command-value split
 
 **Tied to:** herdr-space-opener Phase 1 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent, note N1)
@@ -866,7 +830,106 @@ source — the first belongs under `describe("the worktree is the deliverable")`
 **Closes when:** a Gate 1 run passes with the three-line spinner assertion added to *still creates and opens
 the worktree when the assignment throws*, in the shape the unassigned case already uses.
 
+### F-053 — P3 — a describe comment in `herdr.test.ts` no longer describes its own cases
+
+**Tied to:** herdr-space-closer Phase 1 · **Raised:** 2026-09-10 (Gate 2, the `reviewer` subagent, note NB2)
+
+`src/integrations/herdr.test.ts:408-410` opens its describe with *"These pin that the bound exists rather
+than its value — a number re-typed in a test is a number nobody may tune."* One case below it now pins the
+value: `:447` asserts `/did not answer within 10s\.$/`, as does `src/lib/base-command.test.ts:437`. The
+trade is correct — F-052's closing condition required the printed line to name the wait — but the comment
+above them is now false, and the consequence is worth knowing: tuning `HERDR_REQUEST_TIMEOUT_MS` means
+editing two test files.
+
+Not fixed in Phase 1: Gate 2 had already passed on that file, and editing it afterwards would commit code
+no gate had seen — the reasoning F-002 through F-005 record.
+
+**Closes when:** that sentence is corrected, on any Gate 1 run that has the file open for another reason.
+
+### F-054 — P3 — the timeout is user-visible behaviour that issue #52's §7 does not route anywhere
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-10 (Gate 2, the `reviewer` subagent, note NB3)
+
+`context/stack.md`'s Documentation table routes any user-visible CLI behaviour to `docs/src/app/docs/`, and
+a 10 s bound with a specific failure line qualifies. Nothing is made *untrue* by Phase 1 —
+`docs/src/app/docs/guides/herdr-spaces/page.mdx:81-95` already lists "or the open fails", the new line keeps
+the `✖ Herdr: …` shape of its example, and `:94-95`'s exit-0 claim still holds — so it was not Phase 1's to
+fix. But issue #52's §7 row for that page justifies rewriting *When Herdr cannot be reached* on the close
+half alone, so Phase 6 will rewrite that section without mentioning the timeout unless something says so.
+
+**Closes when:** Phase 6's rewrite of that page covers the timeout — what bounds the call, and what the
+command prints when it expires.
+
 ## Closed
+
+### F-052 — P1 — nothing covers what the Herdr seam prints when a call times out, and the string it would print never says "timeout"
+
+**Tied to:** herdr-space-closer Phase 1 · **Raised:** 2026-09-10 (Gate 2, the `reviewer` subagent, finding B1)
+
+Phase 1 bounds every Herdr call (`src/integrations/herdr.ts:182-190`), and its **Done when** asks for a
+test of the rejection *"and what the seam prints for it"*. The seam is `BaseCommand.openHerdrSpace`, whose
+`catch` prints `error.message` and the worktree path (`src/lib/base-command.ts:136-143`). No test reaches
+it: `grep -rn "killed\|SIGTERM\|timed out" src/lib/base-command.test.ts` returns nothing, and the only
+rejection case in that suite is a `HerdrError` (`src/lib/base-command.test.ts:396`).
+
+The absent test is what hid the second half. Node's message for a child killed on timeout is
+`Command failed: <argv>`, so a Herdr that accepts the socket and never answers would print
+
+```
+✖ Command failed: herdr worktree open --path /… --cwd /… --label feature/x --focus
+The worktree is at /…
+```
+
+— naming neither the timeout nor its length, while
+`docs/src/app/docs/guides/herdr-spaces/page.mdx:83-84` promises the command *"prints what Herdr said"*.
+This is [F-041](#f-041)'s own complaint one step along: that finding exists because a hang gives the user
+no signal, and an unexplained `Command failed` is a poor one.
+
+**F-041 cannot close until this does.** Its **Closes when** names this same test, and the Closing rule
+above forbids the "fixed but unverified" state that closing it on the bound alone would create.
+
+**Closes when:** Gate 1 re-passes with a case in `src/lib/base-command.test.ts` that rejects the open with
+a kill-shaped error and asserts what the spinner prints, and that printed line names the timeout.
+
+**Closed: 2026-09-10, by herdr-space-closer Phase 1**, in the loopback that raised it. `src/lib/base-command.test.ts:422-450` restores the spy on `openHerdrWorktree` and drives the real integration through a kill-shaped rejection, so it pins the whole chain rather than proving the seam echoes a pre-worded stub: it asserts the printed line matches `/did not answer within 10s\./`, names the command, and is **not** the bare `Command failed:` Node produces. The second half — the string itself — was fixed rather than merely pinned: `toRunnerError` (`src/integrations/herdr.ts:187-206`) rewords only a killed child (`killed === true && code === null`), leaving ENOENT and the string-coded maxBuffer overflow untouched, verified on Node 24.19.0 at Gate 2. Gate 1 re-passed on this change — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (495 passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-10.
+
+### F-041 — P2 — the awaited `worktree open` has no timeout, so an unresponsive Herdr hangs the command
+
+**Tied to:** herdr-space-opener Phase 5 · **Raised:** 2026-09-08 (Gate 2, the `reviewer` subagent, note N2)
+
+The capturing runner sets no `timeout` on `execFile` (`src/lib/cli.ts:48-68`), and Phase 4 made the Herdr
+branch of the seam `await` it (`src/lib/base-command.ts:114`). Before this feature
+the opener never blocked: it registered a callback and `run()` returned. A Herdr that accepts the
+connection and then never answers now freezes `worktree branch` **after** the worktree exists and its env
+files are copied — the user sees a spinner and has no signal that the real work already succeeded.
+
+§5 names the concrete trigger: v0.9.0's `--trust-repository` may leave the open waiting on a decision for
+a repository Herdr has not seen before. §8 records the question and chooses no value.
+
+This is recorded rather than fixed because the fix lives in `src/lib/cli.ts`, which is not in Phase 4's
+**Files:** list, and because §8 folds into the archive at `/feature-close` while this file survives —
+leaving the deferral only in §8 would give it no owner. Phase 5 is the natural home: it decides the
+adjacent §8 question of whether `agent start` is awaited or fire-and-forget, and the two want one answer.
+
+**Renamed at the merge with `main` (2026-09-08).** The runner this finding was raised against is now
+`runCapturing`, `main`'s `run` having taken the plain name. The defect is unchanged: `runCapturing` grew
+a `cwd` option in the merge and still sets no `timeout`.
+
+**Still open after Phase 5 (2026-09-08).** Phase 5 answered the §8 half — agent start is awaited, and it
+passes `--timeout 15000` — but that flag bounds *Herdr's* wait for the agent to become interactive-ready,
+not the `execFile` this repo spawned. `src/lib/cli.ts:54` passes an options object carrying only `cwd`
+and no `timeout`, so a `herdr` client that accepts the connection and never answers hangs both the open
+and the agent start exactly as described above. Phase 5 did not widen into `src/lib/cli.ts`, which is
+absent from its **Files:** list too. **This finding now has no phase left to land in** — Phase 6 is
+documentation — so it is a maintainer's call: bound `runCommand` with a timeout as a separate
+`/orchestrate` change, or state in the repo why unbounded is correct.
+
+**Closes when:** a timeout bounds the awaited Herdr calls — or the repo states why unbounded is correct —
+and Gate 1 re-passes with a test covering what the seam prints when the call times out.
+
+**Renumbered on merge (2026-09-08).** Raised as F-004 on the `herdr-space-opener` branch, which numbered from the same starting point as `main` and collided with it. The finding is unchanged.
+
+**Closed: 2026-09-10, by herdr-space-closer Phase 1.** `RunOptions` gained a `timeout` (`src/lib/cli.ts:14`), threaded into `execFile` by both `run` and `runCapturing` (`src/lib/cli.ts:33,36,64,67`). Every Herdr call is bounded through the single production consumer `runHerdrRequest`, which passes `HERDR_REQUEST_TIMEOUT_MS` (10 s) by default and a derived `AGENT_START_TIMEOUT_MS + HERDR_REQUEST_TIMEOUT_MS` for `agent start` — that one request being entitled to take longer, because Herdr is asked to wait 15 s for the agent to boot. The second half of the Closes-when is met too: `toRunnerError` (`src/integrations/herdr.ts:187-206`) rewords a killed child, and `src/lib/base-command.test.ts:422-450` drives the real integration to pin what the seam prints for it. Gate 1 re-passed on this change — `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (495 passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-10.
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches
 

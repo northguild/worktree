@@ -410,6 +410,45 @@ describe("openWorktreePath — the Herdr opener", () => {
       expect(spinnerMocks.succeed).not.toHaveBeenCalled();
     });
 
+    // F-052 / F-041: the bound on the Herdr calls exists so a server that
+    // accepts the socket and never answers stops the command instead of hanging
+    // it. What the user is left with is whatever this prints, so it is pinned
+    // here — the string, not just the fact that something failed.
+    //
+    // The spy on openHerdrWorktree is restored for this one case: the point is
+    // that the wording src/integrations/herdr.ts puts on a killed child is what
+    // reaches the screen, and a stub returning a pre-worded message would prove
+    // only that the seam echoes what it was handed.
+    it("says the call timed out, and how long it waited, when Herdr never answers", async () => {
+      mockOpenHerdrWorktree.mockRestore();
+      setConfig({ opener: "herdr", codeEditor: "code" });
+      mockRunCapturing.mockRejectedValue(
+        Object.assign(new Error("Command failed: herdr worktree open"), {
+          killed: true,
+          signal: "SIGTERM",
+          code: null,
+        }),
+      );
+
+      await openWorktreePath(worktreePath);
+
+      const printed = spinnerMocks.fail.mock.calls[0]?.[0] as string;
+
+      expect(printed).toMatch(/did not answer within 10s\./);
+      expect(printed).toContain("herdr worktree open");
+      // The bare `Command failed: <argv>` Node produces for a killed child
+      // names neither the timeout nor its length, and that is the regression
+      // this guards: an edit that stops rewording the kill lands back on it,
+      // while the docs promise the command prints what Herdr said.
+      expect(printed).not.toMatch(/^Command failed:/);
+      expect(mockLog).toHaveBeenCalledWith(
+        `The worktree is at ${worktreePath}`,
+      );
+      // D5 holds for a timeout exactly as for a refusal: no consolation editor
+      // window, no success tick, and the command still exits 0.
+      expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+    });
+
     it("reports an absent herdr binary without contacting it", async () => {
       setConfig({ opener: "herdr", codeEditor: "code" });
       vi.spyOn(cli, "commandExists").mockResolvedValueOnce(false);
@@ -463,17 +502,25 @@ describe("openWorktreePath — the Herdr opener", () => {
 
         await openWorktreePath(spacePath);
 
-        expect(mockRunCapturing).toHaveBeenCalledWith("herdr", [
-          "agent",
-          "start",
-          "feature-a-thing",
-          "--kind",
-          "claude",
-          "--pane",
-          "pF1",
-          "--timeout",
-          "15000",
-        ]);
+        expect(mockRunCapturing).toHaveBeenCalledWith(
+          "herdr",
+          [
+            "agent",
+            "start",
+            "feature-a-thing",
+            "--kind",
+            "claude",
+            "--pane",
+            "pF1",
+            "--timeout",
+            "15000",
+          ],
+          // The bound the integration puts on its own subprocess, which is a
+          // different thing from the `--timeout` above that Herdr is asked to
+          // wait. src/integrations/herdr.test.ts owns the relationship between
+          // the two; this only has to not care what the number is.
+          { timeout: expect.any(Number) },
+        );
         expect(spinnerMocks.succeed).toHaveBeenCalledWith(
           "Started claude as feature-a-thing",
         );
@@ -541,6 +588,7 @@ describe("openWorktreePath — the Herdr opener", () => {
         expect(mockRunCapturing).toHaveBeenCalledWith(
           "herdr",
           expect.arrayContaining(["wt-178-automate"]),
+          expect.anything(),
         );
       });
     });

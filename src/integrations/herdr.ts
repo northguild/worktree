@@ -20,6 +20,35 @@ const AGENT_NAME_MAX_LENGTH = 32;
 const AGENT_START_TIMEOUT_MS = 15_000;
 
 /**
+ * How long this process waits for `herdr` to answer one request before killing
+ * it and reporting the failure.
+ *
+ * Every call here is awaited, so an unresponsive Herdr freezes the command that
+ * spawned it — which findings.md F-041 records for `worktree open`, where the
+ * worktree and its env files already exist by the time the spinner stops
+ * moving. The removal path is strictly worse: the checkouts are deleted before
+ * a space is closed, so there is nothing left to retry and nothing the user can
+ * do but interrupt.
+ *
+ * Ten seconds is far more than a socket round-trip needs — a `workspace close`
+ * answers in well under a second — and the slack is deliberate: a false timeout
+ * warns about a space that may in fact have closed, which is the more confusing
+ * failure of the two. It sits below AGENT_START_TIMEOUT_MS on purpose, that one
+ * bounding Herdr's wait for an agent rather than an answer.
+ */
+const HERDR_REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * What `agent start` gets instead, because it is the one request whose answer is
+ * legitimately slow: Herdr holds it open for up to AGENT_START_TIMEOUT_MS while
+ * the agent boots. Bounding it at HERDR_REQUEST_TIMEOUT_MS would kill the call
+ * while Herdr was still doing exactly what it was asked to, so the local bound
+ * is that wait plus the ordinary allowance for answering once it is over.
+ */
+const AGENT_START_REQUEST_TIMEOUT_MS =
+  AGENT_START_TIMEOUT_MS + HERDR_REQUEST_TIMEOUT_MS;
+
+/**
  * A worktree open, narrowed to the three fields this feature reads. Herdr's
  * socket-API doc tells clients to ignore unknown fields, so the parsing below
  * narrows the `worktree_opened` result rather than mirroring its schema.
@@ -143,14 +172,64 @@ function toHerdrError(args: string[], stderr: string, exitCode: number): Error {
 }
 
 /**
+ * Turns a rejection from the runner into something worth printing.
+ *
+ * A bounded call that expires arrives here as a killed child, and Node's own
+ * message for one is `Command failed: <argv>` — which names neither the timeout
+ * nor how long it was. The seam prints `error.message` verbatim
+ * (`src/lib/base-command.ts`), so leaving it alone would report a hang as an
+ * unexplained failure, and an unexplained failure is the signal F-041 says is
+ * missing in the first place.
+ *
+ * Only the kill is reworded. Anything else — a `herdr` that is not on PATH, a
+ * maxBuffer overflow — is already specific and is passed through untouched.
+ */
+function toRunnerError(
+  args: string[],
+  timeoutMs: number,
+  error: unknown,
+): Error {
+  // A signal kill reports no exit code at all; maxBuffer reports a string one,
+  // which is why `code === null` rather than a falsy check separates them.
+  const timedOut =
+    isRecord(error) && error.killed === true && error.code === null;
+
+  if (!timedOut) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  return new Error(
+    `Herdr: ${describeCommand(args)} did not answer within ${
+      timeoutMs / 1000
+    }s.`,
+    { cause: error },
+  );
+}
+
+/**
  * Runs a `herdr` subcommand that answers with the socket-API envelope and
  * returns its `result` for narrowing.
+ *
+ * Every request is bounded. A child killed on timeout leaves no exit code, so
+ * `runCapturing` rejects rather than resolving — callers already treat a throw
+ * as the failure case, and a hang is one. `toRunnerError` is what makes that
+ * throw say so.
  */
-async function runHerdrRequest(args: string[]): Promise<unknown> {
-  const { stdout, stderr, exitCode } = await runCapturing(
-    HERDR_EXECUTABLE,
-    args,
-  );
+async function runHerdrRequest(
+  args: string[],
+  timeoutMs: number = HERDR_REQUEST_TIMEOUT_MS,
+): Promise<unknown> {
+  let stdout: string;
+  let stderr: string;
+  let exitCode: number;
+
+  try {
+    ({ stdout, stderr, exitCode } = await runCapturing(HERDR_EXECUTABLE, args, {
+      timeout: timeoutMs,
+    }));
+  } catch (error) {
+    throw toRunnerError(args, timeoutMs, error);
+  }
 
   if (exitCode !== 0) {
     throw toHerdrError(args, stderr, exitCode);
@@ -286,15 +365,18 @@ export async function startHerdrAgent({
   kind,
   paneId,
 }: HerdrAgentStartOptions): Promise<void> {
-  await runHerdrRequest([
-    "agent",
-    "start",
-    name,
-    "--kind",
-    kind,
-    "--pane",
-    paneId,
-    "--timeout",
-    String(AGENT_START_TIMEOUT_MS),
-  ]);
+  await runHerdrRequest(
+    [
+      "agent",
+      "start",
+      name,
+      "--kind",
+      kind,
+      "--pane",
+      paneId,
+      "--timeout",
+      String(AGENT_START_TIMEOUT_MS),
+    ],
+    AGENT_START_REQUEST_TIMEOUT_MS,
+  );
 }
