@@ -866,6 +866,47 @@ source — the first belongs under `describe("the worktree is the deliverable")`
 **Closes when:** a Gate 1 run passes with the three-line spinner assertion added to *still creates and opens
 the worktree when the assignment throws*, in the shape the unassigned case already uses.
 
+### F-052 — P2 — Gate 1's Typecheck section does not reach the `docs/` workspace at all
+
+**Tied to:** chat-input-multiline Phase 1 · **Raised:** 2026-09-10 (hand, during Gate 1)
+
+`context/verify.md`'s Typecheck section is `pnpm typecheck`, which is `tsc --noEmit` against the root
+`tsconfig.json` — and that config carries `"include": ["src/**/*"]` (`tsconfig.json:12`). It compiles the
+CLI and nothing else: `npx tsc --noEmit --listFilesOnly | grep -c 'docs/src/chat'` returns **0**.
+
+So the whole `docs/` workspace — the Next.js app, the chat feature, and `docs/worker/` — is outside the
+gate. A type error anywhere in it exits 0 and passes Gate 1. This was found while verifying Phase 1, whose
+every file lives in `docs/src/chat/`: the section reported green having read none of them.
+
+`docs/` has its own `docs/tsconfig.json` and is never invoked by any script — `docs/package.json` has no
+`typecheck` script, and `ci.yml` runs only the root one. Running it by hand
+(`./node_modules/.bin/tsc --noEmit -p docs/tsconfig.json`) exits **1** on **23 errors**, which is what
+confirms it has not been run in a long time rather than that it is merely unwired. **22 are pre-existing**
+and one arrives with this phase:
+
+- **21 of the 22 are a single cause.** `docs/tsconfig.json:16` sets `"types": ["vitest/globals"]` and omits
+  `@testing-library/jest-dom`, so every jest-dom matcher is unknown to the compiler —
+  `toBeInTheDocument`, `toHaveAttribute`, `toHaveClass`. They land across four test files:
+  `ProfileAvatarLink.test.tsx` (7), `Footer.test.tsx` (6), `TerminalBlock.test.tsx` (5) and
+  `Navbar.test.tsx` (3). `docs/test-setup.ts:1` does the runtime half of this correctly, which is why the
+  suite passes while the compiler does not.
+- **The 22nd is generated.** `worker/worker.ts(5,31)` cannot resolve `./docs-context.js`, which
+  `worker:build-context` writes and `.gitignore`s. `docs/vitest.config.ts:9` already aliases it to
+  `worker/docs-context.stub.ts` for tests; no equivalent exists for the compiler.
+- **The 23rd is new**, and is the same jest-dom cause rather than a new one:
+  `ChatInput.test.tsx(29,21)`, a `toHaveAttribute`. Two more of this kind were removed from that file at
+  Gate 2 for an unrelated reason, which is why the count moved from 25 to 23 during the phase.
+
+Not raised as a blocker: this is pre-existing, it is not caused by Phase 1, and Phase 1's own types are
+covered in practice by the Next.js build and by `docs:test` executing every line of the new component.
+But `verify.md` presents four gate sections as covering this repository, and one of them silently covers
+half of it — which is exactly the drift that file exists to prevent.
+
+**Closes when:** either `verify.md`'s Typecheck section names a command that compiles `docs/` too, or that
+file records the exclusion deliberately and says why. Whichever is chosen, a Gate 1 run citing it is the
+evidence. Clearing the 23 errors is the prerequisite for the first option, and the `"types"` line above is
+22 of them.
+
 ## Closed
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches
