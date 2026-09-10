@@ -167,6 +167,18 @@ describe("ChatInput", () => {
     expect(field().previousElementSibling?.className).toContain("px-4 py-2");
   });
 
+  it("carries the wrapper's radius on the right, where the scrollbar is drawn", () => {
+    renderField();
+    const wrapper = field().parentElement as HTMLElement;
+
+    // The pair is the assertion. The textarea's box reaches the wrapper's
+    // border now, so a square corner there draws the scrollbar's corner
+    // outside the rounded edge — if the wrapper's radius changes, this side
+    // has to change with it.
+    expect(wrapper.className).toContain("rounded-lg");
+    expect(field().className).toContain("rounded-r-lg");
+  });
+
   it("wraps the field in a label, so its padding is not a dead click band", () => {
     renderField();
     const wrapper = field().parentElement as HTMLElement;

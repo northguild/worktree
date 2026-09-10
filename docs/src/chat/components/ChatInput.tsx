@@ -135,6 +135,13 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
           className={cn(
             SIZED_BOX,
             "resize-none overflow-y-auto bg-transparent focus:outline-none",
+            // Matches the wrapper's own radius. Now that the padding is on
+            // this element, its border box reaches the wrapper's border, and
+            // a square corner there puts the scrollbar's corner outside the
+            // rounded edge. Only the right side needs it: nothing paints in
+            // the left corners, since the textarea's background is transparent
+            // and the scrollbar is the one thing drawn at the box's edge.
+            "rounded-r-lg",
           )}
         />
         {maxLength === undefined ? null : (
