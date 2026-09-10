@@ -13,11 +13,21 @@ import { useField } from "../form/FieldContext";
  * That only stays correct while the two wrap text identically, which is what
  * this constant is for. Tailwind's preflight already zeroes padding and border
  * on every element and gives the textarea `font: inherit` and
- * `letter-spacing: inherit`, so both children are bare boxes in the same
- * inherited type — the chrome lives on the container instead. All that is left
- * to state is the grid cell they share and how a long unbroken word breaks.
+ * `letter-spacing: inherit`, so both children start as bare boxes in the same
+ * inherited type; what this adds is the grid cell they share, how a long
+ * unbroken word breaks, and the field's own padding.
+ *
+ * **The padding is here rather than on the wrapper, and that is the whole
+ * point of it.** A scrollbar is laid out inside its element's border box, so
+ * padding on the wrapper pushed the textarea's scrollbar 16px in from the
+ * field's right edge and 8px from its top and bottom, leaving it floating in
+ * the middle of the box. Padding on the textarea instead puts its border box
+ * against the field's border, where the scrollbar belongs, and the padding
+ * then does what padding is for: it separates the text from the scrollbar.
+ * The sizer carries the identical padding because it is what the row is sized
+ * from — give it any less and the cell is short by that much.
  */
-const SIZED_BOX = "[grid-area:1/1/2/2] break-words";
+const SIZED_BOX = "[grid-area:1/1/2/2] break-words px-4 py-2";
 
 /**
  * Growth stops at six rows, then the field scrolls.
@@ -28,8 +38,12 @@ const SIZED_BOX = "[grid-area:1/1/2/2] break-words";
  * silently mean a different number of rows the moment that changes. The cap
  * sits on the sizer because the sizer is what the grid row is sized from;
  * capping it caps the row, and the textarea then scrolls inside it.
+ *
+ * The `+1rem` is the sizer's own `py-2`, which `box-sizing: border-box` counts
+ * inside a `max-height`. Six rows of *text* is what is wanted, so the padding
+ * has to be added back or the cap would cut it to five and a third.
  */
-const SIX_ROW_CAP = "max-h-[6lh]";
+const SIX_ROW_CAP = "max-h-[calc(6lh+1rem)]";
 
 /**
  * The remaining-characters count appears only inside the last tenth of the cap.
@@ -79,6 +93,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
     const field = useField();
     const value = String(field.state.value ?? "");
     const countId = useId();
+    const countLabel =
+      maxLength === undefined ? "" : formatRemainingLabel(value, maxLength);
 
     return (
       // The box chrome sits on the wrapper rather than the textarea so that both
@@ -133,9 +149,15 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
           <span
             id={countId}
             role="status"
-            className="[grid-area:2/1/3/2] text-right text-xs text-gray-500 dark:text-gray-400"
+            className="[grid-area:2/1/3/2] px-4 text-right text-xs text-gray-500 dark:text-gray-400"
           >
-            {formatRemainingLabel(value, maxLength)}
+            {/* The bottom padding rides the text rather than the region, so an
+                empty region is still a zero-height row: horizontal padding
+                adds no height, but `pb-2` on the region itself would leave 8px
+                of it under a field that has nothing to count. */}
+            {countLabel === "" ? null : (
+              <span className="block pb-2">{countLabel}</span>
+            )}
           </span>
         )}
       </label>

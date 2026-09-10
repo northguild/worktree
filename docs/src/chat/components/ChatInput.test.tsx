@@ -148,6 +148,25 @@ describe("ChatInput", () => {
     expect(field().getAttribute("aria-describedby")).toBe(count().id);
   });
 
+  it("pads the textarea itself, so its scrollbar reaches the field's edge", () => {
+    renderField();
+    const wrapper = field().parentElement as HTMLElement;
+
+    // Where the padding lives is the behaviour, not a style preference: a
+    // scrollbar is laid out inside its own element's border box, so padding on
+    // the wrapper held the textarea's scrollbar 16px in from the field's right
+    // edge and 8px off its top and bottom, floating in the middle of the box.
+    // jsdom does no layout, so the class is what can be pinned here; the
+    // measurement lives in the commit that moved it.
+    expect(field().className).toContain("px-4 py-2");
+    expect(wrapper.className).not.toContain("px-4");
+    expect(wrapper.className).not.toContain("py-2");
+
+    // The sizer has to carry the identical padding, since it is what the grid
+    // row is sized from — anything less and the cell is short by that much.
+    expect(field().previousElementSibling?.className).toContain("px-4 py-2");
+  });
+
   it("wraps the field in a label, so its padding is not a dead click band", () => {
     renderField();
     const wrapper = field().parentElement as HTMLElement;
