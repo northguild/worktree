@@ -104,7 +104,15 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
       // the field natively, the way the padded <input> this replaces did. The
       // accessible name still comes from aria-label below — the sizer is
       // aria-hidden and contributes nothing to it.
-      <label className={cn("grid cursor-text", className)}>
+      // `overflow-hidden` is what keeps the scrollbar inside the field's
+      // rounded corners, and it has to be here rather than on the textarea:
+      // **Chrome does not apply an element's own border-radius to a native
+      // scrollbar.** Rounding the textarea looks like it works right up until
+      // you check it against a real scrollbar rather than a `::-webkit-`
+      // styled one — a styled scrollbar is a custom one and *is* clipped by
+      // radius, which is precisely the difference that hides the bug. The
+      // clip has to come from the rounded ancestor, so it comes from here.
+      <label className={cn("grid cursor-text overflow-hidden", className)}>
         <span
           aria-hidden="true"
           className={cn(
@@ -135,13 +143,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
           className={cn(
             SIZED_BOX,
             "resize-none overflow-y-auto bg-transparent focus:outline-none",
-            // Matches the wrapper's own radius. Now that the padding is on
-            // this element, its border box reaches the wrapper's border, and
-            // a square corner there puts the scrollbar's corner outside the
-            // rounded edge. Only the right side needs it: nothing paints in
-            // the left corners, since the textarea's background is transparent
-            // and the scrollbar is the one thing drawn at the box's edge.
-            "rounded-r-lg",
           )}
         />
         {maxLength === undefined ? null : (

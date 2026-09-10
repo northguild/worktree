@@ -167,16 +167,18 @@ describe("ChatInput", () => {
     expect(field().previousElementSibling?.className).toContain("px-4 py-2");
   });
 
-  it("carries the wrapper's radius on the right, where the scrollbar is drawn", () => {
+  it("clips the scrollbar to the field's rounded corners", () => {
     renderField();
     const wrapper = field().parentElement as HTMLElement;
 
-    // The pair is the assertion. The textarea's box reaches the wrapper's
-    // border now, so a square corner there draws the scrollbar's corner
-    // outside the rounded edge — if the wrapper's radius changes, this side
-    // has to change with it.
+    // The textarea's box reaches the wrapper's border now, so its scrollbar is
+    // drawn at the corner. Chrome does not apply an element's own radius to a
+    // native scrollbar, so the clip has to come from the rounded ancestor —
+    // rounding the textarea instead is inert, and looks like it works only if
+    // it is checked against a `::-webkit-` styled scrollbar, which is a custom
+    // one and is clipped. The pair below is what actually does it.
     expect(wrapper.className).toContain("rounded-lg");
-    expect(field().className).toContain("rounded-r-lg");
+    expect(wrapper.className).toContain("overflow-hidden");
   });
 
   it("wraps the field in a label, so its padding is not a dead click band", () => {
