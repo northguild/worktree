@@ -2,6 +2,7 @@
 
 import { useForm } from "@tanstack/react-form";
 import { useEffect, useRef } from "react";
+import { MAX_MESSAGE_LENGTH } from "../constants";
 import { FormProvider } from "../form/FormContext";
 import { FormField } from "../form/FormField";
 import { ChatInput } from "./ChatInput";
@@ -70,6 +71,7 @@ export function ChatForm({ onSubmit, disabled }: ChatFormProps) {
               placeholder="Type a message... (Shift+Enter for a new line)"
               className="flex-1 px-4 py-2 border rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-gray-100 border-gray-200 dark:border-neutral-700 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500"
               disabled={disabled}
+              maxLength={MAX_MESSAGE_LENGTH}
               onKeyDown={handleKeyDown}
             />
           </FormField>

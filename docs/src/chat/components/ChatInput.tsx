@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { forwardRef, useId } from "react";
 import { cn } from "../../utils";
 import { useField } from "../form/FieldContext";
 
@@ -31,22 +31,54 @@ const SIZED_BOX = "[grid-area:1/1/2/2] break-words";
  */
 const SIX_ROW_CAP = "max-h-[6lh]";
 
+/**
+ * The remaining-characters count appears only inside the last tenth of the cap.
+ *
+ * Below that it is noise — the cap is twenty thousand characters and a question
+ * asked of a docs chatbot is rarely a hundred, so a count that is always on is a
+ * number that never means anything. Inside it, it is the only thing that makes
+ * `maxLength` visible: the attribute stops a long paste silently, with nothing
+ * on screen to say a paste was truncated at all.
+ */
+const COUNT_VISIBLE_FRACTION = 0.1;
+
+/**
+ * What the count reads, or the empty string while it is not due yet.
+ *
+ * Grouped in `en-US` rather than the reader's locale so it matches the Worker's
+ * own rejection text ("max 20,000 chars"), which is a fixed English string —
+ * the two are the same number said twice and should look it.
+ */
+function formatRemainingLabel(value: string, maxLength: number): string {
+  const remaining = maxLength - value.length;
+  if (remaining > maxLength * COUNT_VISIBLE_FRACTION) return "";
+  const plural = remaining === 1 ? "character" : "characters";
+  return `${remaining.toLocaleString("en-US")} ${plural} left`;
+}
+
 interface ChatInputProps {
   /** Accessible name for the field. The placeholder is not a substitute. */
   label: string;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  /**
+   * Hard cap on the value's length, which also drives the remaining-characters
+   * count. Owned by the form rather than the field, for the reason `ChatForm`'s
+   * key handler is: how long a message may be is the form's policy.
+   */
+  maxLength?: number;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
   function ChatInput(
-    { label, placeholder, className, disabled, onKeyDown },
+    { label, placeholder, className, disabled, maxLength, onKeyDown },
     ref,
   ) {
     const field = useField();
     const value = String(field.state.value ?? "");
+    const countId = useId();
 
     return (
       // The box chrome sits on the wrapper rather than the textarea so that both
@@ -74,6 +106,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
           rows={1}
           name={field.name}
           aria-label={label}
+          aria-describedby={maxLength === undefined ? undefined : countId}
+          maxLength={maxLength}
           value={value}
           onBlur={field.handleBlur}
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -87,6 +121,23 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             "resize-none overflow-y-auto bg-transparent focus:outline-none",
           )}
         />
+        {maxLength === undefined ? null : (
+          // A second grid row, under the stacked cell the field occupies, so
+          // the count sits inside the same box chrome the wrapper draws.
+          //
+          // Mounted whenever there is a cap, with only its text conditional. A
+          // live region that arrives in the DOM at the same moment as its first
+          // content is the standard way to get no announcement at all — and the
+          // moment this count appears is the announcement worth having. Empty,
+          // it has no line box and the row is zero-height.
+          <span
+            id={countId}
+            role="status"
+            className="[grid-area:2/1/3/2] text-right text-xs text-gray-500 dark:text-gray-400"
+          >
+            {formatRemainingLabel(value, maxLength)}
+          </span>
+        )}
       </label>
     );
   },

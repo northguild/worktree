@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
+import { MAX_MESSAGE_LENGTH } from "../constants";
 import { ChatForm } from "./ChatForm";
 
 /**
@@ -17,6 +18,16 @@ function field() {
   return screen.getByRole("textbox", {
     name: "Message",
   }) as HTMLTextAreaElement;
+}
+
+/** The remaining-characters count, which is mounted whether or not it is due. */
+function count() {
+  return screen.getByRole("status");
+}
+
+/** A value that leaves exactly `remaining` characters before the cap. */
+function valueLeaving(remaining: number) {
+  return "x".repeat(MAX_MESSAGE_LENGTH - remaining);
 }
 
 describe("ChatInput", () => {
@@ -92,6 +103,49 @@ describe("ChatInput", () => {
     expect(field().previousElementSibling?.textContent).toBe(
       "line one\nline two ",
     );
+  });
+
+  it("caps the field at the same length the Worker enforces", () => {
+    renderField();
+
+    // The DOM property rather than the attribute: it is typed as a number, so
+    // this reads against the constant without stringifying it. maxLength is
+    // what stops the value ever reaching the length worker.ts rejects.
+    expect(field().maxLength).toBe(MAX_MESSAGE_LENGTH);
+  });
+
+  it("says nothing about length until the last tenth of the cap", () => {
+    renderField();
+    fireEvent.change(field(), {
+      target: { value: valueLeaving(MAX_MESSAGE_LENGTH / 10 + 1) },
+    });
+
+    // Empty rather than unmounted, and that is the point: a live region has to
+    // predate its first content to be announced at all. Nothing is on screen
+    // either way, which is what this asserts.
+    expect(count().textContent).toBe("");
+  });
+
+  it("counts down the last tenth, so the cap is visible before it truncates", () => {
+    renderField();
+    fireEvent.change(field(), {
+      target: { value: valueLeaving(MAX_MESSAGE_LENGTH / 10) },
+    });
+
+    expect(count().textContent).toBe("2,000 characters left");
+  });
+
+  it("drops to the singular on the last character", () => {
+    renderField();
+    fireEvent.change(field(), { target: { value: valueLeaving(1) } });
+
+    expect(count().textContent).toBe("1 character left");
+  });
+
+  it("describes the field with that count, for a reader who cannot see it", () => {
+    renderField();
+
+    expect(field().getAttribute("aria-describedby")).toBe(count().id);
   });
 
   it("wraps the field in a label, so its padding is not a dead click band", () => {

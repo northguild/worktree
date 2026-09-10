@@ -907,6 +907,35 @@ file records the exclusion deliberately and says why. Whichever is chosen, a Gat
 evidence. Clearing the 23 errors is the prerequisite for the first option, and the `"types"` line above is
 22 of them.
 
+### F-053 — P2 — the placeholder that is this feature's only user-facing documentation is clipped mid-sentence
+
+**Tied to:** chat-input-multiline Phase 1 · **Raised:** 2026-09-10 (hand, during Phase 3's verification)
+
+`ChatForm.tsx:71` sets `placeholder="Type a message... (Shift+Enter for a new line)"`. In the drawer's
+`w-[400px]` panel (`ChatDrawer.tsx:101`) that string is two lines long at the inherited 16px type, and the
+collapsed field is one row — so the browser clips it. What a user actually reads is **"Type a message...
+(Shift+Enter for a"**, with the words that carry the meaning cut off.
+
+Measured in headless Chrome against `pnpm docs:dev` on 2026-09-10: with the field empty the textarea
+reports `scrollHeight` **48** against a `clientHeight` of **24** — one whole line of placeholder below the
+fold — and a screenshot of the compose row shows the sentence ending after "for a". With any value typed
+the numbers agree (`24`/`24` at one character), so this is the placeholder alone.
+
+**Phase 1 introduced it.** Before b43ecfe the placeholder was `"Type a message..."`, which fits; that phase
+lengthened it to name the Shift+Enter convention. Per §7 of the plan, that placeholder is *the only place
+in the repository* where a user is told what Shift+Enter does — "Nothing else in the repository tells a
+user how the chat's compose box behaves" — so the truncation lands squarely on the one surface the feature
+has, and the half that survives ends mid-preposition.
+
+Not raised as a blocker, and not fixed inside Phase 3: it is a Phase 1 defect in a line Phase 3 does not
+otherwise touch, and the field itself works. The sizer drives growth from the *value*, never the
+placeholder, so no growth behaviour is implicated — D2 is doing exactly what it says.
+
+**Closes when:** the placeholder either fits one row at 400px or moves somewhere it can wrap, proved by a
+headless measurement showing `scrollHeight` equal to `clientHeight` while the field is empty. **Gate 1
+cannot close this one** — no command in [`verify.md`](verify.md) renders the drawer — so unlike
+[F-052](#f-052) the evidence is that hand check, cited by whatever change makes it.
+
 ## Closed
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches
