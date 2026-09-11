@@ -56,5 +56,23 @@ verdict. To sweep a worktree anyway, pass `--ignore-agents`, which skips the ses
 entirely and leaves `cleanup` deciding exactly as it did before agents existed. It has no
 short alias on purpose: overruling this one is worth spelling out.
 
+`--ignore-agents` costs more than it used to. With [`opener`](/docs/configuration) set to
+`herdr`, a worktree removed this way also has its Herdr space closed — which takes down the
+panes the agent is working in, not just the directory underneath it. Before spaces were
+closed, an overruled agent at least kept its output on screen.
+
 If `agent.command` is not configured, or the runtime cannot be reached, no session data is
 gathered and `cleanup` behaves exactly as it always has.
+
+## Herdr spaces
+
+With [`opener`](/docs/configuration) set to `herdr`, every worktree `cleanup` removes also has its
+Herdr space closed.
+
+Only the ones it actually removed. A worktree held back for uncommitted changes or a live agent
+keeps its space, because its checkout is still there — `cleanup` closes what it deleted, never what
+it merely looked at. Each space is closed independently, so one failure does not stop the rest, and
+a failed close is a warning that leaves the exit code at `0`.
+
+With `opener` unset or set to `editor`, no Herdr process is started. See
+[Herdr Spaces](/docs/guides/herdr-spaces#when-the-worktree-goes).

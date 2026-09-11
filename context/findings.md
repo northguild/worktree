@@ -830,20 +830,6 @@ source — the first belongs under `describe("the worktree is the deliverable")`
 **Closes when:** a Gate 1 run passes with the three-line spinner assertion added to *still creates and opens
 the worktree when the assignment throws*, in the shape the unassigned case already uses.
 
-### F-054 — P3 — the timeout is user-visible behaviour that issue #52's §7 does not route anywhere
-
-**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-10 (Gate 2, the `reviewer` subagent, note NB3)
-
-`context/stack.md`'s Documentation table routes any user-visible CLI behaviour to `docs/src/app/docs/`, and
-a 10 s bound with a specific failure line qualifies. Nothing is made *untrue* by Phase 1 —
-`docs/src/app/docs/guides/herdr-spaces/page.mdx:81-95` already lists "or the open fails", the new line keeps
-the `✖ Herdr: …` shape of its example, and `:94-95`'s exit-0 claim still holds — so it was not Phase 1's to
-fix. But issue #52's §7 row for that page justifies rewriting *When Herdr cannot be reached* on the close
-half alone, so Phase 6 will rewrite that section without mentioning the timeout unless something says so.
-
-**Closes when:** Phase 6's rewrite of that page covers the timeout — what bounds the call, and what the
-command prints when it expires.
-
 ### F-055 — P3 — a workspace id that is present but not a string reads as "no space open", and closes nothing
 
 **Tied to:** herdr-space-closer Phase 2 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB2)
@@ -897,6 +883,142 @@ Recorded so a later reader does not mistake the accumulation for something the s
 the returned set is a strict subset of the set passed in.
 
 
+### F-063 — P3 — "a removal that failed leaves the checkout on disk" is stated as a universal, and `gitNukeWorktreeCmd` can violate it
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note)
+
+Three surfaces say a failed removal leaves the checkout in place, so its space is deliberately not closed:
+`docs/src/app/docs/guides/herdr-spaces/page.mdx`, `docs/src/app/docs/commands/remove/page.mdx` and
+`skills/core/SKILL.md`. `gitNukeWorktreeCmd` (`src/lib/git.ts`) is three sequential commands —
+`worktree remove`, `worktree prune`, `branch -D` — and a throw in the second or third leaves
+`wasRemoved === false` with the checkout **already gone**. The space is then left open for a worktree that
+no longer exists: the orphan this feature exists to prevent, in its rarest form.
+
+The behaviour is the right way round — erring toward leaving a space open never destroys a live window —
+so this is the prose over-reaching, not the code. Left rather than fixed during Phase 6's Gate 2 loopback,
+which is scoped to the failing items only.
+
+**Closes when:** the three sentences name the common case rather than asserting a universal, on any Gate 1
+run that has those files open.
+
+### F-064 — P3 — two shipped skill artifacts claim 9 config keys; there are 15
+
+**Tied to:** ad-hoc · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note)
+
+`skills/_artifacts/domain_map.yaml` says `'worktree config (all 9 keys)'` and
+`skills/_artifacts/skill_spec.md` says "9 config keys". `src/lib/constants.ts`'s `CONFIG_NAMES` holds
+**15** entries — 14 excluding the internal `has-called-config`.
+
+Predates this feature and is untouched by it: issue #52's D6 adds no config key, which is why §7 routed the
+`skill_spec.md` half to its own `/orchestrate` and why `domain_map.yaml` was left alone on the same
+reasoning even though Phase 6 had it open.
+
+**§7's own parenthetical is wrong too** — it says "the 13 in `constants.ts`". Count before fixing, or the
+correction ships stale a second time.
+
+**Closes when:** an `/orchestrate` corrects both artifacts against `CONFIG_NAMES`, with the count taken
+from the file rather than from any of the three numbers written down here.
+
+### F-065 — P3 — two example blocks on the Herdr guide are each slightly narrower than what actually prints
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, notes N1 and N2)
+
+Both survived the F-061/F-062 loopback because that loopback was scoped to the failing items.
+
+- The open-path timeout block shows only the `✖` line. `BaseCommand.openHerdrSpace` prints `spinner.fail`
+  **and then** `this.log()` of the worktree path, and `src/lib/base-command.test.ts` pins exactly
+  that pair for the timeout case. The block immediately above it shows both lines, so the narrower one
+  reads as a difference that is not there. Not false — the sentence introducing it scopes the comparison to
+  the message — but incomplete.
+- The close-failure block shows two warnings, both naming workspace `wQ`. `closeSpace` prints one warning
+  per space and ids are unique, so no run prints both of those lines. A reader will take it as "either of
+  these"; distinct ids, or two blocks, would say so.
+
+**Closes when:** both blocks match what a single run prints, on any Gate 1 run that has the page open.
+
+### F-066 — P3 — the two shipped skill artifacts now disagree about the `codeEditor`-instead-of-`opener` mistake
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N5)
+
+`skills/_artifacts/domain_map.yaml`'s tensions entry gained a fourth consequence — the `codeEditor`
+workaround also "leaves the space open when the worktree is removed" — because issue #52's §7 assigned that
+file's tensions entry to Phase 6. `skills/core/SKILL.md` carries the same warning in prose and still lists
+three consequences, because §7's `SKILL.md` row names three specific spots and this is not one of them.
+
+So the phase is scope-correct and the artifacts still disagree. Both ship.
+
+**Closes when:** `SKILL.md`'s tension prose carries the same fourth consequence, on any Gate 1 run that has
+the file open — or an `/orchestrate` reconciles the two artifacts, which [F-064](#f-064) already wants for
+the key count.
+
+---
+
+## Closed
+
+### F-062 — P2 — "Every call to Herdr is bounded at ten seconds" is false for `agent start`
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, finding B2)
+
+`docs/src/app/docs/guides/herdr-spaces/page.mdx` opens *When Herdr cannot be reached* with that sentence.
+`startHerdrAgent` passes `AGENT_START_REQUEST_TIMEOUT_MS` — `AGENT_START_TIMEOUT_MS + HERDR_REQUEST_TIMEOUT_MS`,
+25 s — because Herdr itself holds that request open for 15 s while the agent boots
+(`src/integrations/herdr.ts`). A reader reaches this sentence having just read *Start an agent with the
+space* on the same page, and the line they would actually see there says 25s.
+
+This was known when it was written: Phase 1's own ledger row records *"every Herdr call bounded at 10s,
+`agent start` at the derived 25s"*, and `src/integrations/herdr.test.ts` pins the ordering of the two
+constants. The docs sentence generalised the common case over the one exception the code went out of its
+way to create.
+
+F-054's closing note in this file repeats it — "the ten-second bound on every Herdr call".
+
+**Closes when:** Gate 1 and Gate 2 re-pass with the sentence naming the agent-start exception, on the page
+and in F-054's closing note.
+
+**Closed: 2026-09-11, by herdr-space-closer Phase 6**, in the same loopback. The sentence now reads "Ten
+seconds for an open, a lookup or a close; longer for starting an agent, because Herdr itself holds that
+request open while the agent boots." The exception is named without a number, so it stays true if either
+constant moves — Gate 2 checked it against `HERDR_REQUEST_TIMEOUT_MS`, `AGENT_START_TIMEOUT_MS` and the
+derived `AGENT_START_REQUEST_TIMEOUT_MS`, and confirmed `startHerdrAgent` is its only user. F-054's closing
+note carried the same false generalisation and was corrected with it. Gate 1 re-passed on the run cited for
+F-061 above.
+
+### F-061 — P2 — the timeout example on the Herdr guide shows a symbol the close path cannot print
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, finding B1)
+
+`docs/src/app/docs/guides/herdr-spaces/page.mdx` renders a timed-out close as
+
+```
+✖ Herdr: `herdr workspace close wQ` did not answer within 10s.
+```
+
+The message text is right — `toRunnerError` and `describeCommand` in `src/integrations/herdr.ts` produce
+exactly that string. The symbol is not. A `workspace close` that times out rejects out of
+`closeHerdrWorkspace`, is caught by `BaseCommand.closeSpace`, and prints through `spinner.warn`, which
+`log-symbols` renders `⚠`. `spinner.fail` — `✖` — is reachable only from `openHerdrSpace`, which runs
+`worktree open`. **The line as printed cannot occur.**
+
+What let it through: the only timeout test in `src/lib/base-command.test.ts` asserts on `spinnerMocks.fail`
+and the `worktree open` argv. It is the open path. Nothing covers a close-path timeout, so a `✖` copied
+onto a `workspace close` line had nothing to contradict it.
+
+**The same false line is quoted in this file** as F-054's closing evidence, described as "the exact line a
+caller sees when one expires" — so F-054 is currently closed on evidence the code contradicts, which is a
+ledger disagreement rather than a typo.
+
+**Closes when:** Gate 1 and Gate 2 re-pass with the symbol corrected on the page and in F-054's closing
+note.
+
+**Closed: 2026-09-11, by herdr-space-closer Phase 6**, in the Gate 2 loopback that raised it. The shared
+example was dropped from the intro and each half of *When Herdr cannot be reached* got its own timeout
+line with its own symbol: `✖` under *Opening*, carrying the real `worktree open` argv, and `⚠` under
+*Closing*. F-054's closing note was corrected in the same change and now records that it had been closed on
+this false line. Gate 2 re-checked all six printed lines on that page against the code that produces each —
+`spinner.succeed`/`warn`/`fail` and `log-symbols` — and confirmed every symbol. Gate 1 re-passed:
+`pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (553 passed), `pnpm docs:test` (49 passed) and
+`pnpm docs:build`, all exit 0, 2026-09-11.
+
 ### F-060 — P3 — `cleanup --ignore-agents` now closes the space of a worktree an agent is living in, and no page says so
 
 **Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N6)
@@ -915,9 +1037,42 @@ and its cost just grew.
 `docs/src/app/docs/commands/cleanup/page.mdx`'s *Agent sessions* section and
 `docs/src/app/docs/guides/herdr-spaces/page.mdx` — and Gate 1 re-passes.
 
----
+**Closed: 2026-09-11, by herdr-space-closer Phase 6**, on both pages its condition named.
+`docs/src/app/docs/commands/cleanup/page.mdx`'s *Agent sessions* section now says that
+`--ignore-agents` costs more than it did — the removed worktree also has its space closed, taking down the
+panes the agent is working in, where before an overruled agent at least kept its output on screen. The
+`herdr-spaces` guide carries the same warning in *When the worktree goes*, and `README.md`'s cleanup
+paragraph names it too. Gate 1 re-passed on the run cited for F-054 above.
 
-## Closed
+### F-054 — P3 — the timeout is user-visible behaviour that issue #52's §7 does not route anywhere
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-10 (Gate 2, the `reviewer` subagent, note NB3)
+
+`context/stack.md`'s Documentation table routes any user-visible CLI behaviour to `docs/src/app/docs/`, and
+a 10 s bound with a specific failure line qualifies. Nothing is made *untrue* by Phase 1 —
+`docs/src/app/docs/guides/herdr-spaces/page.mdx:81-95` already lists "or the open fails", the new line keeps
+the `✖ Herdr: …` shape of its example, and `:94-95`'s exit-0 claim still holds — so it was not Phase 1's to
+fix. But issue #52's §7 row for that page justifies rewriting *When Herdr cannot be reached* on the close
+half alone, so Phase 6 will rewrite that section without mentioning the timeout unless something says so.
+
+**Closes when:** Phase 6's rewrite of that page covers the timeout — what bounds the call, and what the
+command prints when it expires.
+
+**Closed: 2026-09-11, by herdr-space-closer Phase 6**, after a Gate 2 loopback corrected the first
+attempt. *When Herdr cannot be reached* in `docs/src/app/docs/guides/herdr-spaces/page.mdx` was rewritten
+and the timeout got the home this finding said it lacked, rather than being left out of the rewrite: the
+section states what bounds each call — ten seconds for an open, a lookup or a close, longer for an agent
+start, which Herdr holds open while the agent boots — and then shows the line a caller actually sees, once
+under *Opening* (`✖`, from `spinner.fail`) and once under *Closing* (`⚠`, from `spinner.warn`). The split
+is what this finding was really protecting against: a rewrite organised around the close half alone would
+have had nowhere to put a bound that applies to both.
+
+**The first attempt closed this finding on two false sentences** — a flat "ten seconds for every call",
+which `agent start`'s derived 25 s contradicts, and a close-path example carrying the open path's `✖`,
+which that path cannot print. Both were caught at Gate 2, recorded as F-061 and F-062 before the loopback,
+and corrected here and on the page together. Gate 1 re-passed:
+`pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (553 passed) and `pnpm docs:test` (49 passed),
+all exit 0, plus `pnpm docs:build` exit 0, 2026-09-11.
 
 ### F-059 — P3 — the retyped stubs resolve "nothing was removed", which would make a Phase 5 close assertion pass vacuously
 

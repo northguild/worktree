@@ -22,3 +22,16 @@ worktree rm feature/add-bulk-actions
 ```
 
 The alias `rm` is available for `remove`.
+
+## Herdr spaces
+
+With [`opener`](/docs/configuration) set to `herdr`, removing a worktree also closes the Herdr space
+that was built around it, so the space does not outlive the checkout.
+
+Only a worktree that was actually removed has its space closed. A branch that was not found, a
+confirmation you declined and a removal that failed all leave the space alone — their checkouts are
+still on disk. A failed close is a warning and the command still exits `0`: by then the worktree is
+already gone, so there is nothing to retry.
+
+With `opener` unset or set to `editor`, nothing here applies and no Herdr process is started. See
+[Herdr Spaces](/docs/guides/herdr-spaces#when-the-worktree-goes).

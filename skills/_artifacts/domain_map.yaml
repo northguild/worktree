@@ -40,8 +40,8 @@ skills:
       - 'worktree checkout (existing remote branch)'
       - 'worktree list'
       - 'worktree open'
-      - 'worktree remove / rm'
-      - 'worktree cleanup'
+      - 'worktree remove / rm (closes the Herdr space when opener is herdr)'
+      - 'worktree cleanup (closes the Herdr space of every worktree it removed)'
       - 'GitHub issue integration (--github flag, auth fallback chain)'
       - 'Jira issue integration (--jira flag, 3-key auth)'
       - 'automatic .env / .env.local copying into new worktrees'
@@ -104,13 +104,13 @@ skills:
         mechanism: >
           A codeEditor value such as "herdr worktree open --focus --path" happens to work
           because the worktree path is appended as the final argument, but it cannot label
-          the space, cannot read what herdr answered, and cannot start an agent. The opener
-          key is the supported route.
+          the space, cannot read what herdr answered, cannot start an agent, and leaves the
+          space open when the worktree is removed. The opener key is the supported route.
         wrong_pattern: |
           worktree config codeEditor "herdr worktree open --focus --path"
         correct_pattern: |
           worktree config opener herdr
-        source: 'docs/guides/herdr-spaces, src/lib/base-command.ts — openWorktreePath()'
+        source: 'docs/guides/herdr-spaces, src/lib/base-command.ts — openWorktreePath(), resolveSpaceCloser()'
         priority: 'MEDIUM'
         status: 'active'
 

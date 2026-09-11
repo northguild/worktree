@@ -27,7 +27,8 @@ skills:
       remove/rm, cleanup, --github and --jira issue-to-branch workflows,
       handing a new worktree to a coding agent with --agent, list --agents,
       cleanup --ignore-agents, automatic .env file copying, and opening
-      worktrees as Herdr spaces.
+      worktrees as Herdr spaces — closing those spaces again when remove or
+      cleanup deletes the worktree.
     requires: []
     sources:
       - 'northguild/worktree:README.md'
@@ -52,5 +53,5 @@ skills:
     subsystems:
       - 'GitHub Issues integration'
       - 'Jira Issues integration'
-      - 'Herdr space opener'
+      - 'Herdr space opener and closer'
     references: []

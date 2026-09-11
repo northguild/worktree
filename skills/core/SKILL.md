@@ -9,7 +9,9 @@ description: >
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
   --github issue-to-branch, --jira issue-to-branch, handing a new worktree to a
   coding agent with --agent, worktree list --agents, worktree cleanup
-  --ignore-agents, and automatic .env / .env.local copying into new worktrees.
+  --ignore-agents, opening worktrees as Herdr spaces and closing those spaces
+  again when the worktree is removed, and automatic .env / .env.local copying
+  into new worktrees.
 type: core
 library: '@northguild/worktree'
 library_version: "1.5.0"
@@ -163,6 +165,17 @@ the confirmation prompt, not the safety verdict — and `--ignore-agents` does,
 which is why that one has no short alias. The check covers an interactive
 session in your own terminal as well as an agent this tool dispatched.
 
+With `opener` set to `herdr`, both removal commands also close the Herdr space
+the worktree was opened as, so a space does not outlive its checkout. Only
+worktrees that were actually removed: a branch that was not found, a declined
+confirmation, a failed removal and anything `cleanup` held back all keep their
+spaces, because those checkouts are still on disk. A failed close is a warning
+and the command still exits `0` — by then the worktree is already gone. With
+`opener` unset or `editor`, no Herdr process is started by either command.
+
+Note that `--ignore-agents` now closes a live agent's space too, taking down the
+panes it is working in along with the directory.
+
 ## Configuration Reference
 
 All keys are stored via `worktree config <key> <value>` in git config
@@ -171,7 +184,7 @@ under `northguild.worktree.*`.
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source` |
-| `opener` | `editor` or `herdr` | where a worktree opens; defaults to `editor` |
+| `opener` | `editor` or `herdr` | where a worktree opens, and for `herdr` where its space is closed on removal; defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
