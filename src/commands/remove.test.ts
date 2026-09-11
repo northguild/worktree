@@ -1,6 +1,9 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { checkbox, confirm } from "@inquirer/prompts";
+import * as herdr from "../integrations/herdr.js";
 import * as git from "../lib/git.js";
+import type { ConfigName } from "../lib/types.js";
+import { mockRunCapturing } from "../test-setup.js";
 import Remove from "./remove.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -55,6 +58,11 @@ describe("remove command", () => {
       runCommand: vi.fn().mockResolvedValue(undefined),
     } as any;
     remove = new Remove([], mockConfig);
+    // No opener configured: every test in this block routes to `closeNothing`
+    // and spawns no Herdr process. Spied rather than left to the global run()
+    // mock so the gate is explicit, and so the undeclared `git config` call
+    // does not warn on every test here.
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
   });
 
   describe("when no worktrees exist", () => {
@@ -139,7 +147,7 @@ describe("remove command", () => {
       mockCheckbox.mockResolvedValue([]);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue([]);
+        .mockImplementation(async (worktrees) => worktrees);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -157,7 +165,7 @@ describe("remove command", () => {
       mockCheckbox.mockResolvedValue([safeWorktree]);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue([]);
+        .mockImplementation(async (worktrees) => worktrees);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -176,7 +184,7 @@ describe("remove command", () => {
       mockConfirm.mockResolvedValue(true);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue([]);
+        .mockImplementation(async (worktrees) => worktrees);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -199,7 +207,7 @@ describe("remove command", () => {
       mockConfirm.mockResolvedValue(false);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue([]);
+        .mockImplementation(async (worktrees) => worktrees);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -217,7 +225,7 @@ describe("remove command", () => {
       mockCheckbox.mockResolvedValue([unsafeWorktree]);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue([]);
+        .mockImplementation(async (worktrees) => worktrees);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -243,7 +251,7 @@ describe("remove command", () => {
       mockCheckbox.mockResolvedValue([safeWorktree, secondSafeWorktree]);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue([]);
+        .mockImplementation(async (worktrees) => worktrees);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -369,7 +377,7 @@ describe("remove command", () => {
       mockConfirm.mockResolvedValue(true);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue([]);
+        .mockImplementation(async (worktrees) => worktrees);
 
       await remove.run();
 
@@ -387,12 +395,237 @@ describe("remove command", () => {
       mockConfirm.mockResolvedValue(false);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue([]);
+        .mockImplementation(async (worktrees) => worktrees);
 
       await remove.run();
 
       expect(mockConfirm).toHaveBeenCalled();
       expect(mockRemove).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * What `remove` does to the Herdr space of a worktree it deletes.
+ *
+ * Driven through the real seam rather than a stubbed `resolveSpaceCloser`: the
+ * thing worth proving is that the command closes spaces, not that it called a
+ * method that might. So the integration is spied at its two exports and the
+ * command is run end to end.
+ */
+describe("remove command — the herdr closer", () => {
+  const gitRootPath = "/path/to/project";
+  const safePath = `${gitRootPath}.worktrees/feature/safe`;
+  const otherPath = `${gitRootPath}.worktrees/feature/other`;
+
+  const safeWorktree = {
+    path: safePath,
+    branchName: "feature/safe",
+    remote: "origin/feature/safe",
+    ahead: 0,
+    behind: 0,
+    remoteExists: false,
+    pathExists: true,
+    uncommittedChanges: 0,
+    safeToRemove: true,
+  };
+
+  const otherWorktree = {
+    ...safeWorktree,
+    path: otherPath,
+    branchName: "feature/other",
+  };
+
+  let remove: Remove;
+  let mockClose: ReturnType<typeof vi.spyOn>;
+  let mockList: ReturnType<typeof vi.spyOn>;
+  /** What happened, in the order it happened. D2 is an ordering claim. */
+  let calls: string[];
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  function parseAs(args: object, flags: object = { force: false }) {
+    (remove as any).parse = vi.fn().mockResolvedValue({ args, flags });
+  }
+
+  /** The single-branch helper, answering with what it removed. */
+  function removalAnswers(entry: typeof safeWorktree | undefined) {
+    vi.spyOn(git, "gitRemoveWorktree").mockImplementation(async () => {
+      calls.push("remove");
+      return entry;
+    });
+  }
+
+  /** The set helper, answering with the entries it got through. */
+  function setRemovalAnswers(entries: (typeof safeWorktree)[]) {
+    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockImplementation(
+      async () => {
+        calls.push("remove");
+        return entries;
+      },
+    );
+  }
+
+  function selects(worktrees: unknown[]) {
+    vi.mocked(checkbox).mockResolvedValue(worktrees as never);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calls = [];
+    remove = new Remove([], { runCommand: vi.fn() } as any);
+    vi.spyOn(remove, "log").mockImplementation(() => {});
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      `${gitRootPath}.worktrees`,
+    );
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+      safeWorktree,
+      otherWorktree,
+    ]);
+    vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+    mockList = vi
+      .spyOn(herdr, "listHerdrWorktrees")
+      .mockImplementation(async () => {
+        calls.push("list");
+        return {
+          sourceWorkspaceId: "w5",
+          worktrees: [
+            { path: gitRootPath, workspaceId: "w5" },
+            { path: safePath, workspaceId: "wQ" },
+            { path: otherPath, workspaceId: "wR" },
+          ],
+        };
+      });
+    mockClose = vi.spyOn(herdr, "closeHerdrWorkspace").mockResolvedValue();
+    // Reset per test rather than left from the last one: vi.clearAllMocks
+    // clears calls, not implementations, and vitest.config.ts sets no
+    // restoreMocks — so a checkbox answer would otherwise outlive its test.
+    selects([]);
+    setConfig({ opener: "herdr" });
+  });
+
+  describe("one branch by name", () => {
+    it("closes the space of the branch it removed", async () => {
+      removalAnswers(safeWorktree);
+      parseAs({ branchName: "feature/safe" });
+
+      await remove.run();
+
+      expect(mockClose).toHaveBeenCalledWith("wQ");
+      expect(mockClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads the listing before the removal, never after", async () => {
+      // D2, and the single most load-bearing ordering in the feature: the
+      // removal runs `git worktree prune`, which takes the entry out of Herdr's
+      // listing too. Resolve afterwards and the map comes back empty — every
+      // space orphaned, with nothing said about it.
+      removalAnswers(safeWorktree);
+      parseAs({ branchName: "feature/safe" });
+
+      await remove.run();
+
+      expect(calls).toEqual(["list", "remove"]);
+    });
+
+    it("closes nothing when the removal was declined or failed", async () => {
+      // gitRemoveWorktree answers undefined for all three of its no-op paths,
+      // and a space whose checkout is still on disk must not be closed (D4).
+      removalAnswers(undefined);
+      parseAs({ branchName: "feature/safe" });
+
+      await remove.run();
+
+      expect(mockClose).not.toHaveBeenCalled();
+    });
+
+    it("spawns no lookup at all when the branch was not found", async () => {
+      // this.error throws before the closer is reached, so a run that removes
+      // nothing costs no Herdr subprocess.
+      parseAs({ branchName: "feature/missing" });
+
+      await expect(remove.run()).rejects.toThrow();
+
+      expect(mockList).not.toHaveBeenCalled();
+      expect(mockClose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a selected set", () => {
+    it("closes the space of the worktree it removed", async () => {
+      setRemovalAnswers([safeWorktree]);
+      selects([safeWorktree]);
+      parseAs({});
+
+      await remove.run();
+
+      expect(mockClose).toHaveBeenCalledWith("wQ");
+      expect(mockClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("closes only the entries the helper got through, not everything selected", async () => {
+      // The strict-subset case, and the one that carries "and no others": two
+      // selected, one removed. Closing the space of a worktree still on disk is
+      // worse than the orphan this feature prevents (D4).
+      setRemovalAnswers([safeWorktree]);
+      selects([safeWorktree, otherWorktree]);
+      parseAs({});
+
+      await remove.run();
+
+      expect(mockClose).toHaveBeenCalledTimes(1);
+      expect(mockClose).toHaveBeenCalledWith("wQ");
+      expect(mockClose).not.toHaveBeenCalledWith("wR");
+    });
+
+    it("reads the listing before the removal, never after", async () => {
+      setRemovalAnswers([safeWorktree]);
+      selects([safeWorktree]);
+      parseAs({});
+
+      await remove.run();
+
+      expect(calls).toEqual(["list", "remove"]);
+    });
+
+    it("spawns no lookup when nothing was selected", async () => {
+      // The closer is resolved after the last prompt, so a run that removes
+      // nothing costs no Herdr subprocess.
+      selects([]);
+      parseAs({});
+
+      await remove.run();
+
+      expect(mockList).not.toHaveBeenCalled();
+    });
+
+    it("spawns no lookup when the unsafe-selection confirmation is declined", async () => {
+      selects([{ ...safeWorktree, safeToRemove: false }]);
+      vi.mocked(confirm).mockResolvedValue(false);
+      parseAs({});
+
+      await remove.run();
+
+      expect(mockList).not.toHaveBeenCalled();
+      expect(mockClose).not.toHaveBeenCalled();
+    });
+  });
+
+  it("spawns no herdr process at all for a non-herdr opener", async () => {
+    // §2 — someone who never asked for Herdr pays nothing for this feature.
+    setConfig({ opener: "" });
+    removalAnswers(safeWorktree);
+    parseAs({ branchName: "feature/safe" });
+
+    await remove.run();
+
+    expect(mockList).not.toHaveBeenCalled();
+    expect(mockClose).not.toHaveBeenCalled();
+    expect(mockRunCapturing).not.toHaveBeenCalled();
   });
 });

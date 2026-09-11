@@ -896,6 +896,29 @@ Recorded so a later reader does not mistake the accumulation for something the s
 **Closes when:** the plan's §9 loop gap is settled — whichever way — and Gate 1 re-passes with a case where
 the returned set is a strict subset of the set passed in.
 
+
+### F-060 — P3 — `cleanup --ignore-agents` now closes the space of a worktree an agent is living in, and no page says so
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N6)
+
+`--ignore-agents` gathers no sessions, so `isSafeToRemove` has no agent to weigh and the worktree comes
+back `safeToRemove: true`. Phase 5 wired the closer to everything the removal helper got through — so that
+worktree is removed *and its Herdr space closed*, killing the panes the agent is working in. Before this
+feature the checkout went and the space survived, which left the agent's output on screen.
+
+This is §5's named risk and [F-032](#f-032) meeting the new wiring. It is **not a Phase 5 defect**: the
+safety verdict it inherits is `isSafeToRemove`'s and D6 gives the closer no opinion of its own (§2), which
+is the design. What is missing is that nobody is told. `--ignore-agents` is documented as "do not look",
+and its cost just grew.
+
+**Closes when:** Phase 6's sweep says it on the two pages that carry the behaviour —
+`docs/src/app/docs/commands/cleanup/page.mdx`'s *Agent sessions* section and
+`docs/src/app/docs/guides/herdr-spaces/page.mdx` — and Gate 1 re-passes.
+
+---
+
+## Closed
+
 ### F-059 — P3 — the retyped stubs resolve "nothing was removed", which would make a Phase 5 close assertion pass vacuously
 
 **Tied to:** herdr-space-closer Phase 5 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N5)
@@ -914,9 +937,15 @@ resolving a strict subset of what was selected.
 **Closes when:** Phase 5's Gate 1 re-passes with those stubs resolving the entries their test actually
 removes, and with at least one case where the stub returns fewer entries than were selected.
 
----
+**Closed: 2026-09-11, by herdr-space-closer Phase 5**, on both halves of its condition. All 24 stubs now
+answer `.mockImplementation(async (worktrees) => worktrees)` — echoing the input, which is what the real
+helper answers when no removal throws — and `grep -n -A1 'spyOn(git, "gitRemoveWorktreesWithProgress")'`
+leaves no `[]` stub anywhere in the pre-existing suites. The strict-subset half is
+`src/commands/remove.test.ts`'s "closes only the entries the helper got through, not everything selected":
+two selected, one returned. Gate 2 verified the count independently (16 + 8) and mutated that case to
+confirm it is load-bearing rather than decorative. Gate 1 re-passed: `pnpm check`, `pnpm typecheck`,
+`pnpm build`, `pnpm test` (553 passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-11.
 
-## Closed
 
 ### F-056 — P3 — one malformed entry abandons every close in the run, and the comment explaining the throw does not say so
 

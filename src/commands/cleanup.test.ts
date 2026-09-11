@@ -1,7 +1,10 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { confirm } from "@inquirer/prompts";
 import ora from "ora";
+import * as herdr from "../integrations/herdr.js";
 import * as git from "../lib/git.js";
+import type { ConfigName } from "../lib/types.js";
+import { mockRunCapturing } from "../test-setup.js";
 import Cleanup from "./cleanup.js";
 
 const spinnerMocks = vi.hoisted(() => {
@@ -144,13 +147,18 @@ describe("cleanup command", () => {
       runCommand: vi.fn().mockResolvedValue(undefined),
     } as any;
     cleanup = new Cleanup([], mockConfig);
+    // No opener configured: every test in this block routes to `closeNothing`
+    // and spawns no Herdr process. Spied rather than left to the global run()
+    // mock so the gate is explicit, and so the undeclared `git config` call
+    // does not warn on every test here.
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
   });
 
   it("returns early with success message when no stale worktrees exist", async () => {
     vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([unsafeWorktree]);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -177,7 +185,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -207,7 +215,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(false);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -235,7 +243,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -271,7 +279,7 @@ describe("cleanup command", () => {
     ]);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true },
@@ -294,7 +302,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -319,7 +327,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true },
@@ -352,7 +360,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -404,7 +412,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -429,7 +437,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -456,7 +464,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true, "ignore-agents": true },
@@ -484,7 +492,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true },
@@ -510,7 +518,9 @@ describe("cleanup command", () => {
     ]);
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     mockConfirm.mockResolvedValue(true);
-    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockResolvedValue([]);
+    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockImplementation(
+      async (worktrees) => worktrees,
+    );
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -544,7 +554,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -584,7 +594,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue([]);
+      .mockImplementation(async (worktrees) => worktrees);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true },
@@ -608,7 +618,9 @@ describe("cleanup command", () => {
     ]);
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     mockConfirm.mockResolvedValue(true);
-    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockResolvedValue([]);
+    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockImplementation(
+      async (worktrees) => worktrees,
+    );
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -619,5 +631,161 @@ describe("cleanup command", () => {
     expect(
       logSpy.mock.calls.some((call) => (call[0] ?? "").startsWith("Skipped ")),
     ).toBe(false);
+  });
+});
+
+/**
+ * What `cleanup` does to the Herdr spaces of the worktrees it deletes.
+ *
+ * The held-back case is the one that matters most here: `cleanup` routinely
+ * selects a set and removes a subset of it, so "close what was removed" and
+ * "close what was found" come apart on every ordinary run — unlike `remove`,
+ * where they usually coincide.
+ */
+describe("cleanup command — the herdr closer", () => {
+  const gitRootPath = "/path/to/project";
+  const safePath = `${gitRootPath}.worktrees/feature/safe`;
+  const dirtyPath = `${gitRootPath}.worktrees/feature/stale-dirty`;
+
+  const safe = {
+    path: safePath,
+    branchName: "feature/safe",
+    remote: "origin/feature/safe",
+    ahead: 0,
+    behind: 0,
+    remoteExists: false,
+    pathExists: true,
+    uncommittedChanges: 0,
+    safeToRemove: true,
+  };
+
+  // Held back by isSafeToRemove, so it never enters the removal set — and its
+  // space must survive.
+  const dirty = {
+    ...safe,
+    path: dirtyPath,
+    branchName: "feature/stale-dirty",
+    uncommittedChanges: 3,
+    safeToRemove: false,
+  };
+
+  let cleanup: Cleanup;
+  let mockClose: ReturnType<typeof vi.spyOn>;
+  let mockList: ReturnType<typeof vi.spyOn>;
+  /** What happened, in the order it happened. D2 is an ordering claim. */
+  let calls: string[];
+  const mockConfirm = vi.mocked(confirm);
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  function removalAnswers(entries: (typeof safe)[]) {
+    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockImplementation(
+      async () => {
+        calls.push("remove");
+        return entries;
+      },
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calls = [];
+    cleanup = new Cleanup([], { runCommand: vi.fn() } as any);
+    vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      `${gitRootPath}.worktrees`,
+    );
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([safe, dirty]);
+    removalAnswers([safe]);
+    vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+    mockList = vi
+      .spyOn(herdr, "listHerdrWorktrees")
+      .mockImplementation(async () => {
+        calls.push("list");
+        return {
+          sourceWorkspaceId: "w5",
+          worktrees: [
+            { path: gitRootPath, workspaceId: "w5" },
+            { path: safePath, workspaceId: "wQ" },
+            { path: dirtyPath, workspaceId: "wR" },
+          ],
+        };
+      });
+    mockClose = vi.spyOn(herdr, "closeHerdrWorkspace").mockResolvedValue();
+    setConfig({ opener: "herdr" });
+    mockConfirm.mockResolvedValue(true);
+    (cleanup as any).parse = vi
+      .fn()
+      .mockResolvedValue({ flags: { force: false } });
+  });
+
+  it("closes the space of every worktree it removed", async () => {
+    await cleanup.run();
+
+    expect(mockClose).toHaveBeenCalledWith("wQ");
+  });
+
+  it("reads the listing before the removal, never after", async () => {
+    // D2. The removal runs `git worktree prune`, which takes these entries out
+    // of Herdr's listing — resolve afterwards and every space is orphaned with
+    // nothing said about it.
+    await cleanup.run();
+
+    expect(calls).toEqual(["list", "remove"]);
+  });
+
+  it("leaves the space of a worktree held back for uncommitted changes open", async () => {
+    // §8's manual check, as an assertion. Worth being precise about what holds
+    // it: the held-back worktree never enters the removal set at all, because
+    // `worktrees` is already filtered to safeToRemove — so this is the closer
+    // inheriting isSafeToRemove's verdict and adding no opinion of its own
+    // (§2), not the D4 "only what was removed" guard. The failing-removal case
+    // below is what pins D4 here.
+    await cleanup.run();
+
+    expect(mockClose).not.toHaveBeenCalledWith("wR");
+    expect(mockClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes nothing when the confirmation is declined", async () => {
+    mockConfirm.mockResolvedValue(false);
+
+    await cleanup.run();
+
+    expect(mockClose).not.toHaveBeenCalled();
+  });
+
+  it("spawns no lookup when the confirmation is declined", async () => {
+    // The closer is resolved after the prompt, so a declined run costs nothing.
+    mockConfirm.mockResolvedValue(false);
+
+    await cleanup.run();
+
+    expect(mockList).not.toHaveBeenCalled();
+  });
+
+  it("closes nothing when a removal failed and the helper did not return it", async () => {
+    // D4, and what actually pins it here: the set was selected and removed, but
+    // the helper got through none of it.
+    removalAnswers([]);
+
+    await cleanup.run();
+
+    expect(mockClose).not.toHaveBeenCalled();
+  });
+
+  it("spawns no herdr process at all for a non-herdr opener", async () => {
+    setConfig({ opener: "" });
+
+    await cleanup.run();
+
+    expect(mockList).not.toHaveBeenCalled();
+    expect(mockClose).not.toHaveBeenCalled();
+    expect(mockRunCapturing).not.toHaveBeenCalled();
   });
 });
