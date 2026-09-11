@@ -96,8 +96,8 @@ worktree remove feature/add-bulk-actions
 ```
 
 **Only worktrees that were actually removed.** A branch that was not found, a confirmation you
-declined, a removal that failed, a worktree `cleanup` held back for uncommitted changes or a live
-agent — none of those close anything. Their checkouts are still on disk, and a space with no window
+declined, a removal that failed, any worktree `cleanup` held back — for uncommitted changes, a live
+agent, or unpushed commits it could not count — none of those close anything. Their checkouts are still on disk, and a space with no window
 into a checkout that still exists is worse than one left open.
 
 **Only this repository's spaces.** The lookup is scoped to the repository you are in, and the space

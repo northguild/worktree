@@ -329,6 +329,10 @@ describe("remove command", () => {
       remote: "origin/feature/merged-with-work",
       remoteExists: false,
       pathExists: true,
+      // A counted zero, so this stays a test about the uncommitted work it
+      // names. After D1 an absent count would make it unsafe for a second
+      // reason and the assertion would pass without proving anything.
+      ahead: 0,
       uncommittedChanges: 3,
     };
     // Taken from the real predicate rather than hand-set. Every other fixture

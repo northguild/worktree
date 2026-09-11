@@ -14,7 +14,7 @@ description: >
   files (.env*, .dev.vars*, .envrc) into new worktrees.
 type: core
 library: '@northguild/worktree'
-library_version: "1.6.0"
+library_version: "1.7.0"
 sources:
   - "northguild/worktree:README.md"
   - "northguild/worktree:docs/src/app/docs/commands/branch/page.mdx"
@@ -153,7 +153,8 @@ worktree remove feature/add-bulk-actions
 worktree rm feature/add-bulk-actions          # alias
 worktree remove feature/add-bulk-actions --force  # skip confirmation
 
-# Remove all stale worktrees (no unpushed work, remote gone, etc.)
+# Remove all stale worktrees (no unpushed commits, nothing uncommitted,
+# remote gone or never set, no live agent session)
 worktree cleanup
 worktree cleanup --force                      # skip confirmation
 worktree cleanup --ignore-agents              # sweep even worktrees an agent is in
@@ -183,7 +184,7 @@ under `northguild.worktree.*`.
 
 | Key | Example value | Required for |
 |---|---|---|
-| `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source` |
+| `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
 | `opener` | `editor` or `herdr` | where a worktree opens, and for `herdr` where its space is closed on removal; defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |

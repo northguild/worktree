@@ -41,8 +41,23 @@ export interface WorktreeAgent {
 
 export interface WorktreeListEntry extends WorktreeListBaseEntry {
   remote: string;
+  // Commits this worktree carries that its comparison base does not — `@{u}`
+  // where the branch tracks a remote that still exists, the repository's
+  // default branch where it does not. Undefined means the count was never
+  // taken, which is not the same as zero and must never be read as it.
   ahead?: number;
+  // Upstream-only, deliberately: counting it against the default branch would
+  // mean "commits on main this branch does not have", which is non-zero for
+  // almost every worktree the moment main advances. Undefined for a worktree
+  // with no upstream, and no safety verdict rests on it.
+  // See UNPUSHED-COMMIT-GUARD-PLAN §3 D4, GitHub issue #63.
   behind?: number;
+  // Why `ahead` was not taken, when it was not. Set only alongside an
+  // undefined `ahead`, and only where the reason is not already obvious from
+  // another field — a worktree whose directory is gone says so through
+  // `pathExists`. This is what keeps a cleanup that cannot classify anything
+  // distinguishable from a cleanup with nothing to do. See §3 D5.
+  aheadUnknownReason?: string;
   remoteExists?: boolean;
   uncommittedChanges?: number;
   safeToRemove?: boolean;

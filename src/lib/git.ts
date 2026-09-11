@@ -92,8 +92,50 @@ export async function gitGetAbsoluteWorktreesPath() {
   return `${gitRootPath}.worktrees`;
 }
 
-export async function gitGetCommitsAheadCount(branchPath: string) {
-  const countStr = await run("git", ["rev-list", "--count", "@{u}..HEAD"], {
+// The ref an ahead count is taken against when a worktree has no upstream to
+// count against. `origin/HEAD` is the repository's own answer to "what is the
+// default branch", so it is asked first; `defaultSourceBranch` answers for a
+// clone made before git started recording that ref, and gitGetConfigValue
+// already returns "" when the key is unset. An empty result means no base
+// resolved — which callers must read as "not counted", never as zero. See
+// UNPUSHED-COMMIT-GUARD-PLAN §3 D2, GitHub issue #63.
+//
+// Deliberately not the config key first: it answers a different question —
+// where to branch from — so someone who sets it to `origin/develop` would
+// otherwise silently change what counts as unpushed work.
+export async function gitGetComparisonBase() {
+  try {
+    const originHead = await run("git", [
+      "symbolic-ref",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ]);
+    if (originHead) {
+      return originHead;
+    }
+  } catch {
+    // Unset, or no origin at all. Either way the config key answers next.
+  }
+  return await gitGetConfigValue("defaultSourceBranch");
+}
+
+// The base defaults to `@{u}`, which is what every caller wanted while an
+// upstream was the only thing ever counted against. It is a parameter so
+// gitGetWorktreeList can pass gitGetComparisonBase()'s answer for a worktree
+// that has no upstream — `@{u}` does not resolve there and run() rejects.
+export async function gitGetCommitsAheadCount(
+  branchPath: string,
+  base = "@{u}",
+) {
+  // An empty base is gitGetComparisonBase() saying nothing resolved, and git
+  // does not refuse it: `rev-list --count ..HEAD` exits 0 and prints 0. That
+  // zero is indistinguishable from a real count, which is the fabricated zero
+  // D1 rejects — worse than undefined, because a predicate can be taught to
+  // see a hole and cannot see a lie. Not counted stays undefined.
+  if (!base) {
+    return undefined;
+  }
+  const countStr = await run("git", ["rev-list", "--count", `${base}..HEAD`], {
     cwd: branchPath,
   });
   if (countStr) {
@@ -101,8 +143,16 @@ export async function gitGetCommitsAheadCount(branchPath: string) {
   }
 }
 
-export async function gitGetCommitsBehindCount(branchPath: string) {
-  const countStr = await run("git", ["rev-list", "--count", "HEAD..@{u}"], {
+export async function gitGetCommitsBehindCount(
+  branchPath: string,
+  base = "@{u}",
+) {
+  // Same trap in the other direction: `rev-list --count HEAD..` is also 0 at
+  // exit 0.
+  if (!base) {
+    return undefined;
+  }
+  const countStr = await run("git", ["rev-list", "--count", `HEAD..${base}`], {
     cwd: branchPath,
   });
   if (countStr) {
@@ -174,6 +224,22 @@ export function hasLiveAgent(wt: WorktreeListEntry): boolean {
   return !!wt.agent && wt.agent.live !== false;
 }
 
+// The distinction this whole feature rests on: a count of zero is not the same
+// fact as a count that was never taken, and only the first one makes a worktree
+// disposable. `ahead === undefined` means nobody ever asked, so it answers
+// false — unknown is never safe. See UNPUSHED-COMMIT-GUARD-PLAN §3 D1, #63.
+//
+// Both remove-permitting clauses below close over this, so the rule exists once
+// rather than being spelled out twice and drifting.
+//
+// `behind` is deliberately not consulted. It is undefined for every worktree
+// without an upstream (D4), so requiring it to be falsy would be trusting the
+// very unknown this function refuses to trust — and being behind loses nothing
+// on removal: it is staleness, not work at risk.
+function carriesNoKnownWork(wt: WorktreeListEntry): boolean {
+  return wt.ahead === 0;
+}
+
 export function isSafeToRemove(wt: WorktreeListEntry): boolean {
   if (!wt.pathExists) {
     // Worktree is defined but doesn't exist in the filesystem. Tested first, and
@@ -193,12 +259,17 @@ export function isSafeToRemove(wt: WorktreeListEntry): boolean {
     return false;
   }
   if (wt.remote && !wt.remoteExists) {
-    // Worktree is tracking a remote branch that no longer exists.
-    return true;
+    // Tracking a remote branch that no longer exists. Disposable only if
+    // nothing local outlives the branch that is gone.
+    return carriesNoKnownWork(wt);
   }
-  if (!wt.remote && !wt.ahead && !wt.behind) {
-    // Worktree has no changes and it not tracking any remote branch.
-    return true;
+  if (!wt.remote) {
+    // Not tracking anything. This clause used to read
+    // `!wt.remote && !wt.ahead && !wt.behind`, and its last two conjuncts could
+    // never be anything but true when the first one was: no remote forced
+    // `remoteExists` false, which is what left both counts uncounted. It read
+    // as "no remote and no work" and meant "no remote". That is the incident.
+    return carriesNoKnownWork(wt);
   }
   return false;
 }
@@ -234,6 +305,51 @@ function toWorktreeAgent(
   };
 }
 
+interface AheadCount {
+  ahead?: number;
+  aheadUnknownReason?: string;
+}
+
+// The one count that can legitimately fail to take, so every exit says which
+// happened: a number, or a reason it is missing. Never a zero standing in for a
+// count that was never taken — that substitution is the whole defect this
+// feature exists to remove. See UNPUSHED-COMMIT-GUARD-PLAN §3 D1, issue #63.
+async function countAhead(
+  worktreePath: string,
+  pathExists: boolean | undefined,
+  remoteExists: boolean,
+  comparisonBase: string,
+): Promise<AheadCount> {
+  if (!pathExists) {
+    // No directory to run in. `pathExists` already carries this and the
+    // listing already prints "Path does not exist", so a second detail saying
+    // the same thing would only be noise. What such a worktree's verdict
+    // should be is §9 Q5, left open by this plan and by CLEANUP-DATA-LOSS.
+    return {};
+  }
+
+  // The upstream where the branch has one that still exists — that is the
+  // count `list` has always shown, and it is the more precise question. The
+  // run's comparison base is for the branch nobody ever pushed, which is
+  // exactly the worktree this feature exists to stop losing.
+  const base = remoteExists ? "@{u}" : comparisonBase;
+  if (!base) {
+    return {
+      aheadUnknownReason:
+        "no comparison base; set defaultSourceBranch or run git remote set-head origin --auto",
+    };
+  }
+
+  try {
+    return { ahead: await gitGetCommitsAheadCount(worktreePath, base) };
+  } catch {
+    // D5: failing closed loses nothing, but failing closed *silently* makes a
+    // cleanup that cannot classify anything look like a cleanup with nothing
+    // to do. The reason rides the entry to whoever is reading.
+    return { aheadUnknownReason: `${base} could not be resolved` };
+  }
+}
+
 export async function gitGetWorktreeList({
   includeCurrent = false,
   includeAgents = false,
@@ -247,16 +363,34 @@ export async function gitGetWorktreeList({
   // call would be a fourth, and a caller that never renders agents must not pay
   // for the one. See AGENT-MODE-PLAN §3 D4 and §5 R4.
   const sessions = includeAgents ? await getAgentSessions() : [];
+  // Once for the whole run, not once per worktree — the loop below is serial
+  // and this gather has four callers, so a per-worktree resolution would be
+  // paid four ways for an answer that cannot differ between them. Same
+  // reasoning as the session lookup above. See §4.1 and §5 R1.
+  const comparisonBase = await gitGetComparisonBase();
 
   const worktreeList: WorktreeListEntry[] = [];
 
   for (const { path, branchName, pathExists, isCurrent } of result) {
     const remote = tracking.find((t) => t.local === branchName)?.remote ?? "";
     const remoteExists = !!remote && remoteBranches.includes(remote);
-    const ahead =
-      pathExists && remoteExists
-        ? await gitGetCommitsAheadCount(path)
-        : undefined;
+    // `ahead` is now counted for every worktree whose directory is there, not
+    // only for those with an upstream. The old `remoteExists` guard was an
+    // error-dodge — `@{u}` does not resolve without an upstream and run()
+    // rejects — and leaving the count untaken is what let a branch carrying
+    // unpushed commits read as empty.
+    const { ahead, aheadUnknownReason } = await countAhead(
+      path,
+      pathExists,
+      remoteExists,
+      comparisonBase,
+    );
+    // `behind` keeps that guard, deliberately. Against the default branch it
+    // would mean "commits on main this branch does not have", non-zero for
+    // almost every worktree the moment main advances — and it is a conjunct of
+    // a safety clause, so cleanup would stop removing anything at all. Being
+    // behind also loses nothing on removal: it is staleness, not work at risk.
+    // See §3 D4.
     const behind =
       pathExists && remoteExists
         ? await gitGetCommitsBehindCount(path)
@@ -272,6 +406,7 @@ export async function gitGetWorktreeList({
       remoteExists,
       ahead,
       behind,
+      aheadUnknownReason,
       pathExists,
       uncommittedChanges,
       isCurrent,
@@ -415,7 +550,18 @@ export async function gitRemoveWorktree(
   async function promptRemoval(worktree: WorktreeListEntry) {
     if (worktree.ahead) {
       return await confirm({
-        message: `This branch is ${worktree.ahead} commits ahead so you might lose some work. Are you sure you want to remove this worktree?`,
+        message: `This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
+        default: false,
+      });
+    }
+    // The count could not be taken, so this worktree may be carrying anything.
+    // The generic prompt below would imply there is nothing to weigh, which is
+    // the disclosure half of the incident: the decision and the warning failed
+    // from the same undefined. Naming the reason is what lets someone check
+    // before answering. See §3 D1 and D5.
+    if (worktree.aheadUnknownReason) {
+      return await confirm({
+        message: `Unpushed commits could not be counted for this branch (${worktree.aheadUnknownReason}), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?`,
         default: false,
       });
     }
@@ -433,7 +579,18 @@ export async function gitRemoveWorktree(
 
   if (force || (await promptRemoval(worktree))) {
     const wasRemoved = await gitNukeWorktree(branchName, {
-      force: force || !!worktree.ahead || !!worktree.uncommittedChanges,
+      // An uncountable branch is forced too. Not because the removal would
+      // otherwise fail — a dirty tree already sets this through
+      // `uncommittedChanges`, and `git worktree remove` does not refuse a tree
+      // `git status -s` reports as clean. `force` governs only whether that
+      // command tolerates state git status cannot see, and it costs nothing
+      // here: gitNukeWorktreeCmd runs `git branch -D` unconditionally either
+      // way. The user has been told what they might be losing and said yes.
+      force:
+        force ||
+        !!worktree.ahead ||
+        !!worktree.aheadUnknownReason ||
+        !!worktree.uncommittedChanges,
     });
 
     return wasRemoved ? worktree : undefined;

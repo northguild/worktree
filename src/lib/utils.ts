@@ -14,6 +14,10 @@ export function conjoin(
   return `${allButLast} ${conjunction} ${last}`;
 }
 
+// Note for callers counting commits: `Number("")` is `0`, not NaN, so an empty
+// string returns the number zero rather than undefined. `gitGetCommitsAheadCount`
+// guards on the raw string before calling this precisely because a zero that was
+// never counted is the defect UNPUSHED-COMMIT-GUARD-PLAN §3 D1 exists to prevent.
 export function strToNum(str: string): number | undefined {
   const num = Number(str);
   if (!Number.isNaN(num)) {
@@ -55,8 +59,26 @@ export function worktreeListEntryToListName(
   if (wt.remote && !wt.remoteExists) {
     details.push(`Remote removed`);
   }
-  if (wt.ahead || wt.behind) {
-    details.push(`Ahead: ${wt.ahead ?? 0}, Behind: ${wt.behind ?? 0}`);
+  // Each count on its own terms, because they no longer answer the same
+  // question: `ahead` is taken for every worktree, `behind` only where there is
+  // an upstream (D4). The old pair rendered `Behind: ${wt.behind ?? 0}`, and
+  // with `behind` legitimately unknown that fabricated zero is the same lie as
+  // an uncounted `ahead` reading as empty. A zero that *was* counted still
+  // prints nothing — it is not a detail worth the line.
+  //
+  // Joined with ", " by the caller below, so a worktree with both counts reads
+  // exactly as it always did: `Ahead: 3, Behind: 2`.
+  if (wt.ahead) {
+    details.push(`Ahead: ${wt.ahead}`);
+  }
+  if (wt.behind) {
+    details.push(`Behind: ${wt.behind}`);
+  }
+  // Why the ahead count is missing, where it is missing for a reason the other
+  // details do not already give. Rendered here rather than in any one command
+  // so `list`, `cleanup` and `remove` all disclose it through one path.
+  if (wt.aheadUnknownReason) {
+    details.push(`Unpushed commits unknown: ${wt.aheadUnknownReason}`);
   }
   if (wt.uncommittedChanges) {
     details.push(

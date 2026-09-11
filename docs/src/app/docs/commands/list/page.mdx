@@ -29,7 +29,7 @@ found in each worktree:
 
 ```text
 - feature/one (Agent: feature-one-1f)
-- feature/two (Ahead: 2, Behind: 0, Agent: feature-two-1f [waiting])
+- feature/two (Ahead: 2, Behind: 1, Agent: feature-two-1f [waiting])
 - feature/three (Agent: notes-1f [interactive])
 ```
 
@@ -47,3 +47,34 @@ one of them, and the marker describes the session it names.
 Without `--agents`, `list` asks the agent runtime nothing and its output is
 unchanged. If `agent.command` is unset, or the runtime is not installed or
 reports nothing usable, `--agents` simply lists no sessions rather than failing.
+
+## Ahead and behind counts
+
+`Ahead:` counts commits this worktree carries that its comparison base does not.
+**The count is taken for every worktree whose directory is present, including
+one on a branch you have never pushed** — that is the case worth seeing, because
+those commits exist in exactly one place.
+
+The base depends on whether the branch tracks a remote:
+
+| The branch | `Ahead:` counts against | `Behind:` |
+| --- | --- | --- |
+| tracks a remote branch that still exists | its upstream | shown |
+| tracks nothing, or a remote branch that is gone | `origin/HEAD`, falling back to [`defaultSourceBranch`](/docs/configuration) | not shown |
+
+`Behind:` is only ever counted against an upstream. Against the default branch it
+would mean "commits on `main` this branch does not have", which is true of almost
+every worktree the moment `main` moves — so where there is no upstream the figure
+is left out rather than printed as a `0` that was never counted. A count of zero
+is not shown either way; only a non-zero figure earns a line.
+
+If neither `origin/HEAD` nor `defaultSourceBranch` resolves, the count cannot be
+taken at all, and the entry says so instead of looking empty:
+
+```text
+- feature/orphan (Unpushed commits unknown: no comparison base; set defaultSourceBranch or run git remote set-head origin --auto)
+```
+
+The same detail appears in [`remove`](/docs/commands/remove)'s picker and in
+[`cleanup`](/docs/commands/cleanup)'s report of what it held back, because all
+three render a worktree the same way.

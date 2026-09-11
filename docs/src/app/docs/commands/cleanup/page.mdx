@@ -14,14 +14,64 @@ worktree cleanup
 
 Typical cleanup targets include:
 
-- worktrees whose remote branch no longer exists, as long as they hold no uncommitted changes
-- local worktrees with no tracked remote and no pending work
+- worktrees whose remote branch no longer exists, as long as they carry no unpushed commits
+  and hold no uncommitted changes
+- local worktrees with no tracked remote that carry no unpushed commits and hold no
+  uncommitted changes
 
-Uncommitted changes disqualify a worktree from removal whatever its remote looks like. The
-count comes from `git status -s`, so untracked files hold a worktree back too.
+## What holds a worktree back
 
-`cleanup` reports every worktree it would otherwise have removed but held back for that
-reason, along with its change count, so work in progress is named rather than swept up.
+**Uncommitted changes** disqualify a worktree whatever its remote looks like. The count
+comes from `git status -s`, so untracked files hold a worktree back too.
+
+**Unpushed commits** disqualify it too. A worktree whose directory still exists is only
+removed when its commit count was actually taken and came back zero — a count that could not
+be taken is never read as "no work". This matters most for a branch you never pushed: it has no upstream to compare
+against, so the comparison base is `origin/HEAD`, falling back to
+[`defaultSourceBranch`](/docs/configuration). If neither resolves the count cannot be taken,
+and the worktree is held back rather than swept.
+
+That second rule is newer than the first, and the ordering is deliberate: committing work
+must never move a worktree from protected to disposable.
+
+**A live agent session** holds one back as well — see below.
+
+## What it prints
+
+Every worktree `cleanup` offers to remove says why it qualified, so a line can never mean
+"no reason found":
+
+```text
+Found 3 worktree branches that are marked safe to remove.
+- feature/api-retries (Remote removed, no unpushed commits)
+- feature/spike (No tracked remote, no unpushed commits)
+- feature/moved (Path does not exist)
+```
+
+Those three are the whole vocabulary. `Path does not exist` is the one that answers none of
+the checks above: a worktree whose directory is already gone is removed before its commits
+are considered, because there is no directory to count them in.
+
+`cleanup` also reports what it held back, under three headings:
+
+```text
+Skipped 1 worktree branch that has uncommitted changes:
+- feature/wip (Remote removed, 3 uncommitted changes)
+Skipped 1 worktree branch whose unpushed commits could not be counted:
+- feature/orphan (Unpushed commits unknown: no comparison base; set defaultSourceBranch or run git remote set-head origin --auto)
+Skipped 1 worktree branch with a live agent session:
+- feature/api (Remote removed, Agent: feature-api-1f)
+```
+
+The middle heading is the one that makes `No stale worktree branches found.` trustworthy in
+the way this matters: that line can no longer be produced by a worktree whose commits could
+not be counted. Such a worktree is always named.
+
+**Those three headings are the whole of what `cleanup` reports.** A worktree carrying
+unpushed commits that it *could* count is not stale, so it is neither removed nor listed —
+it simply does not come up, the same way a worktree tracking a live remote branch never
+has. Use [`list`](/docs/commands/list) to see every worktree and what each one is carrying;
+`cleanup` only ever discusses the ones it would sweep and the ones it stopped short of.
 
 ## Flags
 
@@ -34,7 +84,8 @@ reason, along with its change count, so work in progress is named rather than sw
 
 A worktree that an agent session is living in is never removed. `cleanup` asks the agent
 runtime configured in [`agent.command`](/docs/configuration#agent-command) which sessions are running and
-where, and holds back any worktree one of them is working in — naming both the worktree and
+where, and holds back any worktree one of them is working in. Where that worktree is one it
+would otherwise have swept, it is reported under this heading, naming both the worktree and
 the session sitting in it:
 
 ```
@@ -69,8 +120,8 @@ gathered and `cleanup` behaves exactly as it always has.
 With [`opener`](/docs/configuration) set to `herdr`, every worktree `cleanup` removes also has its
 Herdr space closed.
 
-Only the ones it actually removed. A worktree held back for uncommitted changes or a live agent
-keeps its space, because its checkout is still there — `cleanup` closes what it deleted, never what
+Only the ones it actually removed. A worktree held back — for uncommitted changes, a live agent, or
+unpushed commits it could not count — keeps its space, because its checkout is still there — `cleanup` closes what it deleted, never what
 it merely looked at. Each space is closed independently, so one failure does not stop the rest, and
 a failed close is a warning that leaves the exit code at `0`.
 

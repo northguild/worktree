@@ -91,7 +91,11 @@ describe("worktreeListEntryToListName", () => {
     expect(result).toContain("Ahead: 3, Behind: 2");
   });
 
-  it("should show ahead count with default behind value", () => {
+  // This used to assert `Ahead: 5, Behind: 0`. That zero was fabricated: the
+  // entry carries no `behind` at all, and under D4 an absent one is the normal
+  // state for a worktree with no upstream rather than a count of nothing. The
+  // detail now names only the counts that were taken.
+  it("shows only the ahead count when behind was never counted", () => {
     const result = worktreeListEntryToListName({
       path: "/path/to/worktree",
       branchName: "feature/test",
@@ -101,10 +105,11 @@ describe("worktreeListEntryToListName", () => {
       ahead: 5,
     });
 
-    expect(result).toContain("Ahead: 5, Behind: 0");
+    expect(result).toContain("Ahead: 5");
+    expect(result).not.toContain("Behind");
   });
 
-  it("should show behind count with default ahead value", () => {
+  it("shows only the behind count when ahead is zero", () => {
     const result = worktreeListEntryToListName({
       path: "/path/to/worktree",
       branchName: "feature/test",
@@ -114,7 +119,27 @@ describe("worktreeListEntryToListName", () => {
       behind: 4,
     });
 
-    expect(result).toContain("Ahead: 0, Behind: 4");
+    expect(result).toContain("Behind: 4");
+    expect(result).not.toContain("Ahead");
+  });
+
+  // The reason rides the entry, so every command that renders through this
+  // function discloses it — `list`, `cleanup` and `remove` alike. Without it a
+  // worktree whose ahead count could not be taken is indistinguishable from
+  // one that is genuinely empty, which is the disclosure half of the incident.
+  it("names why the ahead count is missing when a reason is carried", () => {
+    const result = worktreeListEntryToListName({
+      path: "/path/to/worktree",
+      branchName: "feature/test",
+      remote: "",
+      pathExists: true,
+      remoteExists: false,
+      aheadUnknownReason: "origin/gone could not be resolved",
+    });
+
+    expect(result).toContain(
+      "Unpushed commits unknown: origin/gone could not be resolved",
+    );
   });
 
   it("should show uncommitted changes count", () => {

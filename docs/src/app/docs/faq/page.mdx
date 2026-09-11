@@ -47,8 +47,8 @@ See [Herdr Spaces](/docs/guides/herdr-spaces).
 It is closed with it. `worktree remove` and `worktree cleanup` close the space of every worktree
 they delete, so you are not left tidying up spaces with no checkout under them.
 
-Only worktrees that were actually removed. One held back for uncommitted changes or a live agent
-keeps its space, and so does a removal you declined — in each case the checkout is still on disk. If
+Only worktrees that were actually removed. One held back — for uncommitted changes, a live agent, or
+unpushed commits — keeps its space, and so does a removal you declined — in each case the checkout is still on disk. If
 Herdr cannot be reached the close is a warning and the command still exits `0`, because by then the
 worktree is already gone.
 

@@ -9,6 +9,7 @@ import {
   gitGetAbsoluteWorktreesPath,
   gitGetCommitsAheadCount,
   gitGetCommitsBehindCount,
+  gitGetComparisonBase,
   gitGetConfigValue,
   gitGetLocalBranches,
   gitGetLocalBranchesTracking,
@@ -254,6 +255,70 @@ describe("git root path", () => {
   });
 });
 
+// D2's resolution order, one test per rung. The order is the decision: the
+// config key answers "where do I branch from", which is not the same question,
+// so it is only reached when the repository's own answer is missing.
+describe("gitGetComparisonBase", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git config northguild.worktree.defaultSourceBranch",
+    );
+  });
+
+  it("resolves origin/HEAD, and does not reach the config key", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("origin/main");
+
+    const base = await gitGetComparisonBase();
+
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "symbolic-ref",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ]);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(base).toBe("origin/main");
+  });
+
+  it("falls back to defaultSourceBranch when origin/HEAD is unset", async () => {
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockRejectedValueOnce(
+        new Error("ref refs/remotes/origin/HEAD is not a symbolic ref"),
+      )
+      .mockResolvedValueOnce("origin/develop");
+
+    const base = await gitGetComparisonBase();
+
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
+      "config",
+      "northguild.worktree.defaultSourceBranch",
+    ]);
+    expect(base).toBe("origin/develop");
+  });
+
+  // symbolic-ref can exit 0 with nothing to say. An empty answer is no answer,
+  // so it takes the same rung as a rejection rather than becoming the base.
+  it("falls back when origin/HEAD resolves to an empty string", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("origin/develop");
+
+    expect(await gitGetComparisonBase()).toBe("origin/develop");
+  });
+
+  // The third rung. "" is what D1 turns into "not safe" — it must never be
+  // confused with a base that resolved and counted zero.
+  it("returns an empty string when neither origin/HEAD nor the config resolves", async () => {
+    vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(new Error("no origin"))
+      .mockRejectedValueOnce(new Error("key unset"));
+
+    expect(await gitGetComparisonBase()).toBe("");
+  });
+});
+
 describe("git status and tracking helpers", () => {
   const worktreePath = "/repo/project.worktrees/test";
   // A path a shell would split on the space, which is the failure the argv form
@@ -266,6 +331,8 @@ describe("git status and tracking helpers", () => {
       "git branch --show-current",
       `git rev-list --count @{u}..HEAD (cwd: ${worktreePath})`,
       `git rev-list --count HEAD..@{u} (cwd: ${worktreePath})`,
+      `git rev-list --count origin/main..HEAD (cwd: ${worktreePath})`,
+      `git rev-list --count HEAD..origin/main (cwd: ${worktreePath})`,
       `git status -s (cwd: ${worktreePath})`,
       `git status -s (cwd: ${spacedWorktreePath})`,
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
@@ -313,6 +380,62 @@ describe("git status and tracking helpers", () => {
       { cwd: worktreePath },
     );
     expect(count).toBe(2);
+  });
+
+  // The parameter Phase 2 needs: an explicit base, for a worktree where `@{u}`
+  // does not resolve at all. Every existing caller passes nothing and keeps the
+  // upstream form above.
+  it("counts ahead against an explicit base", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("1");
+
+    const count = await gitGetCommitsAheadCount(worktreePath, "origin/main");
+
+    expect(runSpy).toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", "origin/main..HEAD"],
+      { cwd: worktreePath },
+    );
+    expect(count).toBe(1);
+  });
+
+  it("counts behind against an explicit base", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("4");
+
+    const count = await gitGetCommitsBehindCount(worktreePath, "origin/main");
+
+    expect(runSpy).toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", "HEAD..origin/main"],
+      { cwd: worktreePath },
+    );
+    expect(count).toBe(4);
+  });
+
+  // The empty base is gitGetComparisonBase()'s "nothing resolved". git answers
+  // `rev-list --count ..HEAD` with 0 at exit 0, so the guard has to be here —
+  // reaching git at all would fabricate the zero D1 rejects.
+  //
+  // `not.toHaveBeenCalled()` is the assertion that pins this, and it is not
+  // redundant next to `toBeUndefined()`: the run mock has no default value, so
+  // with the guard removed the call resolves undefined and the result is
+  // undefined anyway. Remove the spy assertion and both tests pass whether or
+  // not the defect is present.
+  it("returns undefined for an empty ahead base, without calling git", async () => {
+    const runSpy = vi.spyOn(cli, "run");
+
+    const count = await gitGetCommitsAheadCount(worktreePath, "");
+
+    expect(count).toBeUndefined();
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined for an empty behind base, without calling git", async () => {
+    const runSpy = vi.spyOn(cli, "run");
+
+    const count = await gitGetCommitsBehindCount(worktreePath, "");
+
+    expect(count).toBeUndefined();
+    expect(runSpy).not.toHaveBeenCalled();
   });
 
   it("counts uncommitted changes from git status -s", async () => {
@@ -573,6 +696,12 @@ describe("gitNukeWorktreeCmd", () => {
 });
 
 describe("isSafeToRemove", () => {
+  // `ahead: 0` is part of the baseline deliberately: after D1 a worktree is
+  // only disposable on a count that was actually taken, so "an ordinary empty
+  // worktree" now has to say that the count happened and came back zero. A
+  // fixture defaulting to undefined would mean "never counted", which is a
+  // different worktree and an unsafe one. The tests below that care about the
+  // difference pass `ahead` explicitly.
   function entry(
     overrides: Partial<WorktreeListEntry> = {},
   ): WorktreeListEntry {
@@ -581,6 +710,7 @@ describe("isSafeToRemove", () => {
       branchName: "feature/test",
       pathExists: true,
       remote: "",
+      ahead: 0,
       uncommittedChanges: 0,
       ...overrides,
     };
@@ -642,9 +772,12 @@ describe("isSafeToRemove", () => {
     ).toBe(true);
   });
 
-  // An unknown count must not read as "has changes" — the field is optional, so
-  // the hoisted test is a truthiness check rather than a comparison against 0.
-  it("is still safe when the remote was deleted and the count is unknown", () => {
+  // An unknown *uncommitted* count must not read as "has changes" — the field
+  // is optional, so the hoisted test is a truthiness check rather than a
+  // comparison against 0. The ahead count is a counted zero here, which is what
+  // keeps this test about the field it names; unknown `ahead` is D1's case and
+  // is pinned separately below.
+  it("is still safe when the remote was deleted and the uncommitted count is unknown", () => {
     expect(
       isSafeToRemove(
         entry({
@@ -705,6 +838,72 @@ describe("isSafeToRemove", () => {
       isSafeToRemove(entry({ agent: liveAgent(), uncommittedChanges: 3 })),
     ).toBe(false);
   });
+
+  // D1, the decision this whole feature serves. The three cases §6.2 names as
+  // Phase 3's "done when", plus the incident itself.
+
+  // The incident: a branch nobody ever pushed, carrying commits that exist in
+  // exactly one place. Before this phase the clause read `!wt.remote &&
+  // !wt.ahead && !wt.behind` against an `ahead` nobody had counted, and
+  // answered true.
+  it("is not safe with no remote and an uncounted ahead", () => {
+    expect(isSafeToRemove(entry({ ahead: undefined }))).toBe(false);
+  });
+
+  it("is not safe with no remote and commits ahead", () => {
+    expect(isSafeToRemove(entry({ ahead: 3 }))).toBe(false);
+  });
+
+  it("is safe with no remote and a counted zero ahead", () => {
+    expect(isSafeToRemove(entry({ ahead: 0 }))).toBe(true);
+  });
+
+  // The other exposed clause, which CLEANUP-DATA-LOSS-PLAN recorded as Q1: the
+  // remote was deleted, but the local branch still carries commits.
+  it("is not safe when the remote was deleted and commits are ahead", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: false,
+          ahead: 2,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is not safe when the remote was deleted and the ahead count is unknown", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: false,
+          ahead: undefined,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  // D4 in the predicate: `behind` is not consulted at all. A worktree that is
+  // behind but carries nothing of its own is stale, not at risk, and staleness
+  // is exactly what cleanup exists to sweep. Reading `behind` here would also
+  // mean trusting an undefined this function has just refused to trust.
+  it("is safe when behind but carrying nothing of its own", () => {
+    expect(isSafeToRemove(entry({ ahead: 0, behind: 5 }))).toBe(true);
+  });
+
+  // A worktree whose count could not be taken carries a reason, and the reason
+  // must not make it safe — it is the same unknown wearing a label.
+  it("is not safe when a reason explains why the count is missing", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          ahead: undefined,
+          aheadUnknownReason: "no comparison base",
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("gitGetWorktreeList agent join", () => {
@@ -717,9 +916,12 @@ describe("gitGetWorktreeList agent join", () => {
   }
 
   // Every git call gitGetWorktreeList makes, in order, for two worktrees that
-  // track no remote — which is what keeps the ahead/behind pair out of the
-  // sequence. The session lookup itself is stubbed rather than driven through
-  // run(), because agent.test.ts already owns its parsing.
+  // track no remote. That used to be what kept the ahead/behind pair out of
+  // the sequence; it no longer is. `ahead` is counted for both of them now,
+  // against the run's comparison base — which is itself one call, taken once
+  // before the loop rather than per worktree. `behind` is still absent, and
+  // that absence is D4 rather than an oversight. The session lookup is stubbed
+  // rather than driven through run(), because agent.test.ts owns its parsing.
   function mockWorktreeListRun() {
     expectCommands(
       "git fetch --prune",
@@ -728,7 +930,10 @@ describe("gitGetWorktreeList agent join", () => {
       "git branch --show-current",
       "git rev-parse --show-toplevel",
       "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
       `git status -s (cwd: ${onePath})`,
+      `git rev-list --count origin/main..HEAD (cwd: ${twoPath})`,
       `git status -s (cwd: ${twoPath})`,
     );
 
@@ -744,7 +949,10 @@ describe("gitGetWorktreeList agent join", () => {
           `${twoPath}  def5678 [feature/two]`,
         ].join(EOL),
       )
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("1")
       .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("0")
       .mockResolvedValueOnce("");
   }
 
@@ -842,6 +1050,328 @@ describe("gitGetWorktreeList agent join", () => {
   });
 });
 
+// What Phase 2 of UNPUSHED-COMMIT-GUARD-PLAN (issue #63) is for: the ahead
+// count is taken for every worktree whose directory is there, not only for
+// those with an upstream. A branch nobody ever pushed is precisely the case
+// the old `remoteExists` guard skipped, and skipping it is what let such a
+// worktree read as empty.
+describe("gitGetWorktreeList ahead counting", () => {
+  const rootPath = "/repo/project";
+  const onePath = `${rootPath}.worktrees/feature/one`;
+
+  // The six calls every run makes before the first worktree is looked at.
+  function mockRunPreamble(tracking: string, remoteBranches = "") {
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce(remoteBranches)
+      .mockResolvedValueOnce(tracking)
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(`${onePath}  abc1234 [feature/one]`);
+  }
+
+  function expectPreamble() {
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+  });
+
+  // The incident, inverted. This is the assertion the whole feature exists to
+  // make true: a never-pushed branch carrying one commit reports ahead: 1.
+  it("counts ahead against the comparison base for a never-pushed branch", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble("feature/one <-");
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("1")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.ahead).toBe(1);
+    expect(worktree.aheadUnknownReason).toBeUndefined();
+  });
+
+  // R3: `behind` stays undefined for a worktree with no upstream, by design
+  // and not by accident. Counting it against the default branch would be
+  // non-zero for nearly every worktree, and it is a conjunct of a safety
+  // clause — cleanup would stop removing anything at all. Pinned so the next
+  // clause written against `behind` cannot inherit the original trap quietly.
+  it("leaves behind undefined for a branch with no upstream", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble("feature/one <-");
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("2")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.behind).toBeUndefined();
+    expect(worktree.ahead).toBe(2);
+  });
+
+  // The upstream arm is unchanged: where a branch tracks a remote that still
+  // exists, both counts are taken against `@{u}` exactly as before.
+  it("still counts both against the upstream where one exists", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count @{u}..HEAD (cwd: ${onePath})`,
+      `git rev-list --count HEAD..@{u} (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble(
+      "feature/one <- origin/feature/one",
+      "  origin/feature/one",
+    );
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("3")
+      .mockResolvedValueOnce("4")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.ahead).toBe(3);
+    expect(worktree.behind).toBe(4);
+    expect(worktree.aheadUnknownReason).toBeUndefined();
+  });
+
+  // D5, first path: nothing resolved a base at all. The count is not taken —
+  // git is never asked, because `rev-list --count ..HEAD` would answer 0 at
+  // exit 0 — and the entry says why rather than looking like a clean worktree.
+  it("reports why when no comparison base resolves, without asking git to count", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git config northguild.worktree.defaultSourceBranch",
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble("feature/one <-");
+    mockRun
+      .mockRejectedValueOnce(new Error("no origin/HEAD"))
+      .mockRejectedValueOnce(new Error("key unset"))
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.ahead).toBeUndefined();
+    expect(worktree.aheadUnknownReason).toContain("no comparison base");
+    // The half of this test's name that the expectCommands harness cannot
+    // carry: that list only warns on an undeclared call, so the assertion has
+    // to be made here. Asking git at all is what produces the fabricated zero.
+    const revListCalls = mockRun.mock.calls.filter(
+      (call) => call[1]?.[0] === "rev-list",
+    );
+    expect(revListCalls).toHaveLength(0);
+  });
+
+  // D5, second path: a base resolved but names a ref git cannot find — a
+  // defaultSourceBranch pointing at a deleted branch (R4). The rejection is
+  // caught rather than failing the whole command, and the reason names the
+  // base so the user can see which ref is wrong.
+  it("reports the base by name when it will not resolve", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/gone..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble("feature/one <-");
+    mockRun
+      .mockResolvedValueOnce("origin/gone")
+      .mockRejectedValueOnce(new Error("unknown revision origin/gone"))
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.ahead).toBeUndefined();
+    expect(worktree.aheadUnknownReason).toContain("origin/gone");
+  });
+
+  // The base is one call for the whole run, not one per worktree — the loop is
+  // serial and this gather has four callers. See §4.1 and §5 R1.
+  it("resolves the comparison base once for a run covering two worktrees", async () => {
+    const twoPath = `${rootPath}.worktrees/feature/two`;
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+      `git rev-list --count origin/main..HEAD (cwd: ${twoPath})`,
+      `git status -s (cwd: ${twoPath})`,
+    );
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce(`feature/one <-${EOL}feature/two <-`)
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(
+        [
+          `${onePath}  abc1234 [feature/one]`,
+          `${twoPath}  def5678 [feature/two]`,
+        ].join(EOL),
+      )
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("1")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("");
+
+    const worktrees = await gitGetWorktreeList();
+
+    const symbolicRefCalls = mockRun.mock.calls.filter(
+      (call) => call[1]?.[0] === "symbolic-ref",
+    );
+    expect(symbolicRefCalls).toHaveLength(1);
+    expect(worktrees.map((wt) => wt.ahead)).toEqual([1, 0]);
+  });
+});
+
+// §1 of UNPUSHED-COMMIT-GUARD-PLAN records that the same uncounted `ahead`
+// disarmed two things, not one: the removal verdict AND the warning. `worktree
+// remove` on a never-pushed branch asked a generic "Are you sure?" rather than
+// naming the commits at risk, because `promptRemoval` reads `worktree.ahead`.
+// Nothing covered this prompt before Phase 3, which is how it stayed disarmed.
+describe("gitRemoveWorktree prompt", () => {
+  const rootPath = "/repo/project";
+  const targetPath = `${rootPath}.worktrees/feature/one`;
+
+  // gitRemoveWorktree asks for the current branch, then gathers the list, then
+  // prompts. Everything up to the prompt is the gather this file already drives
+  // through run() elsewhere.
+  function mockUpToPrompt(aheadOrReason: string | "reject") {
+    expectCommands(
+      "git branch --show-current",
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${targetPath})`,
+      "git config northguild.worktree.defaultSourceBranch",
+      `git status -s (cwd: ${targetPath})`,
+    );
+
+    mockRun
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("feature/one <-")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(`${targetPath}  abc1234 [feature/one]`);
+
+    if (aheadOrReason === "reject") {
+      // No base resolves at all, so the count is never taken.
+      mockRun
+        .mockRejectedValueOnce(new Error("no origin/HEAD"))
+        .mockRejectedValueOnce(new Error("key unset"));
+    } else {
+      mockRun
+        .mockResolvedValueOnce("origin/main")
+        .mockResolvedValueOnce(aheadOrReason);
+    }
+
+    mockRun.mockResolvedValueOnce("");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    // Declining keeps each test to the prompt itself; the removal path is
+    // covered by the gitNukeWorktreeCmd block above.
+    mockConfirm.mockResolvedValue(false);
+  });
+
+  // The incident's branch, at the prompt. This is §8 step 4.
+  it("names the commits at risk on a never-pushed branch", async () => {
+    mockUpToPrompt("1");
+
+    await gitRemoveWorktree("feature/one");
+
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("1 commit ahead"),
+      }),
+    );
+  });
+
+  // The count is a plain interpolation, so the singular case is the one that
+  // reads wrong — and one commit is the common shape for a branch just made.
+  it("pluralises the commit count", async () => {
+    mockUpToPrompt("4");
+
+    await gitRemoveWorktree("feature/one");
+
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("4 commits ahead"),
+      }),
+    );
+  });
+
+  // The disclosure half of D1: a count that could not be taken must not fall
+  // through to a prompt that implies there is nothing to weigh.
+  it("says so when the count could not be taken at all", async () => {
+    mockUpToPrompt("reject");
+
+    await gitRemoveWorktree("feature/one");
+
+    const message = mockConfirm.mock.calls[0]?.[0]?.message;
+    expect(message).toContain("could not be counted");
+    expect(message).toContain("no comparison base");
+  });
+
+  // A counted zero is the one case that has nothing to disclose, and it must
+  // still read as the ordinary confirmation rather than a warning.
+  it("asks the plain question when the branch is known to carry nothing", async () => {
+    mockUpToPrompt("0");
+
+    await gitRemoveWorktree("feature/one");
+
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Are you sure you want to remove this worktree?",
+      }),
+    );
+  });
+
+  it("removes nothing when the prompt is declined", async () => {
+    mockUpToPrompt("1");
+
+    await gitRemoveWorktree("feature/one");
+
+    const removeCalls = mockRun.mock.calls.filter(
+      (call) => call[1]?.[0] === "worktree" && call[1]?.[1] === "remove",
+    );
+    expect(removeCalls).toHaveLength(0);
+  });
+});
+
 /**
  * What the three removal helpers answer with.
  *
@@ -876,10 +1406,17 @@ describe("what the removal helpers report", () => {
   /**
    * Every git call gitRemoveWorktree makes before it reaches the prompt, in
    * order: its own current-branch check, then the whole of gitGetWorktreeList
-   * for one worktree tracking no remote — which is what keeps the ahead/behind
-   * pair out of the sequence.
+   * for one worktree tracking no remote — which, having no upstream, counts
+   * ahead against the run's comparison base rather than `@{u}`, and skips the
+   * behind count entirely.
+   *
+   * The count answers a **counted zero**, deliberately: these tests are about
+   * what the helpers report, and an absent count would hold the worktree back
+   * for a second reason and never reach the removal at all.
    */
   function mockLookupRun(listedBranch = branchName) {
+    const listedPath = `${rootPath}.worktrees/${listedBranch}`;
+
     expectCommands(
       "git branch --show-current",
       "git fetch --prune",
@@ -887,7 +1424,9 @@ describe("what the removal helpers report", () => {
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
       "git rev-parse --show-toplevel",
       "git worktree list",
-      `git status -s (cwd: ${onePath})`,
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${listedPath})`,
+      `git status -s (cwd: ${listedPath})`,
       `git worktree remove ${branchName}`,
       `git worktree remove ${branchName} --force`,
       "git worktree prune",
@@ -901,9 +1440,9 @@ describe("what the removal helpers report", () => {
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce(rootPath)
-      .mockResolvedValueOnce(
-        `${rootPath}.worktrees/${listedBranch}  abc1234 [${listedBranch}]`,
-      )
+      .mockResolvedValueOnce(`${listedPath}  abc1234 [${listedBranch}]`)
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("0")
       .mockResolvedValueOnce("");
   }
 
