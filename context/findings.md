@@ -885,6 +885,8 @@ off than before this change.
 path, pinned by a test in `src/lib/env.test.ts`. It is otherwise withdrawn rather than closed, if someone
 decides submodules stay out of scope; a recorded decision is not something a gate run can witness.
 
+## Closed
+
 ### F-053 — P3 — the env-copy spinner is never failed, so a copy error leaves it mid-spin
 
 **Tied to:** ad-hoc · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
@@ -903,7 +905,19 @@ that change commit-sized.
 **Closes when:** a Gate 1 run passes with the two fs calls wrapped so `spinner.fail()` runs and the rethrown
 error names both the file and the already-created worktree.
 
-## Closed
+**Closed:** 2026-09-11 by the verbosity change, which removed the per-file spinner rather than failing it.
+There is one spinner now, for the lookup, and it is stopped before the copy loop
+starts — so no spinner can be left mid-spin by a copy at all. The two fs calls are wrapped
+and the rethrown error names the file, names the created worktree and keeps the
+original as `cause`, which is the other half of what this finding asked for. Pinned by *names the file and
+the created worktree when a copy fails* and *keeps the lines already printed when a later copy fails* in
+`src/lib/env.test.ts`. Gate 1 re-passed on that change — `pnpm check`, `pnpm typecheck`, `pnpm build`,
+`pnpm test` (497 passed) and `pnpm docs:test` (49 passed), all exit 0. That spinner is now failed on a
+lookup error too, so the defect's class does not survive at the new site either.
+
+**Route differed from the Closes-when.** That line asked for `spinner.fail()` to run; the defect was
+instead removed by deleting the per-file spinner. Recorded rather than quietly re-scoped: the condition as
+written is not what happened, and the defect it described is gone.
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches
 
