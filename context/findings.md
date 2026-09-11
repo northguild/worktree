@@ -830,6 +830,79 @@ source — the first belongs under `describe("the worktree is the deliverable")`
 **Closes when:** a Gate 1 run passes with the three-line spinner assertion added to *still creates and opens
 the worktree when the assignment throws*, in the shape the unassigned case already uses.
 
+### F-054 — P3 — the timeout is user-visible behaviour that issue #52's §7 does not route anywhere
+
+**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-10 (Gate 2, the `reviewer` subagent, note NB3)
+
+`context/stack.md`'s Documentation table routes any user-visible CLI behaviour to `docs/src/app/docs/`, and
+a 10 s bound with a specific failure line qualifies. Nothing is made *untrue* by Phase 1 —
+`docs/src/app/docs/guides/herdr-spaces/page.mdx:81-95` already lists "or the open fails", the new line keeps
+the `✖ Herdr: …` shape of its example, and `:94-95`'s exit-0 claim still holds — so it was not Phase 1's to
+fix. But issue #52's §7 row for that page justifies rewriting *When Herdr cannot be reached* on the close
+half alone, so Phase 6 will rewrite that section without mentioning the timeout unless something says so.
+
+**Closes when:** Phase 6's rewrite of that page covers the timeout — what bounds the call, and what the
+command prints when it expires.
+
+### F-055 — P3 — a workspace id that is present but not a string reads as "no space open", and closes nothing
+
+**Tied to:** herdr-space-closer Phase 2 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB2)
+
+`readOptionalWorkspaceId` (`src/integrations/herdr.ts:424-426`) is
+`typeof value === "string" && value.length > 0 ? value : undefined`, so a legitimate *no space open* and a
+drifted `open_workspace_id` — a number, an object — arrive at the caller identically. Only the second is a
+defect, and it produces exactly the orphan this feature exists to prevent: the space stays open, no close
+is attempted and nothing is printed. It is asymmetric with the `path` check three lines below, which
+throws on precisely that condition.
+
+Unreachable against 0.8.2: `herdr api schema --json` types `open_workspace_id` as `["string","null"]` and
+leaves it out of `WorktreeInfo.required`. This is a drift guard, not a live defect — §5 already names
+Herdr version drift as the risk this feature carries.
+
+**Closes when:** Gate 1 re-passes with the present-but-not-a-string case separated from the absent one —
+either thrown on, like `path`, or documented in that function's comment as a deliberate collapse.
+
+### F-056 — P3 — one malformed entry abandons every close in the run, and the comment explaining the throw does not say so
+
+**Tied to:** herdr-space-closer Phase 4 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB3)
+
+`readWorktreeEntry` (`src/integrations/herdr.ts:429-435`) throws on an entry with no `path`, and its
+comment justifies that as the alternative to dropping the entry "silently and taking its space with it".
+That is not the trade. A path-less entry cannot be matched to a removal either way, so its own space is
+unclosable under both branches; what the throw actually changes is that `listHerdrWorktrees` rejects
+whole, so under D5 the seam warns once and closes **nothing for the entire run** — one malformed entry
+orphaning N spaces instead of one.
+
+The choice is still defensible, because the schema marks `path` required (`WorktreeInfo.required`) and a
+protocol-illegal entry is worth being loud about. What is wrong is the stated reason, and the consequence
+it hides — which Phase 4 needs, because the all-or-nothing behaviour is a property of the `catch` it puts
+around the lookup.
+
+**Closes when:** Gate 1 re-passes with that comment naming the real trade, and Phase 4's seam deciding the
+all-or-nothing question deliberately rather than inheriting it.
+
+### F-057 — P3 — the two new `bounds a …` cases cannot fail while any caller routes through `runHerdrRequest`
+
+**Tied to:** herdr-space-closer Phase 2 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB4)
+
+`"bounds a worktree list"` (`src/integrations/herdr.test.ts:776-786`) and `"bounds a workspace close"`
+(`:788-803`) assert `timeoutOf(0)` is greater than zero. Every call through `runHerdrRequest` satisfies
+that for free from its `timeoutMs = HERDR_REQUEST_TIMEOUT_MS` default
+(`src/integrations/herdr.ts:218-221`), so neither case can fail unless that default is deleted — which
+the pre-existing `"bounds a worktree open"` already catches. They cover the route, not the export.
+
+Not a regression: they follow the shape of the case that was already there, and the value is deliberately
+not re-typed (F-053). Worth knowing that the coverage they appear to add is smaller than it looks — if a
+future export bypasses `runHerdrRequest`, it is these cases that will not notice.
+
+**Closes when:** Gate 1 re-passes with the two cases asserting something specific to their own call — the
+argv bounded, or the rejection a kill produces — or with them folded into the case that already proves the
+default exists.
+
+---
+
+## Closed
+
 ### F-053 — P3 — a describe comment in `herdr.test.ts` no longer describes its own cases
 
 **Tied to:** herdr-space-closer Phase 1 · **Raised:** 2026-09-10 (Gate 2, the `reviewer` subagent, note NB2)
@@ -846,21 +919,16 @@ no gate had seen — the reasoning F-002 through F-005 record.
 
 **Closes when:** that sentence is corrected, on any Gate 1 run that has the file open for another reason.
 
-### F-054 — P3 — the timeout is user-visible behaviour that issue #52's §7 does not route anywhere
+**Closed: 2026-09-11, by herdr-space-closer Phase 2**, which had the file open to add the
+`listHerdrWorktrees` and `closeHerdrWorkspace` suites — the "another reason" its closing condition names.
+The describe comment is now `src/integrations/herdr.test.ts:718-725` and no longer claims the cases below
+it pin only the bound's existence: it names the one that pins the value, points at the second copy in
+`src/lib/base-command.test.ts:437`, and says outright that tuning `HERDR_REQUEST_TIMEOUT_MS` means editing
+both. Verified at Gate 2 by the `reviewer` subagent, which checked the rewritten sentence against each case
+beneath it — one pins `10s` (`:761`), the other five pin existence only. Gate 1 re-passed on this change:
+`pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test` (511 passed) and `pnpm docs:test` (49 passed),
+all exit 0, 2026-09-11.
 
-**Tied to:** herdr-space-closer Phase 6 · **Raised:** 2026-09-10 (Gate 2, the `reviewer` subagent, note NB3)
-
-`context/stack.md`'s Documentation table routes any user-visible CLI behaviour to `docs/src/app/docs/`, and
-a 10 s bound with a specific failure line qualifies. Nothing is made *untrue* by Phase 1 —
-`docs/src/app/docs/guides/herdr-spaces/page.mdx:81-95` already lists "or the open fails", the new line keeps
-the `✖ Herdr: …` shape of its example, and `:94-95`'s exit-0 claim still holds — so it was not Phase 1's to
-fix. But issue #52's §7 row for that page justifies rewriting *When Herdr cannot be reached* on the close
-half alone, so Phase 6 will rewrite that section without mentioning the timeout unless something says so.
-
-**Closes when:** Phase 6's rewrite of that page covers the timeout — what bounds the call, and what the
-command prints when it expires.
-
-## Closed
 
 ### F-052 — P1 — nothing covers what the Herdr seam prints when a call times out, and the string it would print never says "timeout"
 

@@ -83,6 +83,38 @@ export interface HerdrOpenOptions {
 }
 
 /**
+ * One worktree in a `worktree list`, narrowed to the two fields the closer
+ * reads. Herdr's socket-API doc tells clients to ignore unknown fields, so
+ * `branch`, `label`, `is_bare`, `is_detached`, `is_linked_worktree` and
+ * `is_prunable` are all dropped here rather than mirrored.
+ */
+export interface HerdrWorktreeEntry {
+  /** Absolute checkout path — what a caller matches its own removals against. */
+  path: string;
+  /** The space this checkout is open in, absent when none is (D9). */
+  workspaceId?: string;
+}
+
+export interface HerdrWorktreeList {
+  /**
+   * The space the repository's own checkout is open in. Absent when Herdr has
+   * never opened this repository — verified 2026-09-11 against 0.8.2, where a
+   * fresh `git init` listed successfully with no `source_workspace_id` at all.
+   * It is what D7 guards against closing.
+   */
+  sourceWorkspaceId?: string;
+  worktrees: HerdrWorktreeEntry[];
+}
+
+export interface HerdrListOptions {
+  /** Absolute path of the git root, passed as `--cwd` for the same reason the
+   *  open passes it: without it Herdr resolves against the *focused*
+   *  workspace's repository, which on a machine with several repos open is
+   *  whichever space was last clicked. */
+  gitRootPath: string;
+}
+
+/**
  * An error Herdr itself reported, carrying its machine-readable `code`. Callers
  * branch on `code`, never on `message`: the codes are part of the protocol and
  * the messages are not.
@@ -379,4 +411,102 @@ export async function startHerdrAgent({
     ],
     AGENT_START_REQUEST_TIMEOUT_MS,
   );
+}
+
+/**
+ * A workspace id, or `undefined` when the field names no space.
+ *
+ * D9 assumed Herdr reports `null` for a checkout with no space open. Verified
+ * 2026-09-11 against 0.8.2, it is stronger than that: the key is **omitted
+ * entirely**. Both land here, and so does an empty string, which names nothing
+ * closable. A missing space is not an error and prints nothing (D9).
+ */
+function readOptionalWorkspaceId(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Narrows one `worktrees[]` entry.
+ *
+ * A path is required rather than skipped: the path is the only thing a caller
+ * can match a removal against, so an entry without one would be dropped
+ * silently and take its space with it — the orphan this feature exists to
+ * prevent, with no signal that it happened. A throw is a warning at the seam
+ * (D5), which is the louder of the two and still exits 0.
+ */
+function readWorktreeEntry(entry: unknown, index: number): HerdrWorktreeEntry {
+  if (!isRecord(entry)) {
+    throw new Error(
+      `Herdr: \`worktree list\` returned a worktree that is not an object at index ${index}.`,
+    );
+  }
+
+  const { path, open_workspace_id: openWorkspaceId } = entry;
+
+  if (typeof path !== "string") {
+    throw new Error(
+      `Herdr: \`worktree list\` returned a worktree with no path at index ${index}.`,
+    );
+  }
+
+  return { path, workspaceId: readOptionalWorkspaceId(openWorkspaceId) };
+}
+
+function readWorktreeList(result: unknown): HerdrWorktreeList {
+  if (!isRecord(result)) {
+    throw new Error("Herdr: `worktree list` returned no result object.");
+  }
+
+  const { worktrees, source } = result;
+
+  if (!Array.isArray(worktrees)) {
+    throw new Error("Herdr: `worktree list` returned no worktrees array.");
+  }
+
+  return {
+    sourceWorkspaceId: isRecord(source)
+      ? readOptionalWorkspaceId(source.source_workspace_id)
+      : undefined,
+    worktrees: worktrees.map(readWorktreeEntry),
+  };
+}
+
+/**
+ * Lists the repository's git worktrees as Herdr sees them, each with the space
+ * it is open in.
+ *
+ * One call answers for a whole run, which is why it is a list rather than a
+ * lookup per worktree: `cleanup` removes a set, and that would be N subprocesses
+ * where one does (D2). The listing is repo-scoped and derived from git's own
+ * worktrees, so it has to be read **before** the removal — `git worktree remove`
+ * and `git worktree prune` take the entry out of this answer too.
+ */
+export async function listHerdrWorktrees({
+  gitRootPath,
+}: HerdrListOptions): Promise<HerdrWorktreeList> {
+  const result = await runHerdrRequest([
+    "worktree",
+    "list",
+    "--cwd",
+    gitRootPath,
+  ]);
+
+  return readWorktreeList(result);
+}
+
+/**
+ * Closes one Herdr space by id.
+ *
+ * `herdr workspace close <workspace_id>` takes a bare positional and no options
+ * (verified 2026-09-11 on 0.8.2). *Not* `herdr worktree remove --workspace`,
+ * whose own help calls it *Remove a worktree checkout* — by the time this runs
+ * the checkout is already gone, so that would ask Herdr to redo finished work
+ * against a path that no longer exists (D1).
+ *
+ * Nothing is read from the response. `workspace.close` has no result variant of
+ * its own in the bundled API schema and answers with the generic `{"type":"ok"}`
+ * — a `result` object all the same, which is what `runHerdrRequest` requires.
+ */
+export async function closeHerdrWorkspace(workspaceId: string): Promise<void> {
+  await runHerdrRequest(["workspace", "close", workspaceId]);
 }
