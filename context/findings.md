@@ -862,25 +862,6 @@ Herdr version drift as the risk this feature carries.
 **Closes when:** Gate 1 re-passes with the present-but-not-a-string case separated from the absent one —
 either thrown on, like `path`, or documented in that function's comment as a deliberate collapse.
 
-### F-056 — P3 — one malformed entry abandons every close in the run, and the comment explaining the throw does not say so
-
-**Tied to:** herdr-space-closer Phase 4 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB3)
-
-`readWorktreeEntry` (`src/integrations/herdr.ts:429-435`) throws on an entry with no `path`, and its
-comment justifies that as the alternative to dropping the entry "silently and taking its space with it".
-That is not the trade. A path-less entry cannot be matched to a removal either way, so its own space is
-unclosable under both branches; what the throw actually changes is that `listHerdrWorktrees` rejects
-whole, so under D5 the seam warns once and closes **nothing for the entire run** — one malformed entry
-orphaning N spaces instead of one.
-
-The choice is still defensible, because the schema marks `path` required (`WorktreeInfo.required`) and a
-protocol-illegal entry is worth being loud about. What is wrong is the stated reason, and the consequence
-it hides — which Phase 4 needs, because the all-or-nothing behaviour is a property of the `catch` it puts
-around the lookup.
-
-**Closes when:** Gate 1 re-passes with that comment naming the real trade, and Phase 4's seam deciding the
-all-or-nothing question deliberately rather than inheriting it.
-
 ### F-057 — P3 — the two new `bounds a …` cases cannot fail while any caller routes through `runHerdrRequest`
 
 **Tied to:** herdr-space-closer Phase 2 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB4)
@@ -936,6 +917,41 @@ removes, and with at least one case where the stub returns fewer entries than we
 ---
 
 ## Closed
+
+### F-056 — P3 — one malformed entry abandons every close in the run, and the comment explaining the throw does not say so
+
+**Tied to:** herdr-space-closer Phase 4 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB3)
+
+`readWorktreeEntry` (`src/integrations/herdr.ts:429-435`) throws on an entry with no `path`, and its
+comment justifies that as the alternative to dropping the entry "silently and taking its space with it".
+That is not the trade. A path-less entry cannot be matched to a removal either way, so its own space is
+unclosable under both branches; what the throw actually changes is that `listHerdrWorktrees` rejects
+whole, so under D5 the seam warns once and closes **nothing for the entire run** — one malformed entry
+orphaning N spaces instead of one.
+
+The choice is still defensible, because the schema marks `path` required (`WorktreeInfo.required`) and a
+protocol-illegal entry is worth being loud about. What is wrong is the stated reason, and the consequence
+it hides — which Phase 4 needs, because the all-or-nothing behaviour is a property of the `catch` it puts
+around the lookup.
+
+**Closes when:** Gate 1 re-passes with that comment naming the real trade, and Phase 4's seam deciding the
+all-or-nothing question deliberately rather than inheriting it.
+
+**Closed: 2026-09-11, by herdr-space-closer Phase 4**, on both halves of its condition.
+
+The comment is corrected (`src/integrations/herdr.ts`): it now says that a path-less entry is unclosable
+either way, that what the throw changes is the *whole listing* rejecting so the seam closes nothing for the
+run rather than everything but one, and that this is still the right way round because `path` is required
+by Herdr's own schema — verified at Gate 2 against the live `herdr api schema --json`, where
+`WorktreeInfo.required` carries `path`.
+
+The seam decides it rather than inheriting it. `BaseCommand.resolveSpaceCloser`'s catch degrades to the
+no-op closer and warns once, with a comment citing this finding, and
+`src/lib/base-command.test.ts` pins it — "warns once and closes nothing when the lookup throws". Gate 2
+mutated that catch into a rethrow and two cases failed, so the behaviour is held rather than merely
+present. Gate 1 re-passed on this change: `pnpm check`, `pnpm typecheck`, `pnpm build`, `pnpm test`
+(536 passed) and `pnpm docs:test` (49 passed), all exit 0, 2026-09-11.
+
 
 ### F-053 — P3 — a describe comment in `herdr.test.ts` no longer describes its own cases
 

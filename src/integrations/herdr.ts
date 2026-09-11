@@ -428,11 +428,18 @@ function readOptionalWorkspaceId(value: unknown): string | undefined {
 /**
  * Narrows one `worktrees[]` entry.
  *
- * A path is required rather than skipped: the path is the only thing a caller
- * can match a removal against, so an entry without one would be dropped
- * silently and take its space with it — the orphan this feature exists to
- * prevent, with no signal that it happened. A throw is a warning at the seam
- * (D5), which is the louder of the two and still exits 0.
+ * A path is required rather than skipped, and the trade is worth stating
+ * exactly (F-056). A path-less entry is unclosable either way — the path is the
+ * only thing a caller matches a removal against — so skipping it would not lose
+ * that one space; what the throw changes is that the *whole listing* rejects,
+ * and the seam then closes nothing for the entire run rather than everything
+ * but one.
+ *
+ * That is still the right way round, because `path` is required by Herdr's own
+ * schema (`WorktreeInfo.required`): an entry without one is a protocol
+ * violation, not a shape to tolerate quietly. The consequence is bounded by D5
+ * — `BaseCommand.resolveSpaceCloser` turns it into a single warning and the
+ * command still exits 0.
  */
 function readWorktreeEntry(entry: unknown, index: number): HerdrWorktreeEntry {
   if (!isRecord(entry)) {

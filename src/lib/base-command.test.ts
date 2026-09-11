@@ -17,10 +17,14 @@ const spinnerMocks = vi.hoisted(() => {
   const succeed = vi.fn();
   const fail = vi.fn();
   const warn = vi.fn();
-  const start = vi.fn().mockReturnValue({ succeed, fail, warn });
+  // The closer's lookup spinner is stopped rather than resolved: it covers
+  // preparation the user did not ask to watch, and only says anything when it
+  // fails.
+  const stop = vi.fn();
+  const start = vi.fn().mockReturnValue({ succeed, fail, warn, stop });
   const oraFactory = vi.fn().mockReturnValue({ start });
 
-  return { succeed, fail, warn, start, oraFactory };
+  return { succeed, fail, warn, stop, start, oraFactory };
 });
 
 vi.mock("ora", () => ({
@@ -38,6 +42,10 @@ class TestCommand extends BaseCommand {
 
   dispatch(path: string, prompt: string) {
     return this.dispatchAgent(path, prompt);
+  }
+
+  closer() {
+    return this.resolveSpaceCloser();
   }
 }
 
@@ -591,6 +599,214 @@ describe("openWorktreePath — the Herdr opener", () => {
           expect.anything(),
         );
       });
+    });
+  });
+});
+
+/**
+ * The closer seam: what it resolves before anything is removed, and what it
+ * closes afterwards.
+ *
+ * Two constraints shape every case here. **Nothing may reach Herdr for a user
+ * who did not ask for it** (§2) — which is why the negative cases assert on the
+ * integration spies and on `mockRunCapturing`, not just on the absence of a
+ * close. And **a failure here may never fail the command** (D5): by the time
+ * the closer runs the worktrees are deleted, the branches are gone and
+ * `git worktree prune` has run, so there is nothing left to retry.
+ */
+describe("resolveSpaceCloser", () => {
+  const gitRootPath = "/repo/project";
+  const worktreesRootPath = `${gitRootPath}.worktrees`;
+  const onePath = `${worktreesRootPath}/feature/one`;
+  const twoPath = `${worktreesRootPath}/feature/two`;
+  const noSpacePath = `${worktreesRootPath}/feature/no-space`;
+
+  let command: TestCommand;
+  let mockList: ReturnType<typeof vi.spyOn>;
+  let mockClose: ReturnType<typeof vi.spyOn>;
+  let mockInstalled: ReturnType<typeof vi.spyOn>;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  /**
+   * The repository as Herdr sees it: its own checkout, two worktrees with
+   * spaces open, and one with none. `w5` is the source workspace — the window
+   * the user is sitting in — and D7 says it is never closed.
+   */
+  function listResolves() {
+    mockList.mockResolvedValue({
+      sourceWorkspaceId: "w5",
+      worktrees: [
+        { path: gitRootPath, workspaceId: "w5" },
+        { path: onePath, workspaceId: "wQ" },
+        { path: twoPath, workspaceId: "wR" },
+        { path: noSpacePath, workspaceId: undefined },
+      ],
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    vi.spyOn(command, "log").mockImplementation(() => {});
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      worktreesRootPath,
+    );
+    mockInstalled = vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+    mockList = vi.spyOn(herdr, "listHerdrWorktrees");
+    mockClose = vi.spyOn(herdr, "closeHerdrWorkspace").mockResolvedValue();
+    setConfig({ opener: "herdr" });
+    listResolves();
+  });
+
+  describe("the gate", () => {
+    it.each([
+      "",
+      "editor",
+      "code",
+    ])("spawns nothing at all when opener is %o", async (opener) => {
+      setConfig({ opener });
+
+      const closeSpaces = await command.closer();
+      await closeSpaces([onePath, twoPath]);
+
+      expect(mockInstalled).not.toHaveBeenCalled();
+      expect(mockList).not.toHaveBeenCalled();
+      expect(mockClose).not.toHaveBeenCalled();
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    it("spawns nothing when herdr is not on PATH", async () => {
+      // Silent rather than a warning: the open already said so, loudly, and a
+      // warning on every remove is noise about something nobody can act on
+      // here.
+      mockInstalled.mockResolvedValue(false);
+
+      const closeSpaces = await command.closer();
+      await closeSpaces([onePath]);
+
+      expect(mockList).not.toHaveBeenCalled();
+      expect(mockClose).not.toHaveBeenCalled();
+      expect(spinnerMocks.warn).not.toHaveBeenCalled();
+    });
+
+    it("looks the spaces up once for the whole run", async () => {
+      // cleanup removes a set, so a lookup per worktree would be N subprocesses
+      // where one does (D2).
+      const closeSpaces = await command.closer();
+      await closeSpaces([onePath, twoPath]);
+
+      expect(mockList).toHaveBeenCalledTimes(1);
+      expect(mockList).toHaveBeenCalledWith({ gitRootPath });
+    });
+  });
+
+  describe("what it closes", () => {
+    it("closes the space of each worktree it is given", async () => {
+      const closeSpaces = await command.closer();
+      await closeSpaces([onePath, twoPath]);
+
+      expect(mockClose).toHaveBeenCalledTimes(2);
+      expect(mockClose).toHaveBeenCalledWith("wQ");
+      expect(mockClose).toHaveBeenCalledWith("wR");
+      expect(spinnerMocks.succeed).toHaveBeenCalledWith(
+        "Closed Herdr space feature/one",
+      );
+    });
+
+    it("closes only the worktrees it is given, not every space it found", async () => {
+      // The listing knows about wR too. Closing a space whose worktree is still
+      // on disk is worse than the orphan this feature exists to prevent (D4).
+      const closeSpaces = await command.closer();
+      await closeSpaces([onePath]);
+
+      expect(mockClose).toHaveBeenCalledTimes(1);
+      expect(mockClose).toHaveBeenCalledWith("wQ");
+      expect(mockClose).not.toHaveBeenCalledWith("wR");
+    });
+
+    it("says nothing and closes nothing for a worktree with no space open", async () => {
+      // D9 — not an error, and not worth a line of output.
+      const closeSpaces = await command.closer();
+      await closeSpaces([noSpacePath]);
+
+      expect(mockClose).not.toHaveBeenCalled();
+      expect(spinnerMocks.warn).not.toHaveBeenCalled();
+      expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+    });
+
+    it("never closes the source workspace", async () => {
+      // D7 — the repository's own checkout is in the listing like any other,
+      // and closing it takes down the window the user is sitting in.
+      const closeSpaces = await command.closer();
+      await closeSpaces([gitRootPath, onePath]);
+
+      expect(mockClose).not.toHaveBeenCalledWith("w5");
+      expect(mockClose).toHaveBeenCalledWith("wQ");
+    });
+
+    it("spawns no close at all when the repository has no open spaces", async () => {
+      mockList.mockResolvedValue({
+        sourceWorkspaceId: undefined,
+        worktrees: [{ path: onePath, workspaceId: undefined }],
+      });
+
+      const closeSpaces = await command.closer();
+      await closeSpaces([onePath]);
+
+      expect(mockClose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("when something fails", () => {
+    it("warns and carries on when one close throws, still closing the rest", async () => {
+      // Each space gets its own catch, so one failure does not take the run
+      // with it (D5).
+      mockClose.mockRejectedValueOnce(
+        new herdr.HerdrError("workspace_not_found", "workspace wQ not found"),
+      );
+
+      const closeSpaces = await command.closer();
+
+      await expect(closeSpaces([onePath, twoPath])).resolves.toBeUndefined();
+      expect(spinnerMocks.warn).toHaveBeenCalledWith(
+        "Herdr: workspace wQ not found (workspace_not_found)",
+      );
+      expect(mockClose).toHaveBeenCalledWith("wR");
+    });
+
+    it("warns once and closes nothing when the lookup throws", async () => {
+      // All-or-nothing by construction: without the listing there is no
+      // path-to-space mapping for anything to act on (F-056).
+      mockList.mockRejectedValue(
+        new herdr.HerdrError("not_a_git_repository", "not a git repository"),
+      );
+
+      const closeSpaces = await command.closer();
+
+      await expect(closeSpaces([onePath, twoPath])).resolves.toBeUndefined();
+      expect(spinnerMocks.warn).toHaveBeenCalledTimes(1);
+      expect(mockClose).not.toHaveBeenCalled();
+    });
+
+    it("leaves the command's exit path untouched however it fails", async () => {
+      // The whole of D5: the worktrees are already deleted, so neither a failed
+      // lookup nor a failed close may reject — a non-zero exit would misreport
+      // what actually happened.
+      mockList.mockRejectedValue(new Error("herdr did not answer"));
+      const afterFailedLookup = await command.closer();
+      await expect(afterFailedLookup([onePath])).resolves.toBeUndefined();
+
+      listResolves();
+      mockClose.mockRejectedValue(new Error("herdr did not answer"));
+      const afterFailedClose = await command.closer();
+
+      await expect(afterFailedClose([onePath])).resolves.toBeUndefined();
     });
   });
 });
