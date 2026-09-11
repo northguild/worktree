@@ -75,10 +75,6 @@ taken at all, and the entry says so instead of looking empty:
 - feature/orphan (Unpushed commits unknown: no comparison base; set defaultSourceBranch or run git remote set-head origin --auto)
 ```
 
-The same detail appears in [`remove`](/docs/commands/remove)'s picker, which
-renders a worktree the same way this page does.
-
-[`cleanup`](/docs/commands/cleanup) holds an uncountable worktree back but does
-not currently name it: it has a report for worktrees kept back by uncommitted
-changes and one for worktrees an agent is working in, and a worktree whose count
-could not be taken belongs to neither. So `list` is where you find them.
+The same detail appears in [`remove`](/docs/commands/remove)'s picker and in
+[`cleanup`](/docs/commands/cleanup)'s report of what it held back, because all
+three render a worktree the same way.

@@ -43,6 +43,40 @@ function isSkippedForLiveAgent(wt: WorktreeListEntry): boolean {
   );
 }
 
+// F-059: whatever the two predicates above did not claim, where the reason
+// they did not is that cleanup could not tell.
+//
+// Not every worktree belongs in a report. One tracking a live remote, or
+// carrying commits it is meant to be carrying, is simply active work, and
+// cleanup has never mentioned those. What must never happen is a worktree held
+// back *because the count could not be taken* going unmentioned: that run is
+// indistinguishable from one with nothing to do, which is the silence D5 exists
+// to break. Before this, such a worktree reached none of the three sets — and a
+// dirty one regressed out of the uncommitted-changes heading when Phase 3 began
+// requiring a known count, so a worktree with work in it stopped being named.
+function isHeldBackAsUncountable(wt: WorktreeListEntry): boolean {
+  return wt.safeToRemove !== true && !!wt.aheadUnknownReason;
+}
+
+// D6: why this worktree qualified, in the order isSafeToRemove decides it.
+//
+// Every branch returns a non-empty string, which is the whole point. After
+// Phase 3 the safe set is "no remote, or a remote that is gone, plus a counted
+// zero ahead" — and `worktreeListEntryToListName` has no detail to show for the
+// no-remote case, so it would print a bare `- feature/x`. That bare line is
+// what the incident produced, and reading it as "no reason found" is what made
+// it possible to approve. A reason is derived here rather than in that renderer
+// because it describes a cleanup verdict, and `list` and `remove` render the
+// same worktree without asserting one. See §4.4.
+function removalReason(wt: WorktreeListEntry): string {
+  if (!wt.pathExists) {
+    // Returned before any count is consulted, so this says nothing about
+    // commits — deliberately. See §9 Q5.
+    return "Path does not exist";
+  }
+  return `${wt.remote ? "Remote removed" : "No tracked remote"}, no unpushed commits`;
+}
+
 export default class Cleanup extends BaseCommand {
   static override description =
     "Cleanup worktree branches by removing stale ones";
@@ -86,15 +120,43 @@ export default class Cleanup extends BaseCommand {
     });
   }
 
-  // Both halves are guarded here rather than at the call sites, which each have
-  // one kind of hold-back or the other far more often than both. An unguarded
+  // Held back because the ahead count could not be taken, so cleanup cannot say
+  // whether there is anything to lose. Rendered with the ordinary detail list,
+  // which carries both the reason the count failed and any uncommitted change
+  // count — a worktree can be uncountable and dirty at once, and the run that
+  // mentions neither is the one F-059 records.
+  private logUncountable(uncountable: WorktreeListEntry[]) {
+    const count = uncountable.length;
+    this.log(
+      `Skipped ${chalk.bold(count)} worktree ${count === 1 ? "branch whose unpushed commits could not be counted" : "branches whose unpushed commits could not be counted"}:`,
+    );
+    uncountable.forEach((wt) => {
+      // Agents on, like the session report below and unlike the uncommitted
+      // one. An uncountable worktree an agent is living in lands here rather
+      // than under that heading — the agent probe zeroes the change count but
+      // keeps the uncounted `ahead`, so it declines the entry — and the whole
+      // reason that heading names the session is that it tells a human which
+      // agent to go and look at. Losing the name on the way through this
+      // heading would drop the more actionable of the two facts.
+      this.log(
+        `- ${worktreeListEntryToListName(wt, "yellow", { agents: true })}`,
+      );
+    });
+  }
+
+  // Each section is guarded here rather than at the call sites, which carry one
+  // kind of hold-back far more often than all three at once. An unguarded
   // heading would read "Skipped 0 worktree branches …".
   private logHeldBack(
     skipped: WorktreeListEntry[],
     agentSkipped: WorktreeListEntry[],
+    uncountable: WorktreeListEntry[],
   ) {
     if (skipped.length > 0) {
       this.logSkipped(skipped);
+    }
+    if (uncountable.length > 0) {
+      this.logUncountable(uncountable);
     }
     if (agentSkipped.length > 0) {
       this.logSkippedForAgents(agentSkipped);
@@ -114,21 +176,35 @@ export default class Cleanup extends BaseCommand {
     const worktrees = allWorktrees.filter((wt) => wt.safeToRemove === true);
     const skipped = allWorktrees.filter(isSkippedForUncommittedChanges);
     const agentSkipped = allWorktrees.filter(isSkippedForLiveAgent);
+    // Last, and explicitly minus the two above, so no worktree can be counted
+    // twice. Neither of them can currently claim an uncountable entry — both
+    // probe `isSafeToRemove` on a zeroed copy, which an uncounted `ahead` still
+    // fails — but making that exclusion structural means a change to either
+    // predicate cannot silently produce a double report. See F-059.
+    const uncountable = allWorktrees.filter(
+      (wt) =>
+        isHeldBackAsUncountable(wt) &&
+        !skipped.includes(wt) &&
+        !agentSkipped.includes(wt),
+    );
 
     if (
       worktrees.length === 0 &&
       skipped.length === 0 &&
-      agentSkipped.length === 0
+      agentSkipped.length === 0 &&
+      uncountable.length === 0
     ) {
       spinner.succeed("No stale worktree branches found.");
       return;
     }
 
     // Nothing is removable, but something was held back. Reporting "none found"
-    // here would hide exactly the worktrees this check exists to protect.
+    // here would hide exactly the worktrees this check exists to protect — and
+    // a run that held everything back for want of a comparison base used to
+    // reach the success line above and look identical to a clean sweep.
     if (worktrees.length === 0) {
       spinner.info("No stale worktree branches can be removed safely.");
-      this.logHeldBack(skipped, agentSkipped);
+      this.logHeldBack(skipped, agentSkipped, uncountable);
       return;
     }
 
@@ -140,13 +216,13 @@ export default class Cleanup extends BaseCommand {
         `Found ${chalk.bold(count)} worktree ${count === 1 ? "branch that is" : "branches that are"} marked safe to remove.`,
       );
       worktrees.forEach((wt) => {
-        this.log(`- ${worktreeListEntryToListName(wt, "gray")}`);
+        this.log(`- ${wt.branchName} ${chalk.gray(`(${removalReason(wt)})`)}`);
       });
     }
 
     // Reported in both paths: --force means "do not ask me", not "do not tell
     // me". See CLEANUP-DATA-LOSS-PLAN §4.2.
-    this.logHeldBack(skipped, agentSkipped);
+    this.logHeldBack(skipped, agentSkipped, uncountable);
 
     if (!flags.force) {
       const message = `Are you sure you want to delete ${count === 1 ? "it" : "them"}?`;

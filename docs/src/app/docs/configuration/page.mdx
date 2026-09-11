@@ -46,11 +46,11 @@ treated as zero, and a worktree whose directory still exists is never
 classified as safe to remove — an unanswered question is not an answer of
 "nothing".
 
+All three commands say so rather than leaving you to guess.
 [`list`](/docs/commands/list) and [`remove`](/docs/commands/remove)'s picker
-name such a worktree as uncountable, so you can see that the count was never
-taken. [`cleanup`](/docs/commands/cleanup) holds it back but does not yet name
-it, so a sweep that cannot classify anything reports finding nothing — run
-`worktree list` to see which worktrees those are. To fix it, set the key or
+name such a worktree as uncountable, and [`cleanup`](/docs/commands/cleanup)
+reports it under its own heading rather than sweeping it or passing over it in
+silence. To fix it, set the key or
 restore the ref:
 
 ```bash

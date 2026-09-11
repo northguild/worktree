@@ -98,6 +98,39 @@ evidence. Clearing the 23 errors is the prerequisite for the first option, and t
 
 ---
 
+## The 2026-09-11 triage
+
+Thirty-five findings were open here against five features that had already retired, carrying this file to
+1097 lines and 76 KB — past the point where reading it returns the whole file. That matters: the one check
+this file exists to enforce is *is an open `P0` or `P1` tied to this phase*, and a gate that reads a
+truncated file can pass on findings it never saw. It was safe only by luck, all 35 being `P2` or `P3`.
+
+**The accumulation was structural, not neglect.** `/feature-close` blocks on an open `P0`/`P1` and sweeps
+only *closed* findings, so an open `P2` or `P3` passes through a feature's retirement untouched — and can
+then never close, because closing requires the gate that raised it to re-pass and that gate belongs to a
+phase that no longer exists. Orphans accumulate by design.
+
+Where they went:
+
+| Disposition | Count | Where |
+|---|---|---|
+| Promoted to the backlog | 21 | issues [#55](https://github.com/northguild/worktree/issues/55)-[#61](https://github.com/northguild/worktree/issues/61), grouped by area, each finding reproduced verbatim |
+| Withdrawn, kept as record | 11 | the *Findings triage* section of each feature's plan in [`archive/`](archive/) |
+| Fixed | 1 | F-046 — a one-line doc fix in a shipped skill artifact |
+| Left open | 1 | F-052, the only one whose feature has not retired |
+| Recorded on the feature issue | 2 | `github-issue-auto-assign` kept its plan in [#41](https://github.com/northguild/worktree/issues/41), not in `archive/` |
+
+**Nothing was discarded.** Behaviour defects and mutation-resistance gaps became issues, because they are
+work someone should still do. Only internal notes — a comment that overclaims, a doc's shape, a style
+observation — were withdrawn, and each is reproduced in full in its feature's archived plan.
+
+**No new rule was invented here.** The fix for the structural cause belongs in `create-ai-workflow`, which
+owns `/feature-close`, `/orchestrate` and `workflow.md`; widening that sweep from *closed* to *disposed of*
+is being taken there. This section records a one-time cleanup, not a local policy — a local policy would be
+the second copy the Contract above just stopped keeping.
+
+## Closed
+
 ### F-059 — P1 — a worktree cleanup cannot classify appears in no cleanup report at all
 
 **Tied to:** unpushed-commit-guard Phase 4 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
@@ -131,38 +164,86 @@ gate with this gap intact. Phase 4 is to satisfy the stronger condition instead:
 **Closes when:** a Gate 2 run on Phase 4 passes with a dirty-and-uncountable worktree named in cleanup's
 output, and no worktree the gather returns absent from every set.
 
-## The 2026-09-11 triage
+**Closed:** 2026-09-11 by the Gate 2 re-run on this branch, loopback 1 of 2, in Phase 4.
 
-Thirty-five findings were open here against five features that had already retired, carrying this file to
-1097 lines and 76 KB — past the point where reading it returns the whole file. That matters: the one check
-this file exists to enforce is *is an open `P0` or `P1` tied to this phase*, and a gate that reads a
-truncated file can pass on findings it never saw. It was safe only by luck, all 35 being `P2` or `P3`.
+**Stating what was achieved rather than the condition as written, because that condition is
+unsatisfiable and should not stand as a precedent.** "Every worktree appears in exactly one of
+cleanup's sets" cannot hold: an ordinary worktree tracking a live remote branch belongs in no set and
+must never be reported, or `cleanup` becomes the noise R2 warns about from the other direction. The
+reviewer swept 192 entry shapes against the built output and found 36 in no set, all of them that kind.
 
-**The accumulation was structural, not neglect.** `/feature-close` blocks on an open `P0`/`P1` and sweeps
-only *closed* findings, so an open `P2` or `P3` passes through a feature's retirement untouched — and can
-then never close, because closing requires the gate that raised it to re-pass and that gate belongs to a
-phase that no longer exists. Orphans accumulate by design.
+What does hold, and is what the finding was actually about:
 
-Where they went:
+- **No worktree carrying `aheadUnknownReason` is absent from cleanup's output.** All 96 such shapes reach
+  a set. Structurally too: the reason is only set when `pathExists`, which leaves `ahead` undefined,
+  which `carriesNoKnownWork` rejects — so the entry can never be removable and always satisfies
+  `isHeldBackAsUncountable`.
+- **No worktree is reported twice.** 0 of 192 shapes double-reported.
+- **The regression is repaired.** A dirty-and-uncountable worktree is named again, now carrying both
+  facts on one line: `- feature/orphan (Unpushed commits unknown: no comparison base; …, 1 uncommitted
+  change)`. An agent-occupied one keeps its session name too.
 
-| Disposition | Count | Where |
-|---|---|---|
-| Promoted to the backlog | 21 | issues [#55](https://github.com/northguild/worktree/issues/55)-[#61](https://github.com/northguild/worktree/issues/61), grouped by area, each finding reproduced verbatim |
-| Withdrawn, kept as record | 11 | the *Findings triage* section of each feature's plan in [`archive/`](archive/) |
-| Fixed | 1 | F-046 — a one-line doc fix in a shipped skill artifact |
-| Left open | 1 | F-052, the only one whose feature has not retired |
-| Recorded on the feature issue | 2 | `github-issue-auto-assign` kept its plan in [#41](https://github.com/northguild/worktree/issues/41), not in `archive/` |
+`cleanup`'s success line requires all four sets empty, so it can no longer be produced by a worktree
+whose commits could not be counted — which is the silence D5 exists to break.
 
-**Nothing was discarded.** Behaviour defects and mutation-resistance gaps became issues, because they are
-work someone should still do. Only internal notes — a comment that overclaims, a doc's shape, a style
-observation — were withdrawn, and each is reproduced in full in its feature's archived plan.
 
-**No new rule was invented here.** The fix for the structural cause belongs in `create-ai-workflow`, which
-owns `/feature-close`, `/orchestrate` and `workflow.md`; widening that sweep from *closed* to *disposed of*
-is being taken there. This section records a one-time cleanup, not a local policy — a local policy would be
-the second copy the Contract above just stopped keeping.
+### F-060 — P1 — the cleanup page claims every hold-back is reported, and one kind is not
 
-## Closed
+**Tied to:** unpushed-commit-guard Phase 4 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
+
+`docs/src/app/docs/commands/cleanup/page.mdx:55`, written by this phase, says *"Every worktree it held
+back is reported too, under the reason it was held back for"*, and `:66-68` concludes *"If `cleanup` says
+`No stale worktree branches found.`, that is an answer rather than an absence of one."* Both are false.
+
+`cleanup` has exactly three hold-back headings — uncommitted changes, could not be counted, live agent
+session (`src/commands/cleanup.ts:101`, `:114`, `:131`). A worktree held back for **a known, non-zero
+ahead count** has none. Reproduced by hand, with that worktree the only one in the repository:
+
+```
+$ worktree list
+- feature/never-pushed (Remote removed, Ahead: 2, 1 uncommitted change)
+$ worktree cleanup
+✔ No stale worktree branches found.
+```
+
+Held back by two of the three rules the same page states, and named nowhere.
+
+**This is the F-058 pattern for the third time in this feature, and the mechanism is identical each
+time.** The sentence this phase deleted was correctly qualified — *"reports every worktree it would
+otherwise have removed but held back for uncommitted changes"* — and the replacement generalised it into
+a universal that the code does not honour. F-056 was the same move on the configuration page, and F-058's
+own fix reintroduced it once before it was caught.
+
+**The behaviour is left as it is, deliberately.** A worktree carrying commits it can count is not stale,
+and reporting every one of them would name nearly every worktree under active development on every run —
+which is R2's "cleanup becomes useless" in its other direction, noise rather than silence. Whether the
+deleted-remote-with-commits case deserves its own heading is a design question this plan never put, and
+the last phase of a feature is the wrong place to settle it unasked. Recorded as an open question on the
+issue for `/feature-close` to weigh.
+
+**Closes when:** a Gate 2 run passes with both passages true of the code — the hold-back report scoped to
+the three headings that exist, and the claim about `No stale worktree branches found.` scoped to what
+this feature actually guarantees, which is that the silence can no longer be caused by a count that was
+never taken.
+
+**Closed:** 2026-09-11 by the same Gate 2 re-run. The hold-back paragraph now says `cleanup` "reports
+what it held back, under three headings" rather than claiming all of them, and the closing claim is
+scoped to what the feature actually guarantees — that `No stale worktree branches found.` can no longer
+be caused by a count that was never taken. A new paragraph states the limit plainly: those three headings
+are the whole of what `cleanup` reports, and a worktree carrying unpushed commits it *could* count is
+neither removed nor listed. The reviewer checked each sentence against the set-membership sweep.
+
+The behaviour is unchanged and the design question goes to `/feature-close` on the issue, scoped to the
+sub-case that has an argument: a worktree whose **remote was deleted** and which carries countable
+unpushed commits is stale by the remote test and holds work nobody else has, and is `CLEANUP-DATA-LOSS`
+Q1's own wording. The broader "report every countable-ahead worktree" is not proposed — a branch under
+active development is not stale, and naming them all on every run is R2 inverted.
+
+A `P2` found alongside this one was taken in the same pass, though Phase 3 rather than Phase 4 caused it:
+the Agent sessions section claimed `cleanup` names the session for any worktree an agent is living in,
+which stopped being true when a known non-zero `ahead` began disqualifying the agent probe. It now says
+so only for a worktree `cleanup` would otherwise have swept.
+
 
 ### F-058 — P1 — Phase 3 makes two Phase 2 documentation sentences false
 
