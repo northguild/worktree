@@ -66,7 +66,22 @@ export default class Delete extends BaseCommand {
         this.error(`Branch "${args.branchName}" not found.`);
       }
 
-      return await gitRemoveWorktree(args.branchName, { force: flags.force });
+      // Resolved before the removal, never after: `git worktree remove` and
+      // `git worktree prune` take the entry out of Herdr's listing too, so a
+      // lookup afterwards finds nothing to close (D2). gitRemoveWorktree does
+      // its own confirming, so a declined removal costs one lookup and closes
+      // nothing — the price of an ordering that cannot be corrected later.
+      const closeSpaces = await this.resolveSpaceCloser();
+      const removed = await gitRemoveWorktree(args.branchName, {
+        force: flags.force,
+      });
+
+      // Only what was actually removed (D4). All three of gitRemoveWorktree's
+      // no-op paths — branch not found, confirmation declined, removal failed —
+      // answer undefined, and closing a space whose checkout is still on disk
+      // is worse than the orphan this feature exists to prevent.
+      await closeSpaces(removed ? [removed.path] : []);
+      return;
     }
 
     const selected = await checkbox({
@@ -89,6 +104,10 @@ export default class Delete extends BaseCommand {
       }
     }
 
-    await gitRemoveWorktreesWithProgress(selected);
+    // After the last prompt, so a run that removes nothing spawns no lookup.
+    const closeSpaces = await this.resolveSpaceCloser();
+    const removed = await gitRemoveWorktreesWithProgress(selected);
+
+    await closeSpaces(removed.map((worktree) => worktree.path));
   }
 }

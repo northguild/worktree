@@ -155,6 +155,15 @@ export default class Cleanup extends BaseCommand {
       }
     }
 
-    await gitRemoveWorktreesWithProgress(worktrees);
+    // After the confirmation, so a declined run spawns no lookup — and before
+    // the removal, because `git worktree prune` takes these entries out of
+    // Herdr's listing (D2).
+    const closeSpaces = await this.resolveSpaceCloser();
+    const removed = await gitRemoveWorktreesWithProgress(worktrees);
+
+    // Only the entries the helper got through, never everything selected: a
+    // worktree held back or one whose removal failed still has its checkout on
+    // disk, and closing its space would be worse than leaving it open (D4).
+    await closeSpaces(removed.map((worktree) => worktree.path));
   }
 }

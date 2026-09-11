@@ -11,7 +11,9 @@ import ora from "ora";
 // `@inquirer/prompts` — not a leaf utility. Satisfying the boundary strictly
 // means moving this file out of `lib/`, a wider refactor than this feature buys.
 import {
+  closeHerdrWorkspace,
   isHerdrInstalled,
+  listHerdrWorktrees,
   openHerdrWorktree,
   startHerdrAgent,
   toHerdrAgentName,
@@ -24,6 +26,39 @@ import {
 } from "./git.js";
 import type { ConfigName } from "./types.js";
 import { splitCommandValue } from "./utils.js";
+
+/**
+ * Closes the Herdr spaces of the worktrees whose paths it is given.
+ *
+ * The seam hands one of these back rather than exposing a close method,
+ * because the lookup it closes over has to happen *before* the worktrees are
+ * removed and the closing has to happen after. A closure makes that ordering
+ * structural — there is no way to reach the close without having resolved
+ * first — where two methods would leave a caller free to get it backwards and
+ * find the spaces already gone from Herdr's listing.
+ */
+type SpaceCloser = (worktreePaths: string[]) => Promise<void>;
+
+/** Does nothing, for every path where there is nothing to close. */
+async function closeNothing() {}
+
+/**
+ * The label Herdr puts on the space, which is the branch name recovered from
+ * the worktree's own path — every caller's path sits under
+ * `<root>.worktrees/`, and what follows that prefix is the branch, slashes
+ * and all, because `feature/thing` is a directory here. `basename` covers a
+ * path laid out some other way: an unlabelled space is unusable in Herdr's
+ * sidebar (opener plan D7), so this never answers with an empty string.
+ *
+ * Takes the root rather than looking it up, so the closer can label a whole set
+ * of worktrees from one `gitGetAbsoluteWorktreesPath` call instead of one per
+ * space.
+ */
+function toSpaceLabel(worktreePath: string, worktreesRootPath: string) {
+  return worktreePath.startsWith(worktreesRootPath)
+    ? worktreePath.slice(worktreesRootPath.length)
+    : basename(worktreePath);
+}
 
 export abstract class BaseCommand extends Command {
   private confirmFirstTimeConfig() {
@@ -77,20 +112,136 @@ export abstract class BaseCommand extends Command {
     await this.openCodeEditor(path);
   }
 
-  /**
-   * The label Herdr puts on the space, which is the branch name recovered from
-   * the worktree's own path — every caller's path sits under
-   * `<root>.worktrees/`, and what follows that prefix is the branch, slashes
-   * and all, because `feature/thing` is a directory here. `basename` covers a
-   * path laid out some other way: an unlabelled space is unusable in Herdr's
-   * sidebar (D7), so this never answers with an empty string.
-   */
+  /** One worktree's label, for the open. `toSpaceLabel` holds the rule. */
   private async resolveSpaceLabel(worktreePath: string) {
-    const worktreesRootPath = `${await gitGetAbsoluteWorktreesPath()}/`;
+    return toSpaceLabel(
+      worktreePath,
+      `${await gitGetAbsoluteWorktreesPath()}/`,
+    );
+  }
 
-    return worktreePath.startsWith(worktreesRootPath)
-      ? worktreePath.slice(worktreesRootPath.length)
-      : basename(worktreePath);
+  /**
+   * Reads which Herdr space each of this repository's worktrees is open in, and
+   * answers with the function that closes them once they have been removed.
+   *
+   * **Call this before removing anything.** The listing is derived from git's
+   * own worktrees, so `git worktree remove` and `git worktree prune` take the
+   * entry out of Herdr's answer too — look it up afterwards and every space is
+   * already unfindable (D2). One call answers for a whole run, because
+   * `cleanup` removes a set and a lookup per worktree would be N subprocesses
+   * where one does.
+   *
+   * Everything that means "there is nothing to close" answers with the same
+   * no-op, and none of them spawns a Herdr process: an `opener` that is not
+   * `herdr`, no `herdr` on PATH, or a repository with no open spaces. The
+   * second of those is deliberately silent rather than a warning — someone
+   * whose `opener` says `herdr` but who has no Herdr installed was already told
+   * so, loudly, when the open failed, and a warning on every `remove`
+   * afterwards is noise about something they cannot act on here.
+   */
+  protected async resolveSpaceCloser(): Promise<SpaceCloser> {
+    if ((await gitGetConfigValue("opener")) !== "herdr") {
+      return closeNothing;
+    }
+
+    if (!(await isHerdrInstalled())) {
+      return closeNothing;
+    }
+
+    const spinner = ora("Finding Herdr spaces").start();
+    let spaces: Map<string, string>;
+    let worktreesRootPath: string;
+
+    try {
+      const [{ worktrees, sourceWorkspaceId }, worktreesPath] =
+        await Promise.all([
+          listHerdrWorktrees({ gitRootPath: await gitGetRootPath() }),
+          gitGetAbsoluteWorktreesPath(),
+        ]);
+
+      worktreesRootPath = `${worktreesPath}/`;
+      // flatMap rather than filter-then-map so the narrowing is the compiler's:
+      // `workspaceId` is `string | undefined`, and inside this branch it is a
+      // string. A filter needs an assertion to say the same thing, and an
+      // assertion keeps compiling if the first guard below is ever dropped —
+      // which is exactly the regression these two guards exist to prevent.
+      spaces = new Map(
+        worktrees.flatMap((worktree) =>
+          // #52 D9 — a worktree with no space open is not an error and is
+          // nothing to close.
+          worktree.workspaceId !== undefined &&
+          // #52 D7 — the repository's own checkout is in this listing like any
+          // other, and closing it would take down the window the user is
+          // sitting in. Both removal paths already exclude the current
+          // worktree, so this guards a future caller rather than a live defect.
+          worktree.workspaceId !== sourceWorkspaceId
+            ? [[worktree.path, worktree.workspaceId] as const]
+            : [],
+        ),
+      );
+      spinner.stop();
+    } catch (error) {
+      // Deliberately wider than the Herdr call: the two git lookups above share
+      // this catch, so nothing this seam needs can cost the user the removal
+      // they actually asked for. Every message it can print names its own
+      // source — Herdr's are prefixed `Herdr: `, and gitGetRootPath's says it
+      // cannot find the root — so the breadth costs no diagnostic detail.
+      //
+      // The lookup itself is all-or-nothing by construction: without it there
+      // is no path-to-space mapping, so there is nothing any number of closes
+      // could act on. Decided here deliberately rather than inherited (F-056) —
+      // the run continues and the removals still happen, because by the time a
+      // caller holds this closure the user has already asked for them.
+      spinner.warn(error instanceof Error ? error.message : String(error));
+      return closeNothing;
+    }
+
+    if (spaces.size === 0) {
+      return closeNothing;
+    }
+
+    return async (worktreePaths: string[]) => {
+      for (const worktreePath of worktreePaths) {
+        const workspaceId = spaces.get(worktreePath);
+
+        // Three ways to get here, and none of them says anything. Two were
+        // settled when the map was built: the worktree had no space open (D9),
+        // or it is one this run must not touch (D7). The third is a path Herdr
+        // never listed, or listed in a different string form — which is the
+        // orphan this feature exists to prevent, passing silently. Both sides
+        // of the comparison come from git's own worktree records and were
+        // verified byte-identical, so it stays silent rather than warning on
+        // every worktree that legitimately has no space.
+        if (!workspaceId) {
+          continue;
+        }
+
+        await this.closeSpace(
+          workspaceId,
+          toSpaceLabel(worktreePath, worktreesRootPath),
+        );
+      }
+    };
+  }
+
+  /**
+   * Closes one space, and never lets that failure reach the command.
+   *
+   * By the time this runs the worktree is deleted, the branch is gone and
+   * `git worktree prune` has run — there is nothing left to retry and nothing
+   * the user can do about it, so a non-zero exit would misreport what actually
+   * happened (D5). Each space gets its own `catch` so one failure does not take
+   * the rest of the run with it.
+   */
+  private async closeSpace(workspaceId: string, label: string) {
+    const spinner = ora(`Closing Herdr space ${label}`).start();
+
+    try {
+      await closeHerdrWorkspace(workspaceId);
+      spinner.succeed(`Closed Herdr space ${label}`);
+    } catch (error) {
+      spinner.warn(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /**

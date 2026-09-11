@@ -42,6 +42,18 @@ worktree config opener herdr
 
 See [Herdr Spaces](/docs/guides/herdr-spaces).
 
+## What happens to a Herdr space when I remove the worktree?
+
+It is closed with it. `worktree remove` and `worktree cleanup` close the space of every worktree
+they delete, so you are not left tidying up spaces with no checkout under them.
+
+Only worktrees that were actually removed. One held back for uncommitted changes or a live agent
+keeps its space, and so does a removal you declined — in each case the checkout is still on disk. If
+Herdr cannot be reached the close is a warning and the command still exits `0`, because by then the
+worktree is already gone.
+
+See [When the worktree goes](/docs/guides/herdr-spaces#when-the-worktree-goes).
+
 ## Does `worktree` run on Windows?
 
 It is developed and tested on macOS and Linux only. Windows is not supported.

@@ -356,25 +356,45 @@ export async function gitNukeWorktreeCmd(
   await run("git", ["branch", "-D", branchName]);
 }
 
+/**
+ * Removes a worktree, reporting whether it actually went.
+ *
+ * The `catch` swallows the failure deliberately — it is already reported on the
+ * spinner — so the boolean is the only thing left that can tell a caller a
+ * removal did not happen. Without it a caller cannot distinguish this from a
+ * success, which is how a space outlives the checkout it was built around.
+ */
 export async function gitNukeWorktree(
   branchName: string,
   { force = false }: GitNukeWorktreeCmdOptions = {},
-) {
+): Promise<boolean> {
   const spinner = ora(`Removing worktree ${branchName}`).start();
   try {
     await gitNukeWorktreeCmd(branchName, { force });
     spinner.succeed(`Worktree ${branchName} was removed.`);
+    return true;
   } catch {
     spinner.fail(
       `Failed to remove worktree ${branchName}. It may have already been removed.`,
     );
+    return false;
   }
 }
 
+/**
+ * Removes one worktree by branch name, answering with the entry it removed.
+ *
+ * `undefined` covers all three ways this ends without removing anything: the
+ * branch was not found, the confirmation was declined, or the removal itself
+ * failed. A caller acting on the removal — closing the Herdr space built around
+ * the checkout, say — must be able to tell those apart from a success, and the
+ * entry is also the only place the caller can read the path back from, since
+ * this takes a branch name.
+ */
 export async function gitRemoveWorktree(
   branchName: string,
   { force = false }: GitNukeWorktreeCmdOptions = {},
-) {
+): Promise<WorktreeListEntry | undefined> {
   const currentBranch = await getCurrentBranchName();
   if (branchName === currentBranch) {
     throw new Error(
@@ -388,7 +408,7 @@ export async function gitRemoveWorktree(
   );
   if (!worktree) {
     spinner.fail(`Worktree ${branchName} not found.`);
-    return;
+    return undefined;
   }
   spinner.stop();
 
@@ -412,15 +432,31 @@ export async function gitRemoveWorktree(
   }
 
   if (force || (await promptRemoval(worktree))) {
-    await gitNukeWorktree(branchName, {
+    const wasRemoved = await gitNukeWorktree(branchName, {
       force: force || !!worktree.ahead || !!worktree.uncommittedChanges,
     });
+
+    return wasRemoved ? worktree : undefined;
   }
+
+  // The confirmation was declined, so nothing was touched.
+  return undefined;
 }
 
+/**
+ * Removes a set of worktrees behind a progress bar, answering with the ones it
+ * got through.
+ *
+ * "Got through" means `gitNukeWorktreeCmd` did not throw on it. A throw still
+ * aborts the loop and still leaves the bar unstopped — pre-existing behaviour,
+ * deliberately unchanged here, and the entries already completed are lost with
+ * the exception rather than returned. That gap is recorded against this plan's
+ * §9 and is adjacent to findings.md F-011; this function's contract is only
+ * that what it *returns* was really removed.
+ */
 export async function gitRemoveWorktreesWithProgress(
   worktrees: WorktreeListEntry[],
-) {
+): Promise<WorktreeListEntry[]> {
   const process = new Process.SingleBar(
     {
       format: "{bar} {percentage}% ({metaValue}/{metaTotal}) {description}",
@@ -436,6 +472,7 @@ export async function gitRemoveWorktreesWithProgress(
   });
 
   let i = 0;
+  const removed: WorktreeListEntry[] = [];
 
   for (const wt of worktrees) {
     const description = `Deleting ${wt.branchName}`;
@@ -444,6 +481,7 @@ export async function gitRemoveWorktreesWithProgress(
     i++;
 
     await gitNukeWorktreeCmd(wt.branchName, { force: true });
+    removed.push(wt);
 
     process.update(i * 10, {
       metaValue: i,
@@ -452,4 +490,6 @@ export async function gitRemoveWorktreesWithProgress(
   }
 
   process.stop();
+
+  return removed;
 }

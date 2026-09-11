@@ -2,6 +2,16 @@ import { execFile, spawn } from "node:child_process";
 
 interface ExecOptions {
   cwd?: string;
+  /**
+   * Milliseconds after which the child is killed with SIGTERM. A kill leaves no
+   * exit code behind — `error.code` comes back `null`, not a number — so a
+   * timed-out call always rejects, under both helpers below.
+   *
+   * Left unset the child is unbounded, which is what every git call here wants:
+   * they talk to the filesystem and answer or fail on their own. It is a call
+   * that waits on another process's socket that needs this.
+   */
+  timeout?: number;
 }
 
 interface RunOptions extends ExecOptions {
@@ -34,10 +44,10 @@ export interface CommandResult {
 export function run(
   file: string,
   args: string[] = [],
-  { cwd, trim = true }: RunOptions = {},
+  { cwd, timeout, trim = true }: RunOptions = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { cwd }, (error, stdout) => {
+    execFile(file, args, { cwd, timeout }, (error, stdout) => {
       if (error) {
         reject(error);
         return;
@@ -59,14 +69,17 @@ export function run(
  * The argv array is the point here too: nothing is word-split or glob-expanded.
  * Rejection is reserved for the cases that produce no exit code at all — a
  * process that never ran, one killed by a signal, and a `maxBuffer` overflow.
+ * A `timeout` that expires is the second of those: the child is killed, so the
+ * caller's `catch` is where a hung command surfaces, never a resolved result
+ * carrying some sentinel code.
  */
 export function runCapturing(
   file: string,
   args: string[] = [],
-  { cwd }: ExecOptions = {},
+  { cwd, timeout }: ExecOptions = {},
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { cwd }, (error, stdout, stderr) => {
+    execFile(file, args, { cwd, timeout }, (error, stdout, stderr) => {
       const output = { stdout: stdout.trim(), stderr: stderr.trim() };
 
       if (!error) {

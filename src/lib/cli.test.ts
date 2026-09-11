@@ -23,6 +23,11 @@ const node = process.execPath;
 const printFirstArg = "process.stdout.write(process.argv[1])";
 const printCwd = "process.stdout.write(process.cwd())";
 
+// Outlives any timeout below by orders of magnitude, so the kill is what ends
+// these children and a slow machine cannot turn one into a pass by finishing
+// early. The timer keeps the event loop alive; nothing is printed.
+const sleepForever = "setTimeout(() => {}, 600_000)";
+
 let tempPath: string;
 let spacedPath: string;
 let spacedExecutable: string;
@@ -72,6 +77,15 @@ describe("run", () => {
 
   it("resolves an empty string when the command writes no stdout", async () => {
     await expect(run(node, ["-e", ""])).resolves.toBe("");
+  });
+
+  // timeout lives on the options both helpers share, so a caller who reads the
+  // interface and passes it here has to get a bounded child rather than a
+  // silently ignored option.
+  it("kills a child that outlives the timeout, and rejects", async () => {
+    await expect(
+      run(node, ["-e", sleepForever], { timeout: 200 }),
+    ).rejects.toMatchObject({ killed: true, signal: "SIGTERM" });
   });
 
   it("leaves stderr out of the resolved value", async () => {
@@ -193,6 +207,39 @@ describe("runCapturing", () => {
     await expect(
       runCapturing("northguild-worktree-no-such-executable"),
     ).rejects.toThrow();
+  });
+
+  // The whole point of bounding the Herdr calls: a child that never answers has
+  // to end as a rejection. A kill reports `code: null` rather than a number, so
+  // it falls through the resolve branch above — this pins that, because a Node
+  // that started reporting some numeric code there would turn a hang into a
+  // silently successful-looking result with an empty stdout.
+  it("kills a child that outlives the timeout, and rejects rather than resolving", async () => {
+    await expect(
+      runCapturing(node, ["-e", sleepForever], { timeout: 200 }),
+    ).rejects.toMatchObject({ killed: true, signal: "SIGTERM" });
+  });
+
+  it("leaves a child that answers within the timeout alone", async () => {
+    const result = await runCapturing(
+      node,
+      ["-e", "process.stdout.write('quick')"],
+      { timeout: 10_000 },
+    );
+
+    expect(result).toEqual({ stdout: "quick", stderr: "", exitCode: 0 });
+  });
+
+  it("does not bound the child when no timeout is given", async () => {
+    // 300ms is comfortably longer than the 200ms bound the cases above use, so
+    // a default that had quietly become finite would have to be shorter still
+    // to let this pass.
+    const result = await runCapturing(node, [
+      "-e",
+      "setTimeout(() => process.stdout.write('slow'), 300)",
+    ]);
+
+    expect(result).toEqual({ stdout: "slow", stderr: "", exitCode: 0 });
   });
 });
 

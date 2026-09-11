@@ -170,6 +170,8 @@ Aliases are also available:
 worktree rm feature/add-bulk-actions
 ```
 
+With `opener` set to `herdr`, removing a worktree also closes the Herdr space it was opened as.
+
 ### Clean up stale worktrees
 
 ```bash
@@ -179,6 +181,8 @@ worktree cleanup
 The cleanup command targets worktrees that are considered safe to remove, for example branches whose remote no longer exists or local worktrees with no tracked remote and no pending work.
 
 A worktree that an agent session is living in is held back and reported as skipped. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
+
+With `opener` set to `herdr`, every worktree removed here also has its Herdr space closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space, taking its panes down with the directory.
 
 ## Commands
 
@@ -216,8 +220,9 @@ worktree config --missing
 
 `codeEditor` is the executable plus any arguments, run without a shell — quotes group, but `~` and
 `$VAR` are not expanded. Set `opener` to `herdr` to open worktrees as
-[Herdr](https://herdr.dev) spaces instead of editor windows; `herdr.focus` and `herdr.agent` tune
-that. See the [configuration docs](https://northguild.github.io/worktree/docs/configuration).
+[Herdr](https://herdr.dev) spaces instead of editor windows — and to close those spaces again when
+`remove` or `cleanup` deletes the worktree; `herdr.focus` and `herdr.agent` tune that. See the
+[configuration docs](https://northguild.github.io/worktree/docs/configuration).
 
 ## What The README Covers
 

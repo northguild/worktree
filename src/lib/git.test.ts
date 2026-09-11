@@ -16,7 +16,10 @@ import {
   gitGetRootPath,
   gitGetUncommittedChangesCount,
   gitGetWorktreeList,
+  gitNukeWorktree,
   gitNukeWorktreeCmd,
+  gitRemoveWorktree,
+  gitRemoveWorktreesWithProgress,
   gitSetConfigValue,
   isSafeToRemove,
 } from "./git.js";
@@ -31,14 +34,46 @@ import type {
 const spinnerMocks = vi.hoisted(() => {
   const succeed = vi.fn();
   const fail = vi.fn();
-  const start = vi.fn().mockReturnValue({ succeed, fail });
+  // gitRemoveWorktree stops the spinner rather than resolving it, once the
+  // lookup it was covering is done and the prompt is about to take over.
+  const stop = vi.fn();
+  const start = vi.fn().mockReturnValue({ succeed, fail, stop });
   const oraFactory = vi.fn().mockReturnValue({ start });
 
-  return { succeed, fail, start, oraFactory };
+  return { succeed, fail, stop, start, oraFactory };
 });
 
 vi.mock("ora", () => ({
   default: spinnerMocks.oraFactory,
+}));
+
+// gitRemoveWorktree prompts before removing anything. The prompt itself is not
+// under test here — what is, is which branch the return value takes after it.
+const mockConfirm = vi.hoisted(() => vi.fn());
+
+vi.mock("@inquirer/prompts", () => ({
+  confirm: mockConfirm,
+}));
+
+// gitRemoveWorktreesWithProgress draws a real progress bar otherwise, which
+// writes to stdout and depends on a TTY.
+const progressMocks = vi.hoisted(() => ({
+  start: vi.fn(),
+  update: vi.fn(),
+  stop: vi.fn(),
+}));
+
+vi.mock("cli-progress", () => ({
+  // A class, not a factory mock: git.ts calls `new Process.SingleBar(...)`, and
+  // an arrow implementation cannot be constructed.
+  default: {
+    SingleBar: class {
+      start = progressMocks.start;
+      update = progressMocks.update;
+      stop = progressMocks.stop;
+    },
+    Presets: { shades_classic: {} },
+  },
 }));
 
 describe("git branch parsing", () => {
@@ -804,5 +839,241 @@ describe("gitGetWorktreeList agent join", () => {
     const worktrees = await gitGetWorktreeList({ includeAgents: true });
 
     expect(worktrees.map((wt) => wt.agent)).toEqual([undefined, undefined]);
+  });
+});
+
+/**
+ * What the three removal helpers answer with.
+ *
+ * The values are the whole point: all three returned `void` before, so a caller
+ * could not tell a removal that happened from one of the three ways these end
+ * without touching anything — a branch that was not found, a declined
+ * confirmation, and a removal whose command threw and was swallowed. A caller
+ * acting on the removal afterwards (closing the Herdr space the checkout was
+ * opened as) would otherwise act on all four alike.
+ */
+describe("what the removal helpers report", () => {
+  const rootPath = "/repo/project";
+  const branchName = "feature/one";
+  const onePath = `${rootPath}.worktrees/feature/one`;
+
+  function entry(
+    overrides: Partial<WorktreeListEntry> = {},
+  ): WorktreeListEntry {
+    return {
+      path: onePath,
+      branchName,
+      remote: "",
+      remoteExists: false,
+      pathExists: true,
+      uncommittedChanges: 0,
+      isCurrent: false,
+      safeToRemove: true,
+      ...overrides,
+    };
+  }
+
+  /**
+   * Every git call gitRemoveWorktree makes before it reaches the prompt, in
+   * order: its own current-branch check, then the whole of gitGetWorktreeList
+   * for one worktree tracking no remote — which is what keeps the ahead/behind
+   * pair out of the sequence.
+   */
+  function mockLookupRun(listedBranch = branchName) {
+    expectCommands(
+      "git branch --show-current",
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      `git status -s (cwd: ${onePath})`,
+      `git worktree remove ${branchName}`,
+      `git worktree remove ${branchName} --force`,
+      "git worktree prune",
+      `git branch -D ${branchName}`,
+    );
+
+    mockRun
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(
+        `${rootPath}.worktrees/${listedBranch}  abc1234 [${listedBranch}]`,
+      )
+      .mockResolvedValueOnce("");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    mockConfirm.mockResolvedValue(true);
+  });
+
+  describe("gitNukeWorktree", () => {
+    beforeEach(() => {
+      expectCommands(
+        `git worktree remove ${branchName}`,
+        "git worktree prune",
+        `git branch -D ${branchName}`,
+      );
+    });
+
+    it("reports true when the removal went through", async () => {
+      mockRun.mockResolvedValue("");
+
+      await expect(gitNukeWorktree(branchName)).resolves.toBe(true);
+      expect(spinnerMocks.succeed).toHaveBeenCalledWith(
+        `Worktree ${branchName} was removed.`,
+      );
+    });
+
+    it("reports false when the removal failed, without rethrowing", async () => {
+      // The catch swallows the error deliberately — it is already on the
+      // spinner — so the boolean is the only thing left that can say so.
+      mockRun.mockRejectedValue(
+        new Error("Command failed: git worktree remove"),
+      );
+
+      await expect(gitNukeWorktree(branchName)).resolves.toBe(false);
+      expect(spinnerMocks.fail).toHaveBeenCalledWith(
+        `Failed to remove worktree ${branchName}. It may have already been removed.`,
+      );
+    });
+  });
+
+  describe("gitRemoveWorktree", () => {
+    it("answers with the entry it removed", async () => {
+      mockLookupRun();
+      mockRun.mockResolvedValue("");
+
+      const removed = await gitRemoveWorktree(branchName);
+
+      expect(removed).toMatchObject({ branchName, path: onePath });
+    });
+
+    it("answers undefined when the branch was not found", async () => {
+      mockLookupRun("feature/other");
+
+      await expect(gitRemoveWorktree(branchName)).resolves.toBeUndefined();
+      expect(spinnerMocks.fail).toHaveBeenCalledWith(
+        `Worktree ${branchName} not found.`,
+      );
+    });
+
+    it("answers undefined when the confirmation was declined", async () => {
+      mockLookupRun();
+      mockConfirm.mockResolvedValue(false);
+
+      await expect(gitRemoveWorktree(branchName)).resolves.toBeUndefined();
+    });
+
+    it("removes nothing when the confirmation was declined", async () => {
+      // The undefined above has to mean "nothing was touched", not just
+      // "nothing was reported".
+      mockLookupRun();
+      mockConfirm.mockResolvedValue(false);
+
+      await gitRemoveWorktree(branchName);
+
+      expect(mockRun).not.toHaveBeenCalledWith("git", [
+        "worktree",
+        "remove",
+        branchName,
+      ]);
+    });
+
+    it("answers undefined when the removal itself failed", async () => {
+      // The third no-op path, and the one a caller is least able to see:
+      // gitNukeWorktree swallows the error, so without the return value this
+      // is indistinguishable from a success.
+      mockLookupRun();
+      mockRun.mockRejectedValue(
+        new Error("Command failed: git worktree remove"),
+      );
+
+      await expect(gitRemoveWorktree(branchName)).resolves.toBeUndefined();
+    });
+
+    it("refuses to remove the worktree it is standing in", async () => {
+      expectCommands("git branch --show-current");
+      mockRun.mockResolvedValueOnce(branchName);
+
+      await expect(gitRemoveWorktree(branchName)).rejects.toThrow(
+        `Cannot remove current worktree ${branchName}`,
+      );
+    });
+  });
+
+  describe("gitRemoveWorktreesWithProgress", () => {
+    const two = entry({
+      branchName: "feature/two",
+      path: `${rootPath}.worktrees/feature/two`,
+    });
+
+    beforeEach(() => {
+      expectCommands(
+        `git worktree remove ${branchName} --force`,
+        "git worktree remove feature/two --force",
+        "git worktree prune",
+        `git branch -D ${branchName}`,
+        "git branch -D feature/two",
+      );
+    });
+
+    it("answers with the entries it got through", async () => {
+      mockRun.mockResolvedValue("");
+
+      await expect(
+        gitRemoveWorktreesWithProgress([entry(), two]),
+      ).resolves.toEqual([entry(), two]);
+    });
+
+    it("answers with an empty list for an empty selection", async () => {
+      await expect(gitRemoveWorktreesWithProgress([])).resolves.toEqual([]);
+      expect(mockRun).not.toHaveBeenCalled();
+    });
+
+    // Pre-existing and deliberately unchanged by this phase: a throw aborts the
+    // loop, so the entries already completed are lost with the exception rather
+    // than returned. Pinned so the behaviour is a decision rather than a
+    // surprise — see the plan's §9 and findings.md F-011.
+    it("still aborts the whole loop when a removal throws", async () => {
+      mockRun.mockRejectedValue(
+        new Error("Command failed: git worktree remove"),
+      );
+
+      await expect(
+        gitRemoveWorktreesWithProgress([entry(), two]),
+      ).rejects.toThrow("Command failed: git worktree remove");
+    });
+
+    // The other half of the same gap, and the one the doc comment actually
+    // leans on: the first removal succeeds, so an entry *has* accumulated by
+    // the time the second throws — and it is lost with the exception rather
+    // than returned. Throwing on the first entry alone would not show this.
+    it("loses the entries it had already removed when a later one throws", async () => {
+      mockRun
+        .mockResolvedValueOnce("")
+        .mockResolvedValueOnce("")
+        .mockResolvedValueOnce("")
+        .mockRejectedValue(new Error("Command failed: git worktree remove"));
+
+      const settled = await gitRemoveWorktreesWithProgress([
+        entry(),
+        two,
+      ]).catch((thrown: unknown) => thrown);
+
+      expect(settled).toBeInstanceOf(Error);
+      expect(mockRun).toHaveBeenCalledWith("git", [
+        "worktree",
+        "remove",
+        branchName,
+        "--force",
+      ]);
+    });
   });
 });

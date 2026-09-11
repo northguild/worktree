@@ -96,6 +96,133 @@ file records the exclusion deliberately and says why. Whichever is chosen, a Gat
 evidence. Clearing the 23 errors is the prerequisite for the first option, and the `"types"` line above is
 22 of them.
 
+### F-067 — P3 — a workspace id that is present but not a string reads as "no space open", and closes nothing
+
+**Tied to:** herdr-space-closer Phase 2 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB2)
+
+*Renumbered from F-055 when this branch merged `main`, the same way F-054 above was: the triage below
+closed a different F-055 meanwhile. This feature's own F-052, F-053 and F-054 left this file for the
+closing comment on [#52](https://github.com/northguild/worktree/issues/52) before that merge, and the three
+ids now above and below belong to other findings — read those three on the issue, not here.*
+
+`readOptionalWorkspaceId` (`src/integrations/herdr.ts:424-426`) is
+`typeof value === "string" && value.length > 0 ? value : undefined`, so a legitimate *no space open* and a
+drifted `open_workspace_id` — a number, an object — arrive at the caller identically. Only the second is a
+defect, and it produces exactly the orphan this feature exists to prevent: the space stays open, no close
+is attempted and nothing is printed. It is asymmetric with the `path` check three lines below, which
+throws on precisely that condition.
+
+Unreachable against 0.8.2: `herdr api schema --json` types `open_workspace_id` as `["string","null"]` and
+leaves it out of `WorktreeInfo.required`. This is a drift guard, not a live defect — §5 already names
+Herdr version drift as the risk this feature carries.
+
+**Closes when:** Gate 1 re-passes with the present-but-not-a-string case separated from the absent one —
+either thrown on, like `path`, or documented in that function's comment as a deliberate collapse.
+
+### F-057 — P3 — the two new `bounds a …` cases cannot fail while any caller routes through `runHerdrRequest`
+
+**Tied to:** herdr-space-closer Phase 2 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB4)
+
+`"bounds a worktree list"` (`src/integrations/herdr.test.ts:776-786`) and `"bounds a workspace close"`
+(`:788-803`) assert `timeoutOf(0)` is greater than zero. Every call through `runHerdrRequest` satisfies
+that for free from its `timeoutMs = HERDR_REQUEST_TIMEOUT_MS` default
+(`src/integrations/herdr.ts:218-221`), so neither case can fail unless that default is deleted — which
+the pre-existing `"bounds a worktree open"` already catches. They cover the route, not the export.
+
+Not a regression: they follow the shape of the case that was already there, and the value is deliberately
+not re-typed (this feature's F-053, on [#52](https://github.com/northguild/worktree/issues/52)). Worth
+knowing that the coverage they appear to add is smaller than it looks — if a future export bypasses
+`runHerdrRequest`, it is these cases that will not notice.
+
+**Closes when:** Gate 1 re-passes with the two cases asserting something specific to their own call — the
+argv bounded, or the rejection a kill produces — or with them folded into the case that already proves the
+default exists.
+
+### F-058 — P3 — `gitRemoveWorktreesWithProgress` cannot be caught returning the wrong set, because every path it returns from returns all of them
+
+**Tied to:** herdr-space-closer Phase 3 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N4)
+
+`removed.push(wt)` sits after the awaited `gitNukeWorktreeCmd` (`src/lib/git.ts`), so the accumulation is
+real — but `return worktrees;` would pass all four of the set-helper's tests. The loop aborts on any throw,
+so on every path where the function *returns at all*, `removed` is equal to `worktrees`; the two can only
+diverge on a path that currently throws instead of returning.
+
+Not chaseable as things stand, and deliberately so: closing it means deciding between a per-entry `catch`
+and a rethrow carrying the partial set, which is the behaviour change Phase 3 was forbidden from making.
+Recorded so a later reader does not mistake the accumulation for something the suite is holding in place.
+
+**Closes when:** the plan's §9 loop gap is settled — whichever way — and Gate 1 re-passes with a case where
+the returned set is a strict subset of the set passed in.
+
+
+### F-063 — P3 — "a removal that failed leaves the checkout on disk" is stated as a universal, and `gitNukeWorktreeCmd` can violate it
+
+**Tied to:** herdr-space-closer Phase 6 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note)
+
+Three surfaces say a failed removal leaves the checkout in place, so its space is deliberately not closed:
+`docs/src/app/docs/guides/herdr-spaces/page.mdx`, `docs/src/app/docs/commands/remove/page.mdx` and
+`skills/core/SKILL.md`. `gitNukeWorktreeCmd` (`src/lib/git.ts`) is three sequential commands —
+`worktree remove`, `worktree prune`, `branch -D` — and a throw in the second or third leaves
+`wasRemoved === false` with the checkout **already gone**. The space is then left open for a worktree that
+no longer exists: the orphan this feature exists to prevent, in its rarest form.
+
+The behaviour is the right way round — erring toward leaving a space open never destroys a live window —
+so this is the prose over-reaching, not the code. Left rather than fixed during Phase 6's Gate 2 loopback,
+which is scoped to the failing items only.
+
+**Closes when:** the three sentences name the common case rather than asserting a universal, on any Gate 1
+run that has those files open.
+
+### F-064 — P3 — two shipped skill artifacts claim 9 config keys; there are 15
+
+**Tied to:** ad-hoc · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note)
+
+`skills/_artifacts/domain_map.yaml` says `'worktree config (all 9 keys)'` and
+`skills/_artifacts/skill_spec.md` says "9 config keys". `src/lib/constants.ts`'s `CONFIG_NAMES` holds
+**15** entries — 14 excluding the internal `has-called-config`.
+
+Predates this feature and is untouched by it: issue #52's D6 adds no config key, which is why §7 routed the
+`skill_spec.md` half to its own `/orchestrate` and why `domain_map.yaml` was left alone on the same
+reasoning even though Phase 6 had it open.
+
+**§7's own parenthetical is wrong too** — it says "the 13 in `constants.ts`". Count before fixing, or the
+correction ships stale a second time.
+
+**Closes when:** an `/orchestrate` corrects both artifacts against `CONFIG_NAMES`, with the count taken
+from the file rather than from any of the three numbers written down here.
+
+### F-065 — P3 — two example blocks on the Herdr guide are each slightly narrower than what actually prints
+
+**Tied to:** herdr-space-closer Phase 6 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, notes N1 and N2)
+
+Both survived the F-061/F-062 loopback because that loopback was scoped to the failing items.
+
+- The open-path timeout block shows only the `✖` line. `BaseCommand.openHerdrSpace` prints `spinner.fail`
+  **and then** `this.log()` of the worktree path, and `src/lib/base-command.test.ts` pins exactly
+  that pair for the timeout case. The block immediately above it shows both lines, so the narrower one
+  reads as a difference that is not there. Not false — the sentence introducing it scopes the comparison to
+  the message — but incomplete.
+- The close-failure block shows two warnings, both naming workspace `wQ`. `closeSpace` prints one warning
+  per space and ids are unique, so no run prints both of those lines. A reader will take it as "either of
+  these"; distinct ids, or two blocks, would say so.
+
+**Closes when:** both blocks match what a single run prints, on any Gate 1 run that has the page open.
+
+### F-066 — P3 — the two shipped skill artifacts now disagree about the `codeEditor`-instead-of-`opener` mistake
+
+**Tied to:** herdr-space-closer Phase 6 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N5)
+
+`skills/_artifacts/domain_map.yaml`'s tensions entry gained a fourth consequence — the `codeEditor`
+workaround also "leaves the space open when the worktree is removed" — because issue #52's §7 assigned that
+file's tensions entry to Phase 6. `skills/core/SKILL.md` carries the same warning in prose and still lists
+three consequences, because §7's `SKILL.md` row names three specific spots and this is not one of them.
+
+So the phase is scope-correct and the artifacts still disagree. Both ship.
+
+**Closes when:** `SKILL.md`'s tension prose carries the same fourth consequence, on any Gate 1 run that has
+the file open — or an `/orchestrate` reconciles the two artifacts, which [F-064](#f-064) already wants for
+the key count.
+
 ---
 
 ## The 2026-09-11 triage
@@ -128,6 +255,8 @@ observation — were withdrawn, and each is reproduced in full in its feature's 
 owns `/feature-close`, `/orchestrate` and `workflow.md`; widening that sweep from *closed* to *disposed of*
 is being taken there. This section records a one-time cleanup, not a local policy — a local policy would be
 the second copy the Contract above just stopped keeping.
+
+---
 
 ## Closed
 
