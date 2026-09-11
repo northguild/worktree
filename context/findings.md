@@ -899,6 +899,40 @@ future export bypasses `runHerdrRequest`, it is these cases that will not notice
 argv bounded, or the rejection a kill produces — or with them folded into the case that already proves the
 default exists.
 
+### F-058 — P3 — `gitRemoveWorktreesWithProgress` cannot be caught returning the wrong set, because every path it returns from returns all of them
+
+**Tied to:** herdr-space-closer Phase 3 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N4)
+
+`removed.push(wt)` sits after the awaited `gitNukeWorktreeCmd` (`src/lib/git.ts`), so the accumulation is
+real — but `return worktrees;` would pass all four of the set-helper's tests. The loop aborts on any throw,
+so on every path where the function *returns at all*, `removed` is equal to `worktrees`; the two can only
+diverge on a path that currently throws instead of returning.
+
+Not chaseable as things stand, and deliberately so: closing it means deciding between a per-entry `catch`
+and a rethrow carrying the partial set, which is the behaviour change Phase 3 was forbidden from making.
+Recorded so a later reader does not mistake the accumulation for something the suite is holding in place.
+
+**Closes when:** the plan's §9 loop gap is settled — whichever way — and Gate 1 re-passes with a case where
+the returned set is a strict subset of the set passed in.
+
+### F-059 — P3 — the retyped stubs resolve "nothing was removed", which would make a Phase 5 close assertion pass vacuously
+
+**Tied to:** herdr-space-closer Phase 5 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N5)
+
+Phase 3 retyped 24 `gitRemoveWorktreesWithProgress` stubs in `src/commands/remove.test.ts` and
+`src/commands/cleanup.test.ts` from `.mockResolvedValue(undefined)` to `.mockResolvedValue([])`, because
+the helper's new return type is `WorktreeListEntry[]`. `[]` is the type-correct minimum and is harmless
+today, since no production code reads the value yet.
+
+It stops being harmless in Phase 5. D4 has the closer close exactly the entries the helper returned, so a
+suite whose stub resolves `[]` closes **nothing** — and a Phase 5 test asserting *"the space of every
+worktree it removed was closed"* would pass against an implementation that closes nothing at all, in
+suites that simulate removing one or two worktrees. The "and no others" half needs the opposite: a stub
+resolving a strict subset of what was selected.
+
+**Closes when:** Phase 5's Gate 1 re-passes with those stubs resolving the entries their test actually
+removes, and with at least one case where the stub returns fewer entries than were selected.
+
 ---
 
 ## Closed

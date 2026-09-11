@@ -150,7 +150,7 @@ describe("cleanup command", () => {
     vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([unsafeWorktree]);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -177,7 +177,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -207,7 +207,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(false);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -235,7 +235,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -271,7 +271,7 @@ describe("cleanup command", () => {
     ]);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true },
@@ -294,7 +294,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -319,7 +319,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true },
@@ -352,7 +352,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -404,7 +404,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -429,7 +429,7 @@ describe("cleanup command", () => {
     mockConfirm.mockResolvedValue(true);
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -456,7 +456,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true, "ignore-agents": true },
@@ -484,7 +484,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true },
@@ -510,9 +510,7 @@ describe("cleanup command", () => {
     ]);
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     mockConfirm.mockResolvedValue(true);
-    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockResolvedValue(
-      undefined,
-    );
+    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -546,7 +544,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },
@@ -586,7 +584,7 @@ describe("cleanup command", () => {
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     const mockRemove = vi
       .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: true },
@@ -610,9 +608,7 @@ describe("cleanup command", () => {
     ]);
     const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
     mockConfirm.mockResolvedValue(true);
-    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockResolvedValue(
-      undefined,
-    );
+    vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockResolvedValue([]);
 
     (cleanup as any).parse = vi.fn().mockResolvedValue({
       flags: { force: false },

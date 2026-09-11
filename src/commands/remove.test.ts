@@ -139,7 +139,7 @@ describe("remove command", () => {
       mockCheckbox.mockResolvedValue([]);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue(undefined);
+        .mockResolvedValue([]);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -157,7 +157,7 @@ describe("remove command", () => {
       mockCheckbox.mockResolvedValue([safeWorktree]);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue(undefined);
+        .mockResolvedValue([]);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -176,7 +176,7 @@ describe("remove command", () => {
       mockConfirm.mockResolvedValue(true);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue(undefined);
+        .mockResolvedValue([]);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -199,7 +199,7 @@ describe("remove command", () => {
       mockConfirm.mockResolvedValue(false);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue(undefined);
+        .mockResolvedValue([]);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -217,7 +217,7 @@ describe("remove command", () => {
       mockCheckbox.mockResolvedValue([unsafeWorktree]);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue(undefined);
+        .mockResolvedValue([]);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -243,7 +243,7 @@ describe("remove command", () => {
       mockCheckbox.mockResolvedValue([safeWorktree, secondSafeWorktree]);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue(undefined);
+        .mockResolvedValue([]);
 
       (remove as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -369,7 +369,7 @@ describe("remove command", () => {
       mockConfirm.mockResolvedValue(true);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue(undefined);
+        .mockResolvedValue([]);
 
       await remove.run();
 
@@ -387,7 +387,7 @@ describe("remove command", () => {
       mockConfirm.mockResolvedValue(false);
       const mockRemove = vi
         .spyOn(git, "gitRemoveWorktreesWithProgress")
-        .mockResolvedValue(undefined);
+        .mockResolvedValue([]);
 
       await remove.run();
 

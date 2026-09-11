@@ -66,7 +66,8 @@ export default class Delete extends BaseCommand {
         this.error(`Branch "${args.branchName}" not found.`);
       }
 
-      return await gitRemoveWorktree(args.branchName, { force: flags.force });
+      await gitRemoveWorktree(args.branchName, { force: flags.force });
+      return;
     }
 
     const selected = await checkbox({
