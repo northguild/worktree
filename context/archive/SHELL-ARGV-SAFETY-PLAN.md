@@ -676,3 +676,56 @@ or it stays open against a retired feature indefinitely.**
 F-009, F-011 and F-013 are one shape three times: a sequential `run` whose `await` no test observes. Each
 records the mutation that survives and the one case that would kill it. Whoever picks up any of them should
 take all three — they are the same test, written three times.
+
+---
+
+## Findings triage, 2026-09-11
+
+The notes below were **open** against this feature when it retired, not closed. `/feature-close` blocks only
+on an open `P0` or `P1` and sweeps only *closed* findings, so a `P2` or `P3` left open survived the close —
+and could then never close, because a finding closes when the gate that raised it re-passes and that gate
+belonged to a phase that no longer exists. Thirty-five had accumulated across five retired features,
+carrying `context/findings.md` to 76 KB.
+
+They are **withdrawn as findings and kept here as record.** Each is an internal note — a comment that
+overclaims, a doc shape, a style observation — of the kind this log exists to hold. Nothing user-facing was
+withdrawn this way: the behaviour defects and the mutation-resistance gaps went to the backlog instead, as
+issues #55-#60, because those are work someone should still do rather than notes worth not losing.
+
+Withdrawing is not a judgement that each was wrong. It records that no gate will ever close them, so leaving
+them open misrepresented them as live.
+
+### F-010 — P3 — the relative `worktreePath` does not buy what its comment says it does
+
+**Tied to:** shell-argv-safety Phase 3 · **Raised:** 2026-09-05 (hand, §7 case 2)
+
+`src/lib/git.ts:234-237` keeps the pre-change rationale for passing `git worktree add` a relative path:
+"This ensures that everything stays in sync in case the project is moved in the filesystem." Measured on
+2026-09-05 on **git 2.38.1**, it does not. `git worktree add` resolves the path it is given and records an
+absolute one in both link files, so the relative form, an absolute form, and a shell reproduction of the
+exact pre-change command are byte-identical:
+
+```
+worktree .git             gitdir: <abs>/proj/.git/worktrees/<n>
+.git/worktrees/<n>/gitdir <abs>/proj.worktrees/feature/<n>/.git
+```
+
+After renaming the containing directory, all three fail alike with
+`fatal: not a git repository: <old abs>/proj/.git/worktrees/<n>`, and `git worktree list` from the root
+shows every entry `prunable` at its stale absolute path.
+
+**Not a regression and not introduced here** — Phase 3 preserved the argument shape exactly, which is what
+R1 asked of it, and §7 case 2's first half (same shape as before the change) passes. What is wrong is the
+claim: the comment survives into the argv form as the stated reason for a choice that, on this git version,
+has no effect. A future reader "simplifying" it to `absoluteWorktreePath` would be talked out of a harmless
+edit by a false rationale — or, worse, would trust the promise.
+
+Two ways out, and choosing between them is the point of recording this: correct the comment to say the
+path is relative for readability and that git records absolute links regardless, or reach for
+`git worktree add --relative-paths` (git 2.48+) and actually deliver the property — which would need a
+version floor this project does not currently state.
+
+**Closes when:** a Gate 1 run passes with `src/lib/git.ts`'s comment either matching measured git behaviour
+or accompanied by the `--relative-paths` flag that makes the original claim true.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.

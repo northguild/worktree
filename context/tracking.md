@@ -78,10 +78,16 @@ under this answer — it is what replaces the file answer's backlog ordering.
 An issue carrying no `Priority:` line ranks as `Medium`. **Nothing else in the loop reads it**, and no
 refusal or report may start to.
 
-The two open backlog issues predate the field and carry no line, so both rank `Medium`:
 [#39](https://github.com/northguild/worktree/issues/39) and
-[#40](https://github.com/northguild/worktree/issues/40). Left deliberately on 2026-09-09 rather than
-backfilled — `/roadmap` writes a real value the next time either is touched.
+[#40](https://github.com/northguild/worktree/issues/40) predate the field and carry no line, so both rank
+`Medium`. Left deliberately on 2026-09-09 rather than backfilled — `/roadmap` writes a real value the next
+time either is touched.
+
+The seven issues the 2026-09-11 findings triage opened
+([#55](https://github.com/northguild/worktree/issues/55)-[#61](https://github.com/northguild/worktree/issues/61))
+each carry a real `Priority:` line. They were opened by hand rather than by `/roadmap`, which is the one
+route into this backlog that is not that command — recorded here so the exception is visible rather than
+inferred from the issue list.
 
 ## Issue types
 
@@ -185,8 +191,15 @@ removed, so nothing has to be recreated if this answer is ever revisited.
 `workflow:feature`, which is deliberate: the backlog this workflow reads is the labelled set, so these stay
 ordinary issues until someone labels them.
 
-**`findings.md` stays under both answers**, unchanged. A finding is raised and swept inside a single
-branch's life, so it is never the thing two agents contend over.
+**`findings.md` stays under both answers**, unchanged. It is not contended over: a branch appends its own
+findings and rarely touches another's.
+
+**Its stated reason was wrong, though, and is corrected here.** That sentence used to read *"a finding is
+raised and swept inside a single branch's life"*. The 2026-09-11 triage falsified it — 35 findings had
+outlived their branch by months, across five retired features, because `/feature-close` sweeps only
+*closed* findings and an open `P2`/`P3` passes straight through a retirement. A finding is raised inside one
+branch's life; it is not necessarily swept there. The low-contention claim survives, the lifetime claim does
+not.
 
 ## What 0.10.0 changed
 

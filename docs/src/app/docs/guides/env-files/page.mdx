@@ -4,12 +4,83 @@ title: Environment Files
 
 # Environment Files
 
-`worktree branch` copies `.env` and `.env.local` into new worktrees to reduce setup friction.
+`worktree branch` and `worktree checkout` copy your local environment files into a new worktree so it is
+usable without a round of manual setup.
+
+## What Gets Copied
+
+A file is copied when **both** of these are true:
+
+1. Its name is env-shaped — `.env` and anything starting with it (`.env.local`, `.env.development`,
+   `.env.production`, `.env.test`, `.env.staging`, and the `.env.*.local` override layer), `.dev.vars` and
+   anything starting with it (Cloudflare Wrangler), or `.envrc` (direnv).
+2. Git is not carrying it — the file is untracked and matched by your ignore rules.
+
+The second condition is what keeps the behaviour predictable. A committed `.env.example` is already in the
+new worktree because git checked it out, so it is never copied over itself. Anything git ignores would
+otherwise be missing entirely, which is exactly what this feature exists to fix.
+
+Files are matched anywhere in the repository, not just at the root, and land at the same relative path in
+the new worktree — `docs/worker/.dev.vars` arrives as `docs/worker/.dev.vars`. Directories that exist only
+because of ignored files are created as needed.
+
+Submodules are not searched, because git does not look inside one when listing the parent's files. An env
+file inside a submodule has to be copied by hand.
+
+`node_modules` is excluded, so an env file shipped inside a dependency is never copied.
+
+## Check What Gets Copied
+
+Every copied file is listed by path, so the output is worth a glance:
+
+```
+Copying 4 env files from /Users/you/code/acme:
+  ✔ .env
+  ✔ .env.local
+  ✔ docs/worker/.dev.vars
+  ✔ tmp/backup/.env.old
+```
+
+Nothing here is curated — files are selected by name shape and your ignore rules, not from a list anyone
+maintains. That is the point, and it is also why the list matters: a stray `.env.old` someone dumped years
+ago, or a colleague's `.env.production`, is copied like anything else. If a path in that list surprises you,
+that file has been sitting in your main checkout all along.
+
+The whole report goes to standard output, heading included, so it survives a pipe or a redirect if you want
+to keep a record of what a worktree was given.
+
+A path that would not read back as itself is shown quoted and escaped, rather than printed raw:
+
+```
+Copying 2 env files from /Users/you/code/acme:
+  ✔ " lead/.env"
+  ✔ .env
+```
+
+That first name really does begin with a space. Left bare it would look like nothing more than a misaligned
+column, which is no use in a list whose job is to make an unexpected file stand out.
+
+When nothing matches, the command says so rather than staying silent:
+
+```
+No env files to copy from /Users/you/code/acme
+```
 
 ## Best Practices
 
-- Keep secrets out of source control.
-- Review copied env values when switching contexts.
+- Keep secrets out of source control — this feature assumes your env files are gitignored, and only copies
+  the ones that are.
+- Review copied env values when switching contexts. A `.env` pointing at a staging database follows you
+  into every new worktree.
+- Commit an `.env.example` so required variables are documented. It is carried by git, not by this copy.
 - Use team conventions for required variables.
 
-If your repository uses additional env files, document that in your team setup guide.
+## If A File Is Not Copied
+
+Check that git actually ignores it:
+
+```bash
+git check-ignore -v .env.staging
+```
+
+No output means the file is not ignored, so it is not copied. Add it to `.gitignore`.
