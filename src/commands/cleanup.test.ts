@@ -2,6 +2,7 @@
 import { confirm } from "@inquirer/prompts";
 import ora from "ora";
 import * as git from "../lib/git.js";
+import type { WorktreeListEntry } from "../lib/types.js";
 import Cleanup from "./cleanup.js";
 
 const spinnerMocks = vi.hoisted(() => {
@@ -70,12 +71,21 @@ describe("cleanup command", () => {
 
   // A stale worktree — its remote branch is gone — that holds uncommitted work.
   // Phase 2 made `isSafeToRemove` decline it; this is what cleanup must report.
+  //
+  // `ahead: 0` is load-bearing in every fixture below. The skipped-for-changes
+  // probe asks the predicate about a copy with the count zeroed, and after D1 a
+  // worktree whose ahead count was never taken is not safe even then — so an
+  // absent `ahead` would hold it back for a second, unnamed reason and drop it
+  // out of the heading this fixture exists to test. Zero says the count
+  // happened and found nothing, which is what "held back only by the work in
+  // it" means.
   const staleWorktreeWithChanges = {
     path: "/path/to/project.worktrees/feature/stale-dirty",
     branchName: "feature/stale-dirty",
     remote: "origin/feature/stale-dirty",
     remoteExists: false,
     pathExists: true,
+    ahead: 0,
     uncommittedChanges: 3,
     safeToRemove: false,
   };
@@ -88,6 +98,7 @@ describe("cleanup command", () => {
     remote: "origin/feature/agent-live",
     remoteExists: false,
     pathExists: true,
+    ahead: 0,
     uncommittedChanges: 0,
     agent: {
       name: "feature-agent-1f",
@@ -108,6 +119,7 @@ describe("cleanup command", () => {
     remote: "origin/feature/agent-dirty",
     remoteExists: false,
     pathExists: true,
+    ahead: 0,
     uncommittedChanges: 2,
     agent: {
       name: "feature-dirty-2a",
@@ -127,6 +139,7 @@ describe("cleanup command", () => {
     remote: "origin/feature/agent-done",
     remoteExists: false,
     pathExists: true,
+    ahead: 0,
     uncommittedChanges: 0,
     agent: {
       name: "feature-done-3b",
@@ -623,5 +636,96 @@ describe("cleanup command", () => {
     expect(
       logSpy.mock.calls.some((call) => (call[0] ?? "").startsWith("Skipped ")),
     ).toBe(false);
+  });
+
+  // The verdicts D1 changes. Each entry takes its `safeToRemove` from the real
+  // predicate rather than hand-setting it, as the merged-with-work fixture in
+  // remove.test.ts already does — a hand-set verdict would keep passing even if
+  // the classification regressed, which is the whole thing under test here.
+  describe("worktrees carrying unpushed commits", () => {
+    function entryWithVerdict(overrides: Partial<WorktreeListEntry>) {
+      const entry: WorktreeListEntry = {
+        path: "/path/to/project.worktrees/feature/np",
+        branchName: "feature/np",
+        remote: "",
+        remoteExists: false,
+        pathExists: true,
+        uncommittedChanges: 0,
+        ...overrides,
+      };
+      return { ...entry, safeToRemove: git.isSafeToRemove(entry) };
+    }
+
+    // The incident itself: never pushed, one commit, no remote to compare
+    // against. Before this phase cleanup listed it as safe and deleted it.
+    const neverPushedWithCommits = entryWithVerdict({ ahead: 1 });
+
+    // The count could not be taken at all, so nothing is known about what this
+    // worktree holds. Unknown is never safe.
+    const uncountable = entryWithVerdict({
+      branchName: "feature/uncountable",
+      path: "/path/to/project.worktrees/feature/uncountable",
+      ahead: undefined,
+      aheadUnknownReason: "no comparison base",
+    });
+
+    // Q1 of cleanup-data-loss, come due: the remote was deleted but the local
+    // branch still carries commits that were never on it.
+    const deletedRemoteWithCommits = entryWithVerdict({
+      branchName: "feature/gone-remote",
+      path: "/path/to/project.worktrees/feature/gone-remote",
+      remote: "origin/feature/gone-remote",
+      remoteExists: false,
+      ahead: 2,
+    });
+
+    it("classifies all three as not safe to remove", () => {
+      expect(neverPushedWithCommits.safeToRemove).toBe(false);
+      expect(uncountable.safeToRemove).toBe(false);
+      expect(deletedRemoteWithCommits.safeToRemove).toBe(false);
+    });
+
+    it("does not remove a never-pushed worktree carrying commits", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+        safeWorktree,
+        neverPushedWithCommits,
+      ]);
+      vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      mockConfirm.mockResolvedValue(true);
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktreesWithProgress")
+        .mockResolvedValue(undefined);
+
+      (cleanup as any).parse = vi.fn().mockResolvedValue({
+        flags: { force: false },
+      });
+
+      await cleanup.run();
+
+      expect(mockRemove).toHaveBeenCalledWith([safeWorktree]);
+    });
+
+    // --force answers the confirmation, never the safety verdict. This is the
+    // distinction cleanup-data-loss settled and the flag most likely to be
+    // reached for by someone whose sweep just stopped finding things.
+    it("does not let --force remove one either", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+        neverPushedWithCommits,
+        uncountable,
+        deletedRemoteWithCommits,
+      ]);
+      vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktreesWithProgress")
+        .mockResolvedValue(undefined);
+
+      (cleanup as any).parse = vi.fn().mockResolvedValue({
+        flags: { force: true },
+      });
+
+      await cleanup.run();
+
+      expect(mockRemove).not.toHaveBeenCalled();
+    });
   });
 });

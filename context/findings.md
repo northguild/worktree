@@ -98,6 +98,39 @@ evidence. Clearing the 23 errors is the prerequisite for the first option, and t
 
 ---
 
+### F-059 — P1 — a worktree cleanup cannot classify appears in no cleanup report at all
+
+**Tied to:** unpushed-commit-guard Phase 4 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
+
+`cleanup` sorts every worktree into three sets — removable, skipped for uncommitted changes, skipped for
+a live agent (`src/commands/cleanup.ts:24-44`, `:114-116`). A worktree whose `ahead` count could not be
+taken falls into none of them, so it is silently absent from the run.
+
+**This is a regression Phase 3 introduced, not merely a gap it left.** A worktree that is *dirty and
+uncountable* used to be reported under *"Skipped N worktree branches that have uncommitted changes"* with
+its change count. Reproduced against the built `dist/` on 2026-09-11, one entry with `ahead: undefined`,
+`aheadUnknownReason` set and `uncommittedChanges: 3`:
+
+```
+OLD  safeToRemove: false   reported as skipped-for-changes: true
+NEW  safeToRemove: false   reported as skipped-for-changes: false
+```
+
+The hold-back probe asks `isSafeToRemove` about a copy with the count zeroed, and after D1 that copy is
+still unsafe on the uncounted `ahead` — so the entry stops qualifying for the heading. A worktree with
+work in it vanished from a report that previously named it. Nothing is deleted, which is why this is not
+a data-loss finding; it is the disclosure half of the same defect, and D5's whole argument is that a
+`cleanup` that cannot classify anything must not look like a `cleanup` with nothing to do.
+
+**Tied to Phase 4 deliberately, at `P1` so it gates it.** Phase 4 is the phase that owns cleanup's
+listing (D6, §4.4), and its §6.2 *Done when* as written — *"no line in cleanup's 'marked safe to remove'
+listing is printed without a reason"* — is about lines that **are** printed, so Phase 4 could pass its own
+gate with this gap intact. Phase 4 is to satisfy the stronger condition instead: **every worktree
+`gitGetWorktreeList` returns appears in exactly one of cleanup's sets, or is named as uncountable.**
+
+**Closes when:** a Gate 2 run on Phase 4 passes with a dirty-and-uncountable worktree named in cleanup's
+output, and no worktree the gather returns absent from every set.
+
 ## The 2026-09-11 triage
 
 Thirty-five findings were open here against five features that had already retired, carrying this file to
@@ -130,6 +163,44 @@ is being taken there. This section records a one-time cleanup, not a local polic
 the second copy the Contract above just stopped keeping.
 
 ## Closed
+
+### F-058 — P1 — Phase 3 makes two Phase 2 documentation sentences false
+
+**Tied to:** unpushed-commit-guard Phase 3 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
+
+Both sentences were written by Phase 2, were true at `9fd7796`, and are false at the end of Phase 3.
+Neither surface is on Phase 3's **Files:** line, which is why the phase missed them — but the standing
+rule in `AGENTS.md` is about what a change makes untrue, not about what it touches.
+
+`docs/src/app/docs/configuration/page.mdx:44-46` promises the reader will not be *"shown a reassuring
+blank"*. `docs/src/app/docs/commands/list/page.mdx:78-79` says the uncountable detail *"appears in
+`remove`'s picker and in `cleanup`'s listing"*.
+
+At `9fd7796` an uncountable no-remote worktree was `safeToRemove: true`, so it appeared in cleanup's
+removal listing carrying its reason. Phase 3 correctly makes it unsafe — and cleanup has no set for a
+worktree that is neither removable nor held back for changes or an agent, so it now appears in none of
+them and `cleanup.ts` prints `No stale worktree branches found.` That is the reassuring blank the
+configuration page promises is not shown. The reviewer enumerated all 108 entry shapes carrying
+`aheadUnknownReason`: the 54 that reach a cleanup listing all have `pathExists: false`, and `countAhead`
+never sets a reason in that case — so no entry the gather can produce reaches a listing with the detail.
+
+**Closes when:** a Gate 2 run passes with both sentences scoped to where the disclosure actually happens
+after Phase 3 — `list` and `remove`'s picker — and cleanup's silence named rather than contradicted.
+
+**Closed:** 2026-09-11 by the Gate 2 re-run on this branch, loopback 1 of 2. Both passages were verified
+clause by clause against source rather than against the old wording. `configuration/page.mdx` now scopes
+the disclosure — `list` and `remove`'s picker name an uncountable worktree, `cleanup` "holds it back but
+does not yet name it, so a sweep that cannot classify anything reports finding nothing" — and
+`list/page.mdx` states which two reports `cleanup` has and that an uncountable worktree belongs to
+neither. The reviewer confirmed the picker claim by reading `src/commands/remove.ts:31-35`, which renders
+every entry through `worktreeListEntryToListName` and filters none out.
+
+A second `P2` arrived with the fix and was taken in the same pass: the replacement sentence had
+reintroduced the unqualified *"never classified as safe to remove"* — the phrase [F-056](#f-056) was
+raised on — which is still false for a worktree whose directory is gone, since `isSafeToRemove` returns
+`true` before any count is consulted. Both that sentence and `README.md`'s closing line now carry the
+same "whose directory still exists" qualifier the cleanup page uses, so no unqualified safety promise is
+left anywhere in this feature's documentation. The underlying behaviour is §9 Q5 and stays out of scope.
 
 ### F-056 — P1 — the configuration page promises a safety guarantee Phase 2 does not deliver
 

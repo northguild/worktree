@@ -176,7 +176,7 @@ worktree rm feature/add-bulk-actions
 worktree cleanup
 ```
 
-The cleanup command targets worktrees that are considered safe to remove, for example branches whose remote no longer exists or local worktrees with no tracked remote and no pending work.
+The cleanup command targets worktrees that are considered safe to remove, for example branches whose remote no longer exists, and local worktrees with no tracked remote. Either way the worktree has to be carrying nothing — no uncommitted changes, and no commits that have not been pushed. A commit count that could not be taken is never read as a zero, so a worktree whose directory still exists is held back rather than swept when it cannot be checked.
 
 A worktree that an agent session is living in is held back and reported as skipped. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
 

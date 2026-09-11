@@ -224,6 +224,22 @@ export function hasLiveAgent(wt: WorktreeListEntry): boolean {
   return !!wt.agent && wt.agent.live !== false;
 }
 
+// The distinction this whole feature rests on: a count of zero is not the same
+// fact as a count that was never taken, and only the first one makes a worktree
+// disposable. `ahead === undefined` means nobody ever asked, so it answers
+// false — unknown is never safe. See UNPUSHED-COMMIT-GUARD-PLAN §3 D1, #63.
+//
+// Both remove-permitting clauses below close over this, so the rule exists once
+// rather than being spelled out twice and drifting.
+//
+// `behind` is deliberately not consulted. It is undefined for every worktree
+// without an upstream (D4), so requiring it to be falsy would be trusting the
+// very unknown this function refuses to trust — and being behind loses nothing
+// on removal: it is staleness, not work at risk.
+function carriesNoKnownWork(wt: WorktreeListEntry): boolean {
+  return wt.ahead === 0;
+}
+
 export function isSafeToRemove(wt: WorktreeListEntry): boolean {
   if (!wt.pathExists) {
     // Worktree is defined but doesn't exist in the filesystem. Tested first, and
@@ -243,12 +259,17 @@ export function isSafeToRemove(wt: WorktreeListEntry): boolean {
     return false;
   }
   if (wt.remote && !wt.remoteExists) {
-    // Worktree is tracking a remote branch that no longer exists.
-    return true;
+    // Tracking a remote branch that no longer exists. Disposable only if
+    // nothing local outlives the branch that is gone.
+    return carriesNoKnownWork(wt);
   }
-  if (!wt.remote && !wt.ahead && !wt.behind) {
-    // Worktree has no changes and it not tracking any remote branch.
-    return true;
+  if (!wt.remote) {
+    // Not tracking anything. This clause used to read
+    // `!wt.remote && !wt.ahead && !wt.behind`, and its last two conjuncts could
+    // never be anything but true when the first one was: no remote forced
+    // `remoteExists` false, which is what left both counts uncounted. It read
+    // as "no remote and no work" and meant "no remote". That is the incident.
+    return carriesNoKnownWork(wt);
   }
   return false;
 }
@@ -509,7 +530,18 @@ export async function gitRemoveWorktree(
   async function promptRemoval(worktree: WorktreeListEntry) {
     if (worktree.ahead) {
       return await confirm({
-        message: `This branch is ${worktree.ahead} commits ahead so you might lose some work. Are you sure you want to remove this worktree?`,
+        message: `This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
+        default: false,
+      });
+    }
+    // The count could not be taken, so this worktree may be carrying anything.
+    // The generic prompt below would imply there is nothing to weigh, which is
+    // the disclosure half of the incident: the decision and the warning failed
+    // from the same undefined. Naming the reason is what lets someone check
+    // before answering. See §3 D1 and D5.
+    if (worktree.aheadUnknownReason) {
+      return await confirm({
+        message: `Unpushed commits could not be counted for this branch (${worktree.aheadUnknownReason}), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?`,
         default: false,
       });
     }
@@ -527,7 +559,18 @@ export async function gitRemoveWorktree(
 
   if (force || (await promptRemoval(worktree))) {
     await gitNukeWorktree(branchName, {
-      force: force || !!worktree.ahead || !!worktree.uncommittedChanges,
+      // An uncountable branch is forced too. Not because the removal would
+      // otherwise fail — a dirty tree already sets this through
+      // `uncommittedChanges`, and `git worktree remove` does not refuse a tree
+      // `git status -s` reports as clean. `force` governs only whether that
+      // command tolerates state git status cannot see, and it costs nothing
+      // here: gitNukeWorktreeCmd runs `git branch -D` unconditionally either
+      // way. The user has been told what they might be losing and said yes.
+      force:
+        force ||
+        !!worktree.ahead ||
+        !!worktree.aheadUnknownReason ||
+        !!worktree.uncommittedChanges,
     });
   }
 }

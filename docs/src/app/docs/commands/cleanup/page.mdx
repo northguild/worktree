@@ -14,14 +14,31 @@ worktree cleanup
 
 Typical cleanup targets include:
 
-- worktrees whose remote branch no longer exists, as long as they hold no uncommitted changes
-- local worktrees with no tracked remote and no pending work
+- worktrees whose remote branch no longer exists, as long as they carry no unpushed commits
+  and hold no uncommitted changes
+- local worktrees with no tracked remote that carry no unpushed commits and hold no
+  uncommitted changes
 
-Uncommitted changes disqualify a worktree from removal whatever its remote looks like. The
-count comes from `git status -s`, so untracked files hold a worktree back too.
+## What holds a worktree back
 
-`cleanup` reports every worktree it would otherwise have removed but held back for that
-reason, along with its change count, so work in progress is named rather than swept up.
+**Uncommitted changes** disqualify a worktree whatever its remote looks like. The count
+comes from `git status -s`, so untracked files hold a worktree back too.
+
+**Unpushed commits** disqualify it too. A worktree whose directory still exists is only
+removed when its commit count was actually taken and came back zero — a count that could not
+be taken is never read as "no work". This matters most for a branch you never pushed: it has no upstream to compare
+against, so the comparison base is `origin/HEAD`, falling back to
+[`defaultSourceBranch`](/docs/configuration). If neither resolves the count cannot be taken,
+and the worktree is held back rather than swept.
+
+That second rule is newer than the first, and the ordering is deliberate: committing work
+must never move a worktree from protected to disposable.
+
+**A live agent session** holds one back as well — see below.
+
+`cleanup` reports every worktree it would otherwise have removed but held back for
+uncommitted changes, along with its change count, so work in progress is named rather than
+swept up.
 
 ## Flags
 

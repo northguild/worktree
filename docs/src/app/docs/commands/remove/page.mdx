@@ -22,3 +22,36 @@ worktree rm feature/add-bulk-actions
 ```
 
 The alias `rm` is available for `remove`.
+
+## The confirmation prompt
+
+Naming a branch removes that worktree after one confirmation. The prompt says what you
+stand to lose, rather than asking a bare "are you sure":
+
+```text
+This branch is 1 commit ahead so you might lose some work. Are you sure you want to remove this worktree?
+```
+
+```text
+This branch has 3 uncommitted changes so you might lose some work. Are you sure you want to remove this worktree?
+```
+
+Commits count here even when the branch was never pushed. Where there is no upstream the
+count is taken against `origin/HEAD`, falling back to
+[`defaultSourceBranch`](/docs/configuration). If neither resolves the count cannot be taken
+at all, and the prompt says that instead of implying there is nothing to weigh:
+
+```text
+Unpushed commits could not be counted for this branch (no comparison base; set defaultSourceBranch or run git remote set-head origin --auto), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?
+```
+
+A worktree with nothing at stake gets the plain question.
+
+`--force` skips the prompt entirely. Unlike [`cleanup`](/docs/commands/cleanup), `remove`
+names one worktree that you chose, so `--force` here answers only the confirmation you
+would otherwise have been given.
+
+Running `remove` with no branch shows a picker instead, grouped into branches that are safe
+to delete and branches that are still active. Each entry carries the same detail
+[`list`](/docs/commands/list) shows, so unpushed commits are visible before you select
+anything.

@@ -152,7 +152,8 @@ worktree remove feature/add-bulk-actions
 worktree rm feature/add-bulk-actions          # alias
 worktree remove feature/add-bulk-actions --force  # skip confirmation
 
-# Remove all stale worktrees (no unpushed work, remote gone, etc.)
+# Remove all stale worktrees (no unpushed commits, nothing uncommitted,
+# remote gone or never set, no live agent session)
 worktree cleanup
 worktree cleanup --force                      # skip confirmation
 worktree cleanup --ignore-agents              # sweep even worktrees an agent is in

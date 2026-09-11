@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { EOL } from "node:os";
+import { confirm } from "@inquirer/prompts";
 import { expectCommands, mockRun } from "../test-setup.js";
 import * as agent from "./agent.js";
 import * as cli from "./cli.js";
@@ -18,6 +19,7 @@ import {
   gitGetUncommittedChangesCount,
   gitGetWorktreeList,
   gitNukeWorktreeCmd,
+  gitRemoveWorktree,
   gitSetConfigValue,
   isSafeToRemove,
 } from "./git.js";
@@ -32,14 +34,21 @@ import type {
 const spinnerMocks = vi.hoisted(() => {
   const succeed = vi.fn();
   const fail = vi.fn();
-  const start = vi.fn().mockReturnValue({ succeed, fail });
+  // `stop` is here for gitRemoveWorktree, which stops its spinner before
+  // prompting rather than resolving it either way.
+  const stop = vi.fn();
+  const start = vi.fn().mockReturnValue({ succeed, fail, stop });
   const oraFactory = vi.fn().mockReturnValue({ start });
 
-  return { succeed, fail, start, oraFactory };
+  return { succeed, fail, stop, start, oraFactory };
 });
 
 vi.mock("ora", () => ({
   default: spinnerMocks.oraFactory,
+}));
+
+vi.mock("@inquirer/prompts", () => ({
+  confirm: vi.fn(),
 }));
 
 describe("git branch parsing", () => {
@@ -661,6 +670,12 @@ describe("gitNukeWorktreeCmd", () => {
 });
 
 describe("isSafeToRemove", () => {
+  // `ahead: 0` is part of the baseline deliberately: after D1 a worktree is
+  // only disposable on a count that was actually taken, so "an ordinary empty
+  // worktree" now has to say that the count happened and came back zero. A
+  // fixture defaulting to undefined would mean "never counted", which is a
+  // different worktree and an unsafe one. The tests below that care about the
+  // difference pass `ahead` explicitly.
   function entry(
     overrides: Partial<WorktreeListEntry> = {},
   ): WorktreeListEntry {
@@ -669,6 +684,7 @@ describe("isSafeToRemove", () => {
       branchName: "feature/test",
       pathExists: true,
       remote: "",
+      ahead: 0,
       uncommittedChanges: 0,
       ...overrides,
     };
@@ -730,9 +746,12 @@ describe("isSafeToRemove", () => {
     ).toBe(true);
   });
 
-  // An unknown count must not read as "has changes" — the field is optional, so
-  // the hoisted test is a truthiness check rather than a comparison against 0.
-  it("is still safe when the remote was deleted and the count is unknown", () => {
+  // An unknown *uncommitted* count must not read as "has changes" — the field
+  // is optional, so the hoisted test is a truthiness check rather than a
+  // comparison against 0. The ahead count is a counted zero here, which is what
+  // keeps this test about the field it names; unknown `ahead` is D1's case and
+  // is pinned separately below.
+  it("is still safe when the remote was deleted and the uncommitted count is unknown", () => {
     expect(
       isSafeToRemove(
         entry({
@@ -791,6 +810,72 @@ describe("isSafeToRemove", () => {
   it("is not safe when a live session and uncommitted work are both present", () => {
     expect(
       isSafeToRemove(entry({ agent: liveAgent(), uncommittedChanges: 3 })),
+    ).toBe(false);
+  });
+
+  // D1, the decision this whole feature serves. The three cases §6.2 names as
+  // Phase 3's "done when", plus the incident itself.
+
+  // The incident: a branch nobody ever pushed, carrying commits that exist in
+  // exactly one place. Before this phase the clause read `!wt.remote &&
+  // !wt.ahead && !wt.behind` against an `ahead` nobody had counted, and
+  // answered true.
+  it("is not safe with no remote and an uncounted ahead", () => {
+    expect(isSafeToRemove(entry({ ahead: undefined }))).toBe(false);
+  });
+
+  it("is not safe with no remote and commits ahead", () => {
+    expect(isSafeToRemove(entry({ ahead: 3 }))).toBe(false);
+  });
+
+  it("is safe with no remote and a counted zero ahead", () => {
+    expect(isSafeToRemove(entry({ ahead: 0 }))).toBe(true);
+  });
+
+  // The other exposed clause, which CLEANUP-DATA-LOSS-PLAN recorded as Q1: the
+  // remote was deleted, but the local branch still carries commits.
+  it("is not safe when the remote was deleted and commits are ahead", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: false,
+          ahead: 2,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is not safe when the remote was deleted and the ahead count is unknown", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: false,
+          ahead: undefined,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  // D4 in the predicate: `behind` is not consulted at all. A worktree that is
+  // behind but carries nothing of its own is stale, not at risk, and staleness
+  // is exactly what cleanup exists to sweep. Reading `behind` here would also
+  // mean trusting an undefined this function has just refused to trust.
+  it("is safe when behind but carrying nothing of its own", () => {
+    expect(isSafeToRemove(entry({ ahead: 0, behind: 5 }))).toBe(true);
+  });
+
+  // A worktree whose count could not be taken carries a reason, and the reason
+  // must not make it safe — it is the same unknown wearing a label.
+  it("is not safe when a reason explains why the count is missing", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          ahead: undefined,
+          aheadUnknownReason: "no comparison base",
+        }),
+      ),
     ).toBe(false);
   });
 });
@@ -1136,5 +1221,128 @@ describe("gitGetWorktreeList ahead counting", () => {
     );
     expect(symbolicRefCalls).toHaveLength(1);
     expect(worktrees.map((wt) => wt.ahead)).toEqual([1, 0]);
+  });
+});
+
+// §1 of UNPUSHED-COMMIT-GUARD-PLAN records that the same uncounted `ahead`
+// disarmed two things, not one: the removal verdict AND the warning. `worktree
+// remove` on a never-pushed branch asked a generic "Are you sure?" rather than
+// naming the commits at risk, because `promptRemoval` reads `worktree.ahead`.
+// Nothing covered this prompt before Phase 3, which is how it stayed disarmed.
+describe("gitRemoveWorktree prompt", () => {
+  const rootPath = "/repo/project";
+  const targetPath = `${rootPath}.worktrees/feature/one`;
+  const mockConfirm = vi.mocked(confirm);
+
+  // gitRemoveWorktree asks for the current branch, then gathers the list, then
+  // prompts. Everything up to the prompt is the gather this file already drives
+  // through run() elsewhere.
+  function mockUpToPrompt(aheadOrReason: string | "reject") {
+    expectCommands(
+      "git branch --show-current",
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${targetPath})`,
+      "git config northguild.worktree.defaultSourceBranch",
+      `git status -s (cwd: ${targetPath})`,
+    );
+
+    mockRun
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("feature/one <-")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(`${targetPath}  abc1234 [feature/one]`);
+
+    if (aheadOrReason === "reject") {
+      // No base resolves at all, so the count is never taken.
+      mockRun
+        .mockRejectedValueOnce(new Error("no origin/HEAD"))
+        .mockRejectedValueOnce(new Error("key unset"));
+    } else {
+      mockRun
+        .mockResolvedValueOnce("origin/main")
+        .mockResolvedValueOnce(aheadOrReason);
+    }
+
+    mockRun.mockResolvedValueOnce("");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    // Declining keeps each test to the prompt itself; the removal path is
+    // covered by the gitNukeWorktreeCmd block above.
+    mockConfirm.mockResolvedValue(false);
+  });
+
+  // The incident's branch, at the prompt. This is §8 step 4.
+  it("names the commits at risk on a never-pushed branch", async () => {
+    mockUpToPrompt("1");
+
+    await gitRemoveWorktree("feature/one");
+
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("1 commit ahead"),
+      }),
+    );
+  });
+
+  // The count is a plain interpolation, so the singular case is the one that
+  // reads wrong — and one commit is the common shape for a branch just made.
+  it("pluralises the commit count", async () => {
+    mockUpToPrompt("4");
+
+    await gitRemoveWorktree("feature/one");
+
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("4 commits ahead"),
+      }),
+    );
+  });
+
+  // The disclosure half of D1: a count that could not be taken must not fall
+  // through to a prompt that implies there is nothing to weigh.
+  it("says so when the count could not be taken at all", async () => {
+    mockUpToPrompt("reject");
+
+    await gitRemoveWorktree("feature/one");
+
+    const message = mockConfirm.mock.calls[0]?.[0]?.message;
+    expect(message).toContain("could not be counted");
+    expect(message).toContain("no comparison base");
+  });
+
+  // A counted zero is the one case that has nothing to disclose, and it must
+  // still read as the ordinary confirmation rather than a warning.
+  it("asks the plain question when the branch is known to carry nothing", async () => {
+    mockUpToPrompt("0");
+
+    await gitRemoveWorktree("feature/one");
+
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Are you sure you want to remove this worktree?",
+      }),
+    );
+  });
+
+  it("removes nothing when the prompt is declined", async () => {
+    mockUpToPrompt("1");
+
+    await gitRemoveWorktree("feature/one");
+
+    const removeCalls = mockRun.mock.calls.filter(
+      (call) => call[1]?.[0] === "worktree" && call[1]?.[1] === "remove",
+    );
+    expect(removeCalls).toHaveLength(0);
   });
 });
