@@ -284,6 +284,51 @@ function toWorktreeAgent(
   };
 }
 
+interface AheadCount {
+  ahead?: number;
+  aheadUnknownReason?: string;
+}
+
+// The one count that can legitimately fail to take, so every exit says which
+// happened: a number, or a reason it is missing. Never a zero standing in for a
+// count that was never taken — that substitution is the whole defect this
+// feature exists to remove. See UNPUSHED-COMMIT-GUARD-PLAN §3 D1, issue #63.
+async function countAhead(
+  worktreePath: string,
+  pathExists: boolean | undefined,
+  remoteExists: boolean,
+  comparisonBase: string,
+): Promise<AheadCount> {
+  if (!pathExists) {
+    // No directory to run in. `pathExists` already carries this and the
+    // listing already prints "Path does not exist", so a second detail saying
+    // the same thing would only be noise. What such a worktree's verdict
+    // should be is §9 Q5, left open by this plan and by CLEANUP-DATA-LOSS.
+    return {};
+  }
+
+  // The upstream where the branch has one that still exists — that is the
+  // count `list` has always shown, and it is the more precise question. The
+  // run's comparison base is for the branch nobody ever pushed, which is
+  // exactly the worktree this feature exists to stop losing.
+  const base = remoteExists ? "@{u}" : comparisonBase;
+  if (!base) {
+    return {
+      aheadUnknownReason:
+        "no comparison base; set defaultSourceBranch or run git remote set-head origin --auto",
+    };
+  }
+
+  try {
+    return { ahead: await gitGetCommitsAheadCount(worktreePath, base) };
+  } catch {
+    // D5: failing closed loses nothing, but failing closed *silently* makes a
+    // cleanup that cannot classify anything look like a cleanup with nothing
+    // to do. The reason rides the entry to whoever is reading.
+    return { aheadUnknownReason: `${base} could not be resolved` };
+  }
+}
+
 export async function gitGetWorktreeList({
   includeCurrent = false,
   includeAgents = false,
@@ -297,16 +342,34 @@ export async function gitGetWorktreeList({
   // call would be a fourth, and a caller that never renders agents must not pay
   // for the one. See AGENT-MODE-PLAN §3 D4 and §5 R4.
   const sessions = includeAgents ? await getAgentSessions() : [];
+  // Once for the whole run, not once per worktree — the loop below is serial
+  // and this gather has four callers, so a per-worktree resolution would be
+  // paid four ways for an answer that cannot differ between them. Same
+  // reasoning as the session lookup above. See §4.1 and §5 R1.
+  const comparisonBase = await gitGetComparisonBase();
 
   const worktreeList: WorktreeListEntry[] = [];
 
   for (const { path, branchName, pathExists, isCurrent } of result) {
     const remote = tracking.find((t) => t.local === branchName)?.remote ?? "";
     const remoteExists = !!remote && remoteBranches.includes(remote);
-    const ahead =
-      pathExists && remoteExists
-        ? await gitGetCommitsAheadCount(path)
-        : undefined;
+    // `ahead` is now counted for every worktree whose directory is there, not
+    // only for those with an upstream. The old `remoteExists` guard was an
+    // error-dodge — `@{u}` does not resolve without an upstream and run()
+    // rejects — and leaving the count untaken is what let a branch carrying
+    // unpushed commits read as empty.
+    const { ahead, aheadUnknownReason } = await countAhead(
+      path,
+      pathExists,
+      remoteExists,
+      comparisonBase,
+    );
+    // `behind` keeps that guard, deliberately. Against the default branch it
+    // would mean "commits on main this branch does not have", non-zero for
+    // almost every worktree the moment main advances — and it is a conjunct of
+    // a safety clause, so cleanup would stop removing anything at all. Being
+    // behind also loses nothing on removal: it is staleness, not work at risk.
+    // See §3 D4.
     const behind =
       pathExists && remoteExists
         ? await gitGetCommitsBehindCount(path)
@@ -322,6 +385,7 @@ export async function gitGetWorktreeList({
       remoteExists,
       ahead,
       behind,
+      aheadUnknownReason,
       pathExists,
       uncommittedChanges,
       isCurrent,

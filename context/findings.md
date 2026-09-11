@@ -131,6 +131,63 @@ the second copy the Contract above just stopped keeping.
 
 ## Closed
 
+### F-056 — P1 — the configuration page promises a safety guarantee Phase 2 does not deliver
+
+**Tied to:** unpushed-commit-guard Phase 2 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
+
+`docs/src/app/docs/configuration/page.mdx:44-46`, written by this phase, reads *"the worktree is reported
+as uncountable and **is never classified as safe to remove**."* The second half is false of the code this
+phase leaves behind. `isSafeToRemove` (`src/lib/git.ts:227-254`) is untouched by Phase 2 by design — D1's
+rewrite is Phase 3 — so an entry with `remote: ""` and `ahead: undefined` still reaches
+`if (!wt.remote && !wt.ahead && !wt.behind)` and returns `true`.
+
+Reproduced by hand in a scratch repository with no `origin`: `worktree list` prints the uncountable detail
+for `feature/orphan`, which carries one unpushed commit, and `worktree cleanup` then prints
+`Found 1 worktree branch that is marked safe to remove.` for that same worktree. The page tells the reader
+they are protected on the exact line where the tool offers to delete the work.
+
+`P1` rather than `P2` because the untrue claim is a data-safety promise, in the feature born from an actual
+data-loss incident. §7 routes every other "safe to remove" wording to Phase 3; this one sentence was
+written early, which is the inconsistency. Nothing reached the published site — `context/git.md` pushes
+once per feature at `/feature-close`.
+
+**Closes when:** a Gate 2 run passes with the guarantee removed from the sentence, leaving only what is
+true after Phase 2 — the count is not taken, nothing is treated as zero, the worktree is reported as
+uncountable. Phase 3 is what earns the guarantee and may add it back.
+
+**Closed:** 2026-09-11 by the Gate 2 re-run on this branch, loopback 1 of 2. The guarantee was cut: the
+sentence now reads *"the worktree is reported as uncountable, so you can see that the question was never
+answered rather than being shown a reassuring blank"*, which claims disclosure and nothing about the
+removal verdict. The reviewer checked each clause against the code rather than against the old sentence,
+and confirmed neither the replacement nor the surrounding section leaks the protection claim back in —
+the word "never" and the phrase "safe to remove" no longer appear in it. Phase 3 is what earns the
+guarantee, alongside the `cleanup/page.mdx` and `README.md:179` edits §7 already assigns to it.
+
+### F-057 — P2 — the unresolvable-base message names a remedy that does not work
+
+**Tied to:** unpushed-commit-guard Phase 2 · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
+
+`src/lib/git.ts:317-318` renders D5's reason as *"no comparison base; set defaultSourceBranch or fetch so
+origin/HEAD resolves"*, and `docs/src/app/docs/commands/list/page.mdx:75` quotes it verbatim. Fetching does
+not restore `origin/HEAD`. Confirmed by hand on git 2.38.1: after `git symbolic-ref -d
+refs/remotes/origin/HEAD`, a `git fetch --prune` leaves it unset and `git remote set-head origin --auto`
+restores it.
+
+The same phase's `configuration/page.mdx:51` already recommends the working command, so the two halves of
+this phase's own D5 disclosure disagree — and the half the user sees at the terminal is the wrong one. D5
+exists so the reason reaches the user; a reason carrying a remedy that silently fails is a weaker version
+of the silence D5 rejects.
+
+**Closes when:** a Gate 2 run passes with the message naming `git remote set-head origin --auto`, and the
+example output on the list page updated to match it verbatim.
+
+**Closed:** 2026-09-11 by the same Gate 2 re-run. `src/lib/git.ts` now renders the reason as *"no
+comparison base; set defaultSourceBranch or run git remote set-head origin --auto"*, and the example on
+the list page matches the rendered line byte for byte — the reviewer diffed the two and got `IDENTICAL`.
+Both sub-cases have a working remedy on offer, which the old wording gave neither: where `origin` exists
+but `origin/HEAD` is unset, `set-head --auto` restores it; where there is no `origin` at all it exits 128
+and the other alternative, setting `defaultSourceBranch`, is the one that applies.
+
 ### F-055 — P2 — the placeholder that is this feature's only user-facing documentation is clipped mid-sentence
 
 **Tied to:** chat-input-multiline Phase 1 · **Raised:** 2026-09-10 (hand, during Phase 3's verification)

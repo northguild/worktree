@@ -8,7 +8,7 @@ title: Configuration
 
 ## Common Keys
 
-- `defaultSourceBranch` (example: `origin/main`)
+- `defaultSourceBranch` (example: `origin/main`) — see [Default source branch](#default-source-branch)
 - `opener` (`editor` or `herdr`, default `editor`)
 - `codeEditor` (example: `code`)
 - `herdr.focus` (`true` or `false`, default `true`)
@@ -22,6 +22,35 @@ title: Configuration
 - `branchPrefix.feature` (example: `feature/`)
 - `branchPrefix.bugfix` (example: `fix/`)
 - `branchPrefix.chore` (example: `chore/`)
+
+## Default source branch
+
+`defaultSourceBranch` answers two questions, and they are not the same one.
+
+**Where a new branch starts.** `worktree branch` uses it when you pass no
+`--source`, and prompts if it is unset.
+
+**What counts as unpushed work.** `list`, `cleanup` and `remove` compare each
+worktree against a base to decide how many commits it carries that nowhere else
+has. That base is `origin/HEAD` — the repository's own record of its default
+branch — and `defaultSourceBranch` is the fallback when `origin/HEAD` is not
+set, which happens in clones made before git began recording it.
+
+`origin/HEAD` is asked first deliberately. If the config key were read first,
+setting it to `origin/develop` because that is where you branch from would also
+change which commits count as unpushed, and a worktree could be classified as
+safe to delete on the strength of a preference about branching.
+
+If neither resolves, no count is taken. Nothing is guessed and nothing is
+treated as zero: the worktree is reported as uncountable, so you can see that
+the question was never answered rather than being shown a reassuring blank. To
+fix it, set the key or restore the ref:
+
+```bash
+worktree config defaultSourceBranch origin/main
+# or, to let git record it again:
+git remote set-head origin --auto
+```
 
 ## Editor Command
 

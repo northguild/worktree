@@ -171,7 +171,7 @@ under `northguild.worktree.*`.
 
 | Key | Example value | Required for |
 |---|---|---|
-| `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source` |
+| `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
 | `opener` | `editor` or `herdr` | where a worktree opens; defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
