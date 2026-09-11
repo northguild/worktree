@@ -142,7 +142,8 @@ worktree config branchPrefix.chore chore/
 ## Opener Notes
 
 - `opener` selects where a finished worktree is handed off: `editor` uses `codeEditor`, `herdr`
-  opens it as a Herdr space. Unset means `editor`.
+  opens it as a Herdr space — and closes that space again when the worktree is removed. Unset means
+  `editor`.
 - `codeEditor` is used only by the `editor` opener — see [Editor Command](#editor-command) above and
   the [Editor Integration](/docs/guides/editor-integration) guide.
 - `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`. See

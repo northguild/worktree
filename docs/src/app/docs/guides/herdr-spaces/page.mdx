@@ -49,6 +49,9 @@ so several worktrees of the same repository stay distinguishable in the sidebar.
 Re-opening a worktree that already has a space reuses it rather than creating a second one, and
 switches to it unless you have turned focus off below.
 
+When the worktree is removed, its space is closed again — see
+[When the worktree goes](#when-the-worktree-goes).
+
 ## Focus
 
 The space comes to the front by default, because every command that opens a worktree is you asking
@@ -78,7 +81,43 @@ The agent name is derived from the branch and coerced to what Herdr accepts. If 
 most often a name already taken by a live agent from another repository — you get a warning, and
 the space is still open and correct.
 
+## When the worktree goes
+
+`worktree remove` and `worktree cleanup` delete a checkout. With `opener herdr` they also close the
+Herdr space that was built around it, so a space does not outlive the worktree it belongs to.
+
+```bash
+worktree remove feature/add-bulk-actions
+```
+
+```
+✔ Worktree feature/add-bulk-actions was removed.
+✔ Closed Herdr space feature/add-bulk-actions
+```
+
+**Only worktrees that were actually removed.** A branch that was not found, a confirmation you
+declined, a removal that failed, any worktree `cleanup` held back — for uncommitted changes, a live
+agent, or unpushed commits it could not count — none of those close anything. Their checkouts are still on disk, and a space with no window
+into a checkout that still exists is worse than one left open.
+
+**Only this repository's spaces.** The lookup is scoped to the repository you are in, and the space
+your own checkout is open in — the window you are sitting in — is never one of the candidates.
+
+A worktree with no space open is not an error and prints nothing. Neither is a repository you have
+never opened in Herdr.
+
+**`worktree cleanup --ignore-agents` is sharper than it was.** The flag gathers no agent sessions, so
+a worktree an agent is living in is not held back — and closing its space now takes down the panes
+that agent is working in. That is the cost of "do not look", and it is larger than before spaces
+were closed. Without the flag, a live agent holds its worktree back, and its space with it.
+
 ## When Herdr cannot be reached
+
+Every call to Herdr is bounded, so a Herdr that accepts the connection and then never answers fails
+with a line saying so rather than hanging the command. Ten seconds for an open, a lookup or a close;
+longer for starting an agent, because Herdr itself holds that request open while the agent boots.
+
+### Opening
 
 If `herdr` is not installed, the server is not running, or the open fails, `worktree` prints what
 Herdr said and where the worktree is:
@@ -88,11 +127,38 @@ Herdr said and where the worktree is:
 The worktree is at /path/to/repo.worktrees/feature/add-bulk-actions
 ```
 
+A call that times out reads the same way, naming the command and how long it waited:
+
+```
+✖ Herdr: `herdr worktree open --path /path/to/repo.worktrees/feature/add-bulk-actions --cwd /path/to/repo --label feature/add-bulk-actions --focus` did not answer within 10s.
+```
+
 It does not fall back to your editor. Setting `opener herdr` is a deliberate choice, and an
 unexpected editor window is not a useful consolation prize.
 
 The command still exits `0`. By the time the opener runs, the branch, the worktree and the copied
 env files all exist — the only thing that failed is the last step.
+
+### Closing
+
+A failed close is a warning and nothing more — including a timeout, which is a warning here rather
+than the error it would be on the way in:
+
+```
+⚠ Herdr: workspace wQ not found (workspace_not_found)
+⚠ Herdr: `herdr workspace close wQ` did not answer within 10s.
+```
+
+The command still exits `0`, but for a different reason than above, and the difference is worth
+knowing. At open time the last step failed and everything before it succeeded. At close time the
+worktree is **already deleted**, the branch is gone and `git worktree prune` has run — so there is
+nothing to retry and nothing to undo. A non-zero exit would claim the removal did not happen when
+it did.
+
+What is left behind is a space with no checkout under it, which you can close from Herdr's own
+sidebar. Each space is closed independently, so one failure does not take the rest of a
+`worktree cleanup` with it. If the lookup itself fails, you get one warning and no spaces are
+closed — the removals still happen.
 
 ## Configuration reference
 
