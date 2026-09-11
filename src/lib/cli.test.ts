@@ -127,6 +127,17 @@ describe("run", () => {
     );
     expect(existsSync(sentinel)).toBe(false);
   });
+
+  it("leaves the output untouched when trim is false", async () => {
+    // A NUL-delimited stream is not a single value: `git ls-files -z` sorts a
+    // path whose first component starts with a space ahead of every other, and
+    // the default trim would rename it to one that does not exist.
+    const stream = `process.stdout.write(' lead/.env\\0.env\\0')`;
+
+    await expect(run(node, ["-e", stream], { trim: false })).resolves.toBe(
+      " lead/.env\0.env\0",
+    );
+  });
 });
 
 describe("runCapturing", () => {

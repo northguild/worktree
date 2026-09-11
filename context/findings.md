@@ -866,6 +866,43 @@ source — the first belongs under `describe("the worktree is the deliverable")`
 **Closes when:** a Gate 1 run passes with the three-line spinner assertion added to *still creates and opens
 the worktree when the assignment throws*, in the shape the unassigned case already uses.
 
+### F-052 — P3 — env files inside a submodule are no longer copied into a new worktree
+
+**Tied to:** ad-hoc · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
+
+`copyEnvFilesFromRootPath` now selects with `git ls-files --others --ignored --exclude-standard`
+(`src/lib/env.ts:45-59`), and git does not descend into a submodule when listing the parent's files. The
+filesystem glob this replaced did descend, so a gitignored `.env` inside a submodule was copied before and
+is not now. Reproduced by the reviewer on a scratch repo: a seeded `sub/.env` was absent from the listing
+while a filesystem walk found it.
+
+The trade was taken deliberately — selecting on what git is not carrying is what fixes the wider defect —
+and the loss is documented in `docs/src/app/docs/guides/env-files/page.mdx`. It is recorded here because
+the documentation is a workaround, not a fix: a repository that keeps its env files in submodules is worse
+off than before this change.
+
+**Closes when:** a Gate 1 run passes with the submodule case covered — one `git ls-files` per submodule
+path, pinned by a test in `src/lib/env.test.ts`. It is otherwise withdrawn rather than closed, if someone
+decides submodules stay out of scope; a recorded decision is not something a gate run can witness.
+
+### F-053 — P3 — the env-copy spinner is never failed, so a copy error leaves it mid-spin
+
+**Tied to:** ad-hoc · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent)
+
+`src/lib/env.ts:70-80` starts a spinner per file, then calls `fs.mkdirSync` and `fs.copyFileSync` between
+`start()` and `succeed()`. Either can throw — EACCES, or a source file removed between the listing and the
+copy — and nothing calls `spinner.fail()`, so the spinner is left spinning while the raw Node error
+surfaces. The error reaches the user *after* `gitCreateWorktree` has already made the worktree, and nothing
+says the tree exists or that the file can be copied by hand.
+
+`context/standards/typescript/error-handling.md`'s core rules are not broken — the cause propagates
+verbatim — but its user-facing guidance ("explain the failure, explain the next step") is not met. This is
+unchanged from the pre-change code and so is not a regression; it is recorded rather than fixed to keep
+that change commit-sized.
+
+**Closes when:** a Gate 1 run passes with the two fs calls wrapped so `spinner.fail()` runs and the rethrown
+error names both the file and the already-created worktree.
+
 ## Closed
 
 ### F-039 — P2 — a quoted `codeEditor` value no longer launches

@@ -91,7 +91,7 @@ That will:
 
 1. create a new branch from your configured source branch
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
-3. copy `.env` and `.env.local` files from the main repository
+3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc`
 4. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
 
 ## Common Workflows

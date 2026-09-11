@@ -123,6 +123,7 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 1. Assigns the issue to you, when creating from `--github` and assignment is enabled.
 2. Creates a branch from your configured source branch.
 3. Adds a worktree under `<repo>.worktrees/<branch-name>`.
-4. Copies `.env` files into the new worktree.
+4. Copies the gitignored env files into the new worktree — see
+   [Environment Files](/docs/guides/env-files).
 5. Starts the configured coding agent in it (with `--agent`).
 6. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`.

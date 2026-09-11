@@ -4,12 +4,46 @@ title: Environment Files
 
 # Environment Files
 
-`worktree branch` copies `.env` and `.env.local` into new worktrees to reduce setup friction.
+`worktree branch` and `worktree checkout` copy your local environment files into a new worktree so it is
+usable without a round of manual setup.
+
+## What Gets Copied
+
+A file is copied when **both** of these are true:
+
+1. Its name is env-shaped — `.env` and anything starting with it (`.env.local`, `.env.development`,
+   `.env.production`, `.env.test`, `.env.staging`, and the `.env.*.local` override layer), `.dev.vars` and
+   anything starting with it (Cloudflare Wrangler), or `.envrc` (direnv).
+2. Git is not carrying it — the file is untracked and matched by your ignore rules.
+
+The second condition is what keeps the behaviour predictable. A committed `.env.example` is already in the
+new worktree because git checked it out, so it is never copied over itself. Anything git ignores would
+otherwise be missing entirely, which is exactly what this feature exists to fix.
+
+Files are matched anywhere in the repository, not just at the root, and land at the same relative path in
+the new worktree — `docs/worker/.dev.vars` arrives as `docs/worker/.dev.vars`. Directories that exist only
+because of ignored files are created as needed.
+
+Submodules are not searched, because git does not look inside one when listing the parent's files. An env
+file inside a submodule has to be copied by hand.
+
+`node_modules` is excluded, so an env file shipped inside a dependency is never copied.
 
 ## Best Practices
 
-- Keep secrets out of source control.
-- Review copied env values when switching contexts.
+- Keep secrets out of source control — this feature assumes your env files are gitignored, and only copies
+  the ones that are.
+- Review copied env values when switching contexts. A `.env` pointing at a staging database follows you
+  into every new worktree.
+- Commit an `.env.example` so required variables are documented. It is carried by git, not by this copy.
 - Use team conventions for required variables.
 
-If your repository uses additional env files, document that in your team setup guide.
+## If A File Is Not Copied
+
+Check that git actually ignores it:
+
+```bash
+git check-ignore -v .env.staging
+```
+
+No output means the file is not ignored, so it is not copied. Add it to `.gitignore`.

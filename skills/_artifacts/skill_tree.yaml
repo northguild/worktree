@@ -26,7 +26,7 @@ skills:
       jira.apiToken, branchPrefix.*), worktree branch, checkout, list, open,
       remove/rm, cleanup, --github and --jira issue-to-branch workflows,
       handing a new worktree to a coding agent with --agent, list --agents,
-      cleanup --ignore-agents, automatic .env file copying, and opening
+      cleanup --ignore-agents, automatic gitignored env file copying, and opening
       worktrees as Herdr spaces.
     requires: []
     sources:
