@@ -519,7 +519,8 @@ rest were found while writing this plan or auditing it.
 
 Closed findings tied to this feature, moved here from [`../findings.md`](../findings.md) at
 `/feature-close` so that file does not grow for the life of the project. The findings still open against
-this feature stay there; all are `P2` or `P3`, none blocked this close.
+this feature stayed there at the time; all were `P2` or `P3`, and none blocked this close. They were
+disposed of on 2026-09-11 — see *Findings triage* at the end of this document.
 
 ### F-016 — P3 — the configuration docs describe dispatch semantics that no code reads yet
 
@@ -678,3 +679,221 @@ removed the same day: bumping is too late to plan for, and the durable fix belon
 is a step that derives the set, naming every page that enumerates a config key or flag rather than only the
 pages for the commands a feature touches, and the maintainer is taking that to the shared AI-workflow
 repository so it binds every plan in every project.
+
+---
+
+## Findings triage, 2026-09-11
+
+The notes below were **open** against this feature when it retired, not closed. `/feature-close` blocks only
+on an open `P0` or `P1` and sweeps only *closed* findings, so a `P2` or `P3` left open survived the close —
+and could then never close, because a finding closes when the gate that raised it re-passes and that gate
+belonged to a phase that no longer exists. Thirty-five had accumulated across five retired features,
+carrying `context/findings.md` to 76 KB.
+
+They are **withdrawn as findings and kept here as record.** Each is an internal note — a comment that
+overclaims, a doc shape, a style observation — of the kind this log exists to hold. Nothing user-facing was
+withdrawn this way: the behaviour defects and the mutation-resistance gaps went to the backlog instead, as
+issues #55-#60, because those are work someone should still do rather than notes worth not losing.
+
+Withdrawing is not a judgement that each was wrong. It records that no gate will ever close them, so leaving
+them open misrepresented them as live.
+
+### F-014 — P3 — `codeEditor` keeps the whole-line error message that D1 rejected for `agent.command`
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 1)
+
+Phase 1 added `isValidCommandLine` (`src/lib/validators.ts:21-35`) because `isValidCommand`'s message quotes
+the whole value back — `Command not found: claude --bg` names the flag rather than the program that is
+actually missing. That reasoning is `AGENT-MODE-PLAN.md` §3 D1. But the switch wires only `agent.command` to
+the new validator (`src/lib/validators.ts:90-91`); `codeEditor` stays on `isValidCommand`
+(`src/lib/validators.ts:88-89`).
+
+The two keys now have **identical execution semantics and different error quality**: `openWorktreePath`
+splits `codeEditor` on `/\s+/` and launches the head alone (`src/lib/base-command.ts:62`), exactly as
+`agent.command` will, so `worktree config codeEditor "code -n"` with `code` absent reports
+`Command not found: code -n`. The current behaviour is pinned by `src/lib/validators.test.ts:56`, which
+asserts `"Command not found: bad command with args"` — so switching `codeEditor` over is a deliberate change
+with a test to update, not a silent fix.
+
+Out of Phase 1's scope: the plan wires `agent.command` and nothing else, and editing `codeEditor`'s
+validation after Gate 2 had passed on the diff would land an unreviewed behaviour change. Phase 7 is the
+generated-surface sweep and the natural place to take it.
+
+**Closes when:** a Gate 1 run passes with `codeEditor` routed to `isValidCommandLine` and
+`validators.test.ts:56` updated to expect the head alone — or the finding is closed as deliberate if the
+maintainer prefers the two keys to differ.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.
+
+---
+
+### F-023 — P3 — `isHere` is the only const-assigned arrow function in non-test `src/`
+
+**Tied to:** agent-mode Phase 3 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 3)
+
+`findSessionForPath` binds its predicate as `const isHere = (session) => …` (`src/lib/agent.ts`). Every
+other named function in non-test `src/` is a declaration; the reviewer's grep found this to be the only
+const-assigned arrow outside tests. `context/standards/typescript/rules.md:25-27` reserves arrow
+expressions for anonymous callbacks and inline handlers, and its `BAD` example is module-level, so a named
+local sits in a gray zone the rule does not directly address. A nested `function isHere(…)` closes over
+`worktreePath` identically.
+
+Cosmetic, and `pnpm check` passes it. Left unfixed because Gate 2 had already passed on the diff — the same
+reasoning F-002, F-003 and F-004 record: editing after the gate lands unreviewed code.
+
+**Closes when:** a Lint gate run passes with the predicate written as a nested function declaration — or the
+maintainer accepts the arrow, folded into the plan's log at `/feature-close`.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.
+
+---
+
+### F-027 — P3 — a new `git.test.ts` comment claims an ordering assertion the harness does not make
+
+**Tied to:** agent-mode Phase 5 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 5)
+
+`src/lib/git.test.ts:630-633` introduces its fixture as *"Every git call gitGetWorktreeList makes, in
+order…"* and passes an eight-command sequence to `expectCommands`. But `src/test-setup.ts:47-53` only
+`console.warn`s on an unexpected call — it asserts nothing, and it tests membership, not order. The comment
+promises a guard the harness does not provide.
+
+Nothing this phase guarantees rests on it: the load-bearing R4 check is the `toHaveBeenCalledTimes(1)` at
+`src/lib/git.test.ts:685`, which is a real assertion. The harness property is pre-existing and surfaced only
+because this comment leans on it.
+
+**Closes when:** the comment states what `expectCommands` actually does, or `test-setup.ts` asserts rather
+than warns — either proven by a Gate 1 run.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.
+
+---
+
+### F-029 — P3 — `hasLiveAgent`'s comment credits the fail-safe to a path that cannot reach it
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`src/lib/git.ts:168-172` says an absent `live` marker counts as live "so a hand-built entry **and a runtime
+that renamed its state field** both block removal rather than being waved through". The hand-built half is
+real. The renamed-`state` half never reaches the `!== false` branch: `toWorktreeAgent` always sets `live`
+(`src/lib/git.ts:231`), and `isSessionLive` returns `true` for an unrecognised state (`src/lib/agent.ts:132`),
+so a renamed field yields `live: true` explicitly, not an absent one. The outcome is the same and the code is
+right; the comment names the wrong mechanism for it.
+
+The same shape as F-027 — a comment leaning on a guard that lives in another module. One line.
+
+**Closes when:** the comment attributes the renamed-`state` case to `isSessionLive` rather than to the absent
+marker, proven by a Gate 1 run.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.
+
+---
+
+### F-034 — P3 — the cleanup docs open with an absolute the page then qualifies twice
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`docs/src/app/docs/commands/cleanup/page.mdx:35` opens *"A worktree that an agent session is living in is
+never removed."* Two exceptions exist: `--ignore-agents`, qualified three paragraphs later at `:54-57` and in
+the flags table at `:31`, and a worktree whose directory is already gone, which `isSafeToRemove` answers
+before it ever reaches the agent clause (`src/lib/git.ts:178-183`).
+
+Ordinary topic-sentence-then-qualification prose, so a note rather than a defect. *"is not removed unless you
+pass `--ignore-agents`"* would remove the tension in one edit.
+
+**Closes when:** the sentence carries its qualification, proven by a Lint gate run — or the maintainer
+accepts the prose as written.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.
+
+---
+
+### F-035 — P3 — the cleanup docs flags table has a different shape from the list page's
+
+**Tied to:** agent-mode Phase 6 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 6)
+
+`docs/src/app/docs/commands/cleanup/page.mdx:28-31` uses a two-column Flag/Description table with the alias
+folded into the flag cell, where `docs/src/app/docs/commands/list/page.mdx:20-22` uses three columns —
+Flag/Alias/Description — and quotes each flag's `description` string verbatim. `--ignore-agents`' row does
+quote the code; `--force`'s paraphrases it as "Skip the confirmation prompt" against
+`src/commands/cleanup.ts:53`'s "Force cleanup without confirmation".
+
+Cosmetic, and the two pages were written by different phases. Recorded so the docs settle on one shape rather
+than drifting page by page.
+
+**Closes when:** the two pages use one table shape and quote the flag descriptions the code carries, proven by
+a Lint gate run — or the maintainer accepts the variation.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.
+
+---
+
+### F-036 — P3 — two shipped skill artifacts still enumerate the pre-agent config and command surface
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (hand, during the Phase 7 sweep)
+
+`skills/_artifacts/domain_map.yaml:38` claims `'worktree config (all 9 keys)'` and
+`skills/_artifacts/skill_spec.md:23` claims `All 7 commands, 9 config keys`. There are ten user-facing keys
+now — `agent.command` is the tenth (`src/lib/constants.ts:1-12`, less the internal `has-called-config`) —
+and neither file mentions `--agent`, `list --agents` or `cleanup --ignore-agents`. Both ship: the `files`
+field in `package.json` publishes the whole `skills/` tree.
+
+They were left untouched deliberately, and the reasoning is in the plan's Phase 7 **Files** line. What
+draws the line is that `scripts/sync-intent-version.mjs:49-50` writes only `SKILL.md` and
+`skill_tree.yaml`, and `.github/workflows/ci.yml:33-34` gates on that same pair — so those two are the
+maintained artifacts and these two are inputs nothing consumes. `domain_map.yaml` is a stamped record on
+top of that (`:4-6` — `Version: 1.2.0`, `Date: 2026-04-06`, `Status: reviewed`, against a package now at
+1.2.8), so editing it by hand would assert a discovery run and a review that never happened.
+`skill_spec.md` carries no stamp and rests on the sync/CI criterion alone.
+
+A second consequence worth naming: `skill_tree.yaml:8-10` declares `generated_from` these two files, and
+its hand-edited `description` now enumerates a surface neither declared input describes. That is the
+accepted trade — a shipped description that is correct, sourced from inputs that are not.
+
+`P3` because nothing reads these two at runtime: `SKILL.md`'s own frontmatter is what an agent loads, and
+that is now correct. The cost is a published artifact that undercounts the surface.
+
+**Closes when:** the skill generator is re-run against the current tree and its output committed, restamping
+both files — or the maintainer accepts that they are frozen 1.2.0 records and the claim is scoped to that
+version in the files themselves.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.
+
+---
+
+### F-037 — P3 — `SKILL.md` shows `list --agents` without naming the three states it renders
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 7)
+
+`skills/core/SKILL.md:128-129` gives the invocation and its `-a` alias and stops there. The command renders
+`Agent: <name>` qualified by `[interactive]` or `[waiting]` or neither (`src/lib/utils.ts:37-44`), and
+`docs/src/app/docs/commands/list/page.mdx:36-39` documents all three. An agent reading only the skill file
+sees output it has not been told how to read — and the interactive marker is the one that matters, because
+it is the difference between "an agent this tool dispatched" and "somebody's own terminal".
+
+Not fixed in the phase that raised it: Gate 2 had already passed on the diff, and adding shipped prose
+afterwards lands content no gate reviewed — the same reasoning F-002 through F-005 record.
+
+**Closes when:** a Lint gate run passes with `SKILL.md`'s `list --agents` text naming the no-marker,
+`[waiting]` and `[interactive]` states as `page.mdx:36-39` does.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.
+
+---
+
+### F-038 — P3 — `SKILL.md` inherits the cleanup docs' absolute-then-qualified opening
+
+**Tied to:** agent-mode Phase 7 · **Raised:** 2026-09-06 (Gate 2, reviewer subagent, Phase 7)
+
+`skills/core/SKILL.md:145` opens "A worktree a live agent session is sitting in is never removed by
+`cleanup`", which is the same unqualified absolute F-034 records against
+`docs/src/app/docs/commands/cleanup/page.mdx:35`. `src/lib/git.ts:178-183` returns `true` before the agent
+clause is reached when `pathExists` is false, so "never" has an exception neither page states.
+
+**This one must not be fixed alone.** The two sentences agreeing is the property Phase 7 exists to
+establish, so editing the skill file without the docs page would trade a wording defect for a consistency
+defect. It closes with F-034 or not at all.
+
+**Closes when:** a Lint gate run passes with `SKILL.md:145` and `page.mdx:35` carrying the same qualified
+claim — that is, jointly with F-034.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.

@@ -21,12 +21,13 @@ skills:
     path: 'skills/core/SKILL.md'
     description: >
       Complete usage guide for @northguild/worktree. Covers install,
-      worktree config (defaultSourceBranch, opener, codeEditor, herdr.focus,
-      herdr.agent, agent.command, github.token, jira.host, jira.email,
-      jira.apiToken, branchPrefix.*), worktree branch, checkout, list, open,
-      remove/rm, cleanup, --github and --jira issue-to-branch workflows,
-      handing a new worktree to a coding agent with --agent, list --agents,
-      cleanup --ignore-agents, automatic .env file copying, and opening
+      worktree config (defaultSourceBranch, opener, codeEditor,
+      herdr.focus, herdr.agent, agent.command, github.token,
+      github.autoAssign, jira.host, jira.email, jira.apiToken,
+      branchPrefix.*), worktree branch, checkout, list, open, remove/rm,
+      cleanup, --github and --jira issue-to-branch workflows, handing a
+      new worktree to a coding agent with --agent, list --agents, cleanup
+      --ignore-agents, automatic gitignored env file copying, and opening
       worktrees as Herdr spaces.
     requires: []
     sources:

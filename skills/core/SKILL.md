@@ -9,7 +9,8 @@ description: >
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
   --github issue-to-branch, --jira issue-to-branch, handing a new worktree to a
   coding agent with --agent, worktree list --agents, worktree cleanup
-  --ignore-agents, and automatic .env / .env.local copying into new worktrees.
+  --ignore-agents, and automatic copying of gitignored env files (.env*,
+  .dev.vars*, .envrc) into new worktrees.
 type: core
 library: '@northguild/worktree'
 library_version: "1.5.0"
@@ -70,7 +71,7 @@ worktree branch feature/add-bulk-actions --source origin/release/1.4
 ```
 
 Creates a branch, adds a worktree under `<repo>.worktrees/feature/add-bulk-actions`,
-copies `.env` and `.env.local` from the root worktree, and opens the directory
+copies the gitignored env files from the root worktree, and opens the directory
 in the configured `codeEditor` — or, when `opener` is `herdr`, as a Herdr space
 labelled with the branch name.
 
