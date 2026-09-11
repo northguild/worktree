@@ -92,8 +92,50 @@ export async function gitGetAbsoluteWorktreesPath() {
   return `${gitRootPath}.worktrees`;
 }
 
-export async function gitGetCommitsAheadCount(branchPath: string) {
-  const countStr = await run("git", ["rev-list", "--count", "@{u}..HEAD"], {
+// The ref an ahead count is taken against when a worktree has no upstream to
+// count against. `origin/HEAD` is the repository's own answer to "what is the
+// default branch", so it is asked first; `defaultSourceBranch` answers for a
+// clone made before git started recording that ref, and gitGetConfigValue
+// already returns "" when the key is unset. An empty result means no base
+// resolved — which callers must read as "not counted", never as zero. See
+// UNPUSHED-COMMIT-GUARD-PLAN §3 D2, GitHub issue #63.
+//
+// Deliberately not the config key first: it answers a different question —
+// where to branch from — so someone who sets it to `origin/develop` would
+// otherwise silently change what counts as unpushed work.
+export async function gitGetComparisonBase() {
+  try {
+    const originHead = await run("git", [
+      "symbolic-ref",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ]);
+    if (originHead) {
+      return originHead;
+    }
+  } catch {
+    // Unset, or no origin at all. Either way the config key answers next.
+  }
+  return await gitGetConfigValue("defaultSourceBranch");
+}
+
+// The base defaults to `@{u}`, which is what every caller wanted while an
+// upstream was the only thing ever counted against. It is a parameter so
+// gitGetWorktreeList can pass gitGetComparisonBase()'s answer for a worktree
+// that has no upstream — `@{u}` does not resolve there and run() rejects.
+export async function gitGetCommitsAheadCount(
+  branchPath: string,
+  base = "@{u}",
+) {
+  // An empty base is gitGetComparisonBase() saying nothing resolved, and git
+  // does not refuse it: `rev-list --count ..HEAD` exits 0 and prints 0. That
+  // zero is indistinguishable from a real count, which is the fabricated zero
+  // D1 rejects — worse than undefined, because a predicate can be taught to
+  // see a hole and cannot see a lie. Not counted stays undefined.
+  if (!base) {
+    return undefined;
+  }
+  const countStr = await run("git", ["rev-list", "--count", `${base}..HEAD`], {
     cwd: branchPath,
   });
   if (countStr) {
@@ -101,8 +143,16 @@ export async function gitGetCommitsAheadCount(branchPath: string) {
   }
 }
 
-export async function gitGetCommitsBehindCount(branchPath: string) {
-  const countStr = await run("git", ["rev-list", "--count", "HEAD..@{u}"], {
+export async function gitGetCommitsBehindCount(
+  branchPath: string,
+  base = "@{u}",
+) {
+  // Same trap in the other direction: `rev-list --count HEAD..` is also 0 at
+  // exit 0.
+  if (!base) {
+    return undefined;
+  }
+  const countStr = await run("git", ["rev-list", "--count", `HEAD..${base}`], {
     cwd: branchPath,
   });
   if (countStr) {

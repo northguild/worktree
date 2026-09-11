@@ -9,6 +9,7 @@ import {
   gitGetAbsoluteWorktreesPath,
   gitGetCommitsAheadCount,
   gitGetCommitsBehindCount,
+  gitGetComparisonBase,
   gitGetConfigValue,
   gitGetLocalBranches,
   gitGetLocalBranchesTracking,
@@ -219,6 +220,70 @@ describe("git root path", () => {
   });
 });
 
+// D2's resolution order, one test per rung. The order is the decision: the
+// config key answers "where do I branch from", which is not the same question,
+// so it is only reached when the repository's own answer is missing.
+describe("gitGetComparisonBase", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git config northguild.worktree.defaultSourceBranch",
+    );
+  });
+
+  it("resolves origin/HEAD, and does not reach the config key", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("origin/main");
+
+    const base = await gitGetComparisonBase();
+
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "symbolic-ref",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ]);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(base).toBe("origin/main");
+  });
+
+  it("falls back to defaultSourceBranch when origin/HEAD is unset", async () => {
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockRejectedValueOnce(
+        new Error("ref refs/remotes/origin/HEAD is not a symbolic ref"),
+      )
+      .mockResolvedValueOnce("origin/develop");
+
+    const base = await gitGetComparisonBase();
+
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
+      "config",
+      "northguild.worktree.defaultSourceBranch",
+    ]);
+    expect(base).toBe("origin/develop");
+  });
+
+  // symbolic-ref can exit 0 with nothing to say. An empty answer is no answer,
+  // so it takes the same rung as a rejection rather than becoming the base.
+  it("falls back when origin/HEAD resolves to an empty string", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("origin/develop");
+
+    expect(await gitGetComparisonBase()).toBe("origin/develop");
+  });
+
+  // The third rung. "" is what D1 turns into "not safe" — it must never be
+  // confused with a base that resolved and counted zero.
+  it("returns an empty string when neither origin/HEAD nor the config resolves", async () => {
+    vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(new Error("no origin"))
+      .mockRejectedValueOnce(new Error("key unset"));
+
+    expect(await gitGetComparisonBase()).toBe("");
+  });
+});
+
 describe("git status and tracking helpers", () => {
   const worktreePath = "/repo/project.worktrees/test";
   // A path a shell would split on the space, which is the failure the argv form
@@ -231,6 +296,8 @@ describe("git status and tracking helpers", () => {
       "git branch --show-current",
       `git rev-list --count @{u}..HEAD (cwd: ${worktreePath})`,
       `git rev-list --count HEAD..@{u} (cwd: ${worktreePath})`,
+      `git rev-list --count origin/main..HEAD (cwd: ${worktreePath})`,
+      `git rev-list --count HEAD..origin/main (cwd: ${worktreePath})`,
       `git status -s (cwd: ${worktreePath})`,
       `git status -s (cwd: ${spacedWorktreePath})`,
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
@@ -278,6 +345,62 @@ describe("git status and tracking helpers", () => {
       { cwd: worktreePath },
     );
     expect(count).toBe(2);
+  });
+
+  // The parameter Phase 2 needs: an explicit base, for a worktree where `@{u}`
+  // does not resolve at all. Every existing caller passes nothing and keeps the
+  // upstream form above.
+  it("counts ahead against an explicit base", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("1");
+
+    const count = await gitGetCommitsAheadCount(worktreePath, "origin/main");
+
+    expect(runSpy).toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", "origin/main..HEAD"],
+      { cwd: worktreePath },
+    );
+    expect(count).toBe(1);
+  });
+
+  it("counts behind against an explicit base", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("4");
+
+    const count = await gitGetCommitsBehindCount(worktreePath, "origin/main");
+
+    expect(runSpy).toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", "HEAD..origin/main"],
+      { cwd: worktreePath },
+    );
+    expect(count).toBe(4);
+  });
+
+  // The empty base is gitGetComparisonBase()'s "nothing resolved". git answers
+  // `rev-list --count ..HEAD` with 0 at exit 0, so the guard has to be here —
+  // reaching git at all would fabricate the zero D1 rejects.
+  //
+  // `not.toHaveBeenCalled()` is the assertion that pins this, and it is not
+  // redundant next to `toBeUndefined()`: the run mock has no default value, so
+  // with the guard removed the call resolves undefined and the result is
+  // undefined anyway. Remove the spy assertion and both tests pass whether or
+  // not the defect is present.
+  it("returns undefined for an empty ahead base, without calling git", async () => {
+    const runSpy = vi.spyOn(cli, "run");
+
+    const count = await gitGetCommitsAheadCount(worktreePath, "");
+
+    expect(count).toBeUndefined();
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined for an empty behind base, without calling git", async () => {
+    const runSpy = vi.spyOn(cli, "run");
+
+    const count = await gitGetCommitsBehindCount(worktreePath, "");
+
+    expect(count).toBeUndefined();
+    expect(runSpy).not.toHaveBeenCalled();
   });
 
   it("counts uncommitted changes from git status -s", async () => {
