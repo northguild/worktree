@@ -722,6 +722,10 @@ describe("closeHerdrWorkspace", () => {
  * deliberate exception: F-052 closed on the printed line naming the wait, so
  * `10s` is asserted below and again in `src/lib/base-command.test.ts`. Tuning
  * HERDR_REQUEST_TIMEOUT_MS means editing both (F-053).
+ *
+ * Those three ids are this feature's own and live on issue #52, not in
+ * `context/findings.md` — F-052 and F-053 were reused there by findings that
+ * arrived with the 2026-09-11 triage.
  */
 describe("the request timeout", () => {
   it("bounds a worktree open", async () => {

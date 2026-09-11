@@ -469,3 +469,43 @@ synthetic `WorktreeListEntry` objects, which is exactly what §7 says is insuffi
 feature exercised `gitGetWorktreeList` against a real repository, so nothing proved that the real list
 builder produces the field values the corrected predicate depends on. Step 7 of that walkthrough — which
 confirms Q1's remaining gap rather than fixing it — is likewise unconfirmed.
+
+---
+
+## Findings triage, 2026-09-11
+
+The notes below were **open** against this feature when it retired, not closed. `/feature-close` blocks only
+on an open `P0` or `P1` and sweeps only *closed* findings, so a `P2` or `P3` left open survived the close —
+and could then never close, because a finding closes when the gate that raised it re-passes and that gate
+belonged to a phase that no longer exists. Thirty-five had accumulated across five retired features,
+carrying `context/findings.md` to 76 KB.
+
+They are **withdrawn as findings and kept here as record.** Each is an internal note — a comment that
+overclaims, a doc shape, a style observation — of the kind this log exists to hold. Nothing user-facing was
+withdrawn this way: the behaviour defects and the mutation-resistance gaps went to the backlog instead, as
+issues #55-#60, because those are work someone should still do rather than notes worth not losing.
+
+Withdrawing is not a judgement that each was wrong. It records that no gate will ever close them, so leaving
+them open misrepresented them as live.
+
+### F-005 — P3 — `README.md` still describes cleanup's pre-fix behaviour
+
+**Tied to:** cleanup-data-loss Phase 5 · **Raised:** 2026-09-05 (Gate 2, reviewer subagent, Phase 5)
+
+`README.md:160` carries the same unqualified claim Phase 5 corrected on the docs page — cleanup "targets
+worktrees that are considered safe to remove, for example branches whose remote no longer exists" — with no
+uncommitted-work exception. It is now the only place in the repository that documents the defect as if it
+were the design; `grep -rn "remote branch no longer exists" docs README.md skills` returns the corrected
+`page.mdx:17` and nothing else. Left unfixed because Phase 5's **Files** names exactly one file,
+`docs/src/app/docs/commands/cleanup/page.mdx`, and editing the README would have been scope the gate did
+not review.
+
+Adjacent and smaller: neither page documents `cleanup --force`, so D7's design point — `--force` skips the
+confirmation but still prints the skipped report (`src/commands/cleanup.ts:66,78-80`) — is written down
+nowhere user-facing. §4.4 did not ask for it and Q4 leaves whether `--force` *should* print unsettled, so
+this is a note, not a gap to close blindly.
+
+**Closes when:** a Lint gate run passes with `README.md:160` carrying the same uncommitted-work exception
+as `page.mdx:17`.
+
+**Withdrawn:** 2026-09-11 by the findings triage. Kept as record; see the section heading above.

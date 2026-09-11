@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 
-interface RunOptions {
+interface ExecOptions {
   cwd?: string;
   /**
    * Milliseconds after which the child is killed with SIGTERM. A kill leaves no
@@ -12,6 +12,20 @@ interface RunOptions {
    * that waits on another process's socket that needs this.
    */
   timeout?: number;
+}
+
+interface RunOptions extends ExecOptions {
+  /**
+   * Trim the captured stdout. True is what almost every caller wants — git
+   * answers a single value with a trailing newline. Pass false when the output
+   * is a delimited stream rather than one value: `git ls-files -z` sorts a path
+   * whose first component starts with a space ahead of every other, and
+   * trimming would silently rename it to one that does not exist.
+   *
+   * This option is `run`'s alone. `runCapturing` below always trims, so it
+   * takes the narrower ExecOptions rather than accepting a `trim` it ignores.
+   */
+  trim?: boolean;
 }
 
 interface SpawnDetachedOptions {
@@ -30,7 +44,7 @@ export interface CommandResult {
 export function run(
   file: string,
   args: string[] = [],
-  { cwd, timeout }: RunOptions = {},
+  { cwd, timeout, trim = true }: RunOptions = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(file, args, { cwd, timeout }, (error, stdout) => {
@@ -38,7 +52,8 @@ export function run(
         reject(error);
         return;
       }
-      resolve(stdout?.trim() ?? "");
+      const output = stdout ?? "";
+      resolve(trim ? output.trim() : output);
     });
   });
 }
@@ -61,7 +76,7 @@ export function run(
 export function runCapturing(
   file: string,
   args: string[] = [],
-  { cwd, timeout }: RunOptions = {},
+  { cwd, timeout }: ExecOptions = {},
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     execFile(file, args, { cwd, timeout }, (error, stdout, stderr) => {
