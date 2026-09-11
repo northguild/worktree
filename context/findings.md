@@ -51,6 +51,51 @@ off than before this change.
 path, pinned by a test in `src/lib/env.test.ts`. It is otherwise withdrawn rather than closed, if someone
 decides submodules stay out of scope; a recorded decision is not something a gate run can witness.
 
+### F-054 — P2 — Gate 1's Typecheck section does not reach the `docs/` workspace at all
+
+**Tied to:** chat-input-multiline Phase 1 · **Raised:** 2026-09-10 (hand, during Gate 1)
+
+*Raised the day before the triage below and not swept by it: it was written on the
+`feature/40-chat-input-multiline` branch and reached this file only when that branch merged `main`. It was
+renumbered from F-052 on the way in, because #54 had taken that id meanwhile.*
+
+`context/verify.md`'s Typecheck section is `pnpm typecheck`, which is `tsc --noEmit` against the root
+`tsconfig.json` — and that config carries `"include": ["src/**/*"]` (`tsconfig.json:12`). It compiles the
+CLI and nothing else: `npx tsc --noEmit --listFilesOnly | grep -c 'docs/src/chat'` returns **0**.
+
+So the whole `docs/` workspace — the Next.js app, the chat feature, and `docs/worker/` — is outside the
+gate. A type error anywhere in it exits 0 and passes Gate 1. This was found while verifying Phase 1, whose
+every file lives in `docs/src/chat/`: the section reported green having read none of them.
+
+`docs/` has its own `docs/tsconfig.json` and is never invoked by any script — `docs/package.json` has no
+`typecheck` script, and `ci.yml` runs only the root one. Running it by hand
+(`./node_modules/.bin/tsc --noEmit -p docs/tsconfig.json`) exits **1** on **23 errors**, which is what
+confirms it has not been run in a long time rather than that it is merely unwired. **22 are pre-existing**
+and one arrives with this phase:
+
+- **21 of the 22 are a single cause.** `docs/tsconfig.json:16` sets `"types": ["vitest/globals"]` and omits
+  `@testing-library/jest-dom`, so every jest-dom matcher is unknown to the compiler —
+  `toBeInTheDocument`, `toHaveAttribute`, `toHaveClass`. They land across four test files:
+  `ProfileAvatarLink.test.tsx` (7), `Footer.test.tsx` (6), `TerminalBlock.test.tsx` (5) and
+  `Navbar.test.tsx` (3). `docs/test-setup.ts:1` does the runtime half of this correctly, which is why the
+  suite passes while the compiler does not.
+- **The 22nd is generated.** `worker/worker.ts(5,31)` cannot resolve `./docs-context.js`, which
+  `worker:build-context` writes and `.gitignore`s. `docs/vitest.config.ts:9` already aliases it to
+  `worker/docs-context.stub.ts` for tests; no equivalent exists for the compiler.
+- **The 23rd is new**, and is the same jest-dom cause rather than a new one:
+  `ChatInput.test.tsx(29,21)`, a `toHaveAttribute`. Two more of this kind were removed from that file at
+  Gate 2 for an unrelated reason, which is why the count moved from 25 to 23 during the phase.
+
+Not raised as a blocker: this is pre-existing, it is not caused by Phase 1, and Phase 1's own types are
+covered in practice by the Next.js build and by `docs:test` executing every line of the new component.
+But `verify.md` presents four gate sections as covering this repository, and one of them silently covers
+half of it — which is exactly the drift that file exists to prevent.
+
+**Closes when:** either `verify.md`'s Typecheck section names a command that compiles `docs/` too, or that
+file records the exclusion deliberately and says why. Whichever is chosen, a Gate 1 run citing it is the
+evidence. Clearing the 23 errors is the prerequisite for the first option, and the `"types"` line above is
+22 of them.
+
 ---
 
 ## The 2026-09-11 triage
@@ -85,6 +130,43 @@ is being taken there. This section records a one-time cleanup, not a local polic
 the second copy the Contract above just stopped keeping.
 
 ## Closed
+
+### F-055 — P2 — the placeholder that is this feature's only user-facing documentation is clipped mid-sentence
+
+**Tied to:** chat-input-multiline Phase 1 · **Raised:** 2026-09-10 (hand, during Phase 3's verification)
+
+`ChatForm.tsx:71` sets `placeholder="Type a message... (Shift+Enter for a new line)"`. In the drawer's
+`w-[400px]` panel (`ChatDrawer.tsx:101`) that string is two lines long at the inherited 16px type, and the
+collapsed field is one row — so the browser clips it. What a user actually reads is **"Type a message...
+(Shift+Enter for a"**, with the words that carry the meaning cut off.
+
+Measured in headless Chrome against `pnpm docs:dev` on 2026-09-10: with the field empty the textarea
+reports `scrollHeight` **48** against a `clientHeight` of **24** — one whole line of placeholder below the
+fold — and a screenshot of the compose row shows the sentence ending after "for a". With any value typed
+the numbers agree (`24`/`24` at one character), so this is the placeholder alone.
+
+**Phase 1 introduced it.** Before b43ecfe the placeholder was `"Type a message..."`, which fits; that phase
+lengthened it to name the Shift+Enter convention. Per §7 of the plan, that placeholder is *the only place
+in the repository* where a user is told what Shift+Enter does — "Nothing else in the repository tells a
+user how the chat's compose box behaves" — so the truncation lands squarely on the one surface the feature
+has, and the half that survives ends mid-preposition.
+
+Not raised as a blocker, and not fixed inside Phase 3: it is a Phase 1 defect in a line Phase 3 does not
+otherwise touch, and the field itself works. The sizer drives growth from the *value*, never the
+placeholder, so no growth behaviour is implicated — D2 is doing exactly what it says.
+
+**Closes when:** the placeholder either fits one row at 400px or moves somewhere it can wrap, proved by a
+headless measurement showing `scrollHeight` equal to `clientHeight` while the field is empty. **Gate 1
+cannot close this one** — no command in [`verify.md`](verify.md) renders the drawer — so unlike
+[F-054](#f-054) the evidence is that hand check, cited by whatever change makes it.
+
+**Closed:** 2026-09-10 by the post-review fix on this branch, which took the first option at the
+maintainer's direction — the placeholder is `"Type a message..."` again and the Shift+Enter convention is
+not surfaced in the UI at all. Measured against the real compiled CSS and font at three drawer widths
+(400px, and 360px/320px phones): the empty field reports `scrollHeight` **24** against a `clientHeight` of
+**24** at every one, where it was 48/24 before. Nothing is clipped and the empty field no longer carries a
+scrollbar. §7 of the plan was corrected in the same change, since it named that placeholder as the one
+place the convention was written down.
 
 ### F-053 — P3 — the env-copy spinner is never failed, so a copy error leaves it mid-spin
 

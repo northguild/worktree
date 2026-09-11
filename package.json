@@ -1,6 +1,6 @@
 {
   "name": "@northguild/worktree",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "A CLI tool for managing git worktrees with enhanced workflow features",
   "main": "./bin/run.js",
   "type": "module",

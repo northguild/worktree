@@ -16,3 +16,13 @@ export const FREE_MODELS: ReadonlyArray<{
 ];
 
 export const DEFAULT_MODEL: AllowedModel = FREE_MODELS[0].value;
+
+/**
+ * Hard cap on a single message, in characters.
+ *
+ * Shared on purpose. The Worker rejects anything longer with a 400
+ * (`docs/worker/worker.ts`) and the compose field stops the value ever reaching
+ * that length, so the two have to be the same number — and a literal in each
+ * runtime had nothing keeping them in step.
+ */
+export const MAX_MESSAGE_LENGTH = 20_000;

@@ -1,3 +1,4 @@
+import { MAX_MESSAGE_LENGTH } from "../src/chat/constants";
 import worker from "./worker";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -152,13 +153,18 @@ describe("worker — request validation", () => {
       postReq({
         body: {
           model: "gemini-2.5-flash",
-          messages: [{ role: "user", content: "x".repeat(20_001) }],
+          messages: [
+            { role: "user", content: "x".repeat(MAX_MESSAGE_LENGTH + 1) },
+          ],
         },
       }),
       ENV,
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
+    // The length is read from the shared constant while the message keeps its
+    // literal: the rejection text is built from that same constant, so this
+    // line is what pins its value, and the client's cap is now the same one.
     expect(body.error).toBe("Message too long (max 20,000 chars)");
   });
 
