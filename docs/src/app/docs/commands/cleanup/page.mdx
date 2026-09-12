@@ -14,9 +14,9 @@ worktree cleanup
 
 Typical cleanup targets include:
 
-- worktrees whose remote branch no longer exists, as long as they carry no unpushed commits
-  and hold no uncommitted changes
-- local worktrees with no tracked remote that carry no unpushed commits and hold no
+- worktrees whose remote branch no longer exists — the usual shape of a merged pull request
+  — as long as they carry no unmerged commits and hold no uncommitted changes
+- local worktrees with no tracked remote that carry no unmerged commits and hold no
   uncommitted changes
 
 ## What holds a worktree back
@@ -34,6 +34,19 @@ and the worktree is held back rather than swept.
 That second rule is newer than the first, and the ordering is deliberate: committing work
 must never move a worktree from protected to disposable.
 
+**Commits that were merged do not count as unpushed**, however many of them there are. A
+squash merge lands a branch as one new commit and a rebase rewrites every commit it touches,
+so after either one the branch's own commits are nowhere in the base *by identity* while
+every line they changed is there *by content*. Counting alone would report such a worktree as
+carrying work for as long as it existed — on a repository that squash-merges its pull
+requests, that is every merged branch, and `cleanup` would find nothing to do ever again.
+
+So a worktree that is ahead of its base is asked a second question before anything is decided
+about it: is the change it carries, taken as a whole, already applied in that base? Where it
+is, the worktree is stale and says which base it landed in. Where it is not — including a
+branch that was merged and has picked up a commit since — the commits are real work and hold
+it back exactly as before.
+
 **A live agent session** holds one back as well — see below.
 
 ## What it prints
@@ -42,15 +55,18 @@ Every worktree `cleanup` offers to remove says why it qualified, so a line can n
 "no reason found":
 
 ```text
-Found 3 worktree branches that are marked safe to remove.
+Found 4 worktree branches that are marked safe to remove.
 - feature/api-retries (Remote removed, no unpushed commits)
+- feature/bulk-actions (Remote removed, merged into origin/main)
 - feature/spike (No tracked remote, no unpushed commits)
 - feature/moved (Path does not exist)
 ```
 
-Those three are the whole vocabulary. `Path does not exist` is the one that answers none of
-the checks above: a worktree whose directory is already gone is removed before its commits
-are considered, because there is no directory to count them in.
+Those four are the whole vocabulary. `merged into <base>` is the one that names a count rather
+than denying one: that worktree *is* ahead of `origin/main`, and every commit in it is already
+applied there. `Path does not exist` answers none of the checks above: a worktree whose
+directory is already gone is removed before its commits are considered, because there is no
+directory to count them in.
 
 `cleanup` also reports what it held back, under three headings:
 
@@ -68,7 +84,7 @@ the way this matters: that line can no longer be produced by a worktree whose co
 not be counted. Such a worktree is always named.
 
 **Those three headings are the whole of what `cleanup` reports.** A worktree carrying
-unpushed commits that it *could* count is not stale, so it is neither removed nor listed —
+unmerged commits that it *could* count is not stale, so it is neither removed nor listed —
 it simply does not come up, the same way a worktree tracking a live remote branch never
 has. Use [`list`](/docs/commands/list) to see every worktree and what each one is carrying;
 `cleanup` only ever discusses the ones it would sweep and the ones it stopped short of.

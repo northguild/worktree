@@ -153,12 +153,20 @@ worktree remove feature/add-bulk-actions
 worktree rm feature/add-bulk-actions          # alias
 worktree remove feature/add-bulk-actions --force  # skip confirmation
 
-# Remove all stale worktrees (no unpushed commits, nothing uncommitted,
+# Remove all stale worktrees (no unmerged commits, nothing uncommitted,
 # remote gone or never set, no live agent session)
 worktree cleanup
 worktree cleanup --force                      # skip confirmation
 worktree cleanup --ignore-agents              # sweep even worktrees an agent is in
 ```
+
+Commits that were already merged do not hold a worktree back, however many of
+them there are. A squash merge or a rebase gives the same work new commit
+identities, so counting alone reports a merged branch as carrying unpushed work
+for as long as the worktree exists; `cleanup` compares the change itself against
+the comparison base and names the base it landed in — `(Remote removed, merged
+into origin/main)`. A branch that has gained a commit since it was merged is
+carrying real work again and is held back.
 
 A worktree a live agent session is sitting in is never removed by `cleanup`; it
 is reported as skipped instead. `--force` does not override that — it answers

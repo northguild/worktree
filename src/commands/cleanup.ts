@@ -74,7 +74,16 @@ function removalReason(wt: WorktreeListEntry): string {
     // commits — deliberately. See §9 Q5.
     return "Path does not exist";
   }
-  return `${wt.remote ? "Remote removed" : "No tracked remote"}, no unpushed commits`;
+  const remoteReason = wt.remote ? "Remote removed" : "No tracked remote";
+  // Two ways to carry nothing, and they are not the same finding. "No unpushed
+  // commits" says the count was taken and came back zero; "merged into X" says
+  // the count is non-zero and every commit in it is already applied in X. A
+  // reader who sees the second one next to a branch they remember writing code
+  // on can go and check that base, which a reason claiming the branch is empty
+  // would have sent them looking for a bug instead.
+  return `${remoteReason}, ${
+    wt.mergedInto ? `merged into ${wt.mergedInto}` : "no unpushed commits"
+  }`;
 }
 
 export default class Cleanup extends BaseCommand {

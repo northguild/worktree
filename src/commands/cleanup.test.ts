@@ -845,6 +845,32 @@ describe("cleanup command", () => {
       );
     });
 
+    // The fourth reason string, and the one the squash-merge regression needed.
+    // "no unpushed commits" would be a false claim about this worktree — it has
+    // seven — so the reason says where they went instead, which is a fact the
+    // reader can check.
+    it("names the base a merged worktree landed in", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+        withVerdict({
+          remote: "origin/feature/x",
+          ahead: 7,
+          mergedInto: "origin/main",
+        }),
+      ]);
+      const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      mockConfirm.mockResolvedValue(false);
+
+      (cleanup as any).parse = vi.fn().mockResolvedValue({
+        flags: { force: false },
+      });
+
+      await cleanup.run();
+
+      expect(logSpy).toHaveBeenCalledWith(
+        "- feature/x (Remote removed, merged into origin/main)",
+      );
+    });
+
     // The third reason string. Produced by most of the safe shapes above,
     // where the regex accepts any replacement — and quoted verbatim on the
     // cleanup page, so drift between code and docs would otherwise be silent.

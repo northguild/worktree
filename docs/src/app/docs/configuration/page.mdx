@@ -36,6 +36,12 @@ has. That base is `origin/HEAD` — the repository's own record of its default
 branch — and `defaultSourceBranch` is the fallback when `origin/HEAD` is not
 set, which happens in clones made before git began recording it.
 
+It is also the base a merged branch is recognised against. Where a worktree is
+ahead of it, the change it carries is compared with what that base already holds
+— so a squash-merged or rebased branch, whose commits survive under new
+identities, is seen for what it is rather than counted as work at risk. See
+[`cleanup`](/docs/commands/cleanup) for what that does and does not permit.
+
 `origin/HEAD` is asked first deliberately. If the config key were read first,
 setting it to `origin/develop` because that is where you branch from would also
 change which commits count as unpushed, and a worktree could be classified as

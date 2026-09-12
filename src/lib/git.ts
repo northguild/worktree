@@ -232,12 +232,22 @@ export function hasLiveAgent(wt: WorktreeListEntry): boolean {
 // Both remove-permitting clauses below close over this, so the rule exists once
 // rather than being spelled out twice and drifting.
 //
+// **A non-zero count is not the same fact as work at risk**, which is the half
+// #63 got wrong. `ahead` compares shas, and a squash merge lands a branch as
+// one new commit with a new sha while a rebase rewrites every sha it touches —
+// so on any repository that squash-merges its pull requests, every merged
+// branch keeps reporting the commits it was merged from. `mergedInto` is the
+// answer to the question `ahead` was standing in for: is what this branch
+// carries already applied in the base, whatever shas it wears. Where it is,
+// the worktree holds nothing that exists nowhere else, which is the only thing
+// this predicate ever wanted to know.
+//
 // `behind` is deliberately not consulted. It is undefined for every worktree
 // without an upstream (D4), so requiring it to be falsy would be trusting the
 // very unknown this function refuses to trust — and being behind loses nothing
 // on removal: it is staleness, not work at risk.
 function carriesNoKnownWork(wt: WorktreeListEntry): boolean {
-  return wt.ahead === 0;
+  return wt.ahead === 0 || !!wt.mergedInto;
 }
 
 export function isSafeToRemove(wt: WorktreeListEntry): boolean {
@@ -350,6 +360,67 @@ async function countAhead(
   }
 }
 
+// A branch that has been merged can go on reporting commits ahead of the base
+// forever, and `cleanup` used to read that as work at risk. The three forges
+// this tool is used against all offer squash and rebase merges, and both
+// rewrite shas: after a squash the branch's commits are nowhere in the base by
+// identity, while every line they changed is there by content. Asking about
+// identity — which is all `rev-list --count` can answer — reports such a branch
+// as carrying unpushed work for as long as the worktree exists, and a
+// repository that squash-merges everything gets a `cleanup` that never finds
+// anything. See GitHub issue #63 §5 R2, which named this risk before it landed.
+//
+// So the question asked here is patch equivalence instead: `commit-tree` builds
+// a throwaway commit carrying the branch's *cumulative* diff — its own tree,
+// parented on the merge base — and `git cherry` marks that commit `-` when an
+// equivalent patch already exists in the base. A squash merge is exactly one
+// such patch, which is why this survives one where the count does not. A branch
+// that has picked up even one commit since it was merged has a different
+// cumulative diff and comes back `+`, so the #63 guard is untouched by this:
+// what it protects is a branch carrying work nobody else has, and this only
+// ever speaks for work everybody has.
+//
+// Every exit that is not a confident "yes" is undefined, and undefined is not
+// safe. That covers unrelated histories (no merge base), a base that will not
+// resolve, an unconfigured committer identity, and the timeout below.
+const MERGED_PROBE_TIMEOUT_MS = 10_000;
+
+async function findMergedBase(
+  worktreePath: string,
+  base: string,
+): Promise<string | undefined> {
+  try {
+    const mergeBase = await run("git", ["merge-base", base, "HEAD"], {
+      cwd: worktreePath,
+    });
+    // The probe commit is a real object in the repository — one per worktree
+    // per run, unreachable from any ref, collected by `git gc` like any other
+    // loose object. There is no way to ask git this question without one: a
+    // patch-id has to be computed from a commit, and the branch's own commits
+    // are individually the wrong patches.
+    const probeCommit = await run(
+      "git",
+      ["commit-tree", "HEAD^{tree}", "-p", mergeBase, "-m", "merged probe"],
+      { cwd: worktreePath },
+    );
+    // The only unbounded call in the gather: `cherry` computes a patch-id for
+    // every commit the base has gained since the merge base, so a worktree
+    // branched long ago from a busy default branch can make it expensive. It
+    // runs at most once per worktree and only where the answer can change a
+    // verdict, and the timeout bounds the pathological case to a held-back
+    // worktree rather than a `list` that appears to hang.
+    const cherry = await run("git", ["cherry", base, probeCommit], {
+      cwd: worktreePath,
+      timeout: MERGED_PROBE_TIMEOUT_MS,
+    });
+    // One probe commit in, so one line out: `-` when the base already has an
+    // equivalent patch, `+` when it does not.
+    return cherry.startsWith("-") ? base : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function gitGetWorktreeList({
   includeCurrent = false,
   includeAgents = false,
@@ -385,6 +456,18 @@ export async function gitGetWorktreeList({
       remoteExists,
       comparisonBase,
     );
+    // Only where the answer can change a verdict, because it is three more
+    // subprocesses in a serial loop with four callers (#63 §5 R1). A worktree
+    // tracking a remote branch that still exists is never removable whatever it
+    // carries — `isSafeToRemove`'s last clause — and one that is not ahead of
+    // its base is already disposable without anybody asking. A truthy `ahead`
+    // is also what guarantees a base resolved, which is what makes
+    // `comparisonBase` safe to hand over here: `countAhead` reaches the count
+    // only through a base that is not empty.
+    const mergedInto =
+      pathExists && !remoteExists && ahead
+        ? await findMergedBase(path, comparisonBase)
+        : undefined;
     // `behind` keeps that guard, deliberately. Against the default branch it
     // would mean "commits on main this branch does not have", non-zero for
     // almost every worktree the moment main advances — and it is a conjunct of
@@ -407,6 +490,7 @@ export async function gitGetWorktreeList({
       ahead,
       behind,
       aheadUnknownReason,
+      mergedInto,
       pathExists,
       uncommittedChanges,
       isCurrent,
@@ -548,7 +632,13 @@ export async function gitRemoveWorktree(
   spinner.stop();
 
   async function promptRemoval(worktree: WorktreeListEntry) {
-    if (worktree.ahead) {
+    // A merged branch is ahead of its base by every sha it was squashed or
+    // rebased out of, and warning that those commits are work at risk is the
+    // mirror of the verdict bug: it teaches the reader that the warning does
+    // not mean anything, which is how a real one gets waved through. Nothing on
+    // such a branch exists only there, so it falls through to whichever of the
+    // prompts below is actually true of it.
+    if (worktree.ahead && !worktree.mergedInto) {
       return await confirm({
         message: `This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
         default: false,

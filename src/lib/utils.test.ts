@@ -109,6 +109,25 @@ describe("worktreeListEntryToListName", () => {
     expect(result).not.toContain("Behind");
   });
 
+  // The detail list says what a removal would cost, and for a branch whose every
+  // change is already in the base the honest answer is nothing. `Ahead: 7` next
+  // to `Remote removed` is exactly how a squash-merged worktree came to look
+  // like one carrying work nobody else has.
+  it("names the base a merged branch landed in instead of its ahead count", () => {
+    const result = worktreeListEntryToListName({
+      path: "/path/to/worktree",
+      branchName: "feature/test",
+      remote: "origin/feature/test",
+      pathExists: true,
+      remoteExists: false,
+      ahead: 7,
+      mergedInto: "origin/main",
+    });
+
+    expect(result).toContain("Remote removed, Merged into origin/main");
+    expect(result).not.toContain("Ahead");
+  });
+
   it("shows only the behind count when ahead is zero", () => {
     const result = worktreeListEntryToListName({
       path: "/path/to/worktree",
