@@ -62,6 +62,22 @@ The base depends on whether the branch tracks a remote:
 | tracks a remote branch that still exists | its upstream | shown |
 | tracks nothing, or a remote branch that is gone | `origin/HEAD`, falling back to [`defaultSourceBranch`](/docs/configuration) | not shown |
 
+A worktree whose commits are all already applied in that base shows where they
+landed instead of how many there are:
+
+```text
+- feature/bulk-actions (Remote removed, Merged into origin/main)
+```
+
+The count is not hidden to be tidy. It is replaced because it would be
+misleading: a squash merge lands a branch as one new commit and a rebase
+rewrites every commit it touches, so a merged branch stays "7 ahead" of `main`
+forever while holding nothing that is not already there. `Ahead:` is in this
+list to say what removing the worktree would cost, and for that branch the
+answer is nothing. Where even one commit is *not* already in the base, the count
+is shown as usual — the whole change is what is compared, so a branch that has
+moved on since it was merged counts as carrying work again.
+
 `Behind:` is only ever counted against an upstream. Against the default branch it
 would mean "commits on `main` this branch does not have", which is true of almost
 every worktree the moment `main` moves — so where there is no upstream the figure

@@ -45,7 +45,11 @@ at all, and the prompt says that instead of implying there is nothing to weigh:
 Unpushed commits could not be counted for this branch (no comparison base; set defaultSourceBranch or run git remote set-head origin --auto), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?
 ```
 
-A worktree with nothing at stake gets the plain question.
+A worktree with nothing at stake gets the plain question — and a branch whose commits are all
+already applied in the comparison base is one of those, however many of them there are. It is
+counted as ahead, because a squash merge and a rebase both give the same work new commit
+identities, but there is nothing in it to lose. Warning about those commits would teach you
+that this prompt does not mean anything, which is how the one that does gets waved through.
 
 `--force` skips the prompt entirely. Unlike [`cleanup`](/docs/commands/cleanup), `remove`
 names one worktree that you chose, so `--force` here answers only the confirmation you

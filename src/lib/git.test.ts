@@ -77,6 +77,33 @@ vi.mock("cli-progress", () => ({
   },
 }));
 
+// The three calls the merged probe makes, and the answers they get. It runs for
+// any worktree that is ahead of a comparison base and has no live remote branch,
+// which is every stale candidate — so the suites below that drive
+// `gitGetWorktreeList` have to account for it the way they account for the
+// count itself. Kept as one pair so a change to the probe's argv is one edit
+// here rather than a hunt through every fixture.
+const MERGE_BASE_SHA = "a1b2c3d4";
+const PROBE_COMMIT_SHA = "e5f6a7b8";
+
+function mergedProbeCommands(worktreePath: string, base = "origin/main") {
+  return [
+    `git merge-base ${base} HEAD (cwd: ${worktreePath})`,
+    `git commit-tree HEAD^{tree} -p ${MERGE_BASE_SHA} -m "merged probe" (cwd: ${worktreePath})`,
+    `git cherry ${base} ${PROBE_COMMIT_SHA} (cwd: ${worktreePath})`,
+  ];
+}
+
+// `git cherry` answers one line per commit on the head side, and the probe puts
+// exactly one there: `-` when the base already holds an equivalent patch, `+`
+// when it does not.
+function mockMergedProbe(merged: boolean) {
+  mockRun
+    .mockResolvedValueOnce(MERGE_BASE_SHA)
+    .mockResolvedValueOnce(PROBE_COMMIT_SHA)
+    .mockResolvedValueOnce(`${merged ? "-" : "+"} ${PROBE_COMMIT_SHA}`);
+}
+
 describe("git branch parsing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -858,6 +885,49 @@ describe("isSafeToRemove", () => {
     expect(isSafeToRemove(entry({ ahead: 0 }))).toBe(true);
   });
 
+  // The regression this branch exists to remove. #63 Phase 3 made both
+  // remove-permitting clauses require a counted zero ahead, and a squash merge
+  // never produces one: the branch's commits are not in the base by sha, only
+  // by content. On a repository that squash-merges its pull requests that made
+  // every merged worktree look like the incident's, and `cleanup` stopped
+  // finding anything at all.
+  it("is safe when the remote was deleted and the commits ahead are already merged", () => {
+    expect(
+      isSafeToRemove(
+        entry({
+          remote: "origin/feature/test",
+          remoteExists: false,
+          ahead: 7,
+          mergedInto: "origin/main",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("is safe with no remote when the commits ahead are already merged", () => {
+    expect(isSafeToRemove(entry({ ahead: 7, mergedInto: "origin/main" }))).toBe(
+      true,
+    );
+  });
+
+  // The guard #63 bought, unspent. Being merged says the work exists somewhere
+  // else; it says nothing about the work that is not committed yet.
+  it("is not safe when merged but work is uncommitted", () => {
+    expect(
+      isSafeToRemove(
+        entry({ ahead: 7, mergedInto: "origin/main", uncommittedChanges: 3 }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is not safe when merged but a live agent session is in it", () => {
+    expect(
+      isSafeToRemove(
+        entry({ ahead: 7, mergedInto: "origin/main", agent: liveAgent() }),
+      ),
+    ).toBe(false);
+  });
+
   // The other exposed clause, which CLEANUP-DATA-LOSS-PLAN recorded as Q1: the
   // remote was deleted, but the local branch still carries commits.
   it("is not safe when the remote was deleted and commits are ahead", () => {
@@ -932,6 +1002,9 @@ describe("gitGetWorktreeList agent join", () => {
       "git worktree list",
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      // feature/one is ahead of the base, so it is asked whether what it
+      // carries is already merged there before anything is decided about it.
+      ...mergedProbeCommands(onePath),
       `git status -s (cwd: ${onePath})`,
       `git rev-list --count origin/main..HEAD (cwd: ${twoPath})`,
       `git status -s (cwd: ${twoPath})`,
@@ -950,7 +1023,9 @@ describe("gitGetWorktreeList agent join", () => {
         ].join(EOL),
       )
       .mockResolvedValueOnce("origin/main")
-      .mockResolvedValueOnce("1")
+      .mockResolvedValueOnce("1");
+    mockMergedProbe(false);
+    mockRun
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("0")
       .mockResolvedValueOnce("");
@@ -1093,18 +1168,19 @@ describe("gitGetWorktreeList ahead counting", () => {
     expectCommands(
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      ...mergedProbeCommands(onePath),
       `git status -s (cwd: ${onePath})`,
     );
     mockRunPreamble("feature/one <-");
-    mockRun
-      .mockResolvedValueOnce("origin/main")
-      .mockResolvedValueOnce("1")
-      .mockResolvedValueOnce("");
+    mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("1");
+    mockMergedProbe(false);
+    mockRun.mockResolvedValueOnce("");
 
     const [worktree] = await gitGetWorktreeList();
 
     expect(worktree.ahead).toBe(1);
     expect(worktree.aheadUnknownReason).toBeUndefined();
+    expect(worktree.mergedInto).toBeUndefined();
   });
 
   // R3: `behind` stays undefined for a worktree with no upstream, by design
@@ -1117,13 +1193,13 @@ describe("gitGetWorktreeList ahead counting", () => {
     expectCommands(
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      ...mergedProbeCommands(onePath),
       `git status -s (cwd: ${onePath})`,
     );
     mockRunPreamble("feature/one <-");
-    mockRun
-      .mockResolvedValueOnce("origin/main")
-      .mockResolvedValueOnce("2")
-      .mockResolvedValueOnce("");
+    mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("2");
+    mockMergedProbe(false);
+    mockRun.mockResolvedValueOnce("");
 
     const [worktree] = await gitGetWorktreeList();
 
@@ -1210,6 +1286,127 @@ describe("gitGetWorktreeList ahead counting", () => {
     expect(worktree.aheadUnknownReason).toContain("origin/gone");
   });
 
+  // The user-facing shape of the regression: a pull request was squash-merged,
+  // the remote branch was deleted with it, and the worktree stayed behind
+  // reporting seven commits ahead of main forever.
+  it("marks a worktree merged when the base already holds its changes", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      ...mergedProbeCommands(onePath),
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble("feature/one <- origin/feature/one");
+    mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("7");
+    mockMergedProbe(true);
+    mockRun.mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.ahead).toBe(7);
+    expect(worktree.mergedInto).toBe("origin/main");
+    expect(worktree.safeToRemove).toBe(true);
+  });
+
+  // The #63 guard, which this must not spend. A branch carrying work that is
+  // nowhere else answers `+`, and nothing about the verdict changes.
+  it("leaves a worktree carrying unmerged work unsafe", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      ...mergedProbeCommands(onePath),
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble("feature/one <-");
+    mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("1");
+    mockMergedProbe(false);
+    mockRun.mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.mergedInto).toBeUndefined();
+    expect(worktree.safeToRemove).toBe(false);
+  });
+
+  // Fails closed like every other unknown in this file: a probe that cannot
+  // answer is not an answer of "merged". `git cherry` is the only unbounded
+  // call in the gather, so this is also what a timeout looks like.
+  it("leaves mergedInto unset when the probe cannot answer", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git merge-base origin/main HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble("feature/one <-");
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("3")
+      .mockRejectedValueOnce(new Error("no merge base"))
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.ahead).toBe(3);
+    expect(worktree.mergedInto).toBeUndefined();
+    expect(worktree.safeToRemove).toBe(false);
+  });
+
+  // R1: three subprocesses per worktree in a serial loop with four callers, so
+  // the probe runs only where its answer can change a verdict. A branch whose
+  // remote is still there is not removable whatever it carries.
+  it("does not probe a branch whose remote branch still exists", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count @{u}..HEAD (cwd: ${onePath})`,
+      `git rev-list --count HEAD..@{u} (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble(
+      "feature/one <- origin/feature/one",
+      "  origin/feature/one",
+    );
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("3")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.mergedInto).toBeUndefined();
+    expect(
+      mockRun.mock.calls.filter((call) => call[1]?.[0] === "cherry"),
+    ).toHaveLength(0);
+  });
+
+  // The other half of that gate: a counted zero is already disposable, so
+  // there is nothing for a probe to add.
+  it("does not probe a branch that is not ahead of its base", async () => {
+    expectPreamble();
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRunPreamble("feature/one <-");
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.safeToRemove).toBe(true);
+    expect(
+      mockRun.mock.calls.filter((call) => call[1]?.[0] === "merge-base"),
+    ).toHaveLength(0);
+  });
+
   // The base is one call for the whole run, not one per worktree — the loop is
   // serial and this gather has four callers. See §4.1 and §5 R1.
   it("resolves the comparison base once for a run covering two worktrees", async () => {
@@ -1218,6 +1415,7 @@ describe("gitGetWorktreeList ahead counting", () => {
     expectCommands(
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      ...mergedProbeCommands(onePath),
       `git status -s (cwd: ${onePath})`,
       `git rev-list --count origin/main..HEAD (cwd: ${twoPath})`,
       `git status -s (cwd: ${twoPath})`,
@@ -1235,7 +1433,9 @@ describe("gitGetWorktreeList ahead counting", () => {
         ].join(EOL),
       )
       .mockResolvedValueOnce("origin/main")
-      .mockResolvedValueOnce("1")
+      .mockResolvedValueOnce("1");
+    mockMergedProbe(false);
+    mockRun
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("0")
       .mockResolvedValueOnce("");
@@ -1262,7 +1462,10 @@ describe("gitRemoveWorktree prompt", () => {
   // gitRemoveWorktree asks for the current branch, then gathers the list, then
   // prompts. Everything up to the prompt is the gather this file already drives
   // through run() elsewhere.
-  function mockUpToPrompt(aheadOrReason: string | "reject") {
+  function mockUpToPrompt(
+    aheadOrReason: string | "reject",
+    { merged = false }: { merged?: boolean } = {},
+  ) {
     expectCommands(
       "git branch --show-current",
       "git fetch --prune",
@@ -1273,6 +1476,7 @@ describe("gitRemoveWorktree prompt", () => {
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${targetPath})`,
       "git config northguild.worktree.defaultSourceBranch",
+      ...mergedProbeCommands(targetPath),
       `git status -s (cwd: ${targetPath})`,
     );
 
@@ -1294,6 +1498,11 @@ describe("gitRemoveWorktree prompt", () => {
       mockRun
         .mockResolvedValueOnce("origin/main")
         .mockResolvedValueOnce(aheadOrReason);
+      // Only a branch that is ahead of a base is asked whether what it carries
+      // is already there, so the probe rides the same arm as the count.
+      if (aheadOrReason !== "0") {
+        mockMergedProbe(merged);
+      }
     }
 
     mockRun.mockResolvedValueOnce("");
@@ -1332,6 +1541,20 @@ describe("gitRemoveWorktree prompt", () => {
         message: expect.stringContaining("4 commits ahead"),
       }),
     );
+  });
+
+  // The other side of the same honesty rule. A squash-merged branch is ahead of
+  // its base by every commit it was squashed out of, and warning that those are
+  // work at risk teaches the reader that this warning means nothing — which is
+  // how the one that does mean something gets waved through.
+  it("does not claim commits are at risk on a branch already merged", async () => {
+    mockUpToPrompt("7", { merged: true });
+
+    await gitRemoveWorktree("feature/one");
+
+    const message = mockConfirm.mock.calls[0]?.[0]?.message;
+    expect(message).not.toContain("ahead");
+    expect(message).toBe("Are you sure you want to remove this worktree?");
   });
 
   // The disclosure half of D1: a count that could not be taken must not fall

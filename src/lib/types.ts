@@ -58,6 +58,13 @@ export interface WorktreeListEntry extends WorktreeListBaseEntry {
   // `pathExists`. This is what keeps a cleanup that cannot classify anything
   // distinguishable from a cleanup with nothing to do. See §3 D5.
   aheadUnknownReason?: string;
+  // The base every change this worktree carries was found in, when it was
+  // found in one — set by patch equivalence, not by ancestry, so it survives a
+  // squash merge and a rebase alike. Undefined means "not known to be merged",
+  // which covers both a branch carrying real unmerged work and a probe that was
+  // never run or could not answer; unknown is never safe, exactly as `ahead`
+  // treats its own hole. See STALE-WORKTREE-DETECTION.
+  mergedInto?: string;
   remoteExists?: boolean;
   uncommittedChanges?: number;
   safeToRemove?: boolean;

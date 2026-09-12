@@ -68,7 +68,15 @@ export function worktreeListEntryToListName(
   //
   // Joined with ", " by the caller below, so a worktree with both counts reads
   // exactly as it always did: `Ahead: 3, Behind: 2`.
-  if (wt.ahead) {
+  // A merged branch has its count replaced rather than joined. The count is in
+  // this list to say what a removal would cost, and for a branch whose every
+  // change is already in the base the honest figure is none — printing
+  // `Ahead: 7` next to `Remote removed` is what makes a squash-merged worktree
+  // look like the one carrying work nobody else has. Which base it was found in
+  // is named, because that is the fact a reader can go and check.
+  if (wt.mergedInto) {
+    details.push(`Merged into ${wt.mergedInto}`);
+  } else if (wt.ahead) {
     details.push(`Ahead: ${wt.ahead}`);
   }
   if (wt.behind) {
