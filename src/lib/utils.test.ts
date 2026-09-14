@@ -1,6 +1,7 @@
 import type { WorktreeAgent, WorktreeListEntry } from "./types.js";
 import {
   conjoin,
+  parseShortstat,
   splitCommandValue,
   worktreeListEntryToListName,
 } from "./utils.js";
@@ -375,6 +376,125 @@ describe("worktreeListEntryToListName agent details", () => {
 
     expect(result).toBe(
       "feature/test (Ahead: 2, Behind: 1, 3 uncommitted changes, Agent: feature-test-1f)",
+    );
+  });
+});
+
+describe("parseShortstat", () => {
+  it("parses files, insertions and deletions from a full shortstat line", () => {
+    expect(
+      parseShortstat(" 3 files changed, 45 insertions(+), 12 deletions(-)"),
+    ).toEqual({ filesChanged: 3, insertions: 45, deletions: 12 });
+  });
+
+  it("parses a single file, singular wording", () => {
+    expect(parseShortstat(" 1 file changed, 5 insertions(+)")).toEqual({
+      filesChanged: 1,
+      insertions: 5,
+      deletions: 0,
+    });
+  });
+
+  // git drops a clause entirely when its count is zero, rather than printing
+  // "0 insertions(+)" — so an absent clause means zero here, not "unknown".
+  it("treats a missing clause as zero, not as unmeasured", () => {
+    expect(parseShortstat(" 2 files changed, 3 deletions(-)")).toEqual({
+      filesChanged: 2,
+      insertions: 0,
+      deletions: 3,
+    });
+  });
+
+  it("returns all zeros for an empty diff", () => {
+    expect(parseShortstat("")).toEqual({
+      filesChanged: 0,
+      insertions: 0,
+      deletions: 0,
+    });
+  });
+});
+
+describe("worktreeListEntryToListName churn details", () => {
+  function entry(
+    churn: Partial<
+      Pick<WorktreeListEntry, "filesChanged" | "insertions" | "deletions">
+    > = {},
+  ): WorktreeListEntry {
+    return {
+      path: "/path/to/worktree",
+      branchName: "feature/test",
+      remote: "origin/feature/test",
+      pathExists: true,
+      remoteExists: true,
+      ...churn,
+    };
+  }
+
+  it("shows files changed and the insertion/deletion counts", () => {
+    const result = worktreeListEntryToListName(
+      entry({ filesChanged: 3, insertions: 45, deletions: 12 }),
+      "gray",
+      { churn: true },
+    );
+
+    expect(result).toContain("Churn: 3 files, +45/-12");
+  });
+
+  it("uses singular wording for a single file", () => {
+    const result = worktreeListEntryToListName(
+      entry({ filesChanged: 1, insertions: 5, deletions: 0 }),
+      "gray",
+      { churn: true },
+    );
+
+    expect(result).toContain("Churn: 1 file, +5/-0");
+  });
+
+  // Mirrors the guard on `worktreeListEntryToListName agent details`: cleanup
+  // shares this renderer and asks for no churn, so its output must not change
+  // once cleanup starts carrying the fields too.
+  it("renders nothing about churn when the caller did not ask", () => {
+    const result = worktreeListEntryToListName(
+      entry({ filesChanged: 3, insertions: 45, deletions: 12 }),
+      "gray",
+    );
+
+    expect(result).not.toContain("Churn");
+  });
+
+  // Same rule `wt.ahead` and `wt.behind` already follow: a count that was
+  // taken and came back zero is not a detail worth the line.
+  it("renders nothing when the diff came back with no changes", () => {
+    const result = worktreeListEntryToListName(
+      entry({ filesChanged: 0, insertions: 0, deletions: 0 }),
+      "gray",
+      { churn: true },
+    );
+
+    expect(result).not.toContain("Churn");
+  });
+
+  it("renders nothing when the base could not be resolved", () => {
+    const result = worktreeListEntryToListName(entry(), "gray", {
+      churn: true,
+    });
+
+    expect(result).not.toContain("Churn");
+  });
+
+  it("appends churn after the existing details and before the agent detail", () => {
+    const result = worktreeListEntryToListName(
+      {
+        ...entry({ filesChanged: 3, insertions: 45, deletions: 12 }),
+        ahead: 2,
+        agent: { name: "feature-test-1f", pid: 9187 },
+      },
+      "gray",
+      { churn: true, agents: true },
+    );
+
+    expect(result).toBe(
+      "feature/test (Ahead: 2, Churn: 3 files, +45/-12, Agent: feature-test-1f)",
     );
   });
 });

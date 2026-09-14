@@ -69,4 +69,16 @@ export interface WorktreeListEntry extends WorktreeListBaseEntry {
   uncommittedChanges?: number;
   safeToRemove?: boolean;
   agent?: WorktreeAgent;
+  // How much this worktree's branch has actually changed against its source
+  // branch — `git diff --shortstat <base>...HEAD`, gated behind `list --churn`
+  // so the cost is paid only when asked for (R4). The three fields rise and
+  // fall together: either the diff ran and all three are numbers (a real zero
+  // included — an unchanged branch is a countable fact), or the base could not
+  // be resolved and all three are undefined. Never partially populated, and
+  // never a fabricated zero standing in for "not measured" — the same
+  // discipline `ahead` follows, and for the same reason. See AGENT-MODE-PLAN
+  // §3 D7, GitHub issue #39.
+  filesChanged?: number;
+  insertions?: number;
+  deletions?: number;
 }

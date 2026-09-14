@@ -33,7 +33,7 @@ describe("list command", () => {
 
     (list as any).parse = vi.fn().mockResolvedValue({
       args: {},
-      flags: { agents: false },
+      flags: { agents: false, churn: false },
     });
   });
 
@@ -70,6 +70,7 @@ describe("list command", () => {
     expect(mockGetWorktreeList).toHaveBeenCalledWith({
       includeCurrent: true,
       includeAgents: false,
+      includeChurn: false,
     });
     expect(ora).toHaveBeenCalledWith("Gathering worktree list");
     expect(spinnerMocks.start).toHaveBeenCalledTimes(1);
@@ -117,14 +118,16 @@ describe("list command", () => {
     expect(mockGetWorktreeList).toHaveBeenCalledWith({
       includeCurrent: true,
       includeAgents: false,
+      includeChurn: false,
     });
     expect(mockListName).toHaveBeenCalledWith(worktrees[0], "gray", {
       agents: false,
+      churn: false,
     });
   });
 
   it("performs the session lookup and renders agent details with --agents", async () => {
-    withFlags({ agents: true });
+    withFlags({ agents: true, churn: false });
 
     const worktrees: WorktreeListEntry[] = [
       {
@@ -148,12 +151,55 @@ describe("list command", () => {
     expect(mockGetWorktreeList).toHaveBeenCalledWith({
       includeCurrent: true,
       includeAgents: true,
+      includeChurn: false,
     });
     expect(mockListName).toHaveBeenCalledWith(worktrees[0], "gray", {
       agents: true,
+      churn: false,
     });
     expect(logSpy).toHaveBeenCalledWith(
       "- feature/one (Agent: feature-one-1f)",
+    );
+  });
+
+  // Mirrors the --agents test above: without the flag, churn must not be
+  // requested or rendered (R4's guard, reapplied to this fourth per-worktree
+  // call); with it, both the lookup and the render fire. See issue #39.
+  it("performs the churn diff and renders churn details with --churn", async () => {
+    withFlags({ agents: false, churn: true });
+
+    const worktrees: WorktreeListEntry[] = [
+      {
+        path: "/tmp/project.worktrees/feature/one",
+        branchName: "feature/one",
+        remote: "origin/feature/one",
+        filesChanged: 3,
+        insertions: 45,
+        deletions: 12,
+      },
+    ];
+
+    const mockGetWorktreeList = vi
+      .spyOn(git, "gitGetWorktreeList")
+      .mockResolvedValue(worktrees);
+    const mockListName = vi
+      .spyOn(utils, "worktreeListEntryToListName")
+      .mockReturnValue("feature/one (Churn: 3 files, +45/-12)");
+    const logSpy = vi.spyOn(list, "log").mockImplementation(() => {});
+
+    await list.run();
+
+    expect(mockGetWorktreeList).toHaveBeenCalledWith({
+      includeCurrent: true,
+      includeAgents: false,
+      includeChurn: true,
+    });
+    expect(mockListName).toHaveBeenCalledWith(worktrees[0], "gray", {
+      agents: false,
+      churn: true,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      "- feature/one (Churn: 3 files, +45/-12)",
     );
   });
 });

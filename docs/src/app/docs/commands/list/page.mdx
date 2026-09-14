@@ -11,6 +11,7 @@ List known worktrees managed for the current repository.
 ```bash
 worktree list
 worktree list --agents
+worktree list --churn
 ```
 
 Use this before `open`, `remove`, or cleanup decisions.
@@ -20,6 +21,7 @@ Use this before `open`, `remove`, or cleanup decisions.
 | Flag | Alias | Description |
 | --- | --- | --- |
 | `--agents` | `-a` | Show the agent session living in each worktree |
+| `--churn` | `-c` | Show how much each worktree has changed against its source branch |
 
 ## Showing agent sessions
 
@@ -47,6 +49,28 @@ one of them, and the marker describes the session it names.
 Without `--agents`, `list` asks the agent runtime nothing and its output is
 unchanged. If `agent.command` is unset, or the runtime is not installed or
 reports nothing usable, `--agents` simply lists no sessions rather than failing.
+
+## Showing churn
+
+`Ahead:` says how many commits a worktree carries; it does not say how much
+those commits actually changed. A one-line typo fix and a rewrite can both be
+"3 ahead" — `--churn` is what tells them apart without opening the directory:
+
+```text
+- feature/one (Churn: 3 files, +45/-12)
+- feature/two (Ahead: 2, Churn: 128 files, +2104/-980)
+```
+
+The figure is a diff against the worktree's source branch —
+[`defaultSourceBranch`](/docs/configuration), falling back to `origin/main` —
+computed with `git diff --shortstat`, the same figure `git diff --stat` summarizes
+at the bottom of its output. A worktree whose branch has no changes against that
+base shows no `Churn:` detail at all, the same way a zero `Ahead:` or `Behind:`
+count is left out rather than printed as `0`.
+
+Without `--churn`, `list` runs no extra diff and its output and cost are
+unchanged. If the source branch cannot be resolved, `--churn` leaves that
+worktree's figure out rather than showing a fabricated zero.
 
 ## Ahead and behind counts
 

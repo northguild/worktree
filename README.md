@@ -144,6 +144,12 @@ To name the agent session living in each worktree:
 worktree list --agents
 ```
 
+To see how much each worktree has actually changed against its source branch:
+
+```bash
+worktree list --churn
+```
+
 ### Reopen a worktree in your editor
 
 ```bash

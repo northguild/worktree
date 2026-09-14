@@ -7,6 +7,8 @@ import {
   getCurrentBranchName,
   gitCreateWorktree,
   gitGetAbsoluteWorktreesPath,
+  gitGetChurnBase,
+  gitGetChurnStats,
   gitGetCommitsAheadCount,
   gitGetCommitsBehindCount,
   gitGetComparisonBase,
@@ -363,6 +365,9 @@ describe("git status and tracking helpers", () => {
       `git status -s (cwd: ${worktreePath})`,
       `git status -s (cwd: ${spacedWorktreePath})`,
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git config northguild.worktree.defaultSourceBranch",
+      `git diff --shortstat origin/main...HEAD (cwd: ${worktreePath})`,
+      `git diff --shortstat origin/gone...HEAD (cwd: ${worktreePath})`,
     );
   });
 
@@ -463,6 +468,66 @@ describe("git status and tracking helpers", () => {
 
     expect(count).toBeUndefined();
     expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  // D7: reuses branch.ts's own source-branch fallback rather than
+  // gitGetComparisonBase, which answers a different question.
+  it("resolves the churn base from defaultSourceBranch", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("origin/develop");
+
+    const base = await gitGetChurnBase();
+
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "config",
+      "northguild.worktree.defaultSourceBranch",
+    ]);
+    expect(base).toBe("origin/develop");
+  });
+
+  it("falls back to origin/main when defaultSourceBranch is unset", async () => {
+    vi.spyOn(cli, "run").mockRejectedValueOnce(new Error("key unset"));
+
+    const base = await gitGetChurnBase();
+
+    expect(base).toBe("origin/main");
+  });
+
+  // The one subprocess per worktree the issue asks for: a triple-dot diff
+  // already computes against the merge base in a single call, so this is not
+  // "diff plus a separate merge-base lookup".
+  it("parses churn stats from a triple-dot diff against the base", async () => {
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce(
+        " 3 files changed, 45 insertions(+), 12 deletions(-)",
+      );
+
+    const stats = await gitGetChurnStats(worktreePath, "origin/main");
+
+    expect(runSpy).toHaveBeenCalledWith(
+      "git",
+      ["diff", "--shortstat", "origin/main...HEAD"],
+      { cwd: worktreePath },
+    );
+    expect(stats).toEqual({ filesChanged: 3, insertions: 45, deletions: 12 });
+  });
+
+  it("reports a genuine zero for a branch with no diff against the base", async () => {
+    vi.spyOn(cli, "run").mockResolvedValueOnce("");
+
+    const stats = await gitGetChurnStats(worktreePath, "origin/main");
+
+    expect(stats).toEqual({ filesChanged: 0, insertions: 0, deletions: 0 });
+  });
+
+  // D7: the base not resolving is omitted, never a fabricated zero — the
+  // same distinction gitGetCommitsAheadCount already draws for `ahead`.
+  it("returns undefined, not zero, when the base will not resolve", async () => {
+    vi.spyOn(cli, "run").mockRejectedValueOnce(new Error("unknown revision"));
+
+    const stats = await gitGetChurnStats(worktreePath, "origin/gone");
+
+    expect(stats).toBeUndefined();
   });
 
   it("counts uncommitted changes from git status -s", async () => {
@@ -1122,6 +1187,207 @@ describe("gitGetWorktreeList agent join", () => {
     const worktrees = await gitGetWorktreeList({ includeAgents: true });
 
     expect(worktrees.map((wt) => wt.agent)).toEqual([undefined, undefined]);
+  });
+});
+
+describe("gitGetWorktreeList churn join", () => {
+  const rootPath = "/repo/project";
+  const onePath = `${rootPath}.worktrees/feature/one`;
+  const twoPath = `${rootPath}.worktrees/feature/two`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+  });
+
+  it("performs no diff and sets no churn fields by default", async () => {
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+    );
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(`${onePath}  abc1234 [feature/one]`)
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    const diffCalls = mockRun.mock.calls.filter(
+      (call) => call[1]?.[0] === "diff",
+    );
+    expect(diffCalls).toHaveLength(0);
+    expect(worktree.filesChanged).toBeUndefined();
+    expect(worktree.insertions).toBeUndefined();
+    expect(worktree.deletions).toBeUndefined();
+  });
+
+  it("computes churn against the base for a worktree with a directory", async () => {
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git config northguild.worktree.defaultSourceBranch",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+      `git diff --shortstat origin/main...HEAD (cwd: ${onePath})`,
+    );
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(`${onePath}  abc1234 [feature/one]`)
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("") // churn base config lookup -> falls back to origin/main
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce(
+        " 3 files changed, 45 insertions(+), 12 deletions(-)",
+      );
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    expect(worktree.filesChanged).toBe(3);
+    expect(worktree.insertions).toBe(45);
+    expect(worktree.deletions).toBe(12);
+  });
+
+  // The R4 guard, reapplied: the churn base is resolved once for the whole
+  // run, not once per worktree, exactly as comparisonBase already is.
+  it("resolves the churn base once for the whole run, not once per worktree", async () => {
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git config northguild.worktree.defaultSourceBranch",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+      `git diff --shortstat origin/main...HEAD (cwd: ${onePath})`,
+      `git rev-list --count origin/main..HEAD (cwd: ${twoPath})`,
+      `git status -s (cwd: ${twoPath})`,
+      `git diff --shortstat origin/main...HEAD (cwd: ${twoPath})`,
+    );
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(
+        [
+          `${onePath}  abc1234 [feature/one]`,
+          `${twoPath}  def5678 [feature/two]`,
+        ].join(EOL),
+      )
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("");
+
+    await gitGetWorktreeList({ includeChurn: true });
+
+    const churnBaseCalls = mockRun.mock.calls.filter(
+      (call) =>
+        call[1]?.[0] === "config" &&
+        call[1]?.[1] === "northguild.worktree.defaultSourceBranch",
+    );
+    const diffCalls = mockRun.mock.calls.filter(
+      (call) => call[1]?.[0] === "diff",
+    );
+    expect(churnBaseCalls).toHaveLength(1);
+    expect(diffCalls).toHaveLength(2);
+  });
+
+  // D7: an unresolvable base is omitted, never a fabricated zero.
+  it("leaves churn undefined when the base will not resolve", async () => {
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git config northguild.worktree.defaultSourceBranch",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+      `git diff --shortstat origin/main...HEAD (cwd: ${onePath})`,
+    );
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(`${onePath}  abc1234 [feature/one]`)
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("")
+      .mockRejectedValueOnce(new Error("unrelated histories"));
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    expect(worktree.filesChanged).toBeUndefined();
+    expect(worktree.insertions).toBeUndefined();
+    expect(worktree.deletions).toBeUndefined();
+  });
+
+  it("leaves churn undefined for a worktree whose directory does not exist", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git config northguild.worktree.defaultSourceBranch",
+    );
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(`${onePath}  abc1234 [feature/one]`)
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    const diffCalls = mockRun.mock.calls.filter(
+      (call) => call[1]?.[0] === "diff",
+    );
+    expect(diffCalls).toHaveLength(0);
+    expect(worktree.filesChanged).toBeUndefined();
   });
 });
 
