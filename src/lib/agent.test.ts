@@ -85,7 +85,9 @@ describe("getAgentSessions", () => {
 
     await getAgentSessions();
 
-    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"]);
+    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"], {
+      timeout: 10_000,
+    });
     expect(mockRun).toHaveBeenCalledTimes(1);
     const [, args] = mockRun.mock.calls[0];
     expect(args).not.toContain("--all");
@@ -97,7 +99,9 @@ describe("getAgentSessions", () => {
 
     await getAgentSessions();
 
-    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"]);
+    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"], {
+      timeout: 10_000,
+    });
   });
 
   it("returns nothing and runs nothing when agent.command is unset", async () => {

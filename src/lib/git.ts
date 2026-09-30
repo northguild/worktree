@@ -10,6 +10,7 @@ import {
   isSessionWaiting,
 } from "./agent.js";
 import { run } from "./cli.js";
+import { isNonInteractive } from "./interaction.js";
 import { createSpinner, isProgressEnabled } from "./progress.js";
 import { askConfirm } from "./prompt.js";
 import type {
@@ -43,8 +44,39 @@ async function gitCmdGitPath() {
   return run("git", ["rev-parse", "--absolute-git-dir"]);
 }
 
+// D5: a fetch that waits on a remote's socket is bounded, and a hung one says
+// which call hung. A kill leaves no exit code, so `code === null` is what
+// separates it from a maxBuffer overflow; anything else passes through.
+const GIT_FETCH_TIMEOUT_MS = 60_000;
+
+async function runGitFetch(args: string[], cwd?: string) {
+  try {
+    return await run("git", args, {
+      cwd,
+      timeout: GIT_FETCH_TIMEOUT_MS,
+      // Without a terminal a credential prompt can never be answered. The
+      // interactive path keeps git's own default, so a human is still asked.
+      env: isNonInteractive() ? { GIT_TERMINAL_PROMPT: "0" } : undefined,
+    });
+  } catch (error) {
+    const timedOut =
+      error instanceof Error &&
+      "killed" in error &&
+      error.killed === true &&
+      "code" in error &&
+      error.code === null;
+    if (!timedOut) {
+      throw error;
+    }
+    throw new Error(
+      `Git: ${["git", ...args].join(" ")} did not answer within ${GIT_FETCH_TIMEOUT_MS / 1000}s.`,
+      { cause: error },
+    );
+  }
+}
+
 export async function gitFetch() {
-  return run("git", ["fetch", "--prune"]);
+  return runGitFetch(["fetch", "--prune"]);
 }
 
 export async function gitGetRootPath() {
@@ -528,7 +560,7 @@ export async function gitCreateWorktree(
     // case the project is moved in the filesystem. cwd is per-call and never
     // moves this process, so there is nothing to change back afterwards.
     // Fetch the latest changes from the remote
-    await run("git", ["fetch"], { cwd: gitRootPath });
+    await runGitFetch(["fetch"], gitRootPath);
     // If checking out a remote branch, create a local tracking branch. Awaiting
     // in sequence keeps the short-circuit the `&&` chain had: a rejection here
     // is only reached once the fetch has resolved.

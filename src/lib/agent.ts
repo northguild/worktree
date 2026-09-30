@@ -58,6 +58,10 @@ function toAgentSession(entry: unknown): AgentSession | undefined {
   };
 }
 
+// D5: a wedged agent runtime must not hang a listing; a kill rejects, which
+// the catch below already turns into no sessions.
+const SESSION_LIST_TIMEOUT_MS = 10_000;
+
 // One invocation per command run, joined in-process afterwards (D4). Every
 // failure — no agent configured, a missing binary, a non-zero exit, output that
 // is not JSON, or JSON that is not an array — yields no sessions and no error:
@@ -75,7 +79,9 @@ export async function getAgentSessions(): Promise<AgentSession[]> {
   }
 
   try {
-    const parsed: unknown = JSON.parse(await run(agent, SESSION_ARGS));
+    const parsed: unknown = JSON.parse(
+      await run(agent, SESSION_ARGS, { timeout: SESSION_LIST_TIMEOUT_MS }),
+    );
     if (!Array.isArray(parsed)) {
       return [];
     }

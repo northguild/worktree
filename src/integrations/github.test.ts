@@ -137,6 +137,7 @@ describe("GitHub integration", () => {
           "User-Agent": "@northguild/worktree",
           "X-GitHub-Api-Version": "2022-11-28",
         },
+        signal: expect.any(AbortSignal),
       },
     );
     expect(issue).toEqual({
@@ -242,13 +243,16 @@ describe("GitHub integration", () => {
     const issue = await fetchGitHubIssue(13);
 
     expect(issue.number).toBe(13);
-    expect(runSpy).toHaveBeenCalledWith("gh", ["auth", "token"]);
+    expect(runSpy).toHaveBeenCalledWith("gh", ["auth", "token"], {
+      timeout: 10_000,
+    });
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://api.github.com/repos/northguild/worktree/issues/13",
       {
         headers: expect.objectContaining({
           Authorization: "Bearer ghp_auto_token",
         }),
+        signal: expect.any(AbortSignal),
       },
     );
   });
@@ -305,6 +309,7 @@ describe("GitHub integration", () => {
         "X-GitHub-Api-Version": "2022-11-28",
         Authorization: "Bearer ghp_test_token",
       },
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -358,6 +363,7 @@ describe("GitHub integration", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ assignees: ["baldurpan"] }),
+        signal: expect.any(AbortSignal),
       },
     );
   });
@@ -419,5 +425,35 @@ describe("GitHub integration", () => {
       'GitHub: Invalid issue id "abc".',
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  // AbortSignal.timeout runs on Node's own timers, which fake timers do not
+  // reach, so the signal is swapped for one that has already expired.
+  it("rejects a GitHub request that never answers, naming the call and not the token", async () => {
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(
+      AbortSignal.abort(new DOMException("timed out", "TimeoutError")),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason),
+            );
+            if (init.signal?.aborted) {
+              reject(init.signal.reason);
+            }
+          }),
+      ),
+    );
+
+    const failure = fetchGitHubLogin("ghp_secret_token");
+
+    await expect(failure).rejects.toThrow(
+      "GitHub: /user did not answer within 15s.",
+    );
+    await expect(failure).rejects.not.toThrow(/ghp_secret_token/);
+    expect(AbortSignal.timeout).toHaveBeenCalledWith(15_000);
   });
 });

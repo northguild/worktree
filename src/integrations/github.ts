@@ -143,12 +143,19 @@ function getGitHubHeaders(token?: string): Record<string, string> {
   return headers;
 }
 
+// D5. A timed-out `gh auth token` rejects, and the catch below already treats
+// any failure as "no token from gh".
+const GH_AUTH_TOKEN_TIMEOUT_MS = 10_000;
+const GITHUB_REQUEST_TIMEOUT_MS = 15_000;
+
 async function getGitHubTokenFromGhCli(): Promise<string> {
   if (!(await commandExists("gh"))) {
     return "";
   }
   try {
-    return await run("gh", ["auth", "token"]);
+    return await run("gh", ["auth", "token"], {
+      timeout: GH_AUTH_TOKEN_TIMEOUT_MS,
+    });
   } catch {
     return "";
   }
@@ -184,13 +191,16 @@ interface GitHubRequestOptions {
   body?: unknown;
 }
 
-function fetchGitHub(
+async function fetchGitHub(
   path: string,
   token?: string,
   { method, body }: GitHubRequestOptions = {},
 ): Promise<Response> {
   const headers = getGitHubHeaders(token);
-  const init: RequestInit = { headers };
+  const init: RequestInit = {
+    headers,
+    signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
+  };
 
   if (method) {
     init.method = method;
@@ -203,7 +213,19 @@ function fetchGitHub(
     init.body = JSON.stringify(body);
   }
 
-  return fetch(`https://api.github.com${path}`, init);
+  try {
+    return await fetch(`https://api.github.com${path}`, init);
+  } catch (error) {
+    // The path names the call; the headers, which carry the token, never
+    // reach the message.
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(
+        `GitHub: ${path} did not answer within ${GITHUB_REQUEST_TIMEOUT_MS / 1000}s.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 // fetchGitHubIssue resolves a token lazily, because a public repository answers

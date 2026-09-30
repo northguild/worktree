@@ -36,3 +36,12 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
   Phase 3's Files line, needed because vitest's stdin is not a TTY.
 - **Phase 3.** Non-interactive coverage is per representative, not per site (no test for `jira.host` /
   `jira.apiToken`, three of the four `git.ts` removal confirms, or the branch-name fallback's validator path).
+- **Phase 4.** The fetch timeout wraps `fetch()` only; `response.text()` / `.json()` sit outside the try, so
+  a body that stalls after the headers is still aborted by the same signal but surfaces as the raw
+  "The operation was aborted due to timeout" rather than the named message.
+- **Phase 4.** `execFile`'s `timeout` sends SIGTERM with no SIGKILL escalation — a child that ignores TERM
+  runs on (probed). Real git honours it; a user-chosen `agent.command` might not.
+- **Phase 4.** `GIT_TERMINAL_PROMPT=0` does not silence SSH: a passphrase or host-key prompt reads
+  `/dev/tty`, so a non-interactive run with a controlling terminal can sit there until the 60 s bound.
+- **Phase 4.** `cli.ts:10-12` comment ("unbounded, which is what every git call here wants") is now
+  slightly stale — `git fetch` sets a timeout.

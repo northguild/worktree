@@ -12,6 +12,11 @@ interface ExecOptions {
    * that waits on another process's socket that needs this.
    */
   timeout?: number;
+  /**
+   * Variables for the child, merged over `process.env` rather than replacing
+   * it — a child without PATH or HOME cannot find git or its config.
+   */
+  env?: Record<string, string>;
 }
 
 interface RunOptions extends ExecOptions {
@@ -39,22 +44,32 @@ export interface CommandResult {
   exitCode: number;
 }
 
+// `undefined` leaves execFile's own default (the parent's environment) alone.
+function mergeEnv(env: Record<string, string> | undefined) {
+  return env ? { ...process.env, ...env } : undefined;
+}
+
 // execFile takes an argv array, so no value passed here is ever parsed as shell
 // syntax, and cwd reaches the child directly instead of through a `cd` prefix.
 export function run(
   file: string,
   args: string[] = [],
-  { cwd, timeout, trim = true }: RunOptions = {},
+  { cwd, timeout, env, trim = true }: RunOptions = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { cwd, timeout }, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      const output = stdout ?? "";
-      resolve(trim ? output.trim() : output);
-    });
+    execFile(
+      file,
+      args,
+      { cwd, timeout, env: mergeEnv(env) },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        const output = stdout ?? "";
+        resolve(trim ? output.trim() : output);
+      },
+    );
   });
 }
 
@@ -76,22 +91,27 @@ export function run(
 export function runCapturing(
   file: string,
   args: string[] = [],
-  { cwd, timeout }: ExecOptions = {},
+  { cwd, timeout, env }: ExecOptions = {},
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { cwd, timeout }, (error, stdout, stderr) => {
-      const output = { stdout: stdout.trim(), stderr: stderr.trim() };
+    execFile(
+      file,
+      args,
+      { cwd, timeout, env: mergeEnv(env) },
+      (error, stdout, stderr) => {
+        const output = { stdout: stdout.trim(), stderr: stderr.trim() };
 
-      if (!error) {
-        resolve({ ...output, exitCode: 0 });
-        return;
-      }
-      if (typeof error.code === "number") {
-        resolve({ ...output, exitCode: error.code });
-        return;
-      }
-      reject(error);
-    });
+        if (!error) {
+          resolve({ ...output, exitCode: 0 });
+          return;
+        }
+        if (typeof error.code === "number") {
+          resolve({ ...output, exitCode: error.code });
+          return;
+        }
+        reject(error);
+      },
+    );
   });
 }
 

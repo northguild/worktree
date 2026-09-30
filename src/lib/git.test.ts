@@ -6,6 +6,7 @@ import * as cli from "./cli.js";
 import {
   getCurrentBranchName,
   gitCreateWorktree,
+  gitFetch,
   gitGetAbsoluteWorktreesPath,
   gitGetCommitsAheadCount,
   gitGetCommitsBehindCount,
@@ -142,7 +143,9 @@ describe("git branch parsing", () => {
 
     const branches = await gitGetRemoteBranches();
 
-    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch", "--prune"]);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch", "--prune"], {
+      timeout: 60_000,
+    });
     expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
       "--no-pager",
       "branch",
@@ -561,6 +564,7 @@ describe("gitCreateWorktree", () => {
     ]);
     expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["fetch"], {
       cwd: gitRootPath,
+      timeout: 60_000,
     });
     expect(runSpy).toHaveBeenNthCalledWith(
       3,
@@ -612,6 +616,7 @@ describe("gitCreateWorktree", () => {
     expect(runSpy).toHaveBeenCalledTimes(3);
     expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["fetch"], {
       cwd: spacedGitRootPath,
+      timeout: 60_000,
     });
     expect(runSpy).toHaveBeenNthCalledWith(
       3,
@@ -1849,5 +1854,53 @@ describe("what the removal helpers report", () => {
         "--force",
       ]);
     });
+  });
+});
+
+describe("git fetch bounds", () => {
+  it("leaves git's own prompting alone when a human is at the terminal", async () => {
+    setNonInteractive(false);
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitFetch();
+
+    expect(runSpy.mock.calls[0][2]?.env).toBeUndefined();
+  });
+
+  it("forbids a credential prompt when non-interactive", async () => {
+    setNonInteractive(true);
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitFetch();
+
+    expect(runSpy).toHaveBeenCalledWith("git", ["fetch", "--prune"], {
+      timeout: 60_000,
+      env: { GIT_TERMINAL_PROMPT: "0" },
+    });
+  });
+
+  it("names the call when the fetch is killed on timeout", async () => {
+    vi.spyOn(cli, "run").mockRejectedValue(
+      Object.assign(new Error("Command failed: git fetch --prune"), {
+        killed: true,
+        code: null,
+      }),
+    );
+
+    await expect(gitFetch()).rejects.toThrow(
+      "Git: git fetch --prune did not answer within 60s.",
+    );
+  });
+
+  it("passes any other fetch failure through untouched", async () => {
+    vi.spyOn(cli, "run").mockRejectedValue(
+      Object.assign(new Error("Command failed: git fetch --prune"), {
+        code: 128,
+      }),
+    );
+
+    await expect(gitFetch()).rejects.toThrow(
+      "Command failed: git fetch --prune",
+    );
   });
 });

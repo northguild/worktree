@@ -341,3 +341,24 @@ describe("spawnDetached", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
   });
 });
+
+describe("env option", () => {
+  const printVar = "process.stdout.write(process.env.WT_TEST_VAR ?? '')";
+  const printPath = "process.stdout.write(process.env.PATH ?? '')";
+
+  it("reaches the child, and keeps the parent's environment", async () => {
+    await expect(
+      run(node, ["-e", printVar], { env: { WT_TEST_VAR: "set" } }),
+    ).resolves.toBe("set");
+    await expect(
+      run(node, ["-e", printPath], { env: { WT_TEST_VAR: "set" } }),
+    ).resolves.toBe(process.env.PATH);
+    await expect(
+      runCapturing(node, ["-e", printVar], { env: { WT_TEST_VAR: "cap" } }),
+    ).resolves.toMatchObject({ stdout: "cap" });
+  });
+
+  it("leaves the child on the parent's environment when none is given", async () => {
+    await expect(run(node, ["-e", printVar])).resolves.toBe("");
+  });
+});

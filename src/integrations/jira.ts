@@ -127,16 +127,38 @@ function getJiraBranchType(issue: JiraIssue) {
   return "feature" as const;
 }
 
+const JIRA_REQUEST_TIMEOUT_MS = 15_000;
+
+// D5: every Jira request is bounded, and a timeout names the call. The path
+// goes in the message; the auth headers, which carry the token, never do.
+async function fetchJira(
+  path: string,
+  credentials: JiraCredentials,
+): Promise<Response> {
+  try {
+    return await fetch(`https://${credentials.host}${path}`, {
+      method: "GET",
+      headers: getJiraAuthHeaders(credentials),
+      signal: AbortSignal.timeout(JIRA_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(
+        `Jira: ${path} did not answer within ${JIRA_REQUEST_TIMEOUT_MS / 1000}s.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
 export async function fetchJiraIssue(issueId: string): Promise<JiraIssue> {
   const issueKey = getIssueKey(issueId);
   const credentials = await resolveJiraCredentials();
 
-  const response = await fetch(
-    `https://${credentials.host}/rest/api/3/issue/${issueKey}`,
-    {
-      method: "GET",
-      headers: getJiraAuthHeaders(credentials),
-    },
+  const response = await fetchJira(
+    `/rest/api/3/issue/${issueKey}`,
+    credentials,
   );
   const loginReason = response.headers?.get?.("x-seraph-loginreason");
 
@@ -191,13 +213,7 @@ export async function getJiraBranchNameFromIssue(
 export async function validateJiraCredentials(): Promise<boolean> {
   try {
     const credentials = await resolveJiraCredentials();
-    const response = await fetch(
-      `https://${credentials.host}/rest/api/3/myself`,
-      {
-        method: "GET",
-        headers: getJiraAuthHeaders(credentials),
-      },
-    );
+    const response = await fetchJira("/rest/api/3/myself", credentials);
 
     return response.ok;
   } catch {
