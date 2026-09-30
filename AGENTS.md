@@ -27,7 +27,7 @@ the standing rules, and every command cites it rather than restating it.
 | `/feature-close` | retires a finished or abandoned feature into `context/archive/` |
 | `/orchestrate` | one ad-hoc, gated, commit-sized change — no roadmap entry, no ledger |
 | `/prototype` | a throwaway HTML/CSS mockup under `prototypes/` — no gates, no ledger, no application code |
-| `/onboard` | fills in this project's own stubs — `verify.md`, `executors.md`, `git.md`, `tracking.md`, `stack.md` — adopting what an existing `AGENTS.md` already said |
+| `/onboard` | fills in this project's own stubs — `verify.md`, `executors.md`, `git.md`, `tracking.md`, `release.md`, `stack.md` — adopting what an existing `AGENTS.md` already said |
 | `/tracking-migrate` | moves existing entries, drafts and plans onto the substrate `tracking.md` names — after `/onboard` sets it, never instead |
 
 | Read | For |
@@ -35,17 +35,17 @@ the standing rules, and every command cites it rather than restating it.
 | [`context/stack.md`](context/stack.md) | runtime, layout, conventions, and where this project documents itself |
 | [`context/standards/README.md`](context/standards/README.md) | engineering standards — load per its conditional table |
 | [`context/verify.md`](context/verify.md) | the real lint / typecheck / build / test commands — the only file that names one |
-| [`context/git.md`](context/git.md) | who commits, where work lands, whether it is pushed, and at what granularity — read it before closing out any change |
+| [`context/git.md`](context/git.md) | who commits, where work lands, whether it is pushed, and at what granularity — read it before any `git` or `gh` command; absent, the user commits |
 | [`context/tracking.md`](context/tracking.md) | where the backlog, the plans and the phase ledgers live — a file in `context/`, or the issue tracker |
 
 **Phase status lives in the active plan's status ledger and nowhere else.** Work the lowest-numbered phase
 that is not `done` and whose `Depends on` are all `done`; state which you picked before starting; update
 the row as part of the same change as the work. **If the ledger disagrees with the repo, stop and say so.**
 
-**Nothing commits, branches or pushes unless [`context/git.md`](context/git.md) says so.** Absent or silent,
-the work is left in the working tree and the user commits it.
+**Never stage, commit, branch, create a worktree, push or open a pull request on your own initiative.** Do
+it where [`context/git.md`](context/git.md) says so, or where the user asked in this session — nowhere else.
 
-**An open `P0` or `P1` in [`context/findings.md`](context/findings.md) blocks its phase from being `done`.**
+**A phase is `done` only when its scope landed and both gates passed** — never on a self-report.
 
 **Documentation is part of the change.** Whatever a change makes untrue in this project's own docs is fixed
 by the phase that makes it untrue, not by a follow-up.

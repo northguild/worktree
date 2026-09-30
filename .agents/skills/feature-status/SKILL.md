@@ -1,6 +1,6 @@
 ---
 name: feature-status
-description: "Read-only report of where the active feature stands — its plan's phase ledger, open findings, and git state, plus every other worktree in flight where the project works that way — ending with exactly one next action. Explicit invocation only — run this when the user types /feature-status. Do NOT match on 'what's the status', 'where are we', or general progress questions."
+description: "Read-only report of where the active feature stands — its plan's phase ledger and git state, plus every other worktree in flight where the project works that way — ending with exactly one next action. Explicit invocation only — run this when the user types /feature-status. Do NOT match on 'what's the status', 'where are we', or general progress questions."
 ---
 
 # /feature-status
@@ -13,13 +13,14 @@ this first. It exists for when *you* want to know.
 
 Read [`context/workflow.md`](../../../context/workflow.md) for the tier model, and
 [`context/tracking.md`](../../../context/tracking.md) for where the state it reports lives. **Everything
-below is written for the working-tree answer**; *Under the tracker answer* at the end says what changes.
+below is written for the working-tree answer**; where that file names the tracker, read
+[`tracker.md`](tracker.md) beside this file before step 1 — it says what changes.
 
 ## 1. Read, in this order
 
 1. `context/roadmap.md` — which entry is `active`, and what each entry's **Doc** points at.
 2. That plan document's **status ledger**, and each phase's **Files:** line.
-3. `context/findings.md` — open findings, and which phase each is tied to.
+3. Any row reading `blocked` — and what its Note says stopped it.
 4. Git state — `git status --short` and the last few commits.
 
 **Nothing is cached and nothing is parsed by a script.** Read the ledger every time. That is the property
@@ -82,7 +83,6 @@ Keep it short. The user is asking a question, not reading a document.
 Feature:  <name> — <marker>        (or: none active)
 Plan:     <path>
 Phases:   <n> done · <n> in progress · <n> blocked · <n> not started
-Findings: <n> open (<severities>)  (or: none open)
 
 Next: <exactly one action>
 ```
@@ -102,7 +102,7 @@ re-print the whole ledger.
 
 In priority order — take the **first** that applies and name only it:
 
-1. An open `P0` or `P1` → fix it. Quote the finding's id and its closing condition.
+1. A phase reading `blocked` → clear it. Quote the row's Note, which is what stopped it.
 2. A phase **`in progress`** → resume it, quoting its Note. Do not restart it.
 3. A phase **`blocked`** with every other phase `done` → report the blocker; the next action is the user's.
 4. A phase `done` with a next **unblocked** phase → `/feature-implement`, naming the phase it will pick.
@@ -123,49 +123,6 @@ the most urgent one, and the other two keep.
 the report says so in one line rather than ranking them.
 
 "Exactly one" is the point. A list of three things to consider is what this command exists to replace.
-
-## Under the tracker answer
-
-Read [`context/tracking.md`](../../../context/tracking.md) first. This command still writes nothing and
-still ends with exactly one next action.
-
-| Above | Becomes |
-|---|---|
-| step 1's `roadmap.md` | the open issues carrying the backlog label |
-| step 1's status ledger | **unchanged** — it is the same table, in the issue body |
-| step 1's `findings.md` and git state | unchanged — both are still files in this tree |
-| step 2's worktree sweep | **one query: the assigned issues** |
-
-**Step 2 gets shorter and stronger, and it is the clearest payoff of this answer.** The sweep exists
-because `roadmap.md` on the default branch cannot see what is in flight, so it walks every tree and reads
-each one's files. That only ever worked for trees **on this machine**. The tracker is outside every tree:
-one query for the assigned issues answers what is in flight across every machine, and it answers it for
-agents this checkout has never heard of.
-
-Keep `git worktree list` anyway, and report the two side by side. They answer different questions — which
-trees exist *here*, and which features are claimed *anywhere* — and the interesting line is where they
-disagree:
-
-- **Assigned with no local tree** — normal. Someone else's agent has it.
-- **A local tree whose feature is unassigned** — a claim that was dropped, or a tree left behind after a
-  close. Report it; do not assign anything.
-
-### Two reconciliations that only exist here
-
-Add these to step 3, and stop on them the same way:
-
-- **A stale claim.** An issue assigned whose last comment is old — the phase opened and nothing since. The
-  heartbeat is what makes this visible; say how long, and that reclaiming is a person's decision. **Never
-  un-assign someone else's agent.**
-- **A `done` row carrying no evidence in its Note** — neither a commit sha, nor, under
-  [`context/git.md`](../../../context/git.md)'s *the user commits*, a statement that the change is
-  uncommitted and where. A body edit cannot ride the commit under this answer, so the Note is the only
-  thing tying the row to the repository. A sha that is not in the branch is the same disagreement one
-  substrate over; **no evidence at all is one the working-tree answer cannot produce**, because there the
-  row travels inside the commit.
-
-**A `done` row whose commit is unpushed is not a discrepancy** — the same way a `done` row with
-uncommitted changes is not. It is the normal state between the gates passing and the branch landing.
 
 ## Rules
 

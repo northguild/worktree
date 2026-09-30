@@ -8,7 +8,7 @@ in `context/`, that copy is the one that is wrong.
 
 Keep it in step with CI. If a command here fails while CI is green, this file is the one that is wrong.
 
-**Every command below was run from the repo root on 2026-09-09 and exited 0** (re-verified by `/onboard`; first verified 2026-09-06). Anything that did not is
+**Every command below was run from the repo root on 2026-09-30 and exited 0** (re-verified by `/onboard` after a fresh `pnpm install --frozen-lockfile`; first verified 2026-09-06). Anything that did not is
 recorded as such rather than written into a section.
 
 ## Prerequisites
@@ -66,7 +66,7 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-09-11 that is 497 and 66 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-09-30 that is 616 and 66 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 

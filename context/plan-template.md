@@ -51,6 +51,8 @@ differently-shaped one nearby is a decoy that gets read by mistake.
 
 **Files:** <every path this phase creates or modifies>
 
+**Standards:** <the files under `../standards/` this phase is reviewed against — its rows of that README's conditional table, the always row included>
+
 **Scope:** <what it does>
 
 **Done when:** <a condition checkable against the repo>
@@ -58,6 +60,8 @@ differently-shaped one nearby is a decoy that gets read by mistake.
 #### Phase 2 — <name>
 
 **Files:** <every path this phase creates or modifies>
+
+**Standards:** <the files under `../standards/` this phase is reviewed against — its rows of that README's conditional table, the always row included>
 
 **Scope:** <what it does>
 

@@ -11,8 +11,10 @@ verified.
 
 - A **plan** — the scope, the files, the acceptance criteria, and the review checklist the reviewer will
   use.
-- Paths to the project's standards. **Read them yourself**; they are files in this repository, not
-  something that has to be pasted into your brief.
+- The phase's **`Standards:` line** — the files under `context/standards/` this work is reviewed against.
+  **Read them yourself**; they are files in this repository, not something that has to be pasted into your
+  brief. Where the brief has no such line, load per the conditional table in
+  `context/standards/README.md` instead.
 - On a loopback: your prior implementation and the validator's verbatim feedback.
 
 ## What happens to your output
