@@ -44,8 +44,9 @@ component library, and two or three existing screens close to what is being mock
 names, spacing scale, radii and type stack out of them.
 
 Invent only where there is genuinely nothing to borrow — a new surface, or a project with no styling of its
-own yet. **Mark every invented value**, so the plan that reads this knows which parts are proposals and
-which are already true.
+own yet. **Where you are inventing, a design-guidance skill is worth reaching for if your runtime offers
+one**; where you are borrowing, the project's real values win over whatever opinion it has. **Mark every
+invented value**, so the plan that reads this knows which parts are proposals and which are already true.
 
 ## 2. Agree the sketch, then stop
 

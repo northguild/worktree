@@ -2,6 +2,8 @@
 name: tracking-migrate
 description: "Move this project's existing workflow state onto the substrate context/tracking.md names — every roadmap entry becomes an issue and every plan becomes that issue's body, ledger and all — one feature at a time, resumable, and removing a tree file only once its issue exists. Explicit invocation only — run this when the user types /tracking-migrate. Do NOT match on 'switch to issues', 'move this to GitHub', or any request to change where tracking lives — that answer is /onboard's."
 disable-model-invocation: true
+model: sonnet
+effort: medium
 ---
 
 # /tracking-migrate
@@ -50,7 +52,7 @@ list exists to prevent.
 - **[`context/tracking.md`](../../../context/tracking.md) does not name the tracker answer.** Then there is
   nothing to migrate *to*, and this command would be inventing a destination. Say which answer the file
   holds and name `/onboard`.
-- **The tracker's parameters are missing** — the repository, or the label name. Same answer: they are
+- **The tracker's parameters are missing** — the repository, or either label name. Same answer: they are
   Step 5's to collect, and a migration that guessed one would write into the wrong place.
 - **A phase is `in progress`.** An agent may be inside it right now, in this tree or another one, and
   [`context/workflow.md`](../../../context/workflow.md)'s read-fresh model assumes the substrate does not
@@ -61,6 +63,13 @@ list exists to prevent.
   `/feature-status` is where that gets resolved.
 - **A plan in `plans/` with no roadmap entry, or an entry whose **Doc** points at nothing.** The entry and
   its document travel together, and a migration is the wrong moment to decide which of the two is right.
+- **A plan too large for an issue body.** [`context/tracking.md`](../../../context/tracking.md) says how
+  large a body may be; measure every plan against it, leaving room for the ledger rows that will be written
+  into the body later. Name each feature that overflows and the margin by which it does, and stop. **A plan
+  that does not fit is a feature that is several features**, and splitting one in two is a scope decision —
+  the same reason the row above refuses. Split it in the tree first, into an entry and a plan apiece, then
+  re-run. Never trim a plan to fit, and never spill one into comments or a linked paste: this command moves
+  data, and a plan that arrives shorter than it left has not been moved.
 
 ## What moves, and what never does
 
@@ -70,7 +79,7 @@ list exists to prevent.
 | its `Size:` field | a line in the body | it is part of the entry, and nothing else records it |
 | the `active` marker | the issue's assignee | see *Who the active feature is assigned to* below |
 | a `drafts/<NAME>.md` document | that same issue's body, under a heading | the draft and the issue are one object under this answer |
-| a `plans/<NAME>-PLAN.md` document | that same issue's body, replacing the one or two lines | the full template shape, **ledger included and unchanged** |
+| a `plans/<NAME>-PLAN.md` document | that same issue's body, replacing the one or two lines | the full template shape, **ledger included and unchanged** — a plan too large for a body is a refusal, not a trim |
 | each ledger row | the same row, in the body's table | Status and Note carried across verbatim — nothing is re-derived |
 | nothing in the tree | a `Priority:` line in the body | ask for it; an issues list has no manual order, so `roadmap.md` position is the fact being lost |
 | nothing in the tree | the issue's type, where this project has them | a guess, best-effort, never overwriting one already set |
@@ -79,7 +88,7 @@ list exists to prevent.
 |---|---|
 | `history.md` | fabricating closed issues for features shipped months ago produces wrong dates, empty threads, and an audit trail that looks real and is not |
 | `archive/` | the same, and the retired plan documents are the evidence behind those rows |
-| `findings.md` | it stays a file under both answers — a finding is raised and swept inside one branch's life, so it is never contended |
+| an order between two features | nothing in the tree records one, so there is nothing to carry. `/roadmap` and `/feature-plan` record what somebody actually says has to land first, and a graph guessed from titles would look exactly like one somebody asserted |
 
 **`history.md` and `archive/` stay exactly where they are, forever.** They are the record of the era before
 the switch, and everything under `context/` is project-owned, so keeping them costs nothing. New closures
@@ -98,16 +107,20 @@ For one feature, in this order:
    entry's one or two lines where it has no plan.
 2. **Set its `Priority:` line, and its type** where this project has types. Best-effort, and neither is a
    gate.
-3. **Assign the issue** if the entry was `active`.
-4. **Only now, remove that feature's tree files** — its `roadmap.md` entry, and its `drafts/` or `plans/`
+3. **Apply the planned label if the body arrived with a ledger in it** — that is, if the entry had a plan
+   in the tree. [`context/tracking.md`](../../../context/tracking.md) names it. An entry that was only ever
+   one or two lines gets the backlog label and nothing more; the tier it was in is the tier it arrives in,
+   and this command has never invented one. Best-effort, and not a gate.
+4. **Assign the issue** if the entry was `active`.
+5. **Only now, remove that feature's tree files** — its `roadmap.md` entry, and its `drafts/` or `plans/`
    document.
 
 **The plan is one write.** The ledger goes into the body as the table it already is, every row's Status and
 Note carried across as they stand. There is no second object to create, so there is no window in which a
 feature arrives half-migrated with a complete plan that reads as a draft.
 
-**Fail at any point and the feature is still in exactly one substrate.** Steps 1–3 are additive: a partial
-issue is visibly partial, and re-running reconciles it. Step 4 is the commit point, and it cannot happen
+**Fail at any point and the feature is still in exactly one substrate.** Steps 1–4 are additive: a partial
+issue is visibly partial, and re-running reconciles it. Step 5 is the commit point, and it cannot happen
 before the issue it replaces exists. **A repository is never in neither substrate**, which is the failure
 mode a bulk migration has and this one does not.
 
@@ -162,7 +175,7 @@ Do not create anything to prove the tracker works.
    file removed. The removals are the part that is a diff; show them as one.
 2. **Offer to remove what is now dead and empty** — `roadmap.md` once its last entry is gone, and `drafts/`
    and `plans/` once they hold nothing. Only where empty, only shown first, and never `history.md`,
-   `archive/` or `findings.md`.
+   `archive/`.
 3. **Update [`context/tracking.md`](../../../context/tracking.md)** to say the migration ran, on what date,
    and what stayed behind. That file already holds the answer; what it gains is the fact that the answer and
    the data now agree. If anything was left un-migrated, name it there — a split that is written down is a
@@ -180,6 +193,8 @@ Then stop. **Do not commit** — the file removals are a working-tree change lik
 - **Never create a second issue for a name that already has one.**
 - **Never convert `history.md` or `archive/`**, in either direction.
 - **Never migrate while a phase is `in progress`.**
+- **Never shorten a plan to make it fit.** An overflowing plan is a feature to split, and this command is
+  not where a scope decision is made.
 - **Never invent the substrate.** If [`context/tracking.md`](../../../context/tracking.md) does not name the
   tracker and its parameters, this command has nothing to do — name `/onboard` and stop.
 - **Never transcribe a credential.** An entry, a draft or a plan can hold one, and an issue body is a

@@ -14,7 +14,8 @@ active" refusal here. That is what makes planning ahead possible. Activation is 
 [`context/workflow.md`](../../../context/workflow.md).
 
 Read [`context/tracking.md`](../../../context/tracking.md) for where plans live. **Everything below is
-written for the working-tree answer**; *Under the tracker answer* at the end says what changes.
+written for the working-tree answer**; where that file names the tracker, read [`tracker.md`](tracker.md)
+beside this file before step 1 — it says what changes.
 
 ## Usage
 
@@ -101,6 +102,14 @@ planner's own default shape:
   acceptance-criteria — a per-phase artifact, not a plan — and you will throw it away.
 - Pointers to `context/stack.md`, `context/standards/README.md` (load per its conditional table) and
   `context/verify.md`. Cite the paths; do not paste the files in. Anything reading this repo can open them.
+- **A `Standards:` line on every phase** — the files from that table the phase will be reviewed against,
+  the always row included and the surface rows below added. The plan is the one traversal of the table:
+  whoever implements the phase and whoever reviews it read that line, and neither opens the README again.
+- **The surface question, asked out loud** — per the standing rule in
+  [`context/workflow.md`](../../../context/workflow.md): does this feature put something in front of a
+  person, sit in a hot path, or cross a trust boundary? Each *yes* names the standards rows the phases will
+  be reviewed against, and each is a row nothing downstream will reach on its own. *None of these* is an
+  answer and belongs in the report.
 - **Where this project documents itself, and what this feature makes untrue there.** Start from the
   Documentation section of `context/stack.md`. **If that section is empty, missing, or names less than the
   tree plainly holds, sweep for it** — the root `README`, a `README` in each package, `docs/`, a docs site
@@ -125,6 +134,12 @@ Fill in the template's shape. Then:
   assigned to the phase that carries it, **and that phase's `Files:` line names the same path.** A
   documentation row with no phase is a follow-up nobody does. If nothing changes, say which surfaces you
   checked and why none of them describe this — that is an answer, and leaving the section blank is not.
+- **Fill in §8 Verification with what proves each surface the question found** — the keyboard and contrast
+  pass for something a person operates, the number to compare against §1's measurement for a hot path. A
+  feature with a user interface names an **end-to-end pass in a real browser** there. Which driver runs it
+  is `context/verify.md`'s answer; **if that file names nothing that drives a browser, say so in §9 rather
+  than inventing one** — a standard named in a phase's review expectations and nowhere checkable is a rule
+  nobody runs, and `/onboard` is what fills the gap.
 - Fill in **§9 Open questions** honestly. An honest gap is worth more than an invented decision.
 - Every phase is `not started`.
 
@@ -164,65 +179,11 @@ is a reviewable skeleton plus open questions, not a finished plan of record** �
 and the research. Name the next step: the user reviews and edits the plan, and `/feature-implement` runs it
 once they are satisfied.
 
-## Under the tracker answer
-
-Read [`context/tracking.md`](../../../context/tracking.md) first. The steps above hold — pick, check,
-research, write, report — and only where the plan lands changes.
-
-| Above | Becomes |
-|---|---|
-| pick from `context/roadmap.md` | pick from the open issues carrying the backlog label |
-| the ranking's first key | **the issue's `Priority:` line**, above everything below it |
-| ranking's *has a draft* | the issue body already holds researched material rather than one or two lines |
-| ranking's *backlog order* | nothing — an issues list has no manual order, which is what `Priority:` replaces |
-| `git mv` a draft into `plans/` | nothing moves — **the plan replaces the body of the same issue** |
-| copy `plan-template.md` to a new path | write the template's sections into that issue's body |
-| the phase ledger, Status column and all | **unchanged** — the same table, written into the body |
-| step 6, repoint **Doc** | nothing — a plan is the observation that the body holds a ledger |
-| step 2's *already planned* check | the body already holds a phase ledger |
-
-**The ledger does not change shape.** `#`, `Phase`, `Depends on`, `Status`, `Note` — the table a plan
-document carries, written into the body with every row `not started`. There is no second object to create,
-nothing to reconcile it against, and **no window in which a plan is half-written: the body is one write.**
-
-### Priority leads the ranking
-
-`Priority:` is read **above *has a draft***, and that is the only place this command's ranking changes.
-Overriding the default order is the entire purpose of marking something urgent, so a key that only broke
-ties between equally-prepared entries would not do the job it was added for. An issue carrying no
-`Priority:` line ranks as `Medium`.
-
-**Name the priority in the entry's one-line reason**, alongside whatever else put it where it is. The cost
-of this placement is that the top candidate can now be unresearched — acceptable only because this command
-still **asks**, and it would not be if it silently took the top entry.
-
-### The type, corrected here
-
-`/roadmap` guessed the issue's type from one or two lines. **You have the research it lacked: correct the
-type if the guess was wrong, and leave it alone if it was right.** That is the whole of this command's
-involvement with it. Nothing here reads it, and no refusal, ranking or report may start to.
-
-Where the project has no types configured, or the write is silently dropped for want of push access, skip
-it and say so once — it is metadata, not a gate.
-
-### The rest
-
-**`--activate` assigns the issue** rather than editing a marker, subject to the same one-active-feature
-rule and the same outcome when the slot is held: write the plan, skip the activation, name the holder.
-
-**Step 7's ordering problem disappears, and that is worth knowing.** Under the working-tree answer the plan
-has to be committed and pushed *before* a worktree exists, because a tree carries only what its source ref
-holds. An issue is in no ref: it is visible from every tree the moment it exists. Plan, then create the
-tree, in whatever order suits — nothing here has to land first.
-
-**Step 5's `**Status:**` rule applies to the issue body verbatim, and only to the feature.** The body holds
-the plan and never a line claiming where the *feature* stands; that fact is the assignee. The ledger's
-Status column answers a different question at a different scope, and it belongs in the body exactly as it
-belongs in a plan document.
-
 ## Rules
 
 - **Never implement anything.** Not "just the first phase", not "a quick scaffold".
 - **Never mark a phase `done`**, and never mark a phase anything other than `not started`.
 - **Never write outside `context/`.** No source files, no config.
+- **Never shrink a plan to fit where it is kept.** A plan too large for its home says the feature is too
+  large; splitting it is the answer, and trimming the research to fit hides the finding.
 - Do not fold the draft's content into `context/roadmap.md`. Tier 1 stays high-level.

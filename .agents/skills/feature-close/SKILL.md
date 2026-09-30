@@ -10,7 +10,8 @@ Owns the **Tier 2 → retired** transition. Nothing else in this workflow archiv
 
 Read [`context/workflow.md`](../../../context/workflow.md) for the tier model, and
 [`context/tracking.md`](../../../context/tracking.md) for where a retired feature goes. **Everything below
-is written for the working-tree answer**; *Under the tracker answer* at the end says what changes.
+is written for the working-tree answer**; where that file names the tracker, read [`tracker.md`](tracker.md)
+beside this file before anything else — it says what changes.
 
 ## Usage
 
@@ -18,7 +19,11 @@ is written for the working-tree answer**; *Under the tracker answer* at the end 
 /feature-close                                # retire the active feature as shipped
 /feature-close "<name>"                       # retire a named feature as shipped
 /feature-close "<name>" --dropped "<why>"     # retire one that will not be built
+/feature-close --release                      # retire it, then cut the release its note goes out in
 ```
+
+**`--release` is Mode 1 only**, and it is the one flag in this workflow that acts on the world. What it
+does and what it refuses are below, under *The release note*.
 
 **Resolving the target:** with no argument, the entry marked `active`. With a name, resolve it against
 `context/roadmap.md` — **any entry holding a plan is a valid target**, not just an active one. An abandoned
@@ -28,12 +33,14 @@ plan is a droppable state.
 
 ### Refuse first
 
-Check both before touching anything, and refuse if either fails:
+Check this before touching anything, and refuse if it fails:
 
-1. **Every phase in the ledger is `done`.** If not, list the ones that are not, and stop. Do not offer to
-   mark them.
-2. **No open `P0` or `P1` in `context/findings.md` is tied to this feature.** If there is, quote it and
-   stop.
+**Every phase in the ledger is `done`.** If not, list the ones that are not, and stop. Do not offer to mark
+them. A phase that ended `blocked` is on that list by definition, and its Note says what stopped it.
+
+**One check, not two.** `done` already means the scope landed and both gates passed, so a defect the gates
+caught is either fixed, or it is a row that does not read `done`, or it is an issue this feature never
+owned. There is nothing left for a second refusal to catch.
 
 A refusal here is the workflow working, not a problem to route around. If the user overrides after being
 told, say plainly what is being overridden, then proceed.
@@ -76,15 +83,106 @@ grep -rn "<old-path>\|<OLD-FILENAME>" --include='*.md' . | grep -v node_modules
 - **Show the full list of edits before committing.** That review is why this is an explicit command rather
   than a side-effect.
 
-### Finally
+### Delete `context/notes.md`
 
-Move every **closed** finding tied to this feature out of `context/findings.md` and into the archived plan's
-own log. `findings.md` must not grow for the life of the project.
+**If the file is there, delete it — whole, as part of this same change.** Both modes, both tracking
+answers.
+
+Do not read it for things to keep, do not assign each line a disposition, and do not fold any of it into
+the history row or the closing comment. Anything that should have outlived this feature was promoted to an
+issue while the branch was alive, which is the only moment that call can be made against code that still
+exists. What is left is what the branch was for.
+
+**Glancing at it on the way past is fine; triaging it is not.** If something jumps out, file that one as an
+issue and then delete the file — one judgement, not a ceremony repeated per entry. **The unconditional
+delete is the whole bound on that file**, and a retirement that spends ten minutes disposing of notes has
+bought back the cost this arrangement exists to avoid.
+
+### The release note — before the commit, under both granularities
+
+Read [`context/release.md`](../../../context/release.md). **This is the last moment before the feature's
+notes leave this machine**, which is why the confirmation is here whichever command wrote them.
+
+- **Once per feature** → write the note now, before the commit, so it rides whatever this command hands
+  over. One note per path the feature touched whose row says it deserves one, in whatever that file says
+  records a note.
+- **Per phase** → the phases already wrote them. **Collect them and show them** — do not write another.
+
+**A note is one or two sentences.** It is read by someone deciding whether this affects them — not
+reviewing the diff. Say what changed for them and stop: no phase-by-phase account, no list of files, no
+rationale that belongs in the plan. If it needs a paragraph, the thing to link is the plan, not to inline
+it.
+
+Then, either way: **propose the bump level for each note and confirm it with the user.** That is a
+per-change judgment rather than policy, and it is the one thing in this file that is asked rather than
+read. Use your runtime's question mechanism if it has one.
+
+- **The user changes a level** → amend the note and say so.
+- **The user declines a note entirely** → write none, and **say in the report that the feature retired
+  with no note and why.** That is their call about their own release; doing it quietly is not.
+
+**Retiring a feature is not shipping it.** The note rides this hand-over; the change reaches users on
+whatever event that file's *what a release ships* answer names, which is somebody's deliberate act and not
+this command's. So the report says what the feature is **waiting for** — never that it is released, deployed
+or live, and never that a deploy will follow from the merge. Where that answer is not written down, say that
+too and name `/onboard`.
+
+**Say which paths you checked and what each one owed**, including when the answer is *none*. **A path
+[`context/release.md`](../../../context/release.md) does not cover is named, not guessed at** — write no
+note for it and name `/onboard`, and do not hold up the retirement over a gap in a configuration file.
+Name no release tool: that file says what records a note here.
+
+**`--dropped` writes no note. See Mode 2.**
 
 Then read [`context/git.md`](../../../context/git.md) before committing anything. `git mv` stages a rename
 and writes no history, so it is safe under either answer — but the commit that carries it is the agent's to
 make only where that file says so. If it does not exist, the answer is *the user commits*: show the whole
 retirement as one reviewable change and hand it over.
+
+### `--release` — and only with the flag
+
+**Without it, this command writes the note and stops.** That is the default and it is the right one.
+[`context/workflow.md`](../../../context/workflow.md) forbids running what bumps, tags, publishes or
+deploys, with one exception — *when the user asks for it in that turn* — and **this flag is what that
+asking looks like.** So it is never inferred: not from "and ship it" earlier in the session, not from a
+plan, not from the notes looking ready, and not from a release being obviously due. A sentence is not a
+flag.
+
+Read [`context/release.md`](../../../context/release.md) and run **the script its Bump wire names**. That
+file says what it is; naming a tool here would be wrong in half the repositories this command runs in.
+
+**Refuse, finish the retirement without it, and say so, where:**
+
+- **there is no Bump wire** — nothing in this repository is written down as consuming the notes, so there
+  is nothing to run and inventing it would be guessing at how someone releases. Name `/onboard`. The notes
+  are unharmed; they wait, which is what they are for.
+- **the user declined the note** — they said this feature announces nothing, and a release that ships an
+  unannounced change is not what they agreed to. Ask before going further.
+
+**Show what it will consume before running it, never after.** That script takes **every** pending note, not
+this feature's — including ones other people wrote for work they have not shipped yet. List all of them,
+say what version each package lands on, and confirm. Then run it exactly once: it cannot be run twice, the
+notes are deleted as it goes, and for a path that deploys this is the act that ships it.
+
+**The level confirmed a moment ago is now final, and say so while asking it.** That confirmation sits where
+it does because a note is cheap to correct right up to the release — and this flag deletes the gap it was
+relying on. Under `--release` the level chosen is the version that publishes, and for a path that deploys
+it is what puts the change in front of users on the merge.
+
+**Commit the bump separately** where [`context/git.md`](../../../context/git.md) says the agent commits.
+The retirement and the release are two acts, and somebody deciding whether to merge wants to see which
+lines are the version move. Where that file says the user commits, stop and hand over the whole tree,
+saying what is in it and which part of it is the release.
+
+**Then push as below.** Nothing else changes: this command still does not merge, and **the change still is
+not shipped** — the version moved in a branch, and what ships it is the merge. Report what it is waiting
+for, exactly as without the flag.
+
+**If a note check goes red on the pull request this opens, do not write a note to silence it.** A release
+commit has no pending notes because they became the changelog, and a check that reads that as a missing
+note is asking the wrong question — [`context/release.md`](../../../context/release.md) says what to do
+about it. Report it and leave it; a placeholder note written to get past a gate is the one thing that file
+forbids outright.
 
 ### Then push, if `git.md` says so
 
@@ -95,6 +193,11 @@ is the only command in the workflow that acts on that answer.
 - **The agent pushes and opens a pull request** → push this feature's branch and open the pull request. Its
   body is the plan's summary and the phases it landed; link the archived plan at its **new** path, the one
   the sweep just rewrote everything else to.
+
+**A plain push of this feature's branch, and nothing else.** If it will not fast-forward, **stop and say
+so** — force-pushing, pushing to the default branch and rewriting published history are asked for by name
+each time, under every answer, and this command has not been given that. That the push is the last step of
+a finished feature does not change it.
 
 **Both gates have already passed on every phase** — that is what the ledger check at the top of this mode
 enforced. A pull request is where finished work goes to be read by a person, not where unfinished work goes
@@ -117,58 +220,15 @@ expected.
 3. **If the entry never had a document, stop here.** If it had one — a draft in `context/drafts/` or a plan
    in `context/plans/` — `git mv` it to `context/archive/`, repoint its header at the `history.md` row (no
    stamped outcome, same rule as Mode 1), and sweep.
+4. **Delete `context/notes.md`** if it exists, per *Delete `context/notes.md`* above. A feature that will
+   not be built has nothing its notes should outlive.
+**`--release` is refused in this mode**, and not as a technicality: there is no note, so there is nothing
+this retirement would be releasing. If a release is due anyway, that is its own act and not this one's.
 
-## Under the tracker answer
-
-Read [`context/tracking.md`](../../../context/tracking.md) first. **Both refusals are unchanged** — every
-phase finished, no open `P0` or `P1` — and so is everything about pushing.
-
-| Above | Becomes |
-|---|---|
-| resolve from `roadmap.md` | resolve from the issues carrying the backlog label |
-| every phase `done` | **unchanged** — every row in the body's ledger reads `done` |
-| remove the entry, append a `history.md` row | **the issue is closed** — *completed* for shipped, *not planned* for `--dropped`. See *Who closes it* |
-| the one-line why | the closing comment |
-| `git mv` the plan to `archive/` | nothing moves; the issue keeps its body and its whole thread |
-| rewrite the document header | nothing — a closed issue does not claim to be open |
-| the reference sweep | **nothing to sweep.** No path changed, so no link broke |
-
-**The archive is the closed issue**, and it is more than the file it replaces: the plan, the discussion
-that shaped it, the finished ledger with every phase's Note, and the pull request, all at one id that
-nothing had to rewrite. This is why the sweep and the header rewrite both disappear rather than being
-ported.
-
-### Who closes it
-
-**Where [`context/git.md`](../../../context/git.md) says the agent pushes and opens a pull request**, put
-`Closes #<issue>` in the pull request body and let the merge close it. The close then rides the same change
-as the work — which is exactly what appending the `history.md` row does under the other answer.
-
-**Where it says anything else, close the issue here**, with the closing comment, and say that is what
-happened. Nothing else will: the trailer fires only when the commit reaches the default branch, and under
-those answers it never gets there.
-
-**`--dropped` always closes here, whatever `git.md` says.** A trailer closes an issue as *completed*, and
-that is the wrong outcome for an idea that will not be built — the two close reasons are how this answer
-records what `history.md`'s Outcome column used to.
-
-This is the only place `git.md`'s answer changes what this command does, and it is why
-[`context/tracking.md`](../../../context/tracking.md) recommends pairing this substrate with the push
-answer rather than requiring it.
-
-**Keep the label and keep the assignee.** The label is what makes retired features findable later, and the
-assignee is the record of who ran it. Neither means anything once the issue is closed, and removing either
-loses a fact for no gain.
-
-**Closed findings go into the closing comment**, not into an archived document — same rule, same reason:
-`findings.md` must not grow for the life of the project.
-
-**`--dropped` closes as *not planned*, and the reason goes in the comment**, verbatim in substance. That
-comment is what stops the idea being re-proposed, so a vague one makes it worthless — exactly what the
-`history.md` row was for.
-
-**Then push, if `git.md` says so.** Unchanged, except that the pull request body links the issue rather
-than an archived path, and carries the trailer described above.
+**No release note is written here, and none is removed.** An idea that will not be built announces nothing.
+But a dropped feature may have landed phases, and under *per phase* those phases wrote notes for changes
+that are in the repository — **a note belongs to the change that landed, not to the outcome the feature was
+later given.** Leave them where they are, and say they are there.
 
 ## Rules
 

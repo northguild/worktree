@@ -13,7 +13,8 @@ Read [`context/workflow.md`](../../../context/workflow.md) for the tier model, t
 and the gate contract. This skill cites those rather than restating them.
 
 Read [`context/tracking.md`](../../../context/tracking.md) for where the ledger lives. **Everything below
-is written for the working-tree answer**; *Under the tracker answer* at the end says what changes.
+is written for the working-tree answer**; where that file names the tracker, read [`tracker.md`](tracker.md)
+beside this file before step 1 — it says what changes.
 
 ## Usage
 
@@ -52,13 +53,16 @@ explicit here now, or it is lost.
 4. **Be where the work lands.** Read *Where work lands* in [`context/git.md`](../../../context/git.md).
    Only the first phase checks it — a feature's branch or tree is made once, before any of its work.
    - *The main working tree* → nothing to do.
-   - *A branch per feature* → if you are on the default branch, create this feature's branch per
-     [`context/executors.md`](../../../context/executors.md) and say so; if it already exists, switch to
-     it. Never start a phase on the default branch under this answer.
+   - *A branch per feature* → if you are on the default branch, create this feature's branch with the
+     invocation [`context/executors.md`](../../../context/executors.md) names under *Branch and worktree*,
+     and say so; if it already exists, switch to it. Never start a phase on the default branch under this
+     answer. **If that section names nothing, stop and ask** — do not fall back to `git checkout -b`.
    - *A worktree per feature* → if this working tree's branch is not this feature's, **stop.** Name the
-     tree the work belongs in, and how `executors.md` says to create one if it does not exist. Do not
-     create it from here and do not carry on in the wrong tree: under this answer the working directory
-     *is* the feature, and a session cannot relocate itself into a tree it has just made.
+     tree the work belongs in, and the invocation `executors.md` names for creating one if it does not
+     exist. Do not create it from here and do not carry on in the wrong tree: under this answer the working
+     directory *is* the feature, and a session cannot relocate itself into a tree it has just made.
+     **Never improvise the command** — a bare `git worktree add` skips whatever the recorded one does
+     around it, and `executors.md` says why.
 5. Set the marker to `active`, in this working tree. One token, one place — do not move the entry, add a
    section, or write a summary line anywhere. Under the worktree answer that marker never leaves the tree,
    and that is what lets several features hold one at once.
@@ -72,9 +76,11 @@ entries are all `done`.**
 
 If it is already `in progress`, **read its Note and resume from there — do not restart it.**
 
-## 4. Check `context/findings.md`
+## 4. Read the row you are about to work
 
-An open `P0` or `P1` tied to this phase **is** the work. Fix it before starting anything new.
+If the phase you picked reads `blocked`, its Note says what stopped it. **That is the work** — clear it
+before starting anything new, or say plainly why it cannot be cleared and stop. A `blocked` row is the only
+durable record a previous run left, so it is read rather than overwritten.
 
 ## 5. Stop on disagreement
 
@@ -107,53 +113,109 @@ paths are on the same **Files:** line as the code. Per the standing rule in
 phase. If the work turned out differently from the plan and made something *else* untrue — a README the
 plan never listed — fix that too and say so; the sweep happened before the code existed.
 
+**Read [`context/release.md`](../../../context/release.md) and find out whether this phase owes a release
+note.** That file answers per path and at one granularity, and only one of its two granularity answers
+reaches this step:
+
+- **Once per feature** → nothing here. `/feature-close` writes it, with the whole feature in view.
+- **Per phase** → the note is part of this phase's scope. For each path this phase touches, read that
+  path's row: write a note where the *deserves a note when* column says so, in whatever that file says
+  records one, and **put the note's path on the phase's `Files:` line** alongside the code. Step 11 then
+  refuses `done` on a phase whose note has not landed, by the rule it already applies to documentation.
+
+**A landed phase has shipped nothing, under either granularity.** *Per phase* is a claim about what one
+changelog entry covers, not about reaching users: what puts this in front of anyone is the event that file's
+*what a release ships* answer names, and this command never fires it. Report the phase as landed and say
+what it is waiting for.
+
+**A note is one or two sentences.** It is read by someone deciding whether this affects them — not
+reviewing the diff. Say what changed for them and stop: no phase-by-phase account, no list of files, no
+rationale that belongs in the plan. If it needs a paragraph, the thing to link is the plan, not to inline
+it.
+
+**Say which paths you checked and what each one owed** — including when the answer is *none*. An empty
+report reads as "nobody looked", exactly as it does for documentation.
+
+**A path [`context/release.md`](../../../context/release.md) does not cover is named, not guessed at.**
+Write no note for it and name `/onboard`: the file is missing an answer, and inventing one mid-phase writes
+policy nobody chose. It is not a reason to stop the phase either — the same rule
+[`context/verify.md`](../../../context/verify.md) states about an empty section.
+
+**Coming back here does not write a second note.** A resumed phase and a Gate 2 loopback both re-enter this
+step. Update the note that is already there — two notes describing one change do not collide and are both
+counted, so the announcement says the same thing twice.
+
+**Name no release tool.** That file says what records a note in this project, the same way
+[`context/verify.md`](../../../context/verify.md) is the only file that names a command.
+
 Dispatch per [`context/executors.md`](../../../context/executors.md), which holds one of three answers:
-implement in-host, hand the work to a **coder subagent if your runtime provides one**, or offload to an
-external CLI. The brief is the same either way, and so is the system prompt —
+hand the work to a **coder subagent if your runtime provides one** — on the model tier that file names,
+where your runtime lets you choose one — implement in-host, or offload to an external executor, a CLI or a
+tool. The brief is the same either way, and so is the system prompt —
 [`context/roles/coder.md`](../../../context/roles/coder.md). A runtime with no subagent mechanism reads
-that answer and implements in-host; that is a fallback, not a failure, and say which one you ran.
+the first answer and implements in-host; that is a fallback, not a failure, and say which one you ran.
 
 **Isolating the implementation does not move the gates.** They run here, in the caller, on the diff the
 coder produced. A coder that reports its own success has reported nothing — that is what step 11 means by
 refusing `done` on a self-report.
 
-The brief **cites paths, it does not paste files.** Point at `context/standards/README.md` and say to load
-per its conditional table; point at `context/stack.md` and the phase's own section. Anything that can read
-this repository can open them, and a brief that inlines them is a brief that goes stale.
+The brief **cites paths, it does not paste files.** Point at the phase's own section in the plan — its
+`Files:`, and its `Standards:` line, which is the plan's one traversal of `context/standards/README.md` and
+what the coder loads instead of the table — and at `context/stack.md`. Anything that can read this
+repository can open them, and a brief that inlines them is a brief that goes stale. A plan written before
+phases carried a `Standards:` line has none; then say to load per that README's conditional table.
 
 Describe **what** needs to happen, never **how** to code it. Scope each delegated task to specific files.
 
 ## 8. Gate 1 — verification
 
 Per the gate contract in [`context/workflow.md`](../../../context/workflow.md): read
-[`context/verify.md`](../../../context/verify.md) and run its sections in order — Lint → Typecheck → Build →
-Test.
-
-**Never carry a copy of these commands here and never invent one.** A missing section is skipped and said
-so, never faked. Exit 0 is the verdict regardless of summary text. If `verify.md` does not exist or has no
-filled-in section, stop and say so. Docs-only changes run Lint plus a read of the diff.
+[`context/verify.md`](../../../context/verify.md) and run every section above *Not run by Gate 1*, in
+order — Lint → Typecheck → Build → Test first, then anything that file adds after them. What a missing
+section, a non-zero exit or an empty file means is in that contract and in `verify.md`'s own rules, not
+here; docs-only changes run Lint plus a read of the diff.
 
 A failure is the verdict — go to step 10 with the failing output verbatim as the feedback.
 
 ## 9. Gate 2 — review
 
-Dispatch per [`context/executors.md`](../../../context/executors.md), which holds one of three answers: an
-external reviewer, a **reviewer subagent if your runtime provides one**, or the host reading its own diff.
+Dispatch per [`context/executors.md`](../../../context/executors.md), which holds one of three answers: a
+**reviewer subagent if your runtime provides one**, an external reviewer, or the host reading its own diff.
 
-The last is the default and the weakest — the session that wrote the code judging whether the code is good
-— so **say which one you ran**, every time. The middle one is the cheapest real independence available: a
-reader that never saw the implementation being written, only what it produced. Where the runtime has no
-such mechanism, fall back to reviewing the diff yourself against the plan's review expectations and the
-standards, and say that is what happened.
+The last is the fallback and the weakest — the session that wrote the code judging whether the code is good
+— so **say which one you ran**, every time. The first is the cheapest real independence available: a
+reader that never saw the implementation being written, only what it produced. Brief it with the phase's
+section — its `Files:`, its review expectations and its `Standards:` line — and the diff. Where the runtime
+has no such mechanism, fall back to reviewing the diff yourself against the plan's review expectations and
+the standards, and say that is what happened.
 
-Require concrete evidence — file paths, command output — for every verdict, and a `P0`–`P3` severity on
-every blocking finding.
+Require concrete evidence — file paths, command output — for every verdict, and for every item in it,
+**one bit: does it block this phase or not.** There is no severity scale to assign — see *What happens to a
+defect the gate found* in [`context/workflow.md`](../../../context/workflow.md).
 
 - `PASS` or `PASS WITH NOTES` → the phase's work is done; go to step 11.
-- `FAIL` → **write it to [`context/findings.md`](../../../context/findings.md) first, then** go to step 10.
+- `FAIL` → go to step 10.
 
-**Write the finding before the loopback, not after it.** A verdict that lives only in this session's
-transcript evaporates when the conversation ends — including a `P0` the cap never got to.
+**Every non-blocking observation gets one of two ends, and kind decides which** — not size. The full
+argument is *What happens to a defect the gate found* in
+[`context/workflow.md`](../../../context/workflow.md):
+
+- **A real defect, and it is user-visible or a regression would land green** → it is a **bug**. File it
+  wherever this project already files bugs, with this project's own labels, and say in the report that you
+  did. **Do not apply the backlog label** — see *A bug is not a backlog entry* in
+  [`context/workflow.md`](../../../context/workflow.md). The backlog is a list of features and this is not
+  one.
+- **Not a defect, but work you would want a `history.md` row for** → that is a backlog entry, and adding
+  one is `/roadmap`'s. **Name it and say what you would add**; do not append to the backlog from here. That
+  command applies the worth-adopting test and writes what the ranking reads, and a gate doing it by hand
+  produces neither.
+- **Anything else** → one short entry in `context/notes.md`, naming the phase it came from. Create the file
+  if it is not there. It is branch-local, it rides this phase's commit the way the ledger row does, and
+  `/feature-close` deletes it whole.
+
+**Do not brief the next phase on either one.** `notes.md` is written for a person and read by nothing — a
+phase that took it as input would be reading it against code that has moved, which is the drift the split
+above exists to avoid.
 
 ## 10. Loopback
 
@@ -163,21 +225,26 @@ Under the cap: re-brief with the prior implementation and the validator's feedba
 summarise or paraphrase it** — plus the instruction to address only the failing items, refactor nothing
 that passes, and expand no scope. Then re-run the same gate.
 
-At the cap: **write a finding** (`P1` for a Gate 1 cap-out — a phase whose verification cannot pass is
-blocked by definition), then escalate to the user with the current state and the last feedback.
-**Escalating is not a substitute for recording.**
+At the cap: **close the row to `blocked` with the reason in its Note — before you escalate**, not after.
+A phase whose verification cannot pass is blocked by definition. Then hand back to the user with the
+current state and the last feedback verbatim.
+
+**Escalating is not a substitute for recording.** The conversation ends and the ledger does not, so a run
+that escalates without writing the row has left the next session nothing to read.
 
 ## 11. Close out the ledger row
 
 The row is part of the same change as the work — never a separate step afterwards:
 
 - **All of the phase's scope landed and both gates passed** → `done`. Its documentation rows are part of
-  that scope: a phase whose doc update has not landed has not landed.
+  that scope, and so is any release note step 7 said this phase owed: a phase whose doc update or note has
+  not landed has not landed.
 - **Some landed** → stays `in progress`, Note rewritten to name exactly what remains.
 - **A gate hit its cap, or something external blocks it** → `blocked`, with the blocker in the Note.
 
-**Never mark `done` on a coder's self-report** — the gate output is the evidence. **Refuse `done` while an
-open `P0` or `P1` is tied to this phase**; leave it `in progress` and name the finding.
+**Never mark `done` on a coder's self-report** — the gate output is the evidence. A blocking item that was
+not fixed means the gate did not pass, and a gate that did not pass means the phase is not `done` — there
+is no second check to run, because `done` already says both gates passed.
 
 `done` is a verdict about the gates, not about git. Whether the change is committed at all is the next step.
 
@@ -188,8 +255,9 @@ It is the only place this project's answer lives, the same way `verify.md` is th
 live. If it does not exist — an install from before it shipped — the answer is *the user commits*: say so
 once, and name `/onboard`.
 
-- **The user commits** → leave the change in the working tree, ledger row and all. Report it, hand it over,
-  and stop. Do not stage-and-commit "to be helpful".
+- **The user commits** → leave the change **unstaged** in the working tree, ledger row and all. Report it,
+  hand it over, and stop. Do not stage-and-commit "to be helpful", and do not stage without committing
+  either — `git add` is the first half of a commit, and it edits what the user's own commit would capture.
 - **The agent commits** → the code and the ledger row in one commit, at the granularity that file names, on
   the branch step 2 put you on.
 
@@ -202,7 +270,8 @@ feature and turns every phase after it into a force-push.
 - What changed, and which files — and whether it is committed or waiting in the tree.
 - Gate 1 output, and Gate 2's verdict.
 - Loopback counts, if any.
-- Findings written or closed, by id.
+- Any non-blocking observation the review raised, and where each one went — a bug, a `/roadmap` you
+  named, or `notes.md`.
 - The phase's new ledger status, and which phase is next.
 
 **When every phase is `done`, say so and name `/feature-close`.** Do not move files, stamp headers or sweep
@@ -245,8 +314,7 @@ The flag is permission to continue, not an instruction to finish. **Stop after t
 report, and name the line that stopped you**, when:
 
 - it closed `blocked`, or stayed `in progress` because only part of its scope landed
-- a gate hit its two-loop cap — step 10 has already written the finding and escalated
-- an open `P0` or `P1` is tied to it, the same condition that refuses `done` in step 11
+- a gate hit its two-loop cap — step 10 has already written the `blocked` row and escalated
 - step 5's disagreement holds for the next phase: the ledger's claim contradicts the repo
 - nothing is runnable: the lowest phase that is not `done` has a `Depends on` that is not `done`
 - **every phase is `done`** → say so and name `/feature-close`, exactly as step 13 does
@@ -259,80 +327,3 @@ A Gate 2 `PASS WITH NOTES` continues, and so does a `FAIL` that passes on its lo
 **Never widen the flag to cover what it does not.** It runs the phases of one plan. It does not pick a
 second feature, re-plan a phase whose scope turned out wrong, or lift any refusal above — a stop list
 worked around once is not a stop list.
-
-## Under the tracker answer
-
-Read [`context/tracking.md`](../../../context/tracking.md) first. Every step above holds — the approval
-checkpoint, both gates, the loopback cap, the refusal to mark `done` on a self-report — and **the ledger is
-the same table it always was.** What changes is that the table lives in the issue body, plus two mechanisms
-that exist because more than one agent can be running.
-
-| Above | Becomes |
-|---|---|
-| the `active` marker | the issue's assignee |
-| the plan, its phase list, its `Depends on` and its ledger | the issue body — **unchanged**, it is still the plan and still the same table |
-| step 6, open the row | edit that row's Status to `in progress` in the body |
-| step 11, close the row | edit that row again, naming the commit's sha in the Note |
-
-**Step 3 reads one place.** The body holds the phase list, the dependencies and the status together,
-exactly as a plan document does. Pick the same way — the lowest-numbered phase that is not `done` and whose
-`Depends on` are all `done` — and step 5's disagreement rule reads unchanged.
-
-### The body is a read-modify-write
-
-**Re-read the body immediately before editing it, and change only the row.** The body is text a person may
-be editing at the same time — refining the plan while you flip a status — and a stale copy written back
-loses their edit with no trace. This hazard does not exist under the working-tree answer, where the plan
-sits in a tree only you are working in.
-
-### Claiming, in step 2
-
-**Assignment is not compare-and-swap** — two agents can both read *unassigned* and both assign. So:
-**assign, re-read, confirm you are the sole assignee, and back off if you are not.** Say which happened. An
-issue that already has a different assignee is held; name the holder and stop, exactly as the
-one-active-feature rule does above.
-
-**The rule is per working tree and per agent, not per repository.** Several features may be assigned at
-once — that is the point of this answer. What must not happen is two agents on one feature, which is also
-what makes the body safe to edit: a feature has exactly one writer, and it is whoever holds the assignee.
-
-### The heartbeat, at every phase boundary
-
-**Comment on the issue when a phase opens and when it closes**, naming the phase and, once there is one,
-the commit. Two lines is enough.
-
-An assignee is a lock with no expiry: an agent that dies holding one leaves the issue assigned and nothing
-reclaims it. The comment cannot prevent that — it makes it **visible**, from a machine that is not the one
-that died. *"Phase 2 opened six hours ago and nothing since"* is a reclaimable state; an assignee alone is
-not. This is step 6's argument for the opening row write, one level up.
-
-**Reclaiming is not this command's job.** If you find a stale claim, say so and stop. Do not un-assign
-someone else's agent.
-
-**Under `--all` the heartbeat is the only thing outside the run that can see it.** A loop that dies four
-phases deep leaves the same assignee it would have left after one, and nothing in the transcript reached
-anyone. Comment at every boundary the loop crosses, not once at the end.
-
-### The closing write, in steps 11 and 12
-
-**The row cannot ride the commit here, and the sha is what replaces it.** Under the working-tree answer the
-row is a line in a file that travels inside the commit, so the row and the code can never disagree. A body
-edit is a remote write and cannot be part of a commit — so the evidence goes into the row instead:
-
-- **`done`** → make the commit, then edit the row immediately, **with that commit's sha in the Note.** A
-  `done` row whose sha is in the branch is checkable against the repository; **a `done` row with no sha is
-  a disagreement, and step 5 stops on it.**
-- **stays `in progress`** → rewrite the Note to name exactly what remains, and leave the issue assigned.
-- **`blocked`** → write `blocked` in the Status column and the blocker in the Note. There is no label for
-  this and none is needed: the column carries all four values.
-
-**Where [`context/git.md`](../../../context/git.md) says the user commits, there is no sha to write.** Say
-so in the Note — the change is in a named working tree and uncommitted — and write the row anyway. A row
-that is never written is worse than one whose evidence is still owed, and this is the pairing
-[`context/tracking.md`](../../../context/tracking.md) says is worth avoiding: under it, a phase reads
-`done` from every machine while its code exists on exactly one.
-
-**Never edit a row to get past a refusal**, exactly as no phase is marked `done` to get past one.
-
-**`findings.md` is unchanged.** It stays a file. A finding is raised and swept inside one branch's life, so
-it is never contended — and an open `P0` or `P1` blocks the phase here the same way.

@@ -36,6 +36,15 @@ repo match the ledger" has no answer. A phase is a **commit-sized unit of work w
 not a category of activity — "grammar plus container support for the new token" is a phase; "testing" is
 not.
 
+**The `Standards:` line is the phase's share of the conditional table**, and the plan is the one place that
+table is traversed. The planner read [`standards/README.md`](standards/README.md) with the research in
+hand; the coder and the reviewer read this line instead of reading the table again, so each loads the
+three or five files that apply rather than the eleven a fresh table read tends to produce. It carries the
+always row, the rows for the code the phase touches, and the rows the surface question in
+[`workflow.md`](workflow.md) added — accessibility, performance, security — which are the ones a table read
+misses. A reviewer that finds the change drifted past the line opens the table; that is the fallback, not
+the route.
+
 **§7 Documentation** — every place this project explains itself that the feature makes wrong, out of date
 or incomplete. The surfaces come from [`stack.md`](stack.md)'s Documentation index, and from a sweep of the
 repository when that index is empty — an index nobody filled in is not evidence that there are no docs.
@@ -47,6 +56,11 @@ distinguishable from silence only when it is written down.
 **§8 Verification** — how to prove the feature works, beyond [`verify.md`](verify.md) passing. Commands to
 run by hand, files to eyeball, numbers to compare against §1's measurements. Anything that belongs to the
 project's standing verification stack goes in `verify.md` instead, not here.
+
+**This is where a surface the planning question found gets proved** — the keyboard and contrast pass for
+something a person operates, an **end-to-end pass in a real browser** for a user interface, the measurement
+to compare for a hot path. Which driver runs it is [`verify.md`](verify.md)'s answer and never this
+section's; a feature whose project has no such driver says that in §9 rather than naming one.
 
 **§9 Open questions** — what the plan could not settle. Do not paper over them.
 
