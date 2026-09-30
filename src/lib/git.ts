@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import { EOL } from "node:os";
 import path from "node:path";
-import { confirm } from "@inquirer/prompts";
 import Process from "cli-progress";
 import {
   findSessionForPath,
@@ -12,6 +11,7 @@ import {
 } from "./agent.js";
 import { run } from "./cli.js";
 import { createSpinner, isProgressEnabled } from "./progress.js";
+import { askConfirm } from "./prompt.js";
 import type {
   AgentSession,
   ConfigName,
@@ -633,6 +633,13 @@ export async function gitRemoveWorktree(
   }
   spinner.stop();
 
+  // Removing a worktree destroys it, so "no" is not a default to take: a
+  // non-interactive run has to be told to, with `-f`.
+  const removalSite = {
+    value: `confirmation to remove ${branchName}`,
+    flag: "-f",
+  };
+
   async function promptRemoval(worktree: WorktreeListEntry) {
     // A merged branch is ahead of its base by every sha it was squashed or
     // rebased out of, and warning that those commits are work at risk is the
@@ -641,10 +648,13 @@ export async function gitRemoveWorktree(
     // such a branch exists only there, so it falls through to whichever of the
     // prompts below is actually true of it.
     if (worktree.ahead && !worktree.mergedInto) {
-      return await confirm({
-        message: `This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
-        default: false,
-      });
+      return await askConfirm(
+        {
+          message: `This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
+          default: false,
+        },
+        removalSite,
+      );
     }
     // The count could not be taken, so this worktree may be carrying anything.
     // The generic prompt below would imply there is nothing to weigh, which is
@@ -652,21 +662,30 @@ export async function gitRemoveWorktree(
     // from the same undefined. Naming the reason is what lets someone check
     // before answering. See §3 D1 and D5.
     if (worktree.aheadUnknownReason) {
-      return await confirm({
-        message: `Unpushed commits could not be counted for this branch (${worktree.aheadUnknownReason}), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?`,
-        default: false,
-      });
+      return await askConfirm(
+        {
+          message: `Unpushed commits could not be counted for this branch (${worktree.aheadUnknownReason}), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?`,
+          default: false,
+        },
+        removalSite,
+      );
     }
     if (worktree.uncommittedChanges) {
-      return await confirm({
-        message: `This branch has ${worktree.uncommittedChanges} uncommitted change${worktree.uncommittedChanges > 1 ? "s" : ""} so you might lose some work. Are you sure you want to remove this worktree?`,
-        default: false,
-      });
+      return await askConfirm(
+        {
+          message: `This branch has ${worktree.uncommittedChanges} uncommitted change${worktree.uncommittedChanges > 1 ? "s" : ""} so you might lose some work. Are you sure you want to remove this worktree?`,
+          default: false,
+        },
+        removalSite,
+      );
     }
-    return await confirm({
-      message: "Are you sure you want to remove this worktree?",
-      default: false,
-    });
+    return await askConfirm(
+      {
+        message: "Are you sure you want to remove this worktree?",
+        default: false,
+      },
+      removalSite,
+    );
   }
 
   if (force || (await promptRemoval(worktree))) {

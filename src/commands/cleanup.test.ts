@@ -3,6 +3,7 @@ import { confirm } from "@inquirer/prompts";
 import ora from "ora";
 import * as herdr from "../integrations/herdr.js";
 import * as git from "../lib/git.js";
+import { setNonInteractive } from "../lib/interaction.js";
 import type { ConfigName, WorktreeListEntry } from "../lib/types.js";
 import { mockRunCapturing } from "../test-setup.js";
 import Cleanup from "./cleanup.js";
@@ -1026,6 +1027,26 @@ describe("cleanup command", () => {
         expect(named).toHaveLength(1);
       }
     });
+  });
+
+  it("fails naming --force, without asking, when non-interactive and not forced", async () => {
+    setNonInteractive(true);
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([safeWorktree]);
+    vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockImplementation(async (worktrees) => worktrees);
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await expect(cleanup.run()).rejects.toMatchObject({
+      message:
+        "no default for confirmation to delete the stale worktrees; pass --force",
+      oclif: { exit: 2 },
+    });
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockRemove).not.toHaveBeenCalled();
   });
 });
 

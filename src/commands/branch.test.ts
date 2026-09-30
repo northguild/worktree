@@ -5,6 +5,7 @@ import * as githubIntegration from "../integrations/github.js";
 import * as jiraIntegration from "../integrations/jira.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
+import { setNonInteractive } from "../lib/interaction.js";
 import * as validators from "../lib/validators.js";
 import Branch from "./branch.js";
 
@@ -1036,6 +1037,128 @@ describe("branch command", () => {
 
       expect(mockDispatchAgent).not.toHaveBeenCalled();
       expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+    });
+  });
+
+  describe("when non-interactive", () => {
+    beforeEach(() => {
+      setNonInteractive(true);
+    });
+
+    it("takes the issue-derived name, asks nothing, and assigns nothing unconfigured", async () => {
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config" || key === "defaultSourceBranch"
+            ? "origin/main"
+            : "",
+        ),
+      );
+      const mockGitCreateWorktree = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42" },
+      });
+
+      await branch.run();
+
+      expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+        "42-add-dark-mode",
+        "origin/main",
+      );
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
+      // One unattended run must not settle the key for a human's later runs.
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "github.autoAssign",
+        expect.anything(),
+      );
+    });
+
+    it("still honours a configured github.autoAssign", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "github.autoAssign"
+            ? "true"
+            : key === "has-called-config" || key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+        ),
+      );
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42" },
+      });
+
+      await branch.run();
+
+      expect(githubIntegration.assignGitHubIssue).toHaveBeenCalledWith(42);
+    });
+
+    it("fails naming <branchName> when there is no name and no issue", async () => {
+      const mockGitCreateWorktree = vi.spyOn(git, "gitCreateWorktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {},
+      });
+
+      await expect(branch.run()).rejects.toMatchObject({
+        message: "no default for the branch name; pass <branchName>",
+        oclif: { exit: 2 },
+      });
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockGitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("fails naming --source origin/<branch> for a local source", async () => {
+      vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue(["origin/main"]);
+      const mockGitCreateWorktree = vi.spyOn(git, "gitCreateWorktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { source: "develop" },
+      });
+
+      await expect(branch.run()).rejects.toMatchObject({
+        message:
+          "no default for whether to use the local source branch develop; pass --source origin/develop",
+        oclif: { exit: 2 },
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockGitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("names the missing config instead of offering to run config", async () => {
+      const warnSpy = vi
+        .spyOn(branch, "warn")
+        .mockImplementation((input) => input);
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: {},
+      });
+
+      await branch.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(branch.config.runCommand).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Missing config: defaultSourceBranch"),
+      );
     });
   });
 });

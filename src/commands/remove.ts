@@ -1,4 +1,3 @@
-import { checkbox, confirm, Separator } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
 import { BaseCommand } from "../lib/base-command.js";
@@ -8,6 +7,7 @@ import {
   gitRemoveWorktreesWithProgress,
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
+import { askCheckbox, askConfirm, Separator } from "../lib/prompt.js";
 import type { WorktreeListEntry } from "../lib/types.js";
 import { worktreeListEntryToListName } from "../lib/utils.js";
 
@@ -84,21 +84,27 @@ export default class Delete extends BaseCommand {
       return;
     }
 
-    const selected = await checkbox({
-      message: "Select worktree branches to delete",
-      choices: this.getWorktreeChoices(worktrees),
-    });
+    const selected = await askCheckbox(
+      {
+        message: "Select worktree branches to delete",
+        choices: this.getWorktreeChoices(worktrees),
+      },
+      { value: "the branches to remove", flag: "<branchName> -f" },
+    );
 
     if (selected.length === 0) {
       return;
     }
 
     if (selected.some((wt) => !wt.safeToRemove) && !flags.force) {
-      const confirmDelete = await confirm({
-        message:
-          "Some selected branches are not safe to delete. Are you sure you want to continue?",
-        default: false,
-      });
+      const confirmDelete = await askConfirm(
+        {
+          message:
+            "Some selected branches are not safe to delete. Are you sure you want to continue?",
+          default: false,
+        },
+        { value: "removing branches that are not safe to delete", flag: "-f" },
+      );
       if (!confirmDelete) {
         return;
       }

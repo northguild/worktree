@@ -1,4 +1,3 @@
-import { confirm, input } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
 import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
@@ -11,7 +10,9 @@ import {
   gitGetRemoteBranches,
   gitSetConfigValue,
 } from "../lib/git.js";
+import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
+import { askConfirm, askInput } from "../lib/prompt.js";
 import type { ConfigName } from "../lib/types.js";
 import { sanitizeBranchName } from "../lib/utils.js";
 import { isValidBranchName } from "../lib/validators.js";
@@ -58,16 +59,31 @@ export default class Branch extends BaseCommand {
     }),
   };
 
-  private confirmNonOriginSource() {
+  // Neither source question has a default: "no" quietly swaps in the
+  // configured source branch, which is not what was asked for. A
+  // non-interactive run names the source with an `origin/` flag instead.
+  private confirmNonOriginSource(sourceFlag: string) {
     const message =
       "The source branch does not start with 'origin/'. Are you sure you want to use a local source?";
-    return confirm({ message });
+    return askConfirm(
+      { message },
+      {
+        value: `whether to use the local source branch ${sourceFlag}`,
+        flag: `--source origin/${sourceFlag}`,
+      },
+    );
   }
 
-  private confirmRemoteNameConflict() {
+  private confirmRemoteNameConflict(sourceFlag: string) {
     const message =
       "A remote branch with the same name exists. Do you want to use the remote branch instead?";
-    return confirm({ message });
+    return askConfirm(
+      { message },
+      {
+        value: `whether to use the remote branch origin/${sourceFlag}`,
+        flag: `--source origin/${sourceFlag}`,
+      },
+    );
   }
 
   private async getSourceBranch(sourceFlag?: string) {
@@ -81,13 +97,13 @@ export default class Branch extends BaseCommand {
         return sourceFlag;
       }
 
-      if (await this.confirmNonOriginSource()) {
+      if (await this.confirmNonOriginSource(sourceFlag)) {
         const localBranches = await gitGetLocalBranches();
         if (!localBranches.includes(sourceFlag)) {
           this.error(`Source branch doesn't exist: ${sourceFlag}`);
         }
         if (remoteBranches.includes(`origin/${sourceFlag}`)) {
-          if (await this.confirmRemoteNameConflict()) {
+          if (await this.confirmRemoteNameConflict(sourceFlag)) {
             return `origin/${sourceFlag}`;
           }
         }
@@ -169,6 +185,11 @@ export default class Branch extends BaseCommand {
    * The prompt persists its own answer (D5) and its text names the key it
    * writes, because a declined answer is otherwise invisible and permanent —
    * the feature would simply stop offering itself with nothing to point at.
+   *
+   * A non-interactive run that reaches the prompt does not assign and does not
+   * save an answer: assigning is a write to someone else's tracker, and one
+   * unattended run must not settle a key for the human who runs this later.
+   * The precedence for agent runs is Phase 6 (D8).
    */
   private async shouldAssignGithubIssue(assignFlag?: boolean) {
     if (assignFlag !== undefined) {
@@ -183,10 +204,20 @@ export default class Branch extends BaseCommand {
       return false;
     }
 
-    const answer = await confirm({
-      message:
-        "Assign this issue to you? (saved as github.autoAssign; change it later with `worktree config github.autoAssign <true|false>`)",
-    });
+    const answer = await askConfirm(
+      {
+        message:
+          "Assign this issue to you? (saved as github.autoAssign; change it later with `worktree config github.autoAssign <true|false>`)",
+      },
+      {
+        value: "whether to assign the issue",
+        flag: "--assign or --no-assign",
+        fallback: false,
+      },
+    );
+    if (isNonInteractive()) {
+      return answer;
+    }
     // The worktree is the deliverable (§2), and this write is only bookkeeping
     // about whether to assign. `gitSetConfigValue` does not swallow the way
     // `gitGetConfigValue` does, so an unwrapped failure here — a stale
@@ -254,12 +285,20 @@ export default class Branch extends BaseCommand {
         ? await this.getJiraIssueBranchName(flags.jira)
         : "";
 
-    return await input({
-      message: "Branch name",
-      default: defaultValue,
-      prefill: "editable",
-      validate: isValidBranchName,
-    });
+    return await askInput(
+      {
+        message: "Branch name",
+        default: defaultValue,
+        prefill: "editable",
+        validate: isValidBranchName,
+      },
+      {
+        value: "the branch name",
+        flag: "<branchName>",
+        // The pre-filled name is the default; with no issue there is none.
+        fallback: defaultValue || undefined,
+      },
+    );
   }
 
   public async run(): Promise<void> {

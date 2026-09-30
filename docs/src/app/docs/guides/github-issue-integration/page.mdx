@@ -16,6 +16,7 @@ worktree branch --github 42 --assign
 ```
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
+A [non-interactive run](/docs/commands/branch#non-interactive-runs) takes it without asking.
 
 ## How Branch Names Are Built
 
@@ -37,7 +38,8 @@ Authentication is resolved in this order:
 
 1. Existing `github.token` in local git config.
 2. `gh auth token` from GitHub CLI.
-3. Interactive prompt for a token, then save to local git config.
+3. Interactive prompt for a token, then save to local git config. A non-interactive run has no prompt: it exits
+   `2` naming `worktree config github.token <token>` or `gh auth login`, and never prints a token.
 
 Reading an issue and assigning one need different amounts of access. A public repository answers an
 unauthenticated read, which is why `--github` has never required a token there. **Assigning always requires
@@ -51,7 +53,8 @@ for you.
 
 - `--assign` assigns it to the authenticated user; `--no-assign` skips it for that run.
 - With neither flag, `github.autoAssign` decides: `true` always, `false` never.
-- If that key is unset you are asked once, and your answer is saved to it. To change your mind later:
+- If that key is unset you are asked once, and your answer is saved to it. A non-interactive run neither asks
+  nor saves, and does not assign. To change your mind later:
 
 ```bash
 worktree config github.autoAssign true

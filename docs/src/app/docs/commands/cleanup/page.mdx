@@ -93,7 +93,7 @@ has. Use [`list`](/docs/commands/list) to see every worktree and what each one i
 
 | Flag | Description |
 | --- | --- |
-| `-f`, `--force` | Skip the confirmation prompt |
+| `-f`, `--force` | Skip the confirmation prompt. A [non-interactive run](/docs/commands/branch#non-interactive-runs) requires it: without it `cleanup` exits `2` with `worktree: no default for confirmation to delete the stale worktrees; pass --force` |
 | `--ignore-agents` | Remove worktrees even when an agent session is living in them |
 
 ## Agent sessions

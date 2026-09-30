@@ -1,4 +1,5 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
+import { confirm } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
 import {
   expectCommands,
@@ -10,6 +11,7 @@ import { BaseCommand } from "./base-command.js";
 import * as cli from "./cli.js";
 import * as git from "./git.js";
 import { isNonInteractive, setNonInteractive } from "./interaction.js";
+import { MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
 
 // openWorktreePath is the only method covered here that draws a spinner. Mock it
@@ -27,6 +29,8 @@ const spinnerMocks = vi.hoisted(() => {
 
   return { succeed, fail, warn, stop, start, oraFactory };
 });
+
+vi.mock("@inquirer/prompts", () => ({ confirm: vi.fn() }));
 
 vi.mock("ora", () => ({
   default: spinnerMocks.oraFactory,
@@ -47,6 +51,10 @@ class TestCommand extends BaseCommand {
 
   closer() {
     return this.resolveSpaceCloser();
+  }
+
+  verify(names?: ConfigName[]) {
+    return this.verifyConfig(names);
   }
 
   catchError(error: Error) {
@@ -862,6 +870,17 @@ describe("catch", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it("prints a missing value as the one D2 line and exits 2", async () => {
+    await command.catchError(new MissingValueError("the thing", "--thing"));
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "worktree: no default for the thing; pass --thing",
+    );
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
+  });
+
   it("stays silent and exits 0 when the prompt is cancelled", async () => {
     const cancelled = new Error("User force closed the prompt");
     cancelled.name = "ExitPromptError";
@@ -926,5 +945,61 @@ describe("init — interaction mode", () => {
     expect(await initWith([])).toMatchObject({ nonInteractive: true });
     process.env.CI = "false";
     expect(await initWith([])).toMatchObject({ nonInteractive: false });
+  });
+});
+
+describe("verifyConfig", () => {
+  const mockConfirm = vi.mocked(confirm);
+  let runCommand: ReturnType<typeof vi.fn>;
+  let command: TestCommand;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  // `defaultSourceBranch` is the missing one; the first-time flag is set.
+  beforeEach(() => {
+    runCommand = vi.fn().mockResolvedValue(undefined);
+    command = new TestCommand([], { runCommand } as any);
+    warnSpy = vi.spyOn(command, "warn").mockImplementation((input) => input);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(name === "has-called-config" ? "true" : ""),
+    );
+  });
+
+  it("offers config, and runs it for the named keys without --yes, for a human", async () => {
+    mockConfirm.mockResolvedValue(true);
+
+    await command.verify(["defaultSourceBranch"]);
+
+    expect(mockConfirm).toHaveBeenCalledWith({
+      message:
+        "Some required configuration values are missing. Do you want to run the config command now?",
+    });
+    expect(runCommand).toHaveBeenCalledWith("config", [
+      "--missing",
+      "--names",
+      "defaultSourceBranch",
+    ]);
+  });
+
+  it("offers nothing and names the missing keys when non-interactive", async () => {
+    setNonInteractive(true);
+
+    await command.verify(["defaultSourceBranch", "jira.host"]);
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Missing config: defaultSourceBranch, jira.host"),
+    );
+  });
+
+  it("skips the first-time offer when non-interactive", async () => {
+    setNonInteractive(true);
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+    await command.verify([]);
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });

@@ -38,7 +38,8 @@ worktree branch --github 42 --agent "implement the issue"
 Use the `--github` flag to create a suggested branch name from an issue in the current repository.
 
 - The issue number can be passed as `42` or `"#42"`.
-- The generated name is pre-filled in the prompt and still editable.
+- The generated name is pre-filled in the prompt and still editable. A [non-interactive run](#non-interactive-runs)
+  takes it as it is.
 - If issue types are configured in the repository, these optional prefixes are applied:
 	- `branchPrefix.feature` for issue type `Feature`
 	- `branchPrefix.bugfix` for issue type `Bug`
@@ -52,12 +53,19 @@ GitHub authentication is resolved in this order:
 2. `gh auth token` if GitHub CLI is installed and authenticated.
 3. Interactive token prompt, which is then saved in local git config.
 
+A non-interactive run has no token prompt. It exits `2` with one line on stderr, which never includes a token:
+
+```text
+worktree: no default for a GitHub token; pass `worktree config github.token <token>` or run `gh auth login`
+```
+
 ### Assigning the issue to yourself
 
 `--assign` assigns the issue to the authenticated user as part of creating the branch, and `--no-assign`
 skips it for that one run. Without either flag the decision comes from
 [`github.autoAssign`](/docs/configuration#github-integration-notes), and if that key is unset you are asked
-once — your answer is saved to it, so the question is not repeated.
+once — your answer is saved to it, so the question is not repeated. A non-interactive run does not ask and
+does not save: with the key unset it does not assign, so pass `--assign` or set the key to assign there.
 
 ```bash
 worktree branch --github 42 --assign
@@ -117,6 +125,19 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
   it as well.
 - If `agent.command` is not configured, `worktree` says so and carries on — the worktree is still created
   and the editor still opens.
+
+## Non-interactive runs
+
+A run is non-interactive when stdin is not a terminal, `CI` is set (and is not empty, `0` or `false`), or
+`--non-interactive` or `--yes` (`-y`) is given; every command accepts both flags. It never prompts and never
+animates; progress goes to stderr as plain lines.
+
+- A prompt with a default takes it: the issue-derived branch name, and "do not assign" when
+  `github.autoAssign` is unset.
+- A prompt with none fails at once, exit `2`, with one line on stderr:
+  `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
+  `--source` without the `origin/` prefix (`--source origin/<branch>`).
+- Missing config is not offered to `config`: `defaultSourceBranch` unset warns and falls back to `origin/main`.
 
 ## What It Does
 

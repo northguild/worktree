@@ -2,6 +2,7 @@
 import { select } from "@inquirer/prompts";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
+import { setNonInteractive } from "../lib/interaction.js";
 import Checkout from "./checkout.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -217,5 +218,22 @@ describe("checkout command", () => {
       expect(mockDispatchAgent).not.toHaveBeenCalled();
       expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
     });
+  });
+
+  it("fails naming the branch argument, without a picker, when non-interactive", async () => {
+    setNonInteractive(true);
+    vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue(["origin/main"]);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
+    const mockCreateWorktree = vi.spyOn(git, "gitCreateWorktree");
+    (checkout as any).parse = vi
+      .fn()
+      .mockResolvedValue({ args: {}, flags: {} });
+
+    await expect(checkout.run()).rejects.toMatchObject({
+      message: "no default for the branch to check out; pass <branchName>",
+      oclif: { exit: 2 },
+    });
+    expect(mockSelect).not.toHaveBeenCalled();
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
   });
 });

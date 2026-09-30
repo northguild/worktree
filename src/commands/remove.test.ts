@@ -2,6 +2,7 @@
 import { checkbox, confirm } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
 import * as git from "../lib/git.js";
+import { setNonInteractive } from "../lib/interaction.js";
 import type { ConfigName } from "../lib/types.js";
 import { mockRunCapturing } from "../test-setup.js";
 import Remove from "./remove.js";
@@ -405,6 +406,45 @@ describe("remove command", () => {
 
       expect(mockConfirm).toHaveBeenCalled();
       expect(mockRemove).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("when non-interactive", () => {
+    beforeEach(() => {
+      setNonInteractive(true);
+    });
+
+    it("fails naming the branch and -f, without a picker, when no branch is given", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([safeWorktree]);
+      (remove as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { force: false },
+      });
+
+      await expect(remove.run()).rejects.toMatchObject({
+        message: "no default for the branches to remove; pass <branchName> -f",
+        oclif: { exit: 2 },
+      });
+      expect(mockCheckbox).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("removes a named branch with -f without asking", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([unsafeWorktree]);
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktree")
+        .mockResolvedValue(undefined);
+      (remove as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/unsafe" },
+        flags: { force: true },
+      });
+
+      await remove.run();
+
+      expect(mockRemove).toHaveBeenCalledWith("feature/unsafe", {
+        force: true,
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
     });
   });
 });

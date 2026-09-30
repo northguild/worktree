@@ -1,4 +1,3 @@
-import { confirm } from "@inquirer/prompts";
 import { Flags } from "@oclif/core";
 import chalk from "chalk";
 import { BaseCommand } from "../lib/base-command.js";
@@ -9,6 +8,7 @@ import {
   isSafeToRemove,
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
+import { askConfirm } from "../lib/prompt.js";
 import type { WorktreeListEntry } from "../lib/types.js";
 import { worktreeListEntryToListName } from "../lib/utils.js";
 
@@ -235,7 +235,17 @@ export default class Cleanup extends BaseCommand {
 
     if (!flags.force) {
       const message = `Are you sure you want to delete ${count === 1 ? "it" : "them"}?`;
-      if (!(await confirm({ message, default: false }))) {
+      // Deleting is the point of the run, so "no" would make it a no-op and is
+      // not a default to take: a non-interactive run has to pass `--force`.
+      if (
+        !(await askConfirm(
+          { message, default: false },
+          {
+            value: "confirmation to delete the stale worktrees",
+            flag: "--force",
+          },
+        ))
+      ) {
         return;
       }
     }

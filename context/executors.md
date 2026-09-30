@@ -94,8 +94,9 @@ It creates the tree, copies every gitignored env-shaped file from the root into 
 the configured opener.
 Two consequences for an agent using it:
 
-- **It is interactive.** With no `--source` it prompts, and it confirms a non-`origin/` source. Give
-  `--source` explicitly so the run does not block on a prompt that has no TTY behind it.
+- **It prompts only for a human.** With no TTY (or `CI`, `--non-interactive`, `--yes`) it never prompts: a
+  non-`origin/` `--source` exits 2 naming `--source origin/<branch>`, and with no `--source` it uses
+  `defaultSourceBranch`, else `origin/main`. Give `--source origin/<branch>` explicitly.
 - **It opens an editor or a Herdr space as its last act**, per the `opener` config key. That is a side
   effect on the user's desktop, not a failure.
 
@@ -129,7 +130,7 @@ where it can — unmerged commits ahead of the source, an ahead count it could n
 changes — and it closes the tree's Herdr space once the checkout is actually gone. **It deletes the local
 branch too** (`git branch -D`, `src/lib/git.ts` `gitRemoveWorktree`), so it is a branch deletion as well
 as a tree removal. `-f` skips the confirmation, and is asked for by name, never added to get past a
-prompt.
+prompt. With no TTY it does not prompt and exits 2 naming `-f`.
 
 ### This section is the only way one gets made
 

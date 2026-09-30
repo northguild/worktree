@@ -1,5 +1,4 @@
 import { EOL } from "node:os";
-import { confirm, input } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
 import { BaseCommand } from "../lib/base-command.js";
@@ -10,6 +9,7 @@ import {
   OPENER_KINDS,
 } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
+import { askConfirm, askInput } from "../lib/prompt.js";
 import type { ConfigName } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
 import {
@@ -34,10 +34,6 @@ export default class Config extends BaseCommand {
     list: Flags.boolean({
       char: "l",
       description: "List all available variables",
-    }),
-    yes: Flags.boolean({
-      char: "y",
-      description: "Answer yes to all prompts",
     }),
     missing: Flags.boolean({
       char: "m",
@@ -120,7 +116,6 @@ export default class Config extends BaseCommand {
 
   private async getPromptConfigNames(flags: {
     missing: boolean;
-    yes: boolean;
     names?: string;
   }): Promise<ConfigName[]> {
     // Not computed for a --names run: that path returns before the filter, and
@@ -146,11 +141,22 @@ export default class Config extends BaseCommand {
     return applicableConfigNames;
   }
 
-  private maybePrompt(message: string, alwaysYes = false) {
-    if (alwaysYes) {
+  /**
+   * The group question. Naming keys with `--names` is asking for them (R4), so
+   * it is answered yes without asking, in both modes. A bare run walks every
+   * key, so it asks, and a non-interactive one has no default.
+   */
+  private confirmGroup(message: string, group: string, names?: string) {
+    if (names) {
       return true;
     }
-    return confirm({ message });
+    return askConfirm(
+      { message },
+      {
+        value: `whether to configure ${group}`,
+        flag: "--names <keys>",
+      },
+    );
   }
 
   private async getInputConfig(name: ConfigName, fallback: string = "") {
@@ -161,11 +167,30 @@ export default class Config extends BaseCommand {
     } as const;
   }
 
-  private async renderInput(flags: {
-    missing: boolean;
-    yes: boolean;
-    names?: string;
-  }) {
+  /**
+   * One config question. A non-interactive run takes what the prompt would have
+   * offered as its default, and fails naming `worktree config <name> <value>`
+   * where that is empty and the validator rejects empty. Keys that hold a
+   * secret are asked with `askInput` directly, because an empty default there
+   * would write an empty token.
+   */
+  private async askConfigInput(
+    name: ConfigName,
+    config: Parameters<typeof askInput>[0],
+    defaultValue?: string,
+  ) {
+    const offered = await this.getInputConfig(name, defaultValue);
+    return askInput(
+      { ...config, ...offered },
+      {
+        value: name,
+        flag: `worktree config ${name} <value>`,
+        fallback: offered.default,
+      },
+    );
+  }
+
+  private async renderInput(flags: { missing: boolean; names?: string }) {
     const configNames = await this.getPromptConfigNames(flags);
     const hasJiraPrompt = configNames.some((name) => name.startsWith("jira"));
     const hasBranchPrefixPrompt = configNames.some((name) =>
@@ -190,23 +215,29 @@ export default class Config extends BaseCommand {
 
     if (
       hasJiraPrompt &&
-      (await this.maybePrompt(
+      (await this.confirmGroup(
         "Do you want to configure Jira integration?",
-        flags.yes,
+        "Jira",
+        flags.names,
       ))
     ) {
       if (shouldPrompt("jira.host")) {
-        const jiraHost = await input({
-          message: "Jira host",
-          default: "example.atlassian.com",
-        });
+        // The prompt's default is a placeholder, not a host, so a
+        // non-interactive run takes only what is already set.
+        const jiraHost = await askInput(
+          { message: "Jira host", default: "example.atlassian.com" },
+          {
+            value: "jira.host",
+            flag: "worktree config jira.host <value>",
+            fallback: (await gitGetConfigValue("jira.host")) || undefined,
+          },
+        );
         await gitSetConfigValue("jira.host", jiraHost);
       }
 
       if (shouldPrompt("jira.email")) {
-        const jiraEmail = await input({
+        const jiraEmail = await this.askConfigInput("jira.email", {
           message: "Jira email",
-          ...(await this.getInputConfig("jira.email")),
           validate: isValidEmail,
         });
         await gitSetConfigValue("jira.email", jiraEmail);
@@ -222,9 +253,15 @@ export default class Config extends BaseCommand {
         ];
 
         this.log(jiraTokenInstructions.join(EOL) + EOL);
-        const jiraApiToken = await input({
-          message: "Jira API token",
-        });
+        const jiraApiToken = await askInput(
+          { message: "Jira API token" },
+          {
+            value: "jira.apiToken",
+            flag: "worktree config jira.apiToken <token>",
+            // The stored token if there is one, never an empty one.
+            fallback: (await gitGetConfigValue("jira.apiToken")) || undefined,
+          },
+        );
         await gitSetConfigValue("jira.apiToken", jiraApiToken);
       }
     }
@@ -236,9 +273,10 @@ export default class Config extends BaseCommand {
     // here, which is the dead shape `github.autoAssign` would have inherited.
     if (
       hasGithubPrompt &&
-      (await this.maybePrompt(
+      (await this.confirmGroup(
         "Do you want to configure GitHub issue options?",
-        flags.yes,
+        "GitHub",
+        flags.names,
       ))
     ) {
       if (shouldPrompt("github.token")) {
@@ -253,9 +291,14 @@ export default class Config extends BaseCommand {
         this.log(githubTokenInstructions.join(EOL) + EOL);
         // No default and no prefill, exactly as `jira.apiToken` is asked: a
         // token is not echoed back as a prompt default.
-        const githubToken = await input({
-          message: "GitHub personal access token",
-        });
+        const githubToken = await askInput(
+          { message: "GitHub personal access token" },
+          {
+            value: "github.token",
+            flag: "worktree config github.token <token>",
+            fallback: (await gitGetConfigValue("github.token")) || undefined,
+          },
+        );
         // Only a real answer is written. The instruction line above invites an
         // empty one — it is how you say "use `gh auth token` instead" — and an
         // unconditional write would make taking that invitation clear a stored
@@ -267,112 +310,138 @@ export default class Config extends BaseCommand {
       }
 
       if (shouldPrompt("github.autoAssign")) {
-        const githubAutoAssign = await input({
-          message:
-            "Should `branch --github` assign the issue to you? (leave unset to be asked each time)",
-          ...(await this.getInputConfig("github.autoAssign")),
-          // Empty is a valid answer as well as a valid state: the key is
-          // tri-state through unset (D3), so this prompt has to be the way to
-          // keep being asked at branch time, not only the way to settle it.
-          validate: (value: string) =>
-            value.trim() === "" || isValidBoolean(value.trim()),
-        });
+        const githubAutoAssign = await this.askConfigInput(
+          "github.autoAssign",
+          {
+            message:
+              "Should `branch --github` assign the issue to you? (leave unset to be asked each time)",
+            // Empty is a valid answer as well as a valid state: the key is
+            // tri-state through unset (D3), so this prompt has to be the way to
+            // keep being asked at branch time, not only the way to settle it.
+            validate: (value: string) =>
+              value.trim() === "" || isValidBoolean(value.trim()),
+          },
+        );
         await gitSetConfigValue("github.autoAssign", githubAutoAssign.trim());
       }
     }
 
     if (shouldPrompt("defaultSourceBranch")) {
-      const defaultBranchName = await input({
-        message: "Which branch should new worktrees be based on?",
-        ...(await this.getInputConfig("defaultSourceBranch", "origin/main")),
-        validate: isValidBranch,
-      });
+      const defaultBranchName = await this.askConfigInput(
+        "defaultSourceBranch",
+        {
+          message: "Which branch should new worktrees be based on?",
+          validate: isValidBranch,
+        },
+        "origin/main",
+      );
       await gitSetConfigValue("defaultSourceBranch", defaultBranchName);
     }
 
     if (
       hasBranchPrefixPrompt &&
-      (await this.maybePrompt(
+      (await this.confirmGroup(
         "Do you want to configure branch name prefixes?",
-        flags.yes,
+        "branch name prefixes",
+        flags.names,
       ))
     ) {
       if (shouldPrompt("branchPrefix.feature")) {
-        const featurePrefix = await input({
-          message: "Prefix for feature branches",
-          ...(await this.getInputConfig("branchPrefix.feature", "feature/")),
-        });
+        const featurePrefix = await this.askConfigInput(
+          "branchPrefix.feature",
+          {
+            message: "Prefix for feature branches",
+          },
+          "feature/",
+        );
         await gitSetConfigValue("branchPrefix.feature", featurePrefix);
       }
 
       if (shouldPrompt("branchPrefix.bugfix")) {
-        const bugfixPrefix = await input({
-          message: "Prefix for bugfix branches",
-          ...(await this.getInputConfig("branchPrefix.bugfix", "fix/")),
-        });
+        const bugfixPrefix = await this.askConfigInput(
+          "branchPrefix.bugfix",
+          {
+            message: "Prefix for bugfix branches",
+          },
+          "fix/",
+        );
         await gitSetConfigValue("branchPrefix.bugfix", bugfixPrefix);
       }
 
       if (shouldPrompt("branchPrefix.chore")) {
-        const chorePrefix = await input({
-          message: "Prefix for chore branches",
-          ...(await this.getInputConfig("branchPrefix.chore", "chore/")),
-        });
+        const chorePrefix = await this.askConfigInput(
+          "branchPrefix.chore",
+          {
+            message: "Prefix for chore branches",
+          },
+          "chore/",
+        );
         await gitSetConfigValue("branchPrefix.chore", chorePrefix);
       }
     }
 
     if (
       shouldPrompt("opener") &&
-      (await this.maybePrompt(
+      (await this.confirmGroup(
         "Do you want to choose where new worktrees are opened?",
-        flags.yes,
+        "the opener",
+        flags.names,
       ))
     ) {
-      const opener = await input({
-        message: `Which opener should new worktrees use? (${conjoin(OPENER_KINDS, "or")})`,
-        ...(await this.getInputConfig("opener", "editor")),
-        validate: isValidOpener,
-      });
+      const opener = await this.askConfigInput(
+        "opener",
+        {
+          message: `Which opener should new worktrees use? (${conjoin(OPENER_KINDS, "or")})`,
+          validate: isValidOpener,
+        },
+        "editor",
+      );
       await gitSetConfigValue("opener", opener);
     }
 
     if (
       shouldPrompt("codeEditor") &&
-      (await this.maybePrompt(
+      (await this.confirmGroup(
         "Do you want to automatically open the worktree in a code editor?",
-        flags.yes,
+        "the code editor",
+        flags.names,
       ))
     ) {
-      const codeEditor = await input({
-        message: "Command to open code editor?",
-        ...(await this.getInputConfig("codeEditor", "code")),
-        validate: isValidCommand,
-      });
+      const codeEditor = await this.askConfigInput(
+        "codeEditor",
+        {
+          message: "Command to open code editor?",
+          validate: isValidCommand,
+        },
+        "code",
+      );
       await gitSetConfigValue("codeEditor", codeEditor);
     }
 
     if (
       hasHerdrPrompt &&
-      (await this.maybePrompt(
+      (await this.confirmGroup(
         "Do you want to configure Herdr space options?",
-        flags.yes,
+        "Herdr",
+        flags.names,
       ))
     ) {
       if (shouldPrompt("herdr.focus")) {
-        const herdrFocus = await input({
-          message: "Should opening a worktree focus its Herdr space?",
-          ...(await this.getInputConfig("herdr.focus", "true")),
-          validate: isValidBoolean,
-        });
+        const herdrFocus = await this.askConfigInput(
+          "herdr.focus",
+          {
+            message: "Should opening a worktree focus its Herdr space?",
+            validate: isValidBoolean,
+          },
+          "true",
+        );
         await gitSetConfigValue("herdr.focus", herdrFocus);
       }
 
       if (shouldPrompt("herdr.agent")) {
-        const herdrAgent = await input({
+        const herdrAgent = await this.askConfigInput("herdr.agent", {
           message:
             "Which agent should start in a new Herdr space? (empty for none)",
-          ...(await this.getInputConfig("herdr.agent")),
           // Empty is not a valid kind, but it is a valid answer: the key is
           // opt-in (D9), so this prompt has to be the way to decline as well as
           // the way to choose, or a `--missing` run would force an agent on
@@ -386,17 +455,17 @@ export default class Config extends BaseCommand {
 
     if (
       shouldPrompt("agent.command") &&
-      (await this.maybePrompt(
+      (await this.confirmGroup(
         "Do you want to hand new worktrees to a coding agent?",
-        flags.yes,
+        "the coding agent",
+        flags.names,
       ))
     ) {
       // No fallback default: the agent runtime is deliberately not named here.
       // Suggesting one would make this tool depend on a particular CLI, which
       // AGENT-MODE-PLAN §2 rules out.
-      const agentCommand = await input({
+      const agentCommand = await this.askConfigInput("agent.command", {
         message: "Command to start the coding agent?",
-        ...(await this.getInputConfig("agent.command")),
         validate: isValidCommandLine,
       });
       await gitSetConfigValue("agent.command", agentCommand);

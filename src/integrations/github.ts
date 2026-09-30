@@ -1,6 +1,6 @@
-import { input } from "@inquirer/prompts";
 import { commandExists, run } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
+import { askInput, assertCanPrompt } from "../lib/prompt.js";
 
 interface GitHubRepository {
   owner: string;
@@ -161,10 +161,17 @@ async function resolveGitHubToken(): Promise<string> {
     return ghToken;
   }
 
+  // A token has no default, and the instructions below are for a human. The
+  // message names where to put one and never echoes a value.
+  const site = {
+    value: "a GitHub token",
+    flag: "`worktree config github.token <token>` or run `gh auth login`",
+  };
+  assertCanPrompt(site);
   console.log(
     "Go to https://github.com/settings/personal-access-tokens/new to create a new token and then paste it here.",
   );
-  const token = await input({ message: "Enter GitHub token:" });
+  const token = await askInput({ message: "Enter GitHub token:" }, site);
   if (!token) {
     throw new Error("GitHub token not provided.");
   }

@@ -1,5 +1,4 @@
 import { basename } from "node:path";
-import { confirm } from "@inquirer/prompts";
 import { Command, Flags } from "@oclif/core";
 import type { CommandError, OclifError } from "@oclif/core/interfaces";
 import chalk from "chalk";
@@ -7,7 +6,7 @@ import chalk from "chalk";
 // context/standards/architecture/dependency-boundaries.md. It is a deliberate
 // deviation, recorded in §4.2 of the plan: BaseCommand is the composition point
 // every command inherits — it already reaches for `./git.js` and
-// `@inquirer/prompts` — not a leaf utility. Satisfying the boundary strictly
+// `./prompt.js` — not a leaf utility. Satisfying the boundary strictly
 // means moving this file out of `lib/`, a wider refactor than this feature buys.
 import {
   closeHerdrWorkspace,
@@ -24,11 +23,13 @@ import {
   gitGetRootPath,
 } from "./git.js";
 import {
+  isNonInteractive,
   readProcessInteractionInputs,
   resolveNonInteractive,
   setNonInteractive,
 } from "./interaction.js";
 import { createSpinner } from "./progress.js";
+import { askConfirm, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
 import { splitCommandValue } from "./utils.js";
 
@@ -66,12 +67,7 @@ function toSpaceLabel(worktreePath: string, worktreesRootPath: string) {
 }
 
 export abstract class BaseCommand extends Command {
-  /**
-   * On every command. A subclass that declares a flag of the same name keeps its
-   * own meaning: oclif lets `flags` override `baseFlags`, and `init()` below
-   * ignores the base reading of any name the subclass redefines (`config`'s
-   * `--yes` until it moves over).
-   */
+  /** On every command; `init()` below turns them into the run's mode. */
   static override baseFlags = {
     "non-interactive": Flags.boolean({
       description: "Never prompt or animate; take defaults or fail",
@@ -88,27 +84,42 @@ export abstract class BaseCommand extends Command {
   async init() {
     await super.init();
     const { flags } = await this.parse();
-    const redefined = (name: string) => name in (this.ctor.flags ?? {});
     const mode = resolveNonInteractive({
       ...readProcessInteractionInputs(),
       nonInteractiveFlag: flags["non-interactive"],
-      yesFlag: redefined("yes") ? false : flags.yes,
+      yesFlag: flags.yes,
       json: this.jsonEnabled(),
     });
     this.nonInteractive = mode;
     setNonInteractive(mode);
   }
 
+  // Non-interactive runs take "no" here: the offer is skipped, and
+  // `verifyConfig` names what is missing instead of asking.
   private confirmFirstTimeConfig() {
     const message =
       "Looks like this is your first time running the CLI. Do you want to run the config command now?";
-    return confirm({ message });
+    return askConfirm(
+      { message },
+      {
+        value: "the first-time config offer",
+        flag: "`worktree config`",
+        fallback: false,
+      },
+    );
   }
 
   private confirmMissingConfig() {
     const message =
       "Some required configuration values are missing. Do you want to run the config command now?";
-    return confirm({ message });
+    return askConfirm(
+      { message },
+      {
+        value: "the missing-config offer",
+        flag: "`worktree config`",
+        fallback: false,
+      },
+    );
   }
 
   protected async verifyConfig(configNames: ConfigName[] = []) {
@@ -119,23 +130,35 @@ export abstract class BaseCommand extends Command {
       }
     }
 
-    let isMissingConfig = false;
+    const missingNames: ConfigName[] = [];
     for (const name of configNames) {
       if (!(await gitGetConfigValue(name))) {
-        isMissingConfig = true;
-        break;
+        missingNames.push(name);
       }
     }
 
-    if (isMissingConfig) {
-      if (await this.confirmMissingConfig()) {
-        await this.config.runCommand("config", [
-          "--missing",
-          "--yes",
-          "--names",
-          configNames.join(","),
-        ]);
-      }
+    if (missingNames.length === 0) {
+      return;
+    }
+
+    // Offering `config` would prompt, so a non-interactive run says what is
+    // missing and carries on: whatever needs a value fails naming its own key,
+    // and what has a fallback (`defaultSourceBranch`) uses it.
+    if (isNonInteractive()) {
+      this.warn(
+        `Missing config: ${missingNames.join(", ")}. Set one with \`worktree config <name> <value>\`.`,
+      );
+      return;
+    }
+
+    if (await this.confirmMissingConfig()) {
+      // `--names` alone means "ask these" (config.ts), so there is no `--yes`:
+      // that flag now means non-interactive.
+      await this.config.runCommand("config", [
+        "--missing",
+        "--names",
+        configNames.join(","),
+      ]);
     }
   }
 
@@ -428,7 +451,12 @@ export abstract class BaseCommand extends Command {
       // stderr and a non-zero exit, so a script can tell a failure from a
       // success. `this.error(...)` carries its code on `oclif.exit` (2 by
       // default); anything else is a plain failure.
-      console.error(chalk.red(`Error: ${error.message}`));
+      // One line in the plan's D2 shape; its own exit code rides on `oclif.exit`.
+      console.error(
+        error instanceof MissingValueError
+          ? `worktree: ${error.message}`
+          : chalk.red(`Error: ${error.message}`),
+      );
       process.exitCode = (error as Partial<OclifError>).oclif?.exit ?? 1;
       return;
     }

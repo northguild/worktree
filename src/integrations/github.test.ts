@@ -1,4 +1,6 @@
+import { input } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
+import { setNonInteractive } from "../lib/interaction.js";
 import { expectCommands } from "../test-setup.js";
 import {
   assignGitHubIssue,
@@ -8,6 +10,8 @@ import {
   type GitHubIssueTypeApiResponse,
   parseGitHubRepositoryFromRemote,
 } from "./github.js";
+
+vi.mock("@inquirer/prompts", () => ({ input: vi.fn() }));
 
 type MockIssueOverrides = Partial<
   Omit<GitHubIssueApiResponse, "type" | "user">
@@ -247,6 +251,33 @@ describe("GitHub integration", () => {
         }),
       },
     );
+  });
+
+  it("fails naming where to put a token, and prints nothing, when non-interactive", async () => {
+    setNonInteractive(true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
+    runSpy.mockResolvedValueOnce("");
+    runSpy.mockRejectedValueOnce(new Error("not logged in")); // gh auth token
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        text: vi.fn().mockResolvedValue(""),
+      }),
+    );
+    expectCommands("gh auth token");
+
+    await expect(fetchGitHubIssue(13)).rejects.toMatchObject({
+      message:
+        "no default for a GitHub token; pass `worktree config github.token <token>` or run `gh auth login`",
+      oclif: { exit: 2 },
+    });
+    expect(input).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   function makeUserResponse(login = "baldurpan") {

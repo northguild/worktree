@@ -112,7 +112,9 @@ and the answer is saved to the key. A failed assignment warns and the
 worktree is still created.
 
 The generated branch name is pre-filled in an interactive prompt and
-editable before confirmation. Branch prefixes are applied when configured:
+editable before confirmation. A non-interactive run takes the pre-filled name
+without asking, and does not assign the issue unless `--assign` or
+`github.autoAssign` says to. Branch prefixes are applied when configured:
 - `Feature` / `Story` → `branchPrefix.feature`
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
@@ -214,8 +216,9 @@ worktree config --missing
 # Configure specific keys
 worktree config --missing --names jira.host,jira.email,jira.apiToken
 
-# Non-interactive (answer yes to all confirmations)
-worktree config --yes --missing --names branchPrefix.feature,branchPrefix.bugfix
+# Non-interactive: takes each key's default, or fails naming the key
+# (for example `worktree config github.token <token>`)
+worktree config --yes --names branchPrefix.feature,branchPrefix.bugfix
 
 # List all current values
 worktree config --list
@@ -283,8 +286,9 @@ worktree config          # run once per repo
 worktree branch feature/x
 ```
 
-Without `defaultSourceBranch` set, `branch` prompts interactively for a
-source branch, blocking non-interactive runs. Without `codeEditor`, the
+Without `defaultSourceBranch` set, `branch` offers to run `config` in a
+terminal and uses `origin/main` when non-interactive, with a warning naming the
+missing key. Without `codeEditor`, the
 worktree is created but not opened — unless `opener` is `herdr`, which
 ignores `codeEditor` and opens a Herdr space instead.
 
@@ -358,8 +362,9 @@ worktree branch feature/x --source origin/main
 ```
 
 A `--source` value without the `origin/` prefix triggers a `confirm()`
-interactive prompt asking whether to use a local branch. This hangs
-non-interactive agent runs.
+interactive prompt asking whether to use a local branch. A non-interactive
+run does not wait for it: it exits 2 with
+`worktree: no default for whether to use the local source branch main; pass --source origin/main`.
 
 Source: `src/commands/branch.ts` — `confirmNonOriginSource()`
 
@@ -410,19 +415,28 @@ Source: `docs/configuration`, `docs/guides/github-issue-integration`
 
 ---
 
-### HIGH Tension: interactive prompts block scripted use
+### HIGH Tension: interactive prompts vs scripted use
 
 The CLI is designed for interactive human use — confirm prompts, branch
-pickers, and spinners are the default UX. In agent or scripted contexts,
-these prompts cause hangs.
+pickers, and spinners are the default UX. A run is non-interactive when stdin
+is not a TTY, `CI` is set (not `""`, `0` or `false`), or `--non-interactive`
+or `--yes`/`-y` is given. It never prompts and never animates: a prompt with a
+default takes it, and one without fails at once with exit 2 and a single
+stderr line, `worktree: no default for <value>; pass <flag>`.
 
-Always provide explicit values when running non-interactively:
+Provide explicit values so nothing is left to default or fail:
 
 ```bash
 # Instead of relying on interactive pickers:
 worktree branch feature/x --source origin/main
 worktree remove feature/x --force
 worktree cleanup --force
+worktree checkout origin/feature/x   # `checkout` and `open` need the branch argument
 ```
+
+Non-interactive `remove` needs `-f` and `cleanup` needs `--force`: removal has
+no default. A missing GitHub token exits 2 and names
+`worktree config github.token <token>` or `gh auth login`; the token is never
+printed.
 
 Source: `src/commands/branch.ts`, `src/commands/cleanup.ts`, `src/commands/remove.ts`

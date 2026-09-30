@@ -24,6 +24,7 @@ import {
   gitSetConfigValue,
   isSafeToRemove,
 } from "./git.js";
+import { setNonInteractive } from "./interaction.js";
 import type {
   AgentSession,
   WorktreeAgent,
@@ -1581,6 +1582,17 @@ describe("gitRemoveWorktree prompt", () => {
         message: "Are you sure you want to remove this worktree?",
       }),
     );
+  });
+
+  it("fails naming -f, with no prompt, when non-interactive and not forced", async () => {
+    setNonInteractive(true);
+    mockUpToPrompt("1");
+
+    await expect(gitRemoveWorktree("feature/one")).rejects.toMatchObject({
+      message: "no default for confirmation to remove feature/one; pass -f",
+      oclif: { exit: 2 },
+    });
+    expect(mockConfirm).not.toHaveBeenCalled();
   });
 
   it("removes nothing when the prompt is declined", async () => {

@@ -2,6 +2,7 @@
 import { select } from "@inquirer/prompts";
 import ora from "ora";
 import * as git from "../lib/git.js";
+import { setNonInteractive } from "../lib/interaction.js";
 import type { WorktreeListBaseEntry } from "../lib/types.js";
 import OpenCmd from "./open.js";
 
@@ -132,6 +133,19 @@ describe("open command", () => {
 
     await open.run();
 
+    expect(mockOpenWorktreePath).not.toHaveBeenCalled();
+  });
+
+  it("fails naming the branch argument, without a picker, when non-interactive", async () => {
+    setNonInteractive(true);
+    vi.spyOn(git, "gitGetWorktrees").mockResolvedValue(worktrees);
+    (open as any).parse = vi.fn().mockResolvedValue({ args: {}, flags: {} });
+
+    await expect(open.run()).rejects.toMatchObject({
+      message: "no default for the branch to open; pass <branchName>",
+      oclif: { exit: 2 },
+    });
+    expect(mockSelect).not.toHaveBeenCalled();
     expect(mockOpenWorktreePath).not.toHaveBeenCalled();
   });
 });

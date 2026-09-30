@@ -1,4 +1,3 @@
-import { select } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import { BaseCommand } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
@@ -8,6 +7,7 @@ import {
   gitGetRemoteBranches,
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
+import { askSelect } from "../lib/prompt.js";
 
 export default class Checkout extends BaseCommand {
   static override args = {
@@ -37,13 +37,16 @@ export default class Checkout extends BaseCommand {
   }
 
   private selectRemoteBranch(remoteBranches: string[]) {
-    return select({
-      message: "Select a remote branch to checkout",
-      choices: remoteBranches.map((branchName) => ({
-        name: branchName,
-        value: branchName,
-      })),
-    });
+    return askSelect(
+      {
+        message: "Select a remote branch to checkout",
+        choices: remoteBranches.map((branchName) => ({
+          name: branchName,
+          value: branchName,
+        })),
+      },
+      { value: "the branch to check out", flag: "<branchName>" },
+    );
   }
 
   private getBaseBranchName(branchNameArg: string) {

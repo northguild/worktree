@@ -31,7 +31,7 @@ opening so developers don't have to type the same sequences repeatedly.
 | 1 | Using checkout to create a new branch | CRITICAL | docs/commands | — |
 | 2 | Running outside a git repository | HIGH | src/lib/git.ts | — |
 | 3 | Skipping config before first use | HIGH | README, docs/getting-started | — |
-| 4 | --source without origin/ prefix (interactive hang) | MEDIUM | src/commands/branch.ts | — |
+| 4 | --source without origin/ prefix (non-interactive exit 2) | MEDIUM | src/commands/branch.ts | — |
 | 5 | Partial Jira config (all 3 keys required) | HIGH | docs/guides/jira-integration | — |
 | 6 | Branch prefix value missing trailing slash | MEDIUM | docs/configuration | — |
 
@@ -39,7 +39,7 @@ opening so developers don't have to type the same sequences repeatedly.
 
 | Tension | Skills | Agent implication |
 |---|---|---|
-| Interactive prompts vs scripted/agent use | core | Agents must supply explicit flags; relying on interactive defaults causes hangs |
+| Interactive prompts vs scripted/agent use | core | Agents must supply explicit flags; a non-interactive run takes a prompt's default or exits 2 naming the flag it needs |
 
 ## Cross-References
 

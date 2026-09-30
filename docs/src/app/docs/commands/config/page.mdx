@@ -22,8 +22,11 @@ worktree config --yes
 
 - With `--list`, it only prints config names that currently have no value.
 - Without `--list`, it only prompts for missing values.
-- `--names` limits prompting to specific config keys.
-- `--yes` accepts optional confirmations automatically.
+- `--names` limits prompting to specific config keys. Naming keys is asking for them, so the optional group
+  confirms (Jira, GitHub, prefixes, opener, editor, Herdr, agent) are not asked for them.
+- `--yes` (`-y`) makes the run [non-interactive](/docs/commands/branch#non-interactive-runs): nothing is asked.
+  Each key takes its default, or the value it already holds, and the run fails with exit `2` naming
+  `worktree config <key> <value>` for a key with neither, such as a token. Without `--names` the optional groups have no default and the run fails naming `--names <keys>`.
 
 ## Examples
 

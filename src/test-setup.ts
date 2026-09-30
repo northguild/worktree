@@ -1,3 +1,5 @@
+import { setNonInteractive } from "./lib/interaction.js";
+
 // Global mock for the subprocess helper, to prevent actual command execution.
 // The factory returns an explicit object, so every export of ./lib/cli.js has to
 // be listed here — one that is missing is undefined at call time, and the caller
@@ -38,6 +40,10 @@ function describeRunCall(call: unknown[]): string {
 beforeEach(() => {
   // Clear all mocks before each test
   vi.clearAllMocks();
+  // vitest's stdin is not a TTY, so the run would resolve as non-interactive and
+  // every prompt would take its default. The suites that assert a prompt is
+  // asked are the human path; the ones for the other mode say so themselves.
+  setNonInteractive(false);
   // A successful, silent run is the benign default. Without it a suite that
   // reaches runCapturing without mocking it gets undefined back rather than a
   // promise, and fails somewhere unrelated to what it is testing.

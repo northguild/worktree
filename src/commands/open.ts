@@ -1,8 +1,8 @@
-import { select } from "@inquirer/prompts";
 import { Args } from "@oclif/core";
 import { BaseCommand } from "../lib/base-command.js";
 import { gitGetWorktrees } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
+import { askSelect } from "../lib/prompt.js";
 import type { WorktreeListBaseEntry } from "../lib/types.js";
 
 export default class OpenCmd extends BaseCommand {
@@ -16,10 +16,13 @@ export default class OpenCmd extends BaseCommand {
   ];
 
   private selectBranch(worktrees: WorktreeListBaseEntry[]) {
-    return select({
-      message: "Select a branch to open",
-      choices: worktrees.map((wt) => ({ name: wt.branchName, value: wt })),
-    });
+    return askSelect(
+      {
+        message: "Select a branch to open",
+        choices: worktrees.map((wt) => ({ name: wt.branchName, value: wt })),
+      },
+      { value: "the branch to open", flag: "<branchName>" },
+    );
   }
 
   public async run(): Promise<void> {

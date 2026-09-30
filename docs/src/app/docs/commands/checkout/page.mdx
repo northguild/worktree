@@ -13,7 +13,9 @@ worktree checkout <remote-branch>
 worktree checkout <remote-branch> --agent "<prompt>"
 ```
 
-If omitted, `worktree checkout` will show an interactive branch picker.
+If omitted, `worktree checkout` will show an interactive branch picker. A
+[non-interactive run](/docs/commands/branch#non-interactive-runs) has no picker: without the argument it exits
+`2` with `worktree: no default for the branch to check out; pass <branchName>`.
 
 ## Examples
 

@@ -51,6 +51,10 @@ counted as ahead, because a squash merge and a rebase both give the same work ne
 identities, but there is nothing in it to lose. Warning about those commits would teach you
 that this prompt does not mean anything, which is how the one that does gets waved through.
 
+Removing has no default, so a [non-interactive run](/docs/commands/branch#non-interactive-runs) needs `-f`
+(`--force`) and a branch name: without `-f` it exits `2` with `worktree: no default for confirmation to remove
+<branch>; pass -f`, and with no branch it names `<branchName> -f` rather than showing the picker.
+
 `--force` skips the prompt entirely. Unlike [`cleanup`](/docs/commands/cleanup), `remove`
 names one worktree that you chose, so `--force` here answers only the confirmation you
 would otherwise have been given.
