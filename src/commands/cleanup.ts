@@ -1,7 +1,6 @@
 import { confirm } from "@inquirer/prompts";
 import { Flags } from "@oclif/core";
 import chalk from "chalk";
-import ora from "ora";
 import { BaseCommand } from "../lib/base-command.js";
 import {
   gitGetWorktreeList,
@@ -9,6 +8,7 @@ import {
   hasLiveAgent,
   isSafeToRemove,
 } from "../lib/git.js";
+import { createSpinner } from "../lib/progress.js";
 import type { WorktreeListEntry } from "../lib/types.js";
 import { worktreeListEntryToListName } from "../lib/utils.js";
 
@@ -174,7 +174,7 @@ export default class Cleanup extends BaseCommand {
 
   public async run(): Promise<void> {
     const { flags } = await this.parse(Cleanup);
-    const spinner = ora("Gathering worktree branches").start();
+    const spinner = createSpinner("Gathering worktree branches").start();
     // The override is "do not look", not "look and then ignore": with no
     // sessions gathered there is no agent for isSafeToRemove to weigh, and the
     // run costs exactly what it did before this flag existed. See

@@ -1,9 +1,8 @@
 import { basename } from "node:path";
 import { confirm } from "@inquirer/prompts";
-import { Command } from "@oclif/core";
+import { Command, Flags } from "@oclif/core";
 import type { CommandError, OclifError } from "@oclif/core/interfaces";
 import chalk from "chalk";
-import ora from "ora";
 // `lib/` importing `integrations/` inverts the layering in
 // context/standards/architecture/dependency-boundaries.md. It is a deliberate
 // deviation, recorded in §4.2 of the plan: BaseCommand is the composition point
@@ -24,6 +23,12 @@ import {
   gitGetConfigValue,
   gitGetRootPath,
 } from "./git.js";
+import {
+  readProcessInteractionInputs,
+  resolveNonInteractive,
+  setNonInteractive,
+} from "./interaction.js";
+import { createSpinner } from "./progress.js";
 import type { ConfigName } from "./types.js";
 import { splitCommandValue } from "./utils.js";
 
@@ -61,6 +66,39 @@ function toSpaceLabel(worktreePath: string, worktreesRootPath: string) {
 }
 
 export abstract class BaseCommand extends Command {
+  /**
+   * On every command. A subclass that declares a flag of the same name keeps its
+   * own meaning: oclif lets `flags` override `baseFlags`, and `init()` below
+   * ignores the base reading of any name the subclass redefines (`config`'s
+   * `--yes` until it moves over).
+   */
+  static override baseFlags = {
+    "non-interactive": Flags.boolean({
+      description: "Never prompt or animate; take defaults or fail",
+    }),
+    yes: Flags.boolean({
+      char: "y",
+      description: "Non-interactive: accept defaults instead of prompting",
+    }),
+  };
+
+  /** Resolved once in `init()`; see `lib/interaction.ts` (D1). */
+  protected nonInteractive = false;
+
+  async init() {
+    await super.init();
+    const { flags } = await this.parse();
+    const redefined = (name: string) => name in (this.ctor.flags ?? {});
+    const mode = resolveNonInteractive({
+      ...readProcessInteractionInputs(),
+      nonInteractiveFlag: flags["non-interactive"],
+      yesFlag: redefined("yes") ? false : flags.yes,
+      json: this.jsonEnabled(),
+    });
+    this.nonInteractive = mode;
+    setNonInteractive(mode);
+  }
+
   private confirmFirstTimeConfig() {
     const message =
       "Looks like this is your first time running the CLI. Do you want to run the config command now?";
@@ -148,7 +186,7 @@ export abstract class BaseCommand extends Command {
       return closeNothing;
     }
 
-    const spinner = ora("Finding Herdr spaces").start();
+    const spinner = createSpinner("Finding Herdr spaces").start();
     let spaces: Map<string, string>;
     let worktreesRootPath: string;
 
@@ -234,7 +272,7 @@ export abstract class BaseCommand extends Command {
    * the rest of the run with it.
    */
   private async closeSpace(workspaceId: string, label: string) {
-    const spinner = ora(`Closing Herdr space ${label}`).start();
+    const spinner = createSpinner(`Closing Herdr space ${label}`).start();
 
     try {
       await closeHerdrWorkspace(workspaceId);
@@ -249,7 +287,7 @@ export abstract class BaseCommand extends Command {
    * was built around, which is what an agent start hangs off later.
    */
   private async openHerdrSpace(path: string) {
-    const spinner = ora("Opening in Herdr").start();
+    const spinner = createSpinner("Opening in Herdr").start();
 
     try {
       if (!(await isHerdrInstalled())) {
@@ -314,7 +352,7 @@ export abstract class BaseCommand extends Command {
     }
 
     const name = toHerdrAgentName(label);
-    const spinner = ora(`Starting ${kind} in ${label}`).start();
+    const spinner = createSpinner(`Starting ${kind} in ${label}`).start();
 
     try {
       await startHerdrAgent({ name, kind, paneId });
@@ -338,7 +376,7 @@ export abstract class BaseCommand extends Command {
     // Unset, whitespace-only and quote-only are the same fact: nothing to
     // launch. The head is what execFile would receive, so it is what decides.
     if (editor) {
-      const spinner = ora(`Opening in ${codeEditor}`).start();
+      const spinner = createSpinner(`Opening in ${codeEditor}`).start();
       // Deliberately not awaited, exactly as the exec callback was not: the
       // editor outlives this command, and the spinner settles when it exits.
       run(editor, [...editorArgs, path]).then(

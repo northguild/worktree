@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
-import ora from "ora";
 import { run } from "./cli.js";
 import { gitGetRootPath } from "./git.js";
+import { createSpinner } from "./progress.js";
 
 /**
  * Env-shaped filenames, widened past the two this tool used to name. `.env` and
@@ -102,7 +102,7 @@ export async function copyEnvFilesFromRootPath(
   destinationWorktreePath: string,
 ) {
   const gitRootPath = await gitGetRootPath();
-  const spinner = ora("Looking for env files to copy").start();
+  const spinner = createSpinner("Looking for env files to copy").start();
 
   let envFiles: string[];
   try {

@@ -1,13 +1,13 @@
 import { checkbox, confirm, Separator } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
-import ora from "ora";
 import { BaseCommand } from "../lib/base-command.js";
 import {
   gitGetWorktreeList,
   gitRemoveWorktree,
   gitRemoveWorktreesWithProgress,
 } from "../lib/git.js";
+import { createSpinner } from "../lib/progress.js";
 import type { WorktreeListEntry } from "../lib/types.js";
 import { worktreeListEntryToListName } from "../lib/utils.js";
 
@@ -50,7 +50,7 @@ export default class Delete extends BaseCommand {
 
   public async run(): Promise<void> {
     const { args, flags } = await this.parse(Delete);
-    const spinner = ora("Gathering worktree branches").start();
+    const spinner = createSpinner("Gathering worktree branches").start();
     const worktrees = await gitGetWorktreeList();
     spinner.stop();
 

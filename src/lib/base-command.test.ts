@@ -9,6 +9,7 @@ import {
 import { BaseCommand } from "./base-command.js";
 import * as cli from "./cli.js";
 import * as git from "./git.js";
+import { isNonInteractive, setNonInteractive } from "./interaction.js";
 import type { ConfigName } from "./types.js";
 
 // openWorktreePath is the only method covered here that draws a spinner. Mock it
@@ -870,5 +871,60 @@ describe("catch", () => {
     expect(errorSpy).not.toHaveBeenCalled();
     expect(logSpy).not.toHaveBeenCalled();
     expect(process.exitCode).toBeUndefined();
+  });
+});
+
+describe("init — interaction mode", () => {
+  const originalCi = process.env.CI;
+  const stdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+
+  async function initWith(argv: string[]) {
+    const { Config } = await import("@oclif/core");
+    const command = new TestCommand(argv, await Config.load(process.cwd()));
+    await command.init();
+    return command;
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    delete process.env.CI;
+  });
+
+  afterEach(() => {
+    if (stdinIsTTY) {
+      Object.defineProperty(process.stdin, "isTTY", stdinIsTTY);
+    } else {
+      Reflect.deleteProperty(process.stdin, "isTTY");
+    }
+    if (originalCi === undefined) {
+      delete process.env.CI;
+    } else {
+      process.env.CI = originalCi;
+    }
+    setNonInteractive(undefined);
+  });
+
+  it("stays interactive for a human at a terminal", async () => {
+    expect(await initWith([])).toMatchObject({ nonInteractive: false });
+    expect(isNonInteractive()).toBe(false);
+  });
+
+  it.each([
+    "--non-interactive",
+    "--yes",
+    "-y",
+  ])("resolves %s as non-interactive", async (flag) => {
+    expect(await initWith([flag])).toMatchObject({ nonInteractive: true });
+    expect(isNonInteractive()).toBe(true);
+  });
+
+  it("resolves CI as non-interactive, but not CI=false", async () => {
+    process.env.CI = "true";
+    expect(await initWith([])).toMatchObject({ nonInteractive: true });
+    process.env.CI = "false";
+    expect(await initWith([])).toMatchObject({ nonInteractive: false });
   });
 });

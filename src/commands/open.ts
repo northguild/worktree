@@ -1,8 +1,8 @@
 import { select } from "@inquirer/prompts";
 import { Args } from "@oclif/core";
-import ora from "ora";
 import { BaseCommand } from "../lib/base-command.js";
 import { gitGetWorktrees } from "../lib/git.js";
+import { createSpinner } from "../lib/progress.js";
 import type { WorktreeListBaseEntry } from "../lib/types.js";
 
 export default class OpenCmd extends BaseCommand {
@@ -24,7 +24,7 @@ export default class OpenCmd extends BaseCommand {
 
   public async run(): Promise<void> {
     const { args } = await this.parse(OpenCmd);
-    const spinner = ora("Gathering worktree list").start();
+    const spinner = createSpinner("Gathering worktree list").start();
     const allWorktrees = await gitGetWorktrees();
     spinner.stop();
     // Filter out non existing paths

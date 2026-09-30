@@ -1,6 +1,5 @@
 import { confirm, input } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
-import ora from "ora";
 import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
 import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
 import { BaseCommand } from "../lib/base-command.js";
@@ -12,6 +11,7 @@ import {
   gitGetRemoteBranches,
   gitSetConfigValue,
 } from "../lib/git.js";
+import { createSpinner } from "../lib/progress.js";
 import type { ConfigName } from "../lib/types.js";
 import { sanitizeBranchName } from "../lib/utils.js";
 import { isValidBranchName } from "../lib/validators.js";
@@ -134,7 +134,9 @@ export default class Branch extends BaseCommand {
 
   private async getGithubIssueBranchName(issueNumberFlag: string) {
     const issueNumber = this.getGithubIssueNumber(issueNumberFlag);
-    const spinner = ora(`Fetching GitHub issue #${issueNumber}`).start();
+    const spinner = createSpinner(
+      `Fetching GitHub issue #${issueNumber}`,
+    ).start();
     try {
       const issue = await fetchGitHubIssue(issueNumber);
       const prefix = await this.getGitHubBranchPrefix(issue.type?.name);
@@ -147,7 +149,7 @@ export default class Branch extends BaseCommand {
   }
 
   private async getJiraIssueBranchName(issueKeyFlag: string) {
-    const spinner = ora(
+    const spinner = createSpinner(
       `Fetching Jira issue ${issueKeyFlag.toUpperCase()}`,
     ).start();
     try {
@@ -213,7 +215,9 @@ export default class Branch extends BaseCommand {
    */
   private async assignGithubIssue(issueNumberFlag: string) {
     const issueNumber = this.getGithubIssueNumber(issueNumberFlag);
-    const spinner = ora(`Assigning GitHub issue #${issueNumber}`).start();
+    const spinner = createSpinner(
+      `Assigning GitHub issue #${issueNumber}`,
+    ).start();
 
     try {
       const { login, assigned } = await assignGitHubIssue(issueNumber);

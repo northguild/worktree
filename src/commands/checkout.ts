@@ -1,6 +1,5 @@
 import { select } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
-import ora from "ora";
 import { BaseCommand } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
@@ -8,6 +7,7 @@ import {
   gitGetLocalBranches,
   gitGetRemoteBranches,
 } from "../lib/git.js";
+import { createSpinner } from "../lib/progress.js";
 
 export default class Checkout extends BaseCommand {
   static override args = {
@@ -52,7 +52,7 @@ export default class Checkout extends BaseCommand {
 
   public async run(): Promise<void> {
     const { args, flags } = await this.parse(Checkout);
-    const spinner = ora("Fetching remote branches").start();
+    const spinner = createSpinner("Fetching remote branches").start();
     const remoteBranches = await gitGetRemoteBranches();
     const localBranches = await gitGetLocalBranches();
     spinner.stop();

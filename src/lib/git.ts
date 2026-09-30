@@ -3,7 +3,6 @@ import { EOL } from "node:os";
 import path from "node:path";
 import { confirm } from "@inquirer/prompts";
 import Process from "cli-progress";
-import ora from "ora";
 import {
   findSessionForPath,
   getAgentSessions,
@@ -12,6 +11,7 @@ import {
   isSessionWaiting,
 } from "./agent.js";
 import { run } from "./cli.js";
+import { createSpinner, isProgressEnabled } from "./progress.js";
 import type {
   AgentSession,
   ConfigName,
@@ -517,7 +517,7 @@ export async function gitCreateWorktree(
   sourceBranch: string,
   { isCheckout = false }: GitCreateWorktreeOptions = {},
 ): Promise<string> {
-  const spinner = ora(`Creating worktree ${branchName}`).start();
+  const spinner = createSpinner(`Creating worktree ${branchName}`).start();
   try {
     const gitRootPath = await gitGetRootPath();
     const worktreesRootPath = `../${path.basename(gitRootPath)}.worktrees`;
@@ -587,7 +587,7 @@ export async function gitNukeWorktree(
   branchName: string,
   { force = false }: GitNukeWorktreeCmdOptions = {},
 ): Promise<boolean> {
-  const spinner = ora(`Removing worktree ${branchName}`).start();
+  const spinner = createSpinner(`Removing worktree ${branchName}`).start();
   try {
     await gitNukeWorktreeCmd(branchName, { force });
     spinner.succeed(`Worktree ${branchName} was removed.`);
@@ -620,7 +620,9 @@ export async function gitRemoveWorktree(
       `Cannot remove current worktree ${branchName}. Go to another worktree or main repository first.`,
     );
   }
-  const spinner = ora(`Gathering worktree info for ${branchName}`).start();
+  const spinner = createSpinner(
+    `Gathering worktree info for ${branchName}`,
+  ).start();
   const worktreeList = await gitGetWorktreeList();
   const worktree = worktreeList.find(
     (entry) => entry.branchName === branchName,
@@ -704,17 +706,21 @@ export async function gitRemoveWorktree(
 export async function gitRemoveWorktreesWithProgress(
   worktrees: WorktreeListEntry[],
 ): Promise<WorktreeListEntry[]> {
-  const process = new Process.SingleBar(
-    {
-      format: "{bar} {percentage}% ({metaValue}/{metaTotal}) {description}",
-      barCompleteChar: "\u2588",
-      barIncompleteChar: "\u2591",
-      hideCursor: true,
-    },
-    Process.Presets.shades_classic,
-  );
+  // No animated bar where the spinner seam would not animate either (E2): a
+  // non-interactive run, or a terminal with no usable width.
+  const process = isProgressEnabled()
+    ? new Process.SingleBar(
+        {
+          format: "{bar} {percentage}% ({metaValue}/{metaTotal}) {description}",
+          barCompleteChar: "\u2588",
+          barIncompleteChar: "\u2591",
+          hideCursor: true,
+        },
+        Process.Presets.shades_classic,
+      )
+    : undefined;
 
-  process.start(worktrees.length * 10, 0, {
+  process?.start(worktrees.length * 10, 0, {
     metaTotal: worktrees.length,
   });
 
@@ -723,20 +729,20 @@ export async function gitRemoveWorktreesWithProgress(
 
   for (const wt of worktrees) {
     const description = `Deleting ${wt.branchName}`;
-    process.update({ metaValue: i, description });
+    process?.update({ metaValue: i, description });
 
     i++;
 
     await gitNukeWorktreeCmd(wt.branchName, { force: true });
     removed.push(wt);
 
-    process.update(i * 10, {
+    process?.update(i * 10, {
       metaValue: i,
       description: i === worktrees.length ? "Done" : description,
     });
   }
 
-  process.stop();
+  process?.stop();
 
   return removed;
 }

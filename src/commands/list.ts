@@ -1,7 +1,7 @@
 import { Flags } from "@oclif/core";
-import ora from "ora";
 import { BaseCommand } from "../lib/base-command.js";
 import { gitGetWorktreeList } from "../lib/git.js";
+import { createSpinner } from "../lib/progress.js";
 import { worktreeListEntryToListName } from "../lib/utils.js";
 
 export default class List extends BaseCommand {
@@ -20,7 +20,7 @@ export default class List extends BaseCommand {
 
   public async run(): Promise<void> {
     const { flags } = await this.parse(List);
-    const spinner = ora("Gathering worktree list").start();
+    const spinner = createSpinner("Gathering worktree list").start();
     // The flag reaches both halves: it decides whether the session lookup
     // happens at all, and whether the result is rendered. Without it this
     // command costs exactly what it did before. See AGENT-MODE-PLAN §3 D8.
