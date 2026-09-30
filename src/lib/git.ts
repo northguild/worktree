@@ -19,7 +19,7 @@ import type {
   WorktreeListBaseEntry,
   WorktreeListEntry,
 } from "./types.js";
-import { strToNum } from "./utils.js";
+import { parseShortstat, strToNum } from "./utils.js";
 
 export async function gitGetConfigValue(name: ConfigName) {
   try {
@@ -165,6 +165,42 @@ export async function gitGetUncommittedChangesCount(branchPath: string) {
   return result ? result.split(EOL).length : 0;
 }
 
+// The merge-base churn is measured against. Settled in AGENT-MODE-PLAN §3 D7:
+// a WorktreeListEntry has no record of what it was branched from
+// (gitGetWorktreeList tracks `remote`, not origin-of-branch), so this reuses
+// branch.ts's own source-branch fallback rather than gitGetComparisonBase,
+// which answers a different question — the repository's default branch for
+// ahead/behind, via `origin/HEAD` — not "what was this branch created from".
+export async function gitGetChurnBase() {
+  return (await gitGetConfigValue("defaultSourceBranch")) || "origin/main";
+}
+
+export interface ChurnStats {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+}
+
+// Triple-dot diffs against the merge base in one call — `git diff A...B` is
+// `git diff $(git merge-base A B) B` — so this is the one subprocess per
+// worktree the issue asks for, not two. Undefined (never a fabricated zero,
+// D7) only when the base itself will not resolve: no such ref, or unrelated
+// histories with no merge base. A resolved diff with literally no changes is
+// a genuine, countable zero and comes back as one.
+export async function gitGetChurnStats(
+  worktreePath: string,
+  base: string,
+): Promise<ChurnStats | undefined> {
+  try {
+    const result = await run("git", ["diff", "--shortstat", `${base}...HEAD`], {
+      cwd: worktreePath,
+    });
+    return parseShortstat(result);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function gitGetLocalBranchesTracking() {
   // The format is one argv element, so the single quotes the shell form needed
   // around its spaces are gone rather than being passed on to git literally.
@@ -286,6 +322,7 @@ export function isSafeToRemove(wt: WorktreeListEntry): boolean {
 
 interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
   includeAgents?: boolean;
+  includeChurn?: boolean;
 }
 
 // The session's own name and pid, plus the liveness `cleanup` weighs and the two
@@ -424,6 +461,7 @@ async function findMergedBase(
 export async function gitGetWorktreeList({
   includeCurrent = false,
   includeAgents = false,
+  includeChurn = false,
 }: GitGetWorktreeListOptions = {}) {
   const remoteBranches = await gitGetRemoteBranches();
   const tracking = await gitGetLocalBranchesTracking();
@@ -439,6 +477,10 @@ export async function gitGetWorktreeList({
   // paid four ways for an answer that cannot differ between them. Same
   // reasoning as the session lookup above. See §4.1 and §5 R1.
   const comparisonBase = await gitGetComparisonBase();
+  // Same shape as comparisonBase above, and the same reason: resolved once,
+  // gated behind the flag that is the only consumer of it (§5 R4's guard,
+  // reapplied to the fourth per-worktree call D7/R4 originally cut).
+  const churnBase = includeChurn ? await gitGetChurnBase() : "";
 
   const worktreeList: WorktreeListEntry[] = [];
 
@@ -481,6 +523,13 @@ export async function gitGetWorktreeList({
     const uncommittedChanges = pathExists
       ? await gitGetUncommittedChangesCount(path)
       : 0;
+    // Gated the same way as ahead/behind/uncommitted above: only where there
+    // is a directory to diff in, and — the fourth condition, unique to this
+    // one — only where a caller is going to render it at all.
+    const churn =
+      includeChurn && pathExists
+        ? await gitGetChurnStats(path, churnBase)
+        : undefined;
 
     const worktreeListEntry: WorktreeListEntry = {
       path,
@@ -497,6 +546,9 @@ export async function gitGetWorktreeList({
       // Empty without includeAgents, so this is undefined for every caller that
       // did not ask — no separate branch needed to keep the field off.
       agent: toWorktreeAgent(sessions, path),
+      filesChanged: churn?.filesChanged,
+      insertions: churn?.insertions,
+      deletions: churn?.deletions,
     };
 
     worktreeList.push({

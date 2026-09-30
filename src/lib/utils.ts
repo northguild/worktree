@@ -25,12 +25,38 @@ export function strToNum(str: string): number | undefined {
   }
 }
 
+// `git diff --shortstat` prints a sentence, not a parseable format:
+// " 3 files changed, 45 insertions(+), 12 deletions(-)", with either
+// trailing clause dropped whenever that count is zero, and an empty string
+// when the diff has no changes at all. An absent clause means zero here —
+// unlike `ahead`, there is no "not measured" state this function itself can
+// observe; that distinction is the caller's (gitGetChurnStats returns
+// undefined instead of calling this at all when the base would not resolve).
+export function parseShortstat(shortstat: string): {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+} {
+  const files = shortstat.match(/(\d+) files? changed/)?.[1];
+  const insertions = shortstat.match(/(\d+) insertions?\(\+\)/)?.[1];
+  const deletions = shortstat.match(/(\d+) deletions?\(-\)/)?.[1];
+
+  return {
+    filesChanged: files ? Number(files) : 0,
+    insertions: insertions ? Number(insertions) : 0,
+    deletions: deletions ? Number(deletions) : 0,
+  };
+}
+
 interface WorktreeListNameOptions {
   // Off by default so the caller has to ask. `cleanup` shares this renderer and
   // its output is pinned by cleanup.test.ts, so a detail that appeared whenever
   // the field happened to be populated would rewrite that output the moment
   // cleanup starts joining sessions of its own. See AGENT-MODE-PLAN §3 D8.
   agents?: boolean;
+  // Same reason, same guard, for the fields `list --churn` populates. See
+  // GitHub issue #39.
+  churn?: boolean;
 }
 
 // The two markers are mutually exclusive by construction — isSessionWaiting is
@@ -47,10 +73,23 @@ function agentDetail(agent: WorktreeAgent): string {
   return `Agent: ${agent.name}${marker}`;
 }
 
+// `filesChanged` is the one of the three churn fields that is zero for every
+// unchanged branch and non-zero for every branch with a diff, so it is the
+// field this checks — same role `wt.ahead` plays for the ahead/behind pair
+// above: a count that *was* taken and came back zero still prints nothing.
+function churnDetail(
+  filesChanged: number,
+  insertions: number,
+  deletions: number,
+): string {
+  const fileWord = filesChanged === 1 ? "file" : "files";
+  return `Churn: ${filesChanged} ${fileWord}, +${insertions}/-${deletions}`;
+}
+
 export function worktreeListEntryToListName(
   wt: WorktreeListEntry,
   color: ColorName = "gray",
-  { agents = false }: WorktreeListNameOptions = {},
+  { agents = false, churn = false }: WorktreeListNameOptions = {},
 ): string {
   const details = [];
   if (!wt.pathExists) {
@@ -91,6 +130,11 @@ export function worktreeListEntryToListName(
   if (wt.uncommittedChanges) {
     details.push(
       `${wt.uncommittedChanges} uncommitted ${wt.uncommittedChanges === 1 ? "change" : "changes"}`,
+    );
+  }
+  if (churn && wt.filesChanged) {
+    details.push(
+      churnDetail(wt.filesChanged, wt.insertions ?? 0, wt.deletions ?? 0),
     );
   }
   if (agents && wt.agent) {

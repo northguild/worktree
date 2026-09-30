@@ -20,3 +20,4 @@ docs/worker/docs-context.ts
 # Wrangler local dev secrets (populated by worker:setup-dev-vars from .env.local)
 docs/worker/.dev.vars
 
+.node-local/
