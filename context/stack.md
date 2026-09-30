@@ -62,8 +62,9 @@ context/              planning-workflow artifacts (this directory)
   `shared-workspace-lockfile=true` was removed in 260eb2f, and pnpm's default keeps the behaviour. CI
   still fails the build if `docs/pnpm-lock.yaml` ever appears, so do not add one.
 - **Never deploy from a workstation.** Worker and docs deploys belong to `worker-deploy.yml` and
-  `docs-deploy.yml`. `wrangler.toml` pins local dev to port 8787 and asks you to free the port rather than
-  let it drift.
+  `docs-deploy.yml` — but `worker-deploy.yml` has never succeeded, for want of a Cloudflare token; see
+  [`release.md`](release.md) before assuming a Worker change is live. `wrangler.toml` pins local dev to
+  port 8787 and asks you to free the port rather than let it drift.
 - **Console output is styled with chalk, so it is TTY-dependent.** Any test asserting on printed text has
   to control colour explicitly — see the `FORCE_COLOR=0` note in [`verify.md`](verify.md).
 
@@ -151,10 +152,14 @@ hash, 10 are deleted, and those 2 are modified.
 
 ## Also in `context/`
 
-Nothing beyond what the tool installs. Index anything you add here — not in `context/README.md`, which is
-tool-owned and replaced on every update.
+| File | What it is |
+|---|---|
+| [`findings.md`](findings.md) | defects recorded by Gate 2 and by hand, last written 2026-09-11 (7e68aa4). **No longer part of the workflow** since `@baldurpan/create-ai-workflow` 0.22.0 — nothing reads or writes it, and nothing is blocked by it. It still holds open entries whose ends (a bug issue, a backlog entry, or dropped) nobody has decided yet; see [`tracking.md`](tracking.md) |
 
-Verification commands are in [`verify.md`](verify.md), not here. Executor dispatch is in
-[`executors.md`](executors.md); who commits, where work lands and whether it is pushed are in
-[`git.md`](git.md); and where the backlog, the plans and the phase ledgers live is in
-[`tracking.md`](tracking.md).
+Index anything you add here — not in `context/README.md`, which is tool-owned and replaced on every update.
+
+Verification commands are in [`verify.md`](verify.md), not here. Executor dispatch, and how a branch or
+worktree is made, are in [`executors.md`](executors.md); who commits, where work lands and whether it is
+pushed are in [`git.md`](git.md); where the backlog, the plans and the phase ledgers live is in
+[`tracking.md`](tracking.md); and what a change announces, and what tags, publishes and deploys, is in
+[`release.md`](release.md).

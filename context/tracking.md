@@ -9,11 +9,26 @@ and **rewritten by `/onboard` on 2026-09-09 under 0.10.0**, which replaced this 
 answer did not change; how a phase is recorded did. See *What 0.10.0 changed* at the end — that section is
 kept because plan bodies written under 0.8.0 still describe the old shape.
 
+**Re-run by `/onboard` on 2026-09-30 under 0.22.0**, which added the planned label, `blocked by` between
+features, the body's size ceiling, and the closing rules. The answer did not change. The `workflow:planned`
+label was created that day.
+
+**This file holds an answer, not a procedure.** How a phase is claimed, when a heartbeat is written, and in
+what order a plan and its phases are created live in the skills, so a defect in one can be fixed by an
+update. What each section takes is in [`tracking.notes.md`](tracking.notes.md).
+
 ## The answer
 
 **In an issue tracker: GitHub issues in `northguild/worktree`.**
 
 Confirmed against the remote on 2026-09-09 — `origin` is `git@github.com:northguild/worktree.git`.
+
+**Repository:** `northguild/worktree`
+**Backlog label:** `workflow:feature`
+**Planned label:** `workflow:planned`
+
+**Nothing in the workflow names GitHub. This file is where it is named**, so that a different tracker is a
+rewrite of this file rather than of the skills.
 
 This answer exists for **several agents working several features at once**, which is what
 [`git.md`](git.md)'s worktree-per-feature answer makes possible. A worktree carries only what its ref
@@ -28,10 +43,15 @@ them and every tree can reach it.
 |---|---|
 | the backlog | open issues labelled `workflow:feature` |
 | what matters more within it | the issue body's `Priority:` line — see *Priority* below |
-| whether a feature has a plan | whether its body holds a phase ledger |
+| whether a feature has a plan | whether its body holds a phase ledger — never the planned label |
 | whether a feature is being worked | the issue's assignee |
+| which phases exist, in what order, depending on what | the issue body's phase ledger |
 | where a phase stands | **the Status column of the ledger in that issue's body** |
 | what a retired feature's outcome was | the closed issue — *completed* for shipped, *not planned* for dropped |
+| what kind of work it is | the issue's type — set by the workflow, read by nothing in it |
+| which features have to land before this one | the issue's **blocked by** relationships |
+| how much a plan may hold | the issue body's size limit — **65,536 characters** |
+| how a change closes one | `Closes #<n>`, in the pull request body where there is one and in the commit message otherwise |
 
 ## The plan and its ledger both live in the issue body
 
@@ -99,6 +119,8 @@ inferred from the issue list.
 | `Bug` | An unexpected problem or behavior |
 | `Feature` | A request, idea, or new functionality |
 
+**Types:** `Bug`, `Feature`, `Task` — re-confirmed against the org on 2026-09-30.
+
 **The workflow sets a type and never reads one.** `/roadmap` guesses it from one or two lines,
 `/feature-plan` corrects the guess once there is research to correct it from, and no refusal, ranking or
 report branches on it. Where a write is silently dropped for want of push access, it is skipped and said
@@ -110,10 +132,10 @@ label — the label is what the backlog is read from, and the type says nothing 
 
 None of the seven `workflow:feature` issues carries a type as of 2026-09-09; every one predates the field.
 
-## The label
+## The labels
 
-**One: `workflow:feature`** (`#1D76DB`) — a planning-workflow feature, an issue whose body holds the plan
-and its phase ledger.
+**Two.** `workflow:feature` (`#1D76DB`) puts an issue in the backlog; `workflow:planned` (`#5319E7`) says
+its body holds a plan. Nothing else in the loop is a label.
 
 **There is no `blocked` label and none is needed**: the ledger's Status column carries all four values.
 A `workflow:blocked` label was created on 2026-09-09 under 0.8.0, when a phase was a sub-issue and a label
@@ -124,14 +146,95 @@ the repository on 2026-09-09**. No issue carried it.
 a claim that the issue is not a bug. A bugfix worked through this loop carries `workflow:feature` too, and
 may carry the `Bug` type at the same time.
 
-The repository's nine existing labels were listed before this one was created: GitHub's defaults, including
-`enhancement`, which is exactly why this one is namespaced. Nothing collided.
+The repository's nine existing labels were listed before `workflow:feature` was created: GitHub's
+defaults, including `enhancement`, which is exactly why it is namespaced. Nothing collided. They were
+listed again, ten by then, before `workflow:planned` was created on 2026-09-30, and nothing collided then
+either.
+
+### The planned label — the backlog, legible from the list
+
+**The backlog label says an issue is in the loop. The planned label says it has a plan**, and it exists
+for one reader: a person scanning the issues list, who cannot open every issue to find out which bodies
+hold a ledger. Both chips render on the row, so three states are readable without a click — the backlog
+label alone is an idea, both labels is planned and unstarted, and both plus an assignee is being worked.
+
+**The ledger in the body is still the fact. The label is a rendering of it, and nothing reads it.**
+
+> **No ranking, refusal, selection, gate or report may branch on the planned label.** *Whether a feature
+> has a plan* is answered by the body, in the table above, by every command, every time. The workflow
+> would behave identically if every planned label in this repository were deleted tonight.
+
+**Who writes it, and when:**
+
+| Command | Does |
+|---|---|
+| `/feature-plan` | **applies it**, in the same run that writes the plan into the body |
+| `/tracking-migrate` | applies it to a migrated feature that arrives with a plan already written |
+| `/roadmap` | **never** — an entry it opens is an idea, and an issue it adopts is somebody's report |
+| `/feature-implement`, `/feature-close`, `/feature-status`, `/orchestrate` | nothing. It is not removed on the way out, because a closed issue has left the list the label is read from |
+
+**A label that disagrees with the body is a stop, and the body wins.** Two disagreements, both for
+`/feature-status` to report and neither for it to resolve: a ledger with no planned label (an interrupted
+`/feature-plan`, or a plan written by hand), and a planned label on a body with no ledger (a label applied
+by hand).
+
+**No backfill was needed.** On 2026-09-30 none of the nine open `workflow:feature` issues held a ledger in
+its body, so the label was created with nothing to apply it to.
+
+**Applying it is best-effort**: it needs **triage** on the repository, the same bar as `blocked by`. Where
+the write is refused, say so once and carry on. **Creating a label needs write access, which is why only
+`/onboard` creates one** — applying a name that does not exist fails before the issue is touched
+(`'<name>' not found`), so every other command only ever applies what it finds. On GitHub that is
+`gh issue edit --add-label` / `--remove-label` to apply, `gh label create` to make one, `gh label list` to
+see what exists. Matching is case-insensitive.
+
+## Blocked by — the order between features
+
+**A dependency between two features is the tracker's own `blocked by` relationship**, set on the issue that
+has to wait and naming the issue it waits for. One write, visible from both ends — the waiting issue reads
+*blocked by*, the one it waits for reads *blocking*. On GitHub that is `gh issue edit --add-blocked-by` and
+`--remove-blocked-by`, `gh issue create --blocked-by`, and `blockedBy` as a JSON field on both
+`gh issue view` and `gh issue list` — **the whole backlog's order in one query.**
+
+**Never a body line and never a comment.** A sentence saying *needs the export API first* is a second home
+for a fact the tracker already holds, and the two go out of step the moment one issue closes.
+
+**Between features only.** Phases are rows in the ledger, in one body — they are not issues and they have
+no relationships. A phase's `Depends on` column and a feature's `blocked by` answer the same question at
+two scopes that never meet.
+
+**Closing the blocker is the whole of clearing it.** Nothing in this workflow removes a relationship on the
+way out. The exception is a feature closed as *not planned*: whatever it was blocking has just been
+unblocked by something nobody is going to build, and only the close reason says so.
+
+**Best-effort, like the type.** It needs triage permission. Where the write is refused, say so once and
+carry on — the relationship is how the backlog is read, not a gate anything passes.
+
+## The body has a ceiling, and it measures scope
+
+**An issue body holds 65,536 characters.** That is the one hard limit in this substrate, and this is the
+only place the number belongs.
+
+**A plan that does not fit is a feature that is several features**, not a formatting problem. The plan
+also needs room left over: every phase row gains a status, a commit sha and a note over the feature's life,
+in the same body, so a plan that only just fits has already failed.
+
+For scale, the four archived plans under `archive/` run from 33KB (`CLEANUP-DATA-LOSS-PLAN.md`) to 63KB
+(`AGENT-MODE-PLAN.md`), measured 2026-09-30 in bytes. The largest would sit at this ceiling as an issue
+body before its first phase row moved, and the smallest would already have spent half of it. That is the
+measure this section exists to apply, not a reason to relax it.
+
+**Three workarounds are refused:** trimming the plan until it fits, moving sections into comments, and
+linking out to a gist or a file. **The answer is to split the feature into separate issues**, each with its
+own plan and ledger — `/feature-plan` proposes the split along phase boundaries and asks, and
+`/tracking-migrate` refuses rather than guessing at one.
 
 ## What the workflow will not touch
 
 **This project's own labels, its Projects, and its milestones.** Nothing in the loop reads or writes any of
-them, so a board or a release milestone can be used alongside this workflow without interference. The one
-`workflow:feature` label above is the whole of its footprint, plus the type field on issues it opens.
+them, so a board or a release milestone can be used alongside this workflow without interference. The two
+`workflow:` labels above are the whole of its label footprint, plus the type field on issues it opens and
+the `blocked by` relationships between features.
 
 Nothing here merges a pull request, deletes a branch, or removes a worktree either — see
 [`git.md`](git.md).
@@ -149,6 +252,39 @@ records what `history.md`'s Outcome column used to.
 **This substrate does not require the push answer** — it works under every one of them. What the pairing
 buys is not mechanical: this substrate exists so several agents in several trees can share state, and work
 that is never pushed is visible to exactly one of them. This project holds the strong pair.
+
+## What this file does not decide
+
+**How a phase is claimed, and how staleness is noticed.** Optimistic claiming and the phase-boundary
+heartbeat are mechanisms, not preferences, and they live in the skills so an update can repair them.
+
+**Whether work is pushed.** That is [`git.md`](git.md).
+
+**Which features are in flight across the repository.** Under this answer that is the set of assigned
+issues. It is written down nowhere else, and a file that tracked it would be a cache of something already
+true elsewhere.
+
+## The rules that hold either way
+
+- **A feature never states its own status.** There is no `**Status:**` line in an issue body. *Whether a
+  feature is being worked* is read off the assignee, so there is never a second copy to go stale. An issue
+  body holds the problem before planning and the plan after, and never a claim about where the work stands.
+- **A phase does state its status, in its ledger row.** The ledger is the single home for phase status, and
+  the four values are written rather than observed because no structure expresses `blocked`.
+- **The ledger row lands with the work, or names it.** A body edit cannot ride a commit, so the closing row
+  carries the commit's sha and is checkable against the branch instead.
+- **`done` is a verdict about the gates**, not about git and not about the tracker.
+- **`notes.md` is a file in the working tree**, written by a phase's review and deleted whole by
+  `/feature-close`. Nothing reads it, so there is no fact in it for a substrate to hold.
+- **A bug is not a backlog entry.** The backlog holds **features** — work you would want a history row for.
+  A defect goes wherever this project already files bugs, keeping this project's own labels, and nothing in
+  the workflow reads it, ranks it or carries it. The backlog label is `/roadmap`'s to apply and no gate's,
+  and the planned label follows it and never leads.
+- **Neither `history.md` nor `archive/` is ever converted, in either direction.** Fabricating closed
+  issues for features shipped months ago produces wrong dates, empty threads and an audit trail that looks
+  real and is not. The three history rows that did become issues, below, were created on the day of the
+  switch from rows that existed, and say so; nothing older will be.
+- **If this file is missing, the answer is the working tree.** Say so once, and name `/onboard`.
 
 ## The 0.8.0 migration, and what is left in the tree
 
@@ -191,10 +327,16 @@ removed, so nothing has to be recreated if this answer is ever revisited.
 `workflow:feature`, which is deliberate: the backlog this workflow reads is the labelled set, so these stay
 ordinary issues until someone labels them.
 
-**`findings.md` stays under both answers**, unchanged. It is not contended over: a branch appends its own
-findings and rarely touches another's.
+**`findings.md` is no longer part of the workflow**, as of 0.22.0. Nothing reads or writes it: a
+blocking item now ends fixed, as its phase's `blocked` ledger row, or filed as a bug or a backlog entry, and
+a non-blocking one ends as a bug, a backlog entry, or a line in `notes.md` — see [`workflow.md`](workflow.md).
+**The file is still in the tree, with open entries in it**, as of 2026-09-30. `/onboard` did not touch it:
+deciding each open finding's end is work, not configuration. Until someone does, it is a record nobody
+consults, and nothing that lands will be blocked by it.
 
-**Its stated reason was wrong, though, and is corrected here.** That sentence used to read *"a finding is
+What follows is the history of the file while it was live, kept because it is why the workflow dropped it.
+
+**Its stated reason was wrong, and was corrected here.** That sentence used to read *"a finding is
 raised and swept inside a single branch's life"*. The 2026-09-11 triage falsified it — 35 findings had
 outlived their branch by months, across five retired features, because `/feature-close` sweeps only
 *closed* findings and an open `P2`/`P3` passes straight through a retirement. A finding is raised inside one
