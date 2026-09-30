@@ -42,6 +42,13 @@ worktree config opener herdr
 
 See [Herdr Spaces](/docs/guides/herdr-spaces).
 
+To open it nowhere, set `opener` to `none`. The command prints `Worktree created at <path>` and stops,
+without starting an editor or Herdr.
+
+```bash
+worktree config opener none
+```
+
 ## What happens to a Herdr space when I remove the worktree?
 
 It is closed with it. `worktree remove` and `worktree cleanup` close the space of every worktree

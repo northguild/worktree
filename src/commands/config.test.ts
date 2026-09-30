@@ -147,6 +147,64 @@ describe("config command", () => {
       await config.run();
 
       expect(mockGetConfigValue).toHaveBeenCalledWith("jira.email");
+      // The value alone, secrets included: scriptable as `$(worktree config k)`.
+      expect(mockConsoleLog).toHaveBeenCalledTimes(1);
+      expect(mockConsoleLog).toHaveBeenCalledWith("test@example.com");
+    });
+
+    it("should print a secret when only its name is provided", async () => {
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("tok_secret");
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "github.token" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockConsoleLog).toHaveBeenCalledWith("tok_secret");
+    });
+
+    it("should print nothing for an unset key", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "jira.email" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockConsoleLog).not.toHaveBeenCalled();
+    });
+
+    it("should store opener none", async () => {
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "opener", value: "none" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith("opener", "none");
+    });
+
+    it("should reject a bogus opener naming the accepted kinds", async () => {
+      // Earlier tests stub the validator; this one wants the real one.
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "opener", value: "bogus" },
+        flags: {},
+      });
+
+      await expect(config.run()).rejects.toThrow("editor, herdr or none");
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "opener",
+        expect.anything(),
+      );
     });
   });
 
@@ -625,7 +683,8 @@ describe("config command", () => {
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: "Which opener should new worktrees use? (editor or herdr)",
+          message:
+            "Which opener should new worktrees use? (editor, herdr or none)",
           default: "editor",
           prefill: "tab",
           validate: validators.isValidOpener,
@@ -961,7 +1020,7 @@ describe("config command", () => {
   // that only mean something with it. `commandExists` is stubbed true globally
   // in test-setup, so "installed" is the default every other suite sees.
   describe("hiding the Herdr keys when herdr is absent", () => {
-    const herdrKeys = ["opener", "herdr.focus", "herdr.agent"];
+    const herdrKeys = ["herdr.focus", "herdr.agent"];
 
     // vitest.config.ts sets no restoreMocks, and clearAllMocks keeps
     // implementations, so a commandExists stub left here would leak into any
@@ -1025,11 +1084,22 @@ describe("config command", () => {
 
       expect(listedNames()).toContain("herdr.agent=claude");
       // The two that hold no value stay hidden.
-      expect(listedNames()).not.toContain("opener");
       expect(listedNames()).not.toContain("herdr.focus");
     });
 
-    it("asks neither the opener nor the Herdr confirm when herdr is absent", async () => {
+    it("always lists opener, because `none` is useful without herdr", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: false },
+      });
+
+      await config.run();
+
+      expect(listedNames()).toContain("opener");
+    });
+
+    it("asks the opener confirm but not the Herdr one when herdr is absent", async () => {
       vi.spyOn(cli, "commandExists").mockResolvedValue(false);
       mockConfirm.mockResolvedValue(false);
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -1040,7 +1110,7 @@ describe("config command", () => {
       await config.run();
 
       const asked = mockConfirm.mock.calls.map((call) => call[0]?.message);
-      expect(asked).not.toContain(
+      expect(asked).toContain(
         "Do you want to choose where new worktrees are opened?",
       );
       expect(asked).not.toContain(
@@ -1099,6 +1169,7 @@ describe("config command", () => {
 
       const message = String(errorSpy.mock.calls[0]?.[0]);
       expect(message).toContain("codeEditor");
+      expect(message).toContain("opener");
       for (const key of herdrKeys) {
         expect(message).not.toContain(key);
       }

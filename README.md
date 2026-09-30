@@ -78,7 +78,7 @@ The setup flow can configure:
 
 - `defaultSourceBranch` for new worktrees, such as `origin/main`
 - `codeEditor` for automatically opening a worktree, such as `code`
-- `opener` for where a worktree opens — `editor` (default) or `herdr`
+- `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
 - `agent.command` for handing a worktree to a coding agent, such as `claude --bg`
 
 Then create your first worktree:
@@ -219,7 +219,9 @@ worktree config --missing
 ```
 
 `codeEditor` is the executable plus any arguments, run without a shell — quotes group, but `~` and
-`$VAR` are not expanded. Set `opener` to `herdr` to open worktrees as
+`$VAR` are not expanded. Set `opener` to `none` to open nothing — `branch` then prints
+`Worktree created at <path>` and stops, which suits scripts and agents. `worktree config <key>` with no
+value prints the stored value. Set `opener` to `herdr` to open worktrees as
 [Herdr](https://herdr.dev) spaces instead of editor windows — and to close those spaces again when
 `remove` or `cleanup` deletes the worktree; `herdr.focus` and `herdr.agent` tune that. See the
 [configuration docs](https://northguild.github.io/worktree/docs/configuration).

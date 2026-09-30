@@ -165,6 +165,13 @@ export abstract class BaseCommand extends Command {
   protected async openWorktreePath(path: string) {
     const opener = await gitGetConfigValue("opener");
 
+    // Nothing is opened and nothing is launched: the path is the whole result.
+    // Plain text, no glyph, so a script can take the last word of the line.
+    if (opener === "none") {
+      this.log(`Worktree created at ${path}`);
+      return;
+    }
+
     if (opener === "herdr") {
       await this.openHerdrSpace(path);
       return;

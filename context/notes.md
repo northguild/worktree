@@ -45,3 +45,13 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
   `/dev/tty`, so a non-interactive run with a controlling terminal can sit there until the 60 s bound.
 - **Phase 4.** `cli.ts:10-12` comment ("unbounded, which is what every git call here wants") is now
   slightly stale — `git fetch` sets a timeout.
+- **Phase 5.** `worktree open` with `opener=none` prints "Worktree created at <path>" for a worktree that
+  already existed (`base-command.ts:171`) — same shape as the older editor-unset line. Fits Phase 8's
+  outcome-returning `openWorktreePath`.
+- **Phase 5.** Stale comments: `base-command.ts:434-435` and `base-command.test.ts:300-301` still say
+  `config <name>` "discards the result (config.ts:273-274)"; it now prints the value.
+- **Phase 5.** "should store opener none" in `config.test.ts` runs under the still-active
+  `validateConfigValue` stub, so it never hits the real validator (`validators.test.ts` covers `none`).
+- **Phase 5.** The `opener=none` path line goes to stdout; Phase 10's `branch --json` has to route it.
+- **Phase 5.** `guides/editor-integration/page.mdx:55-58` mentions only `herdr` as an alternative to an
+  editor — incomplete, not untrue.

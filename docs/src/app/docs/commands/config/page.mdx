@@ -11,12 +11,17 @@ Configure defaults and inspect current configuration.
 ```bash
 worktree config
 worktree config <key> <value>
+worktree config <key>
 worktree config --list
 worktree config --list --missing
 worktree config --missing
 worktree config --missing --names <comma-separated-keys>
-worktree config --yes
+worktree config --yes --names <comma-separated-keys>
 ```
+
+`worktree config <key>` with no value prints the current value and nothing else, secrets included as
+`--list` does, so `token=$(worktree config github.token)` works in a script. A key with no value prints
+nothing and exits `0`.
 
 `--missing` filters to values that are not configured yet.
 
@@ -34,6 +39,8 @@ worktree config --yes
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
 worktree config opener herdr
+worktree config opener none
+worktree config opener
 worktree config agent.command "claude --bg"
 worktree config github.autoAssign true
 worktree config --list
@@ -48,13 +55,15 @@ Configuration is stored in local Git config under `northguild.worktree.*`.
 ## Opener Keys
 
 - `opener` selects where a finished worktree opens, and for `herdr` where its space is closed
-  again when the worktree is removed: `editor` (default) or `herdr`.
+  again when the worktree is removed: `editor` (default), `herdr` or `none`. With `none` nothing is opened:
+  the command prints `Worktree created at <path>` and stops. An unknown value fails with exit `1`.
 - `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`.
 - `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
 - `herdr.agent` an agent kind to start in a newly opened Herdr space. Unset means no agent.
 
-The three opener keys above are listed and prompted for only when the `herdr` CLI is on your `PATH`, or
-when one of them already has a value. `--names` and a direct `worktree config <key> <value>` always work
+`opener` and `codeEditor` are always listed and prompted for. `herdr.focus` and `herdr.agent` are listed and
+prompted for only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
+`opener` is `herdr`). `--names` and a direct `worktree config <key> <value>` always work
 regardless, so a machine can be configured before Herdr is installed.
 
 ## GitHub Integration Keys

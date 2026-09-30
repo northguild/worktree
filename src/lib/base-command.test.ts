@@ -91,6 +91,17 @@ describe("openWorktreePath", () => {
     setConfig({ codeEditor: "code" });
   });
 
+  it("opens nothing and prints the path when opener is none", async () => {
+    setConfig({ opener: "none", codeEditor: "code" });
+    const logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
+
+    await command.open(worktreePath);
+
+    expect(logSpy).toHaveBeenCalledWith(`Worktree created at ${worktreePath}`);
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(spinnerMocks.start).not.toHaveBeenCalled();
+  });
+
   it("passes the worktree path as one argument, spaces and all", async () => {
     const spacedPath = "/repo/space demo.worktrees/feature/test";
     expectCommands(`code "${spacedPath}"`);

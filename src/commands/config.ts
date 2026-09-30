@@ -504,7 +504,13 @@ export default class Config extends BaseCommand {
         await gitSetConfigValue(args.name, args.value);
         return;
       }
-      await gitGetConfigValue(args.name);
+      // The value alone, secrets included as `--list` does, so `$(worktree
+      // config <name>)` is usable in a script. An unset key prints nothing and
+      // exits 0, the same empty answer the rest of the CLI reads it as.
+      const current = await gitGetConfigValue(args.name);
+      if (current) {
+        this.log(current);
+      }
       return;
     }
 

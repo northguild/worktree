@@ -52,8 +52,9 @@ npm install -g @northguild/worktree
 # Run once inside your git repository
 worktree config
 # prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code)
-# and agent.command (e.g. claude --bg), each behind a confirm. The opener keys
-# (opener, herdr.focus, herdr.agent) are offered only when `herdr` is on PATH.
+# and agent.command (e.g. claude --bg), each behind a confirm. The Herdr keys
+# herdr.focus and herdr.agent are offered only when `herdr` is on PATH; opener is
+# always offered. `worktree config <key>` prints one value, for scripts.
 
 # Create your first worktree
 worktree branch feature/my-feature
@@ -195,7 +196,7 @@ under `northguild.worktree.*`.
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
-| `opener` | `editor` or `herdr` | where a worktree opens, and for `herdr` where its space is closed on removal; defaults to `editor` |
+| `opener` | `editor`, `herdr` or `none` | where a worktree opens, and for `herdr` where its space is closed on removal; `none` opens nothing and prints `Worktree created at <path>`; defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
@@ -290,7 +291,7 @@ Without `defaultSourceBranch` set, `branch` offers to run `config` in a
 terminal and uses `origin/main` when non-interactive, with a warning naming the
 missing key. Without `codeEditor`, the
 worktree is created but not opened — unless `opener` is `herdr`, which
-ignores `codeEditor` and opens a Herdr space instead.
+ignores `codeEditor` and opens a Herdr space instead, or `none`, which opens nothing.
 
 Source: `README.md` quick start, `docs/getting-started`
 

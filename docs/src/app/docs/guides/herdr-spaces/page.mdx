@@ -30,7 +30,7 @@ worktree config --missing --names opener          # prompts for it regardless
 worktree config opener herdr
 ```
 
-`opener` accepts `editor` or `herdr`. Unset means `editor`, so nothing changes for anyone who
+`opener` accepts `editor`, `herdr` or `none`. Unset means `editor`, so nothing changes for anyone who
 does not set it.
 
 The key is stored in local Git config under `northguild.worktree.opener`, so it applies to one
@@ -164,6 +164,6 @@ closed — the removals still happen.
 
 | Key | Values | Default |
 |---|---|---|
-| `opener` | `editor` or `herdr` | `editor` |
+| `opener` | `editor`, `herdr` or `none` | `editor` |
 | `herdr.focus` | `true` or `false` | `true` |
 | `herdr.agent` | an agent kind, such as `claude` | unset — no agent |
