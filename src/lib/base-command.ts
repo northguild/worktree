@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { confirm } from "@inquirer/prompts";
 import { Command } from "@oclif/core";
-import type { CommandError } from "@oclif/core/interfaces";
+import type { CommandError, OclifError } from "@oclif/core/interfaces";
 import chalk from "chalk";
 import ora from "ora";
 // `lib/` importing `integrations/` inverts the layering in
@@ -387,8 +387,11 @@ export abstract class BaseCommand extends Command {
         // Silently exit
         return;
       }
-      // Color the error message red for better visibility
-      this.log(chalk.red(`Error: ${error.message}`));
+      // stderr and a non-zero exit, so a script can tell a failure from a
+      // success. `this.error(...)` carries its code on `oclif.exit` (2 by
+      // default); anything else is a plain failure.
+      console.error(chalk.red(`Error: ${error.message}`));
+      process.exitCode = (error as Partial<OclifError>).oclif?.exit ?? 1;
       return;
     }
     return super.catch(error);

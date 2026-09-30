@@ -47,6 +47,14 @@ class TestCommand extends BaseCommand {
   closer() {
     return this.resolveSpaceCloser();
   }
+
+  catchError(error: Error) {
+    return this.catch(error);
+  }
+
+  raise(message: string): never {
+    return this.error(message);
+  }
 }
 
 describe("openWorktreePath", () => {
@@ -808,5 +816,59 @@ describe("resolveSpaceCloser", () => {
 
       await expect(afterFailedClose([onePath])).resolves.toBeUndefined();
     });
+  });
+});
+
+// `catch` is what turns a thrown error into the process's exit status, so these
+// read process.exitCode and the two streams rather than any internal.
+describe("catch", () => {
+  const originalExitCode = process.exitCode;
+  let command: TestCommand;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    command = new TestCommand([], {} as any);
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+  });
+
+  it("prints a plain error to stderr only and exits 1", async () => {
+    await command.catchError(new Error("boom"));
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][0]).toContain("Error: boom");
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("exits 2 for an error raised through this.error", async () => {
+    let thrown: unknown;
+    try {
+      command.raise("bad input");
+    } catch (error) {
+      thrown = error;
+    }
+
+    await command.catchError(thrown as Error);
+
+    expect(errorSpy.mock.calls[0][0]).toContain("Error: bad input");
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("stays silent and exits 0 when the prompt is cancelled", async () => {
+    const cancelled = new Error("User force closed the prompt");
+    cancelled.name = "ExitPromptError";
+
+    await command.catchError(cancelled);
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
   });
 });

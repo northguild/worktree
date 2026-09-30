@@ -173,6 +173,33 @@ describe("config command", () => {
 
       await expect(config.run()).rejects.toThrow("Invalid email address");
     });
+
+    it("reports an invalid config value on stderr and exits 1", async () => {
+      const originalExitCode = process.exitCode;
+      const mockConsoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      vi.spyOn(validators, "validateConfigValue").mockRejectedValue(
+        new validators.InvalidConfigValueError("Invalid email address"),
+      );
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "jira.email", value: "invalid-email" },
+        flags: {},
+      });
+
+      try {
+        await config.run().catch((error) => (config as any).catch(error));
+
+        expect(mockConsoleError).toHaveBeenCalledTimes(1);
+        expect(mockConsoleError.mock.calls[0][0]).toContain(
+          "Error: Invalid email address",
+        );
+        expect(mockConsoleLog).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+      } finally {
+        process.exitCode = originalExitCode;
+      }
+    });
   });
 
   describe("--names flag", () => {
