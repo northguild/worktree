@@ -10,3 +10,9 @@ Branch-local. `/feature-close` deletes this file.
   breadcrumb and a "Next" of Commands. Nothing links to `/docs` any more; it matters only for §9 Q2 (what
   to do with that page). A `theme: { breadcrumb: false, pagination: false }` on its `index` entry was
   suggested by the reviewer and not tried.
+- **Phase 2 — the navbar logo borrows Nextra's `x:`-prefixed utility classes.** `Navbar.tsx` uses
+  `x:transition-opacity x:focus-visible:nextra-focus x:hover:opacity-75` for its focus ring and hover, which
+  render only because Nextra's shipped stylesheet defines them. A Nextra upgrade that drops one would remove
+  the focus ring silently; no test sees it. The focus ring was checked by class and CSS rule, not with a
+  keyboard in a live browser, and `basePath` is checked by the production build only (the unit tests mock
+  `next/link`).

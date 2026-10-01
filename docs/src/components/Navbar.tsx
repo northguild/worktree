@@ -1,18 +1,27 @@
+import Image from "next/image";
+import Link from "next/link";
 import { Navbar as NextraNavbar } from "nextra-theme-docs";
 import {
   projectLink,
   projectName,
   projectOwnerAvatarUrl,
-  projectOwnerName,
 } from "../lib/site-meta";
-import { ProfileAvatarLink } from "./ProfileAvatarLink";
 
+// Nextra's own logo link is disabled (`logoLink={false}`) because its fixed
+// aria-label "Home page" does not contain the visible text "Worktree" (WCAG
+// 2.5.3). The logo is instead a next/link to "/", which applies the production
+// basePath. The avatar is decorative (alt=""); the link's name starts with the
+// visible text and says where it goes. The utility classes are the ones
+// Nextra's logo link uses, for the keyboard focus ring and hover affordance.
 export function Navbar() {
   return (
     <NextraNavbar
       logoLink={false}
       logo={
-        <span
+        <Link
+          href="/"
+          aria-label={`${projectName} home page`}
+          className="x:transition-opacity x:focus-visible:nextra-focus x:hover:opacity-75"
           style={{
             alignItems: "center",
             display: "inline-flex",
@@ -20,14 +29,15 @@ export function Navbar() {
             gap: "0.5rem",
           }}
         >
-          <ProfileAvatarLink
-            href="/"
-            name={projectOwnerName}
-            avatarUrl={projectOwnerAvatarUrl}
-            style={{ gap: 0 }}
+          <Image
+            src={projectOwnerAvatarUrl}
+            alt=""
+            width={32}
+            height={32}
+            style={{ borderRadius: "999px" }}
           />
           {projectName}
-        </span>
+        </Link>
       }
       projectLink={projectLink}
     />
