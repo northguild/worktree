@@ -33,17 +33,22 @@ interface WorktreeListNameOptions {
   agents?: boolean;
 }
 
-// The two markers are mutually exclusive by construction — isSessionWaiting is
-// never true for an interactive session (§4.1) — so at most one ever appends,
-// and a background session that is getting on with its work carries none. That
-// is what makes "actively working" the readable default rather than an absence
-// the reader has to infer.
+// The markers are mutually exclusive by construction — isSessionWaiting is
+// never true for an interactive or a finished session (§4.1) — so at most one
+// ever appends, and a background session that is getting on with its work
+// carries none. That is what makes "actively working" the readable default
+// rather than an absence the reader has to infer. `[done]` comes first because
+// a finished session is neither of the others, whatever else it was (F-033).
+// Only an explicit `false` reads as finished: an absent `live` is live (D6).
 function agentDetail(agent: WorktreeAgent): string {
-  const marker = agent.interactive
-    ? " [interactive]"
-    : agent.waiting
-      ? " [waiting]"
-      : "";
+  const marker =
+    agent.live === false
+      ? " [done]"
+      : agent.interactive
+        ? " [interactive]"
+        : agent.waiting
+          ? " [waiting]"
+          : "";
   return `Agent: ${agent.name}${marker}`;
 }
 

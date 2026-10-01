@@ -8,6 +8,7 @@ import {
   isSessionInteractive,
   isSessionLive,
   isSessionWaiting,
+  toRealPath,
 } from "./agent.js";
 import { run } from "./cli.js";
 import { isNonInteractive } from "./interaction.js";
@@ -329,11 +330,16 @@ interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
 // holding both a human's terminal and a dispatched agent is described by
 // whichever findSessionForPath picked. Naming it in the output is what keeps
 // that honest — the marker describes the session it names, not the worktree.
-function toWorktreeAgent(
+async function toWorktreeAgent(
   sessions: AgentSession[],
   worktreePath: string,
-): WorktreeAgent | undefined {
-  const session = findSessionForPath(sessions, worktreePath);
+): Promise<WorktreeAgent | undefined> {
+  // Sessions carry real paths, so the worktree has to as well (F-022). Skipped
+  // when there are no sessions: nothing to compare, and no filesystem call.
+  const session =
+    sessions.length > 0
+      ? findSessionForPath(sessions, await toRealPath(worktreePath))
+      : undefined;
   if (!session) {
     return undefined;
   }
@@ -341,6 +347,8 @@ function toWorktreeAgent(
   return {
     name: session.name,
     pid: session.pid,
+    sessionId: session.sessionId,
+    herdrAgent: session.herdrAgent,
     live: isSessionLive(session),
     interactive: isSessionInteractive(session),
     waiting: isSessionWaiting(session),
@@ -528,7 +536,7 @@ export async function gitGetWorktreeList({
       isCurrent,
       // Empty without includeAgents, so this is undefined for every caller that
       // did not ask — no separate branch needed to keep the field off.
-      agent: toWorktreeAgent(sessions, path),
+      agent: await toWorktreeAgent(sessions, path),
     };
 
     worktreeList.push({

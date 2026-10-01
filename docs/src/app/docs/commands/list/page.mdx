@@ -23,19 +23,32 @@ Use this before `open`, `remove`, or cleanup decisions.
 
 ## Showing agent sessions
 
-`--agents` asks the agent runtime configured in
-[`agent.command`](/docs/configuration#agent-command) which sessions are open, and names the one
-found in each worktree:
+`--agents` finds the agent sessions that are open and names the one found in each worktree. It asks two
+sources and joins them on the directory each session runs in, compared as real paths so a symlinked or
+differently-cased spelling of the same directory still matches:
+
+- **Herdr**, through `herdr agent list`, when `herdr` is installed. This finds agents Herdr started for
+  you, including ones the runtime does not list a process for.
+- **The agent runtime**, through `<program> agents --json`. The program is the first word of
+  [`agent.command`](/docs/configuration#agent-command), or the
+  [`herdr.agent`](/docs/configuration) kind when `agent.command` is unset.
+
+A Herdr agent that matches a runtime session by session id is named by that session; one the runtime does
+not list is named `<kind>@<pane>`, for example `claude@w5:p1`.
 
 ```text
 - feature/one (Agent: feature-one-1f)
 - feature/two (Ahead: 2, Behind: 1, Agent: feature-two-1f [waiting])
 - feature/three (Agent: notes-1f [interactive])
+- feature/four (Agent: feature-four-1f [done])
 ```
 
 - **No marker** — a background agent that is getting on with its work.
 - **`[waiting]`** — a background agent that is live but not progressing, so it is
   probably waiting on you.
+- **`[done]`** — a session the runtime reports as finished. It no longer holds anything back, so
+  `cleanup` treats the worktree as ordinary stale work. The exception is a session Herdr still shows in
+  a pane: that one is not marked `[done]` and keeps holding the worktree back.
 - **`[interactive]`** — somebody's own terminal session, not an agent this tool
   dispatched. It is listed because `cleanup` will refuse to remove a worktree
   somebody is sitting in, and this is where you find out which those are.
@@ -44,9 +57,10 @@ A worktree with no `Agent:` detail has no session in it. Where a worktree holds
 more than one — a dispatched agent and your own terminal, say — the entry names
 one of them, and the marker describes the session it names.
 
-Without `--agents`, `list` asks the agent runtime nothing and its output is
-unchanged. If `agent.command` is unset, or the runtime is not installed or
-reports nothing usable, `--agents` simply lists no sessions rather than failing.
+Without `--agents`, `list` asks neither source anything and its output is
+unchanged. If neither is available — `herdr` is not installed and neither `agent.command` nor
+`herdr.agent` is set, or the runtime reports nothing usable — `--agents` simply lists no sessions
+rather than failing.
 
 ## Ahead and behind counts
 

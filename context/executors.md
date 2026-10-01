@@ -111,8 +111,13 @@ worktree list --agents
 
 `/feature-status` reports this where it can and says it cannot tell where it cannot; here it can. The flag
 is opt-in precisely because the session lookup costs something — without it the command costs what it
-always did. What comes back per worktree is a session name and pid, and markers for live, interactive and
-waiting.
+always did. Sessions are found from two sources joined on the real path of their directory: `herdr agent
+list` when `herdr` is on PATH, and the runtime's `<program> agents --json`, where the program is
+`agent.command`'s head or else `herdr.agent`. So a repository with only `herdr.agent` set is covered, and a
+Herdr entry is named by the runtime session it matches. What comes back per worktree is a session name
+(a pid only where the runtime has one), and markers for live, interactive, waiting and `[done]` (a runtime-finished session that Herdr still shows in a pane stays live). With
+neither source available the answer is no sessions, not an error — which is "no answer", not "nobody is
+there"; see the next paragraph.
 
 **A missing marker is not proof of absence.** `WorktreeAgent.live` is optional and the codebase's own
 safety check treats an absent value as live (`!== false`), which is the direction that fails safe. Read it

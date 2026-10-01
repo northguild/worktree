@@ -337,6 +337,49 @@ describe("worktreeListEntryToListName agent details", () => {
     expect(waiting).not.toBe(working);
   });
 
+  // F-033: a finished session used to render as a bare name, which the docs
+  // read as "getting on with its work".
+  it("marks a finished session as done", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f", pid: 9187, live: false }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("Agent: feature-test-1f [done]");
+  });
+
+  it("marks a finished session done even where it was also interactive", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "notes-1f", live: false, interactive: true }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("[done]");
+    expect(result).not.toContain("[interactive]");
+  });
+
+  it("does not mark a session done when liveness is unknown", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f" }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).not.toContain("[done]");
+  });
+
+  it("renders a session with no pid", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f", waiting: true }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("Agent: feature-test-1f [waiting]");
+  });
+
   // The guard for D8: cleanup shares this renderer and asks for no agents, so
   // its output must not change even once cleanup starts populating the field.
   it("renders nothing about an agent when the caller did not ask", () => {

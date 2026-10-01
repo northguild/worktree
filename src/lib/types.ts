@@ -11,14 +11,21 @@ export interface WorktreeListBaseEntry {
   isCurrent?: boolean;
 }
 
-// One entry of the agent runtime's session listing, as `src/lib/agent.ts` reads
-// it. `kind`, `state` and `status` are optional because they appear in the
-// output but not in the runtime's own --help, so a rename has to degrade a
-// marker rather than drop the session. Nothing outside `agent.ts` reads them.
+// One agent session, as `src/lib/agent.ts` builds it from the runtime's listing,
+// Herdr's `agent list`, or both joined. Only `cwd` — the join key, already a
+// real path by the time it is here — is load-bearing. `pid` is optional because
+// the runtime omits it for a background session it has no process for (F-021).
+// `kind`, `state` and `status` are optional because they appear in the output
+// but not in the runtime's own --help, so a rename has to degrade a marker
+// rather than drop the session. Nothing outside `agent.ts` reads them.
 export interface AgentSession {
   name: string;
-  pid: number;
+  pid?: number;
   cwd: string;
+  /** The runtime's id for the session; what Herdr's entry is joined on. */
+  sessionId?: string;
+  /** The Herdr pane the session runs in, when Herdr lists it. */
+  herdrAgent?: string;
   kind?: string;
   status?: string;
   state?: string;
@@ -33,7 +40,9 @@ export interface AgentSession {
 // reason the test there is `!== false` rather than a truthiness check.
 export interface WorktreeAgent {
   name: string;
-  pid: number;
+  pid?: number;
+  sessionId?: string;
+  herdrAgent?: string;
   live?: boolean;
   interactive?: boolean;
   waiting?: boolean;

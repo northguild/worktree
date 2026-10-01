@@ -157,6 +157,10 @@ worktree list
 # Name the agent session living in each worktree
 worktree list --agents
 worktree list -a                              # alias
+# Sessions come from `herdr agent list` (when herdr is on PATH) and from
+# `<agent.command program or herdr.agent> agents --json`, joined on the real
+# path of their directory. A finished session shows [done] (unless Herdr still shows it in a pane); with no source
+# available there are simply no sessions.
 
 # Reopen a worktree in your editor
 worktree open feature/add-bulk-actions
@@ -185,7 +189,8 @@ A worktree a live agent session is sitting in is never removed by `cleanup`; it
 is reported as skipped instead. `--force` does not override that — it answers
 the confirmation prompt, not the safety verdict — and `--ignore-agents` does,
 which is why that one has no short alias. The check covers an interactive
-session in your own terminal as well as an agent this tool dispatched.
+session in your own terminal, an agent this tool dispatched, and one Herdr
+started (found through `herdr agent list`).
 
 With `opener` set to `herdr`, both removal commands also close the Herdr space
 the worktree was opened as, so a space does not outlive its checkout. Only
@@ -210,7 +215,7 @@ under `northguild.worktree.*`.
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
-| `agent.command` | `claude --bg` | `--agent`, `list --agents`, `cleanup`'s agent check |
+| `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
 | `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); runs by default only when non-interactive, or with `--install` |
 | `github.token` | `ghp_...` | `--github` flag |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |

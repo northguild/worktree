@@ -3,6 +3,7 @@ import {
   closeHerdrWorkspace,
   HerdrError,
   isHerdrInstalled,
+  listHerdrAgents,
   listHerdrWorktrees,
   openHerdrWorktree,
   promptHerdrAgent,
@@ -891,6 +892,103 @@ describe("promptHerdrAgent", () => {
     );
 
     expect(error).toMatchObject({ code: "agent_blocked" });
+  });
+});
+
+describe("listHerdrAgents", () => {
+  // The entry shape captured from Herdr 0.9.0 on 2026-10-01; fields this
+  // feature does not read are kept so the narrowing runs against the real thing.
+  const liveEntry = {
+    agent: "claude",
+    agent_session: {
+      agent: "claude",
+      kind: "id",
+      source: "herdr:claude",
+      value: "a9141896-2083-492e-966d-46becf1cd48a",
+    },
+    agent_status: "idle",
+    cwd: "/Users/x/repo",
+    focused: true,
+    foreground_cwd: "/Users/x/repo",
+    pane_id: "wA:p1",
+    revision: 13,
+    state_change_seq: 2248,
+    tab_id: "wA:t1",
+    terminal_id: "term_65b9ac75aed611",
+    terminal_title: "✳ Work",
+    terminal_title_stripped: "Work",
+    workspace_id: "wA",
+  };
+
+  function answer(agents: unknown) {
+    mockRunCapturing.mockResolvedValue({
+      stdout: JSON.stringify({
+        id: "cli:agent:list",
+        result: { type: "agent_list", agents },
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+  }
+
+  it("narrows each entry to the fields the join reads, bounded", async () => {
+    answer([liveEntry]);
+
+    await expect(listHerdrAgents()).resolves.toEqual([
+      {
+        kind: "claude",
+        cwd: "/Users/x/repo",
+        paneId: "wA:p1",
+        status: "idle",
+        sessionId: "a9141896-2083-492e-966d-46becf1cd48a",
+      },
+    ]);
+    expect(mockRunCapturing).toHaveBeenCalledWith("herdr", ["agent", "list"], {
+      timeout: expect.any(Number),
+    });
+  });
+
+  it("leaves the session id out of an agent with no session recorded", async () => {
+    const { agent_session: _session, ...bare } = liveEntry;
+    answer([bare]);
+
+    const [entry] = await listHerdrAgents();
+
+    expect(entry?.sessionId).toBeUndefined();
+  });
+
+  it("leaves the session id out of a session form it has not seen", async () => {
+    answer([
+      { ...liveEntry, agent_session: { kind: "path", value: "/some/file" } },
+    ]);
+
+    const [entry] = await listHerdrAgents();
+
+    expect(entry?.sessionId).toBeUndefined();
+  });
+
+  it("drops entries that cannot be joined and keeps the rest", async () => {
+    answer([null, "x", { ...liveEntry, cwd: undefined }, liveEntry]);
+
+    await expect(listHerdrAgents()).resolves.toHaveLength(1);
+  });
+
+  it("rejects when the result carries no agents array", async () => {
+    answer("nope");
+
+    await expect(listHerdrAgents()).rejects.toThrow("no agents array");
+  });
+
+  it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: "",
+      stderr: makeErrorEnvelope("server_not_running", "not running"),
+      exitCode: 1,
+    });
+
+    await expect(listHerdrAgents()).rejects.toMatchObject({
+      code: "server_not_running",
+    });
   });
 });
 

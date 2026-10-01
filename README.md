@@ -148,6 +148,8 @@ To name the agent session living in each worktree:
 worktree list --agents
 ```
 
+Sessions are found from two places, joined on the directory they run in: `herdr agent list` when `herdr` is installed, and the runtime's own `<program> agents --json`, where the program is `agent.command`'s first word or else `herdr.agent`. A finished session shows `[done]`, unless Herdr still shows it in a pane. With neither source available the list simply shows no sessions.
+
 ### Reopen a worktree in your editor
 
 ```bash
@@ -184,7 +186,7 @@ worktree cleanup
 
 The cleanup command targets worktrees that are considered safe to remove, for example branches whose remote no longer exists, and local worktrees with no tracked remote. Either way the worktree has to be carrying nothing — no uncommitted changes, and no commits that have not been pushed. A commit count that could not be taken is never read as a zero, so a worktree whose directory still exists is held back rather than swept when it cannot be checked.
 
-A worktree that an agent session is living in is held back and reported as skipped. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
+A worktree that an agent session is living in is held back and reported as skipped. That includes a session Herdr started for you, found through `herdr agent list`, as well as one in your own terminal. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
 
 With `opener` set to `herdr`, every worktree removed here also has its Herdr space closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space, taking its panes down with the directory.
 

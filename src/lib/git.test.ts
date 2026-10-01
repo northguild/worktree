@@ -1122,6 +1122,33 @@ describe("gitGetWorktreeList agent join", () => {
     });
   });
 
+  // D14 and F-021: the Herdr handle and session id ride along, and a session
+  // with no pid still blocks removal.
+  it("carries the session id and Herdr handle, and a missing pid, onto the entry", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+      {
+        name: "feature-one-1f",
+        cwd: onePath,
+        sessionId: "s-1",
+        herdrAgent: "wA:p1",
+        state: "blocked",
+      },
+    ]);
+
+    const [first] = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(first.agent).toEqual({
+      name: "feature-one-1f",
+      pid: undefined,
+      sessionId: "s-1",
+      herdrAgent: "wA:p1",
+      live: true,
+      interactive: false,
+      waiting: true,
+    });
+    expect(first.safeToRemove).toBe(false);
+  });
+
   it("sets no agent when the runtime reports no sessions at all", async () => {
     vi.spyOn(agent, "getAgentSessions").mockResolvedValue([]);
 

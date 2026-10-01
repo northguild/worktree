@@ -95,3 +95,15 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
   (`typescript/error-handling.md`). One over-width line in the `resolveHerdrAgentPlan` docstring.
 - **Phase 8.** Phase 7's install-failure advice note (brief not re-sent by `worktree open`) still stands;
   Phase 8 did not change it.
+- **Phase 9.** Herdr fixtures in `herdr.test.ts` / `agent.test.ts` omit the `name` and `interactive_ready` keys
+  live Herdr 0.9.0 carries on agents it started; Herdr-only entries are named `<kind>@<pane>` where Herdr's
+  own `name` could be used.
+- **Phase 9.** Docs: a Herdr-only entry with `agent_status: "done"` (turn over, pane open) gets no marker,
+  against `list/page.mdx`'s "No marker — a background agent that is getting on with its work"; the same page's
+  `[interactive]` = "not an agent this tool dispatched" is untrue for Herdr-started agents (predates Phase 9).
+- **Phase 9.** The worktree-side realpath (`git.ts` `toWorktreeAgent`) is untested; F-022 asks for both sides.
+- **Phase 9.** `git.ts` now imports `toRealPath` from `agent.ts`, deepening the pre-existing `agent.ts` ↔
+  `git.ts` cycle (`architecture/dependency-boundaries.md`).
+- **Phase 9.** `isHerdrInstalled` → `commandExists` runs `which herdr` with no timeout; it now sits on the
+  `list --agents` and `cleanup` path. Tests use `as AgentSession` casts. A comment in `agent.ts` `joinSessions`
+  has a mid-sentence line break.

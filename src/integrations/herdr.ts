@@ -130,6 +130,22 @@ export interface HerdrListOptions {
 }
 
 /**
+ * One agent in `herdr agent list`, narrowed to what the join with the runtime's
+ * listing reads (D14). Only `cwd` is required: it is the join key.
+ */
+export interface HerdrAgentEntry {
+  /** The agent kind Herdr reports, e.g. `claude`. */
+  kind: string;
+  cwd: string;
+  /** The pane the agent runs in — the one handle the entry carries. */
+  paneId?: string;
+  /** `idle`, `working`, `blocked`, `done` or `unknown`; passed through as given. */
+  status?: string;
+  /** The runtime's session id (`agent_session.value`), when Herdr knows it. */
+  sessionId?: string;
+}
+
+/**
  * An error Herdr itself reported, carrying its machine-readable `code`. Callers
  * branch on `code`, never on `message`: the codes are part of the protocol and
  * the messages are not.
@@ -545,6 +561,62 @@ export async function listHerdrWorktrees({
   ]);
 
   return readWorktreeList(result);
+}
+
+function readOptionalString(
+  source: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = source[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Narrows one `agents[]` entry. An entry without a `cwd` cannot be joined to a
+ * worktree, so it is dropped rather than failing the listing: this is a lookup
+ * the caller treats as best-effort, and one odd entry should not hide the rest.
+ * The id is read only from an `agent_session` whose `kind` is `id` — the one
+ * form observed — so another form degrades to an unjoined entry.
+ */
+function readAgentEntry(entry: unknown): HerdrAgentEntry | undefined {
+  if (!isRecord(entry)) {
+    return undefined;
+  }
+
+  const cwd = readOptionalString(entry, "cwd");
+  if (!cwd) {
+    return undefined;
+  }
+
+  const session = entry.agent_session;
+
+  return {
+    kind: readOptionalString(entry, "agent") ?? "agent",
+    cwd,
+    paneId: readOptionalString(entry, "pane_id"),
+    status: readOptionalString(entry, "agent_status"),
+    sessionId:
+      isRecord(session) && session.kind === "id"
+        ? readOptionalString(session, "value")
+        : undefined,
+  };
+}
+
+/**
+ * Lists every agent Herdr knows, across all spaces. Not scoped to a repository:
+ * `agent list` takes no `--cwd`, and the caller joins on the working directory
+ * anyway. Bounded like every other request, and a throw means no answer.
+ */
+export async function listHerdrAgents(): Promise<HerdrAgentEntry[]> {
+  const result = await runHerdrRequest(["agent", "list"]);
+
+  if (!isRecord(result) || !Array.isArray(result.agents)) {
+    throw new Error("Herdr: `agent list` returned no agents array.");
+  }
+
+  return result.agents
+    .map(readAgentEntry)
+    .filter((entry): entry is HerdrAgentEntry => entry !== undefined);
 }
 
 /**
