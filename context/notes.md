@@ -116,3 +116,8 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - **Phase 10.** `list --json` drops `aheadUnknownReason`; the `timeout` error code is found by matching message
   text; fire-and-forget editor/spawn failures settle after the document is printed, so they miss `warnings`.
   `issue` for Jira is `{provider:"jira",key,url}`, beyond §4's GitHub-only shape (documented).
+- **Phase 11.** In `src/agent-mode.test.ts`, the `remove` and `list` cases spawn the CLI twice under one 30 s
+  test bound, so a slow first run plus a hung second hits the test timeout before either 20 s kill; the temp
+  `tsc` compile has no timeout of its own (the 120 s hook stops the test, not `tsc`); `mkdirSync("list-agents")`
+  is not recursive, so a retry would throw EEXIST (no retries configured). The fixture repo is named
+  `checkout` to dodge bug #77.
