@@ -161,7 +161,7 @@ the returned set is a strict subset of the set passed in.
 
 Three surfaces say a failed removal leaves the checkout in place, so its space is deliberately not closed:
 `docs/src/app/docs/guides/herdr-spaces/page.mdx`, `docs/src/app/docs/commands/remove/page.mdx` and
-`skills/core/SKILL.md`. `gitNukeWorktreeCmd` (`src/lib/git.ts`) is three sequential commands —
+`skills/worktree/SKILL.md`. `gitNukeWorktreeCmd` (`src/lib/git.ts`) is three sequential commands —
 `worktree remove`, `worktree prune`, `branch -D` — and a throw in the second or third leaves
 `wasRemoved === false` with the checkout **already gone**. The space is then left open for a worktree that
 no longer exists: the orphan this feature exists to prevent, in its rarest form.
@@ -172,24 +172,6 @@ which is scoped to the failing items only.
 
 **Closes when:** the three sentences name the common case rather than asserting a universal, on any Gate 1
 run that has those files open.
-
-### F-064 — P3 — two shipped skill artifacts claim 9 config keys; there are 15
-
-**Tied to:** ad-hoc · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note)
-
-`skills/_artifacts/domain_map.yaml` says `'worktree config (all 9 keys)'` and
-`skills/_artifacts/skill_spec.md` says "9 config keys". `src/lib/constants.ts`'s `CONFIG_NAMES` holds
-**15** entries — 14 excluding the internal `has-called-config`.
-
-Predates this feature and is untouched by it: issue #52's D6 adds no config key, which is why §7 routed the
-`skill_spec.md` half to its own `/orchestrate` and why `domain_map.yaml` was left alone on the same
-reasoning even though Phase 6 had it open.
-
-**§7's own parenthetical is wrong too** — it says "the 13 in `constants.ts`". Count before fixing, or the
-correction ships stale a second time.
-
-**Closes when:** an `/orchestrate` corrects both artifacts against `CONFIG_NAMES`, with the count taken
-from the file rather than from any of the three numbers written down here.
 
 ### F-065 — P3 — two example blocks on the Herdr guide are each slightly narrower than what actually prints
 
@@ -207,21 +189,6 @@ Both survived the F-061/F-062 loopback because that loopback was scoped to the f
   these"; distinct ids, or two blocks, would say so.
 
 **Closes when:** both blocks match what a single run prints, on any Gate 1 run that has the page open.
-
-### F-066 — P3 — the two shipped skill artifacts now disagree about the `codeEditor`-instead-of-`opener` mistake
-
-**Tied to:** herdr-space-closer Phase 6 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N5)
-
-`skills/_artifacts/domain_map.yaml`'s tensions entry gained a fourth consequence — the `codeEditor`
-workaround also "leaves the space open when the worktree is removed" — because issue #52's §7 assigned that
-file's tensions entry to Phase 6. `skills/core/SKILL.md` carries the same warning in prose and still lists
-three consequences, because §7's `SKILL.md` row names three specific spots and this is not one of them.
-
-So the phase is scope-correct and the artifacts still disagree. Both ship.
-
-**Closes when:** `SKILL.md`'s tension prose carries the same fourth consequence, on any Gate 1 run that has
-the file open — or an `/orchestrate` reconciles the two artifacts, which [F-064](#f-064) already wants for
-the key count.
 
 ---
 
@@ -259,6 +226,43 @@ the second copy the Contract above just stopped keeping.
 ---
 
 ## Closed
+
+### F-064 — P3 — two shipped skill artifacts claim 9 config keys; there are 15
+
+**Tied to:** ad-hoc · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note)
+
+`skills/_artifacts/domain_map.yaml` says `'worktree config (all 9 keys)'` and
+`skills/_artifacts/skill_spec.md` says "9 config keys". `src/lib/constants.ts`'s `CONFIG_NAMES` holds
+**15** entries — 14 excluding the internal `has-called-config`.
+
+Predates this feature and is untouched by it: issue #52's D6 adds no config key, which is why §7 routed the
+`skill_spec.md` half to its own `/orchestrate` and why `domain_map.yaml` was left alone on the same
+reasoning even though Phase 6 had it open.
+
+**§7's own parenthetical is wrong too** — it says "the 13 in `constants.ts`". Count before fixing, or the
+correction ships stale a second time.
+
+**Closes when:** an `/orchestrate` corrects both artifacts against `CONFIG_NAMES`, with the count taken
+from the file rather than from any of the three numbers written down here.
+
+**Closed:** 2026-10-01 by agent-skill-distribution Phase 1 ([#81](https://github.com/northguild/worktree/issues/81)), which deleted `skills/_artifacts/`, the two files this finding describes. Nothing is left to correct.
+
+### F-066 — P3 — the two shipped skill artifacts now disagree about the `codeEditor`-instead-of-`opener` mistake
+
+**Tied to:** herdr-space-closer Phase 6 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note N5)
+
+`skills/_artifacts/domain_map.yaml`'s tensions entry gained a fourth consequence — the `codeEditor`
+workaround also "leaves the space open when the worktree is removed" — because issue #52's §7 assigned that
+file's tensions entry to Phase 6. `skills/core/SKILL.md` carries the same warning in prose and still lists
+three consequences, because §7's `SKILL.md` row names three specific spots and this is not one of them.
+
+So the phase is scope-correct and the artifacts still disagree. Both ship.
+
+**Closes when:** `SKILL.md`'s tension prose carries the same fourth consequence, on any Gate 1 run that has
+the file open — or an `/orchestrate` reconciles the two artifacts, which [F-064](#f-064) already wants for
+the key count.
+
+**Closed:** 2026-10-01 by agent-skill-distribution Phase 1 ([#81](https://github.com/northguild/worktree/issues/81)), which deleted `skills/_artifacts/`, the two artifacts this finding says disagree. Nothing is left to reconcile.
 
 ### F-055 — P2 — the placeholder that is this feature's only user-facing documentation is clipped mid-sentence
 

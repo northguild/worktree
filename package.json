@@ -15,10 +15,7 @@
     "check": "biome check",
     "check:fix": "biome check --write",
     "verify": "pnpm check && pnpm typecheck && pnpm test",
-    "sync-version": "pnpm docs:sync-version && pnpm intent:sync-version",
-    "intent:validate": "npx @tanstack/intent@latest validate",
-    "intent:stale": "npx @tanstack/intent@latest stale",
-    "intent:sync-version": "node ./scripts/sync-intent-version.mjs",
+    "sync-version": "pnpm docs:sync-version",
     "prepublishOnly": "pnpm build && pnpm test",
     "docs:sync-version": "node ./scripts/sync-docs-version.mjs && biome format ./docs/src/lib/site-meta.ts --write",
     "docs:test": "pnpm --filter docs test",
@@ -39,8 +36,7 @@
     "git",
     "worktree",
     "cli",
-    "workflow",
-    "tanstack-intent"
+    "workflow"
   ],
   "repository": {
     "type": "git",
@@ -94,7 +90,6 @@
     "@biomejs/biome": "2.4.11",
     "@northguild/gmt-biome": "^1.0.3",
     "@oclif/test": "^4.1.17",
-    "@tanstack/intent": "^0.0.29",
     "@types/cli-progress": "^3.11.6",
     "@types/node": "^18.19.130",
     "shx": "^0.4.0",

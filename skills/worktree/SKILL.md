@@ -1,5 +1,5 @@
 ---
-name: core
+name: worktree
 description: >
   Complete usage guide for @northguild/worktree. Covers install, first-time
   setup with worktree config (defaultSourceBranch, opener, codeEditor,
@@ -14,29 +14,6 @@ description: >
   non-interactive defaults and exit codes), opening worktrees as Herdr spaces
   and closing those spaces again when the worktree is removed, and automatic copying of gitignored env
   files (.env*, .dev.vars*, .envrc) into new worktrees.
-type: core
-library: '@northguild/worktree'
-library_version: "2.0.0"
-sources:
-  - "northguild/worktree:README.md"
-  - "northguild/worktree:docs/src/app/docs/commands/branch/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/checkout/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/cleanup/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/config/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/list/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/open/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/remove/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/configuration/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/github-issue-integration/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/jira-integration/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/env-files/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/editor-integration/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/herdr-spaces/page.mdx"
-  - "northguild/worktree:src/commands/branch.ts"
-  - "northguild/worktree:src/lib/agent.ts"
-  - "northguild/worktree:src/lib/base-command.ts"
-  - "northguild/worktree:src/lib/git.ts"
-  - "northguild/worktree:src/lib/validators.ts"
 ---
 
 # @northguild/worktree
