@@ -89,7 +89,7 @@ The setup flow can configure:
 - `defaultSourceBranch` for new worktrees, such as `origin/main`
 - `codeEditor` for automatically opening a worktree, such as `code`
 - `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
-- `agent.command` for handing a worktree to a coding agent, such as `claude --bg`
+- `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise inferred from the lockfile)
 
 Then create your first worktree:
@@ -142,7 +142,7 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 
 The agent starts with the new worktree as its working directory and the flag's value as its prompt, so it works inside `<repo>.worktrees` alongside everything else. `worktree checkout` takes `--agent` too.
 
-There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. Otherwise `agent.command` is launched detached, and without it the worktree is created and opened as usual and only the agent is skipped.
+There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. Otherwise `agent.command` is launched detached. A brief with no agent to take it exits `2` before creating anything. Without a brief, only `herdr.agent` starts an agent.
 
 For a long prompt, `--agent-file <path>` or `--agent-stdin` reads it whole (at most 131,071 bytes, the most one argument can carry on Linux; the three are mutually exclusive). `--no-agent` opens the worktree without an agent, and `--no-open` creates it and prints its path without opening anything.
 
