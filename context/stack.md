@@ -13,7 +13,7 @@ confusing errors rather than obvious ones — see the prerequisites in [`verify.
 | Concern | Target |
 |---|---|
 | Runtime | Node 24 (CI pins it; `@types/node` is still on 18) |
-| Package manager | pnpm 10.32.1, workspace with one member (`docs`) |
+| Package manager | pnpm 10.32.1, workspace of the root and `docs` (the root is listed as `"."` so Changesets can see it; `pnpm -r` still skips it) |
 | Database | none |
 | Storage | none |
 | Hosting | CLI → npm; docs → GitHub Pages; chat proxy → Cloudflare Workers |
