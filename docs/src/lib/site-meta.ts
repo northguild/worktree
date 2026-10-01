@@ -1,7 +1,7 @@
 // Generated file. Do not edit directly.
 import type { Metadata } from "next";
 
-export const cliVersion = "2.0.0";
+export const cliVersion = "2.1.0";
 export const projectName = "Worktree";
 export const projectDescription =
   "A CLI tool for managing git worktrees with enhanced workflow features";
