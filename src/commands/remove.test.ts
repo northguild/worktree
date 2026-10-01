@@ -580,13 +580,24 @@ describe("remove command — the herdr closer", () => {
       expect(calls).toEqual(["list", "remove"]);
     });
 
-    it("closes nothing when the removal was declined or failed", async () => {
-      // gitRemoveWorktree answers undefined for all three of its no-op paths,
-      // and a space whose checkout is still on disk must not be closed (D4).
+    it("closes nothing when the removal was declined", async () => {
+      // gitRemoveWorktree answers undefined for its two no-op paths, and a
+      // space whose checkout is still on disk must not be closed (D4).
       removalAnswers(undefined);
       parseAs({ branchName: "feature/safe" });
 
       await remove.run();
+
+      expect(mockClose).not.toHaveBeenCalled();
+    });
+
+    it("closes nothing when the removal failed", async () => {
+      vi.spyOn(git, "gitRemoveWorktree").mockRejectedValue(
+        new Error("Could not remove the worktree feature/safe: fatal: locked"),
+      );
+      parseAs({ branchName: "feature/safe" });
+
+      await expect(remove.run()).rejects.toThrow("fatal: locked");
 
       expect(mockClose).not.toHaveBeenCalled();
     });
@@ -805,6 +816,26 @@ describe("remove command — --json", () => {
       },
     });
     expect(process.exitCode).toBe(2);
+  });
+
+  it("carries git's reason for a failed removal into the error document", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([worktree]);
+    vi.spyOn(git, "gitRemoveWorktree").mockRejectedValue(
+      new Error(
+        "Could not remove the worktree feature/safe: fatal: cannot remove a locked working tree",
+      ),
+    );
+
+    await runJson({ branchName: "feature/safe" }, { force: true });
+
+    expect(output.document()).toEqual({
+      error: {
+        code: "failed",
+        message:
+          "Could not remove the worktree feature/safe: fatal: cannot remove a locked working tree",
+      },
+    });
+    expect(process.exitCode).toBe(1);
   });
 
   it("fails when the removal did not happen, rather than reporting an empty success", async () => {

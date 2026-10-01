@@ -1728,25 +1728,38 @@ describe("what the removal helpers report", () => {
       );
     });
 
-    it("reports true when the removal went through", async () => {
+    it("resolves when the removal went through", async () => {
       mockRun.mockResolvedValue("");
 
-      await expect(gitNukeWorktree(branchName)).resolves.toBe(true);
+      await expect(gitNukeWorktree(branchName)).resolves.toBeUndefined();
       expect(spinnerMocks.succeed).toHaveBeenCalledWith(
         `Worktree ${branchName} was removed.`,
       );
     });
 
-    it("reports false when the removal failed, without rethrowing", async () => {
-      // The catch swallows the error deliberately — it is already on the
-      // spinner — so the boolean is the only thing left that can say so.
+    // git's reason is what a caller can act on, and under `--json` the error
+    // document is the only place a script can read it.
+    it("throws with git's reason when the removal failed", async () => {
       mockRun.mockRejectedValue(
-        new Error("Command failed: git worktree remove"),
+        Object.assign(new Error("Command failed: git worktree remove"), {
+          stderr:
+            "fatal: '/repo.worktrees/x' contains modified or untracked files, use --force to delete it\n",
+        }),
       );
 
-      await expect(gitNukeWorktree(branchName)).resolves.toBe(false);
-      expect(spinnerMocks.fail).toHaveBeenCalledWith(
-        `Failed to remove worktree ${branchName}. It may have already been removed.`,
+      await expect(gitNukeWorktree(branchName)).rejects.toThrow(
+        `Could not remove the worktree ${branchName}: fatal: '/repo.worktrees/x' contains modified or untracked files, use --force to delete it`,
+      );
+      // One line says so — the command's error — not the spinner as well.
+      expect(spinnerMocks.fail).not.toHaveBeenCalled();
+      expect(spinnerMocks.stop).toHaveBeenCalled();
+    });
+
+    it("falls back to Node's message when git printed nothing", async () => {
+      mockRun.mockRejectedValue(new Error("spawn git ENOENT"));
+
+      await expect(gitNukeWorktree(branchName)).rejects.toThrow(
+        `Could not remove the worktree ${branchName}: spawn git ENOENT`,
       );
     });
   });
@@ -1792,16 +1805,19 @@ describe("what the removal helpers report", () => {
       ]);
     });
 
-    it("answers undefined when the removal itself failed", async () => {
-      // The third no-op path, and the one a caller is least able to see:
-      // gitNukeWorktree swallows the error, so without the return value this
-      // is indistinguishable from a success.
+    it("throws, rather than answering undefined, when the removal itself failed", async () => {
+      // Not a no-op like the two above: something was asked for and git
+      // refused it, and the caller needs git's reason.
       mockLookupRun();
       mockRun.mockRejectedValue(
-        new Error("Command failed: git worktree remove"),
+        Object.assign(new Error("Command failed: git worktree remove"), {
+          stderr: "fatal: cannot remove a locked working tree\n",
+        }),
       );
 
-      await expect(gitRemoveWorktree(branchName)).resolves.toBeUndefined();
+      await expect(gitRemoveWorktree(branchName)).rejects.toThrow(
+        "fatal: cannot remove a locked working tree",
+      );
     });
 
     it("refuses to remove the worktree it is standing in", async () => {

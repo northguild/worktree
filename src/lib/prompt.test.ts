@@ -6,6 +6,7 @@ import {
   askInput,
   askSelect,
   assertCanPrompt,
+  InvalidValueError,
   MissingValueError,
 } from "./prompt.js";
 
@@ -100,6 +101,22 @@ describe("prompt seam, non-interactive", () => {
         { ...site, fallback: "x" },
       ),
     ).rejects.toThrow("Bad name");
+  });
+
+  // A value problem exits 2, like the missing value beside it — not the exit 1
+  // of a plain failure (`worktree config --yes --names codeEditor` with no
+  // `code` on PATH is the one that reaches this).
+  it("fails a bad non-empty fallback as an invalid value, exit 2", async () => {
+    const failing = askInput(
+      { message: "name", validate: () => "Bad name" },
+      { ...site, fallback: "x" },
+    );
+
+    await expect(failing).rejects.toBeInstanceOf(InvalidValueError);
+    await expect(failing).rejects.toMatchObject({
+      code: "invalid_value",
+      oclif: { exit: 2 },
+    });
   });
 
   it("fails a select and a checkbox, which have no default", async () => {

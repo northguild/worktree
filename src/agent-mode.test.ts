@@ -615,6 +615,32 @@ describe("agent mode, spawned", () => {
     TEST_TIMEOUT_MS,
   );
 
+  it(
+    "branch with a brief and no agent to take it exits 2 before creating anything",
+    async () => {
+      // `opener` none and no `agent.command`: nothing would ever read the brief.
+      const scenario = await createScenario();
+
+      const result = await scenario.run([
+        "branch",
+        "demo",
+        "--agent",
+        "implement the issue",
+        "--json",
+      ]);
+
+      expect(result.exitCode).toBe(2);
+      expect(parseDocument(result.stdout)).toMatchObject({
+        error: {
+          code: "missing_value",
+          details: { value: "the agent command" },
+        },
+      });
+      expect(fs.existsSync(scenario.worktreePath("demo"))).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
   // The E2 regression (`columns` 0 under a pty completes) is not repeated here:
   // it is the Phase 2 unit test in src/lib/progress.test.ts.
 });

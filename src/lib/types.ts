@@ -1,10 +1,32 @@
-import type { OpenedAgent, OpenOutcome } from "./base-command.js";
 import type { CONFIG_NAMES, OPENER_KINDS } from "./constants.js";
 import type { InstallResult } from "./install.js";
 
 export type ConfigName = (typeof CONFIG_NAMES)[number];
 
 export type OpenerKind = (typeof OPENER_KINDS)[number];
+
+/** An agent the open started. */
+export interface OpenedAgent {
+  /** The runtime session name; `null` where this CLI named nothing (D12). */
+  name: string | null;
+  kind: string | null;
+  /** The command, without the brief. */
+  command: string[];
+  /** Whether a brief went to it — the receipt `branch` exits 1 without. */
+  prompted: boolean;
+}
+
+/** What `openWorktreePath` opened and started. */
+export interface OpenOutcome {
+  opener: OpenerKind;
+  herdr?: {
+    space: string;
+    pane: string;
+    /** The Herdr handle, `null` when no agent was started in the pane. */
+    agent: string | null;
+  };
+  agent?: OpenedAgent;
+}
 
 export interface WorktreeListBaseEntry {
   path: string;

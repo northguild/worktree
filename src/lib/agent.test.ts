@@ -109,6 +109,21 @@ describe("getAgentSessions", () => {
     });
   });
 
+  it("invokes a quoted program path whole, as the dispatch would", async () => {
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue(
+      '"/opt/My Tools/claude" --bg',
+    );
+    mockSessionsJson([]);
+
+    await getAgentSessions();
+
+    expect(mockRun).toHaveBeenCalledWith(
+      "/opt/My Tools/claude",
+      ["agents", "--json"],
+      { timeout: 10_000 },
+    );
+  });
+
   it("returns nothing and runs nothing when agent.command is unset", async () => {
     vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
 

@@ -192,12 +192,16 @@ There is **one agent per worktree**, started one of two ways:
   - For `claude`, `--name <session>` is added. The session name is `<repo>-<branch>`, lowercased, with every
     run of characters outside `a-z`, `0-9` and `-` turned into `-`, and never shortened. It is printed on
     stderr. Herdr's own handle for the agent is separate and capped at 32 characters.
-  - If starting the agent fails, or the brief cannot be delivered, a warning says so (a failed delivery names the brief by its size, never its text) and the worktree and
-    space are kept.
+  - If starting the agent fails, or the brief cannot be delivered, a warning says so (a failed delivery names the brief by its size, never its text), the worktree and
+    space are kept, and the run exits `1`.
 - **Otherwise** (editor opener, `opener` `none`, or Herdr failing to open) `agent.command` is launched
   detached with the brief as its last argument and the new worktree as its working directory. It is started
-  and left running; `worktree` does not wait for it and its output does not appear here. If `agent.command`
-  is not configured, `worktree` says so and carries on.
+  and left running; `worktree` does not wait for it and its output does not appear here. With a brief, no
+  `agent.command` and a run Herdr will not open (editor, `none`, `--no-open`, or `herdr` not on your `PATH`),
+  the run exits `2` before the worktree is created, with
+  `` worktree: no default for the agent command; pass `worktree config agent.command "<command>"` ``. If
+  Herdr was expected to open and failed, and there is no `agent.command` to fall back to, the worktree is
+  kept and the run exits `1`.
 
 `--no-agent` opens the worktree as usual but starts no agent. `--no-open` creates the worktree and prints
 `Worktree created at <path>` without calling Herdr or the editor, for this run only, like `opener` `none`;
@@ -258,7 +262,9 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | `warnings` | what went wrong without stopping the run: a failed assignment, a Herdr or agent failure, missing config |
 
 A failed install still prints the document, with `installed.ok` `false` and the message in `warnings`, and
-exits `1`: the worktree exists, so its path is reported rather than left out of an error.
+exits `1`: the worktree exists, so its path is reported rather than left out of an error. A brief that was
+given and reached no agent is reported the same way, with `agent` `null` or `agent.prompted` `false` —
+`agent.prompted` is the receipt that the agent has the brief.
 
 A failure otherwise prints a different document, still one line on stdout, and exits non-zero. A line
 describing it goes to stderr as usual:

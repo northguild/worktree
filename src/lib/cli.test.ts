@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
 import {
   commandExists,
+  KILL_GRACE_MS,
   run,
   runCapturing,
   runStreaming,
@@ -298,6 +299,47 @@ describe("runStreaming", () => {
       runStreaming("worktree-no-such-program", [], { timeout: 10_000 }),
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
+});
+
+// SIGTERM is only a request, and each helper settles on the child's exit, so a
+// child that ignores it would hold the call open past its bound for as long as
+// it liked. The handler is the script's first statement and the bound is a
+// full second, so the SIGTERM cannot land before the child has said it will
+// ignore it. Concurrent because each case has to sit out the grace period.
+describe.concurrent("a child that ignores SIGTERM", () => {
+  const ignoreTermForever = `process.on("SIGTERM", () => {}); ${sleepForever}`;
+  const bound = { timeout: 1_000 };
+  const settlesWithin = { timeout: 1_000 + KILL_GRACE_MS + 5_000 };
+
+  it(
+    "is killed by run once the grace runs out",
+    settlesWithin,
+    async ({ expect }) => {
+      await expect(
+        run(node, ["-e", ignoreTermForever], bound),
+      ).rejects.toMatchObject({ killed: true, code: null, signal: "SIGKILL" });
+    },
+  );
+
+  it(
+    "is killed by runCapturing once the grace runs out",
+    settlesWithin,
+    async ({ expect }) => {
+      await expect(
+        runCapturing(node, ["-e", ignoreTermForever], bound),
+      ).rejects.toMatchObject({ killed: true, code: null, signal: "SIGKILL" });
+    },
+  );
+
+  it(
+    "is killed by runStreaming once the grace runs out",
+    settlesWithin,
+    async ({ expect }) => {
+      await expect(
+        runStreaming(node, ["-e", ignoreTermForever], bound),
+      ).rejects.toThrow(/did not finish within 1s/);
+    },
+  );
 });
 
 describe("commandExists", () => {

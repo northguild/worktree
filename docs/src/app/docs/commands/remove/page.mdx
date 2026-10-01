@@ -101,4 +101,6 @@ worktree remove feature/add-bulk-actions --force --json
 The spinner lines and warnings go to stderr. A failure prints `{"error":{"code","message"}}` on stdout instead
 and exits non-zero; the codes are listed under [`branch`](/docs/commands/branch#json-output). A named branch
 that does not exist is `not_found`, a missing `-f` is `missing_value`, and a removal that did not happen is
-`failed` — with `--json`, "nothing removed" is never reported as a success.
+`failed` — with `--json`, "nothing removed" is never reported as a success. When git refused the removal, its
+reason is in the message (`Could not remove the worktree <branch>: fatal: …`); without `--json` the same line
+goes to stderr and the exit is `1`.

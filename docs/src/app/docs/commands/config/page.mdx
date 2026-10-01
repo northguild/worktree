@@ -57,7 +57,7 @@ Configuration is stored in local Git config under `northguild.worktree.*`.
 
 - `opener` selects where a finished worktree opens, and for `herdr` where its space is closed
   again when the worktree is removed: `editor` (default), `herdr` or `none`. With `none` nothing is opened:
-  the command prints `Worktree created at <path>` and stops. An unknown value fails with exit `1`.
+  the command prints `Worktree created at <path>` and stops. An unknown value fails with exit `2`.
 - `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`.
 - `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
 - `herdr.agent` an agent kind to start in a newly opened Herdr space. Unset means no agent, unless `branch` or `checkout` is given a brief, in which case the program `agent.command` names is used.

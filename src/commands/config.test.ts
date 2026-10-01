@@ -233,7 +233,7 @@ describe("config command", () => {
       await expect(config.run()).rejects.toThrow("Invalid email address");
     });
 
-    it("reports an invalid config value on stderr and exits 1", async () => {
+    it("reports an invalid config value on stderr and exits 2", async () => {
       const originalExitCode = process.exitCode;
       const mockConsoleError = vi
         .spyOn(console, "error")
@@ -254,7 +254,8 @@ describe("config command", () => {
           "Error: Invalid email address",
         );
         expect(mockConsoleLog).not.toHaveBeenCalled();
-        expect(process.exitCode).toBe(1);
+        // A refused value is a value problem, as the README's table says.
+        expect(process.exitCode).toBe(2);
       } finally {
         process.exitCode = originalExitCode;
       }

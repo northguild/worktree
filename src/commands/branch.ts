@@ -1,11 +1,7 @@
 import { Args, Flags } from "@oclif/core";
 import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
 import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
-import {
-  BaseCommand,
-  type OpenOutcome,
-  readAgentBrief,
-} from "../lib/base-command.js";
+import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
@@ -18,7 +14,12 @@ import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
 import { askConfirm, askInput } from "../lib/prompt.js";
-import type { BranchDocument, BranchIssue, ConfigName } from "../lib/types.js";
+import type {
+  BranchDocument,
+  BranchIssue,
+  ConfigName,
+  OpenOutcome,
+} from "../lib/types.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 import { isValidBranchName } from "../lib/validators.js";
 
@@ -397,10 +398,10 @@ export default class Branch extends BaseCommand {
       this.error(error instanceof Error ? error.message : String(error));
     }
 
-    // Also before anything is created (#75): with a brief and Herdr as the
-    // opener, no agent kind is a usage error, and finding that out after the
-    // tree exists would leave `--json` an error document with no `path`.
-    await this.assertAgentKindForBrief({
+    // Also before anything is created (#75): a brief with no agent configured
+    // to take it is a missing value, and finding that out after the tree exists
+    // would leave an exit 0 with `agent: null`, or an error with no `path`.
+    await this.assertBriefHasAnAgent({
       open: !flags["no-open"],
       agent: !flags["no-agent"],
       brief,

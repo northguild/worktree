@@ -84,15 +84,18 @@ export default class Delete extends BaseCommand {
         force: flags.force,
       });
 
-      // Only what was actually removed (D4). All three of gitRemoveWorktree's
-      // no-op paths — branch not found, confirmation declined, removal failed —
-      // answer undefined, and closing a space whose checkout is still on disk
-      // is worse than the orphan this feature exists to prevent.
+      // Only what was actually removed (D4). gitRemoveWorktree answers
+      // undefined when the branch was not found or the confirmation declined,
+      // and throws, with git's reason, when the removal failed — closing a space
+      // whose checkout is still on disk is worse than the orphan this feature
+      // exists to prevent.
       const closed = await closeSpaces(removed ? [removed.path] : []);
 
-      // `gitRemoveWorktree` answers undefined for a failed removal as well as a
-      // declined one, and prints which. A script that named the branch asked
-      // for it to be gone, so under `--json` nothing removed is a failure.
+      // A script that named the branch asked for it to be gone, so under
+      // `--json` nothing removed is a failure. A failed removal has already
+      // thrown with git's reason, and `--json` cannot decline a confirmation —
+      // it never prompts — so what is left is a branch that was gone by the
+      // time it was looked up again.
       if (!removed && this.jsonEnabled()) {
         throw new Error(`Could not remove the worktree ${args.branchName}.`);
       }

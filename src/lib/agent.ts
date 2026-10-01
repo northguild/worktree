@@ -8,6 +8,7 @@ import {
 import { run } from "./cli.js";
 import { gitGetConfigValue } from "./git.js";
 import type { AgentSession } from "./types.js";
+import { splitCommandValue } from "./utils.js";
 
 // The only module that knows an agent runtime's session JSON exists. Nothing
 // outside this file reads `kind`, `state` or `status` — the three fields that
@@ -107,7 +108,9 @@ async function listRuntimeSessions(): Promise<AgentSession[]> {
   // same program: appending the dispatch arguments would ask for
   // `claude --bg agents --json`. A user with only `herdr.agent` set has no
   // dispatch command, but the kind it names is the program to ask (D14).
-  const [head] = agentCommand.trim().split(/\s+/);
+  // Split as the dispatch and the Herdr kind split it, so a quoted program path
+  // with a space in it is one program to all three.
+  const [head] = splitCommandValue(agentCommand);
   const agent = head || (await gitGetConfigValue("herdr.agent")).trim();
 
   if (!agent) {

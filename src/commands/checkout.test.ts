@@ -187,7 +187,23 @@ describe("checkout command", () => {
       ]);
       vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "agent.command" ? "claude --bg" : ""),
+      );
+    });
+
+    it("fails a brief with no agent command before creating a worktree", async () => {
       vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "review this branch" },
+      });
+
+      await expect(checkout.run()).rejects.toMatchObject({
+        value: "the agent command",
+      });
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
     it("fails a brief with no agent kind before creating a worktree (#75)", async () => {

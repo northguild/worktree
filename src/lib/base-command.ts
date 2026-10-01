@@ -39,7 +39,9 @@ import type {
   ConfigName,
   JsonErrorCode,
   JsonErrorDocument,
+  OpenedAgent,
   OpenerKind,
+  OpenOutcome,
 } from "./types.js";
 import { splitCommandValue } from "./utils.js";
 
@@ -242,28 +244,6 @@ export interface OpenWorktreeOptions {
   brief?: string;
 }
 
-/** The agent a run started, as the later `--json` document reports it. */
-export interface OpenedAgent {
-  /** The runtime session name; `null` where this CLI named nothing (D12). */
-  name: string | null;
-  kind: string | null;
-  /** The command, without the brief. */
-  command: string[];
-  /** Whether a brief went to it. */
-  prompted: boolean;
-}
-
-export interface OpenOutcome {
-  opener: OpenerKind;
-  herdr?: {
-    space: string;
-    pane: string;
-    /** The Herdr handle, `null` when no agent was started in the pane. */
-    agent: string | null;
-  };
-  agent?: OpenedAgent;
-}
-
 interface HerdrAgentPlan {
   kind: string;
   args: string[];
@@ -274,6 +254,13 @@ function missingAgentKind(): MissingValueError {
   return new MissingValueError(
     "the agent kind",
     "`worktree config herdr.agent <kind>`",
+  );
+}
+
+function missingAgentCommand(): MissingValueError {
+  return new MissingValueError(
+    "the agent command",
+    '`worktree config agent.command "<command>"`',
   );
 }
 
@@ -453,17 +440,23 @@ export abstract class BaseCommand extends Command {
   }
 
   /**
-   * Fails a brief that Herdr could not be given an agent for, before anything
-   * is created (#75). `openWorktreePath` would throw the same error, but only
-   * after the tree exists and is installed, which under `--json` leaves an
-   * error document with no `path` for a tree that is there.
+   * Fails a brief that nothing would take, before anything is created (#75).
+   * Found out afterwards, it leaves a tree with no agent in it: an exit 0 a
+   * coordinator reads as "working", or under `--json` an error document with
+   * no `path` for a tree that is there.
    *
-   * It throws in exactly the cases `openHerdrSpace` would have: a brief that
-   * would be handed over, an opener that is Herdr, Herdr installed, and no
-   * kind to start. Herdr not installed is not one of them — that run falls
-   * back to the detached dispatch — and neither is a run without a brief.
+   * Who takes a brief is a matter of config, so it is knowable here. Herdr
+   * starts its kind when it will open the tree — Herdr the opener and
+   * installed; every other run, Herdr not installed included, falls to the
+   * detached dispatch, which needs `agent.command`. Neither is a missing value
+   * naming its key. A run without a brief, or with `--no-agent`, hands nothing
+   * over.
+   *
+   * What can only fail once the tree exists — Herdr not opening, a space
+   * already open, an agent that does not start — is `openWorktreePath`'s to
+   * report, and it exits 1 for it.
    */
-  protected async assertAgentKindForBrief({
+  protected async assertBriefHasAnAgent({
     open = true,
     agent = true,
     brief,
@@ -472,18 +465,22 @@ export abstract class BaseCommand extends Command {
       return;
     }
 
-    if ((await this.resolveOpener(open)) !== "herdr") {
+    if (
+      (await this.resolveOpener(open)) === "herdr" &&
+      (await isHerdrInstalled())
+    ) {
+      const { kind } = await this.readHerdrAgentKind(brief);
+
+      if (!kind) {
+        throw missingAgentKind();
+      }
       return;
     }
 
-    if (!(await isHerdrInstalled())) {
-      return;
-    }
+    const [head] = splitCommandValue(await gitGetConfigValue("agent.command"));
 
-    const { kind } = await this.readHerdrAgentKind(brief);
-
-    if (!kind) {
-      throw missingAgentKind();
+    if (!head) {
+      throw missingAgentCommand();
     }
   }
 
@@ -505,12 +502,35 @@ export abstract class BaseCommand extends Command {
     return { kind, head, tail };
   }
 
+  /**
+   * Opens the tree and hands over the brief, if there is one.
+   *
+   * A brief that reached no agent exits 1, though nothing throws: the tree
+   * exists and the outcome reports it, as a failed install does in `branch`.
+   * The warning on the way says why, and `agent.prompted` is the receipt — an
+   * exit 0 with `agent: null` would tell a coordinator the work had started.
+   */
   protected async openWorktreePath(
     path: string,
     { open = true, agent = true, brief }: OpenWorktreeOptions = {},
   ): Promise<OpenOutcome> {
-    const opener = await this.resolveOpener(open);
     const handoff = agent ? brief : undefined;
+    const outcome = await this.openWithHandoff(path, open, agent, handoff);
+
+    if (handoff !== undefined && !outcome.agent?.prompted) {
+      process.exitCode = 1;
+    }
+
+    return outcome;
+  }
+
+  private async openWithHandoff(
+    path: string,
+    open: boolean,
+    agent: boolean,
+    handoff: string | undefined,
+  ): Promise<OpenOutcome> {
+    const opener = await this.resolveOpener(open);
 
     if (opener === "herdr") {
       const { herdr, opened, startedAgent } = await this.openHerdrSpace(
@@ -926,8 +946,10 @@ export abstract class BaseCommand extends Command {
     // Unset and whitespace-only are the same fact: no agent to run. The head is
     // what spawn would receive, so it is what decides — an empty one makes spawn
     // throw synchronously, which would take the editor launch down with it. The
-    // command named here has to be one that works: `worktree config <name>` with
-    // no value reads the key and discards the result (config.ts:273-274).
+    // command named here has to set the key: `worktree config <name>` with no
+    // value only prints it (`Config.run`). `assertBriefHasAnAgent` fails this
+    // case before the tree exists; it is still reached when Herdr was the
+    // opener, had a kind, and did not open.
     if (!agent) {
       this.log(
         `No agent configured. Run ${chalk.cyan('worktree config agent.command "<command>"')} to set one.`,

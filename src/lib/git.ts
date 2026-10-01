@@ -616,39 +616,61 @@ export async function gitNukeWorktreeCmd(
 }
 
 /**
- * Removes a worktree, reporting whether it actually went.
+ * What git said when a command failed: its stderr on one line, or Node's own
+ * message when there is none. execFile puts the captured stderr on the error.
+ */
+function toGitReason(error: unknown): string {
+  const stderr =
+    error instanceof Error &&
+    "stderr" in error &&
+    typeof error.stderr === "string"
+      ? error.stderr
+      : "";
+  const reason = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ");
+
+  return reason || (error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * Removes a worktree, or throws with git's reason for not doing so.
  *
- * The `catch` swallows the failure deliberately — it is already reported on the
- * spinner — so the boolean is the only thing left that can tell a caller a
- * removal did not happen. Without it a caller cannot distinguish this from a
- * success, which is how a space outlives the checkout it was built around.
+ * The reason — a dirty tree, a locked worktree, a branch that will not delete —
+ * is the one thing a caller can act on, and under `--json` the error document
+ * is the only place a script can read it. A throw is also what tells a caller
+ * nothing was removed, which is how a space is kept from outliving the
+ * checkout it was built around. The spinner stops rather than fails, so the
+ * command's own error line is the one that says so.
  */
 export async function gitNukeWorktree(
   branchName: string,
   { force = false }: GitNukeWorktreeCmdOptions = {},
-): Promise<boolean> {
+): Promise<void> {
   const spinner = createSpinner(`Removing worktree ${branchName}`).start();
   try {
     await gitNukeWorktreeCmd(branchName, { force });
     spinner.succeed(`Worktree ${branchName} was removed.`);
-    return true;
-  } catch {
-    spinner.fail(
-      `Failed to remove worktree ${branchName}. It may have already been removed.`,
+  } catch (error) {
+    spinner.stop();
+    throw new Error(
+      `Could not remove the worktree ${branchName}: ${toGitReason(error)}`,
+      { cause: error },
     );
-    return false;
   }
 }
 
 /**
  * Removes one worktree by branch name, answering with the entry it removed.
  *
- * `undefined` covers all three ways this ends without removing anything: the
- * branch was not found, the confirmation was declined, or the removal itself
- * failed. A caller acting on the removal — closing the Herdr space built around
- * the checkout, say — must be able to tell those apart from a success, and the
- * entry is also the only place the caller can read the path back from, since
- * this takes a branch name.
+ * `undefined` covers the two ways this ends with nothing to do: the branch was
+ * not found, or the confirmation was declined. A removal git refused throws,
+ * with git's reason (`gitNukeWorktree`). A caller acting on the removal —
+ * closing the Herdr space built around the checkout, say — must be able to tell
+ * those apart from a success, and the entry is also the only place the caller
+ * can read the path back from, since this takes a branch name.
  */
 export async function gitRemoveWorktree(
   branchName: string,
@@ -729,7 +751,7 @@ export async function gitRemoveWorktree(
   }
 
   if (force || (await promptRemoval(worktree))) {
-    const wasRemoved = await gitNukeWorktree(branchName, {
+    await gitNukeWorktree(branchName, {
       // An uncountable branch is forced too. Not because the removal would
       // otherwise fail — a dirty tree already sets this through
       // `uncommittedChanges`, and `git worktree remove` does not refuse a tree
@@ -744,7 +766,7 @@ export async function gitRemoveWorktree(
         !!worktree.uncommittedChanges,
     });
 
-    return wasRemoved ? worktree : undefined;
+    return worktree;
   }
 
   // The confirmation was declined, so nothing was touched.

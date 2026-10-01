@@ -82,9 +82,12 @@ describe("branch command", () => {
       .spyOn(branch as any, "dispatchAgent")
       .mockResolvedValue(undefined);
 
-    // Mock config verification to prevent first-time config prompts
+    // Mock config verification to prevent first-time config prompts. An agent
+    // is configured, so a case that passes a brief clears the preflight that
+    // refuses one nothing would take; that preflight has its own cases.
     vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
       if (key === "has-called-config") return Promise.resolve("true");
+      if (key === "agent.command") return Promise.resolve("claude --bg");
       return Promise.resolve("");
     });
 
@@ -1017,6 +1020,7 @@ describe("branch command", () => {
         if (key === "has-called-config") return Promise.resolve("true");
         if (key === "defaultSourceBranch")
           return Promise.resolve("origin/main");
+        if (key === "agent.command") return Promise.resolve("claude --bg");
         return Promise.resolve("");
       });
     });
@@ -1112,9 +1116,10 @@ describe("branch command", () => {
       await expect(branch.run()).rejects.toThrow(/over 131071 bytes/);
     });
 
-    // #75: with a brief, Herdr as the opener and no kind to start, the run used
-    // to fail only after the tree was created and installed.
-    describe("a brief with no agent kind to hand it to", () => {
+    // #75: a brief nothing would take used to be found out only after the tree
+    // was created and installed — as an error with no `path` on the Herdr path,
+    // and as an exit 0 with `agent: null` on every other.
+    describe("a brief with no agent to hand it to", () => {
       function configure(values: Record<string, string>) {
         vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
           Promise.resolve(
@@ -1148,6 +1153,42 @@ describe("branch command", () => {
         expect(mockOpenWorktreePath).not.toHaveBeenCalled();
       });
 
+      // Every run Herdr does not open falls to the detached dispatch, and that
+      // takes `agent.command` — `herdr.agent` alone is no use to it.
+      it.each([
+        ["the opener is the editor", { opener: "code" }, {}],
+        ["the opener is none", { opener: "none" }, {}],
+        ["--no-open is given", { opener: "herdr" }, { "no-open": true }],
+        [
+          "only herdr.agent is set and --no-open is given",
+          { opener: "herdr", "herdr.agent": "claude" },
+          { "no-open": true },
+        ],
+      ])("fails naming agent.command, before the worktree is created, when %s", async (_label, values, flags) => {
+        configure(values);
+        parsed({ agent: "implement the issue", ...flags });
+
+        const error = await branch.run().catch((thrown: unknown) => thrown);
+
+        expect(error).toBeInstanceOf(MissingValueError);
+        expect(error).toMatchObject({
+          value: "the agent command",
+          flag: '`worktree config agent.command "<command>"`',
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it("fails naming agent.command when Herdr is not installed, for the detached path", async () => {
+        vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(false);
+        configure({ opener: "herdr", "herdr.agent": "claude" });
+        parsed({ agent: "implement the issue" });
+
+        await expect(branch.run()).rejects.toMatchObject({
+          value: "the agent command",
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
       it.each([
         [
           "herdr.agent is set",
@@ -1159,9 +1200,16 @@ describe("branch command", () => {
           { opener: "herdr", "agent.command": "claude --bg" },
           {},
         ],
-        ["the opener is the editor", { opener: "code" }, {}],
-        ["the opener is none", { opener: "none" }, {}],
-        ["--no-open is given", { opener: "herdr" }, { "no-open": true }],
+        [
+          "the opener is the editor and agent.command is set",
+          { opener: "code", "agent.command": "claude --bg" },
+          {},
+        ],
+        [
+          "--no-open is given and agent.command is set",
+          { opener: "herdr", "agent.command": "claude --bg" },
+          { "no-open": true },
+        ],
         ["--no-agent is given", { opener: "herdr" }, { "no-agent": true }],
       ])("still creates the worktree when %s", async (_label, values, flags) => {
         configure(values);
@@ -1176,9 +1224,9 @@ describe("branch command", () => {
         expect(git.gitCreateWorktree).toHaveBeenCalled();
       });
 
-      it("still creates the worktree when Herdr is not installed, for the detached path", async () => {
+      it("still creates the worktree when Herdr is not installed and agent.command is set", async () => {
         vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(false);
-        configure({ opener: "herdr" });
+        configure({ opener: "herdr", "agent.command": "claude --bg" });
         parsed({ agent: "implement the issue" });
 
         await branch.run();

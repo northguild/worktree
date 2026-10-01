@@ -273,7 +273,8 @@ line, `worktree: no default for <value>; pass <flag>`.
 - **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
 - **Bounded calls:** GitHub and Jira requests 15 s, `git fetch` 60 s, `gh auth token` and the session listing
-  10 s, the install 10 min.
+  10 s, the install 10 min. A command still running at its bound is sent SIGTERM, then SIGKILL 2 s later, so
+  one that ignores SIGTERM cannot hold the run open.
 
 ### Output
 
@@ -299,6 +300,8 @@ worktree branch --github 42 --json --agent-file brief.md
   `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
 - `installed` is `{ran:false,reason}` when skipped. A failed install still prints the whole document, with
   `installed.ok` `false`, and exits `1`.
+- A brief that was given and not delivered does the same: the whole document, `agent` `null` or
+  `agent.prompted` `false`, the reason in `warnings`, exit `1`.
 
 `list --json` gives `{"worktrees":[{branch,path,current,pathExists,remote,remoteExists,ahead,behind,mergedInto,uncommittedChanges,safeToRemove}]}`.
 With `--agents`, each entry also has `agent`: `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`.
@@ -328,6 +331,13 @@ when a brief is given and that is unset, the program `agent.command` names. `age
 reused without `--bg`, and a `claude` agent gets `--name <repo>-<branch>`, lowercased and never truncated.
 Otherwise `agent.command` is launched detached. `--no-open` and
 `opener` `none` open nothing and still start the detached agent when a brief is given.
+
+A brief that no configured agent would take — no `herdr.agent` or `agent.command` for Herdr, no
+`agent.command` for the detached start — exits `2` with `missing_value` before anything is created.
+A brief that still reaches no agent once the worktree exists (Herdr did not open and there is no
+`agent.command` to fall back to, the space was already open, the agent did not start, the prompt failed)
+prints the whole document with the reason in `warnings` and exits `1`. **`agent.prompted` is the delivery
+receipt**: check it, not just the exit code, when a brief matters.
 
 ### How agents are detected
 

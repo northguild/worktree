@@ -1,11 +1,22 @@
-import { execFile, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
+
+/**
+ * How long a child that outlived its timeout has to exit after SIGTERM before
+ * it is sent SIGKILL. SIGTERM is a request: a wrapper script, a dev server or a
+ * package manager with a trap in a lifecycle hook can ignore it, and every
+ * helper here settles on the child's exit — so without the second signal a
+ * `timeout` bounds nothing. Two seconds is long for a process that means to
+ * stop and short beside any timeout this CLI sets.
+ */
+export const KILL_GRACE_MS = 2_000;
 
 interface ExecOptions {
   cwd?: string;
   /**
-   * Milliseconds after which the child is killed with SIGTERM. A kill leaves no
-   * exit code behind — `error.code` comes back `null`, not a number — so a
-   * timed-out call always rejects, under both helpers below.
+   * Milliseconds after which the child is killed: SIGTERM, then SIGKILL if it
+   * is still running `KILL_GRACE_MS` later. A kill leaves no exit code behind —
+   * `error.code` comes back `null`, not a number — so a timed-out call always
+   * rejects, under both helpers below, whichever signal ended it.
    *
    * Left unset the child is unbounded, which is what every git call here wants:
    * they talk to the filesystem and answer or fail on their own. It is a call
@@ -49,6 +60,26 @@ function mergeEnv(env: Record<string, string> | undefined) {
   return env ? { ...process.env, ...env } : undefined;
 }
 
+/**
+ * The second half of a bound: SIGKILL, `KILL_GRACE_MS` after the SIGTERM sent
+ * at `timeout`, for a child that is still running then. Returns the disarm,
+ * which the caller runs when the child settles. No timeout, no bound.
+ *
+ * execFile sends the SIGTERM itself and marks the error `killed`, so a SIGKILL
+ * from here still reaches the caller as `killed: true, code: null` — the shape
+ * every caller already reads as a timeout.
+ */
+function killAfterGrace(child: ChildProcess, timeout: number | undefined) {
+  if (!timeout) {
+    return () => {};
+  }
+  const timer = setTimeout(
+    () => child.kill("SIGKILL"),
+    timeout + KILL_GRACE_MS,
+  );
+  return () => clearTimeout(timer);
+}
+
 // execFile takes an argv array, so no value passed here is ever parsed as shell
 // syntax, and cwd reaches the child directly instead of through a `cd` prefix.
 export function run(
@@ -57,11 +88,12 @@ export function run(
   { cwd, timeout, env, trim = true }: RunOptions = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       file,
       args,
       { cwd, timeout, env: mergeEnv(env) },
       (error, stdout) => {
+        disarm();
         if (error) {
           reject(error);
           return;
@@ -70,6 +102,7 @@ export function run(
         resolve(trim ? output.trim() : output);
       },
     );
+    const disarm = killAfterGrace(child, timeout);
   });
 }
 
@@ -94,11 +127,12 @@ export function runCapturing(
   { cwd, timeout, env }: ExecOptions = {},
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       file,
       args,
       { cwd, timeout, env: mergeEnv(env) },
       (error, stdout, stderr) => {
+        disarm();
         const output = { stdout: stdout.trim(), stderr: stderr.trim() };
 
         if (!error) {
@@ -112,6 +146,7 @@ export function runCapturing(
         reject(error);
       },
     );
+    const disarm = killAfterGrace(child, timeout);
   });
 }
 
@@ -124,8 +159,14 @@ export function runCapturing(
  *
  * argv only, as everywhere in this module. Resolves with the exit code, so a
  * failing command is the caller's to report; rejects when the program never
- * ran, or when it outlived `timeout` and was killed (SIGTERM). The timeout is
- * required: a caller that wants no bound has `run`.
+ * ran, or when it outlived `timeout` and was killed (SIGTERM, then SIGKILL
+ * after `KILL_GRACE_MS`). The timeout is required: a caller that wants no
+ * bound has `run`.
+ *
+ * Only the direct child is signalled. Killing its process group instead would
+ * take a timed-out install's grandchildren too, but it means spawning the
+ * child detached, outside the terminal's foreground group — and then a human's
+ * Ctrl-C stops reaching the install it was meant to stop.
  */
 export function runStreaming(
   file: string,
@@ -144,13 +185,16 @@ export function runStreaming(
       timedOut = true;
       child.kill();
     }, timeout);
+    const disarm = killAfterGrace(child, timeout);
 
     child.on("error", (error: Error) => {
       clearTimeout(timer);
+      disarm();
       reject(error);
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
+      disarm();
       if (timedOut) {
         reject(
           new Error(

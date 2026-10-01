@@ -154,7 +154,9 @@ It does not fall back to your editor. Setting `opener herdr` is a deliberate cho
 unexpected editor window is not a useful consolation prize.
 
 The command still exits `0`. By the time the opener runs, the branch, the worktree and the copied
-env files all exist — the only thing that failed is the last step.
+env files all exist — the only thing that failed is the last step. The exception is a run given a brief
+(`--agent`): if no agent ends up with it, the run exits `1`, because the agent working on it was part of
+what was asked for.
 
 ### Closing
 

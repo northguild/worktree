@@ -22,7 +22,7 @@ import {
 import * as cli from "./cli.js";
 import * as git from "./git.js";
 import { isNonInteractive, setNonInteractive } from "./interaction.js";
-import { MissingValueError } from "./prompt.js";
+import { InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
 import type { ConfigName } from "./types.js";
 
@@ -251,11 +251,18 @@ describe("openWorktreePath — the editor and none openers", () => {
     );
   }
 
+  const originalExitCode = process.exitCode;
+
   beforeEach(() => {
     vi.clearAllMocks();
     command = new TestCommand([], { runCommand: vi.fn() } as any);
     logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
     mockRun.mockResolvedValue("");
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
   });
 
   it("makes no editor call for --no-open, and reports opener none", async () => {
@@ -288,6 +295,19 @@ describe("openWorktreePath — the editor and none openers", () => {
       opener: "editor",
       agent: { name: null, command: ["claude"], prompted: true },
     });
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  // The preflight refuses this before a tree exists; reaching the seam anyway
+  // still must not read as a success.
+  it("exits 1, keeping the outcome, when a brief reaches no agent", async () => {
+    setConfig({ opener: "none" });
+    vi.spyOn(command, "logToStderr").mockImplementation(() => {});
+
+    const outcome = await command.open(worktreePath, { brief: "do it" });
+
+    expect(outcome).toEqual({ opener: "none", agent: undefined });
+    expect(process.exitCode).toBe(1);
   });
 
   it("dispatches no agent for --no-agent, but still opens the editor", async () => {
@@ -307,6 +327,8 @@ describe("openWorktreePath — the editor and none openers", () => {
     expect(mockSpawnDetached).not.toHaveBeenCalled();
     expect(mockRun).toHaveBeenCalledWith("code", [worktreePath]);
     expect(outcome.agent).toBeUndefined();
+    // --no-agent asked for no handoff, so none is missing.
+    expect(process.exitCode).toBeUndefined();
   });
 });
 
@@ -379,8 +401,8 @@ describe("dispatchAgent", () => {
     await command.dispatch(worktreePath, prompt);
 
     expect(mockSpawnDetached).not.toHaveBeenCalled();
-    // The form named here has to be one that does something: `worktree config
-    // <name>` with no value reads the key and discards it (config.ts:273-274).
+    // The form named here has to set the key: `worktree config <name>` with no
+    // value only prints it (`Config.run`).
     expect(logSpy).toHaveBeenCalledWith(
       'No agent configured. Run worktree config agent.command "<command>" to set one.',
     );
@@ -436,6 +458,8 @@ describe("openWorktreePath — the Herdr opener", () => {
     );
   }
 
+  const originalExitCode = process.exitCode;
+
   beforeEach(() => {
     vi.clearAllMocks();
     command = new TestCommand([], { runCommand: vi.fn() } as any);
@@ -443,6 +467,11 @@ describe("openWorktreePath — the Herdr opener", () => {
     mockLogToStderr = vi
       .spyOn(command, "logToStderr")
       .mockImplementation(() => {});
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
   });
 
   describe("the herdr opener", () => {
@@ -899,6 +928,8 @@ describe("openWorktreePath — the Herdr opener", () => {
           );
           expect(outcome.agent?.prompted).toBe(false);
           expect(mockSpawnDetached).not.toHaveBeenCalled();
+          // `prompted` is the receipt, and the exit code agrees with it.
+          expect(process.exitCode).toBe(1);
         });
 
         it("falls back to the detached dispatch only when Herdr did not open", async () => {
@@ -917,6 +948,22 @@ describe("openWorktreePath — the Herdr opener", () => {
           );
           expect(outcome.herdr).toBeUndefined();
           expect(outcome.agent).toMatchObject({ name: null, prompted: true });
+          expect(process.exitCode).toBeUndefined();
+        });
+
+        it("exits 1 when Herdr did not open and no agent.command can take the brief", async () => {
+          // The one case the preflight cannot see: a kind for Herdr, nothing
+          // for the detached fallback, and an open that fails at runtime.
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          mockOpenHerdrWorktree.mockRejectedValue(
+            new herdr.HerdrError("server_down", "no server"),
+          );
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+          expect(outcome.agent).toBeUndefined();
+          expect(process.exitCode).toBe(1);
         });
 
         it("warns, and starts no second agent, when the space was already open", async () => {
@@ -937,6 +984,7 @@ describe("openWorktreePath — the Herdr opener", () => {
           );
           expect(mockRunCapturing).not.toHaveBeenCalled();
           expect(mockSpawnDetached).not.toHaveBeenCalled();
+          expect(process.exitCode).toBe(1);
         });
 
         it("opens the space but starts no agent for --no-agent", async () => {
@@ -977,6 +1025,7 @@ describe("openWorktreePath — the Herdr opener", () => {
               prompted: true,
             },
           });
+          expect(process.exitCode).toBeUndefined();
         });
 
         it("makes no Herdr or editor call for --no-open, and prints the path", async () => {
@@ -1591,6 +1640,16 @@ describe("--json output", () => {
         code: "missing_value",
         message: "no default for the thing; pass --thing",
         details: { value: "the thing", flag: "--thing" },
+      });
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("gives a refused value invalid_value and exit 2", async () => {
+      const document = await failWith(new InvalidValueError("Bad name"));
+
+      expect(document.error).toEqual({
+        code: "invalid_value",
+        message: "Bad name",
       });
       expect(process.exitCode).toBe(2);
     });

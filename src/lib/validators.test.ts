@@ -367,6 +367,13 @@ describe("isValidConfigValue — github.autoAssign", () => {
 });
 
 describe("validateConfigValue", () => {
+  it("names InvalidConfigValueError as itself, and exits 2 as an invalid value", () => {
+    const error = new InvalidConfigValueError("Invalid email address");
+
+    expect(error.name).toBe("InvalidConfigValueError");
+    expect(error).toMatchObject({ code: "invalid_value", oclif: { exit: 2 } });
+  });
+
   it("should throw InvalidConfigValueError for an unknown opener", async () => {
     await expect(validateConfigValue("opener", "bogus")).rejects.toThrow(
       InvalidConfigValueError,

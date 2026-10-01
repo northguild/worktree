@@ -35,6 +35,23 @@ export class MissingValueError extends Error {
   }
 }
 
+/**
+ * A non-interactive run took a value the prompt's own validator refuses. A
+ * value problem, like its sibling above, so it exits 2 and reports
+ * `invalid_value` under `--json`; the message is the validator's.
+ */
+export class InvalidValueError extends Error {
+  /** Read by `BaseCommand.catch` for the exit code. */
+  readonly oclif = { exit: 2 };
+  /** Read by `BaseCommand.catch` for the `--json` error code. */
+  readonly code = "invalid_value";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidValueError";
+  }
+}
+
 function missing({ value, flag }: PromptSite) {
   return new MissingValueError(value, flag);
 }
@@ -87,7 +104,7 @@ export async function askInput(
     if (site.fallback === "") {
       throw missing(site);
     }
-    throw new Error(
+    throw new InvalidValueError(
       typeof verdict === "string" ? verdict : `Invalid ${site.value}`,
     );
   }
