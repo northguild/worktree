@@ -9,13 +9,14 @@ title: Configuration
 ## Common Keys
 
 - `defaultSourceBranch` (example: `origin/main`) — see [Default source branch](#default-source-branch)
-- `opener` (`editor` or `herdr`, default `editor`)
+- `opener` (`editor`, `herdr` or `none`, default `editor`)
 - `codeEditor` (example: `code`)
 - `herdr.focus` (`true` or `false`, default `true`)
-- `herdr.agent` (example: `claude`, unset means no agent)
+- `herdr.agent` (example: `claude`; unset means no agent, unless `worktree branch` or `checkout` is given a brief, which falls back to `agent.command`'s program)
 - `agent.command` (the coding agent to hand a new worktree to, example: `claude --bg`)
+- `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means infer from the lockfile)
 - `github.token` (GitHub personal access token)
-- `github.autoAssign` (`true` or `false`, unset means you are asked)
+- `github.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
@@ -118,6 +119,30 @@ space, and `~` and `$VAR` are not expanded.
 
 The key is optional and unset by default.
 
+When the worktree opens as a Herdr space, the agent is started by Herdr instead, and `agent.command` only
+supplies what to start: its program is the agent kind when a brief is given and [`herdr.agent`](/docs/guides/herdr-spaces#start-an-agent-with-the-space) is unset, and its
+arguments are reused when the program is that kind — without `--bg` or `--background`, which would take the
+agent out of the pane. For `claude`, `--name <repo>-<branch>` is added. See
+[Agent Dispatch](/docs/commands/branch#agent-dispatch).
+
+## Post-create Command
+
+`postCreate` is the command `worktree branch` runs in a new worktree to install its dependencies. It is a
+command line, split and validated exactly like `agent.command`: the first word is the program and has to be
+on `PATH` when you set it, quotes group an argument containing a space, and no shell parses the value.
+
+```bash
+worktree config postCreate "pnpm install"
+worktree config postCreate "make setup"
+```
+
+When it is set it is used as written, and it also turns the install on for a terminal run. When it is
+unset, `branch` infers the command from the new worktree's lockfile (`pnpm-lock.yaml`, `package-lock.json`,
+`yarn.lock`, then `bun.lock`) and installs by default only when non-interactive. `--no-install` skips it for
+one run. See [`branch`](/docs/commands/branch#installing-dependencies).
+
+The key is optional and unset by default.
+
 ## Platform Support
 
 `worktree` is developed and tested on macOS and Linux. **Windows is not supported.** Nothing here is
@@ -136,6 +161,7 @@ worktree config opener herdr
 worktree config herdr.focus false
 worktree config herdr.agent claude
 worktree config agent.command "claude --bg"
+worktree config postCreate "pnpm install"
 worktree config github.token <token>
 worktree config jira.host https://company.atlassian.net
 worktree config jira.email your-email@example.com
@@ -148,16 +174,16 @@ worktree config branchPrefix.chore chore/
 ## Opener Notes
 
 - `opener` selects where a finished worktree is handed off: `editor` uses `codeEditor`, `herdr`
-  opens it as a Herdr space — and closes that space again when the worktree is removed. Unset means
-  `editor`.
+  opens it as a Herdr space — and closes that space again when the worktree is removed, and `none`
+  opens nothing: the command prints `Worktree created at <path>` and stops. Unset means `editor`.
 - `codeEditor` is used only by the `editor` opener — see [Editor Command](#editor-command) above and
   the [Editor Integration](/docs/guides/editor-integration) guide.
 - `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`. See
   [Herdr Spaces](/docs/guides/herdr-spaces).
-- `opener`, `herdr.focus` and `herdr.agent` are shown by `worktree config` only when the `herdr` CLI is on
+- `herdr.focus` and `herdr.agent` are shown by `worktree config` only when the `herdr` CLI is on
   your `PATH`. Without it they are neither listed nor prompted for, so the feature stays out of the way.
-  This gating never hides a key that already holds a value, and setting `opener` to `herdr` un-hides all
-  three whether or not the CLI is found. Naming a key with `--names`, or setting it directly, always
+  This gating never hides a key that already holds a value, and setting `opener` to `herdr` un-hides both
+  whether or not the CLI is found. `opener` itself is always shown. Naming a key with `--names`, or setting it directly, always
   works.
 
 ## GitHub Integration Notes
@@ -167,7 +193,7 @@ worktree config branchPrefix.chore chore/
 - If `github.token` is missing, `worktree` can attempt to use `gh auth token` and then prompt.
 - `github.autoAssign` decides whether reading an issue also assigns it to you. It has three states, not
   two: `true` always assigns, `false` never does, and leaving it **unset** means you are asked, once, and
-  your answer is saved to this key. Assigning needs a token with push access to the repository.
+  your answer is saved to this key. A non-interactive run does not ask: it assigns and saves nothing. Assigning needs a token with push access to the repository.
 - `worktree branch --assign` and `--no-assign` override the key for a single run, whatever it holds. See
   [`branch`](/docs/commands/branch#assigning-the-issue-to-yourself).
 - If you answered no and want the offer back, set the key directly:

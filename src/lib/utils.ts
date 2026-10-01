@@ -33,17 +33,22 @@ interface WorktreeListNameOptions {
   agents?: boolean;
 }
 
-// The two markers are mutually exclusive by construction — isSessionWaiting is
-// never true for an interactive session (§4.1) — so at most one ever appends,
-// and a background session that is getting on with its work carries none. That
-// is what makes "actively working" the readable default rather than an absence
-// the reader has to infer.
+// The markers are mutually exclusive by construction — isSessionWaiting is
+// never true for an interactive or a finished session (§4.1) — so at most one
+// ever appends, and a background session that is getting on with its work
+// carries none. That is what makes "actively working" the readable default
+// rather than an absence the reader has to infer. `[done]` comes first because
+// a finished session is neither of the others, whatever else it was (F-033).
+// Only an explicit `false` reads as finished: an absent `live` is live (D6).
 function agentDetail(agent: WorktreeAgent): string {
-  const marker = agent.interactive
-    ? " [interactive]"
-    : agent.waiting
-      ? " [waiting]"
-      : "";
+  const marker =
+    agent.live === false
+      ? " [done]"
+      : agent.interactive
+        ? " [interactive]"
+        : agent.waiting
+          ? " [waiting]"
+          : "";
   return `Agent: ${agent.name}${marker}`;
 }
 
@@ -111,6 +116,33 @@ export function sanitizeBranchName(value: string) {
     .replace(/[^\w\s-]/g, "")
     .replace(/[\s_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+// The slug is cut to at most this many characters so a long issue title does
+// not make a branch name (and the worktree directory named after it) unwieldy.
+export const BRANCH_SLUG_MAX_LENGTH = 48;
+
+/**
+ * The title part of a derived branch name (D7): `sanitizeBranchName`, cut to at
+ * most `BRANCH_SLUG_MAX_LENGTH` characters at the last `-` at or before that
+ * length, so the slug ends on a whole word. The same slug is used in both modes,
+ * so one GitHub issue never yields two names. Jira names do not use it.
+ *
+ * A title whose first 49 characters hold no `-` (one unbroken word) has no word
+ * boundary to cut at, so it is hard-cut at the limit. An empty result falls back
+ * to `issue`.
+ *
+ * Because `sanitizeBranchName` keeps only `[a-z0-9_-]`, the result can never
+ * contain `/`, `.` or `..` from the title, so a title cannot steer the path.
+ */
+export function slugifyBranchTitle(title: string) {
+  const slug = sanitizeBranchName(title);
+  if (slug.length <= BRANCH_SLUG_MAX_LENGTH) {
+    return slug || "issue";
+  }
+  // One extra character, so a `-` sitting exactly after the limit is a boundary.
+  const boundary = slug.lastIndexOf("-", BRANCH_SLUG_MAX_LENGTH);
+  return slug.slice(0, boundary > 0 ? boundary : BRANCH_SLUG_MAX_LENGTH);
 }
 
 /**

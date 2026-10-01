@@ -1,14 +1,14 @@
-import { checkbox, confirm, Separator } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
-import ora from "ora";
 import { BaseCommand } from "../lib/base-command.js";
 import {
   gitGetWorktreeList,
   gitRemoveWorktree,
   gitRemoveWorktreesWithProgress,
 } from "../lib/git.js";
-import type { WorktreeListEntry } from "../lib/types.js";
+import { createSpinner } from "../lib/progress.js";
+import { askCheckbox, askConfirm, Separator } from "../lib/prompt.js";
+import type { RemoveDocument, WorktreeListEntry } from "../lib/types.js";
 import { worktreeListEntryToListName } from "../lib/utils.js";
 
 export default class Delete extends BaseCommand {
@@ -17,9 +17,12 @@ export default class Delete extends BaseCommand {
     branchName: Args.string({ description: "Name of the branch to remove" }),
   };
   static override description = "Remove worktree branches";
+  // One JSON document on stdout, everything human on stderr (D6).
+  static override enableJsonFlag = true;
   static override examples = [
     "<%= config.bin %> <%= command.id %>",
     "<%= config.bin %> <%= command.id %> my-new-branch",
+    "<%= config.bin %> <%= command.id %> my-new-branch --force --json",
   ];
   static override flags = {
     force: Flags.boolean({
@@ -48,22 +51,27 @@ export default class Delete extends BaseCommand {
     return [...safeToRemove, ...unsafeToRemove];
   }
 
-  public async run(): Promise<void> {
+  public async run(): Promise<RemoveDocument> {
     const { args, flags } = await this.parse(Delete);
-    const spinner = ora("Gathering worktree branches").start();
+    const spinner = createSpinner("Gathering worktree branches").start();
     const worktrees = await gitGetWorktreeList();
     spinner.stop();
 
-    if (worktrees.length === 0) {
+    // A named branch under `--json` is a request a script is waiting on, so an
+    // empty list falls through to the not-found error below instead of
+    // reporting a success that removed nothing.
+    if (worktrees.length === 0 && !(this.jsonEnabled() && args.branchName)) {
       this.log("No worktree branches found.");
-      return;
+      return this.toDocument([], []);
     }
 
     if (args.branchName) {
       const wt = worktrees.find((wt) => wt.branchName === args.branchName);
 
       if (!wt) {
-        this.error(`Branch "${args.branchName}" not found.`);
+        this.error(`Branch "${args.branchName}" not found.`, {
+          code: "not_found",
+        });
       }
 
       // Resolved before the removal, never after: `git worktree remove` and
@@ -76,31 +84,48 @@ export default class Delete extends BaseCommand {
         force: flags.force,
       });
 
-      // Only what was actually removed (D4). All three of gitRemoveWorktree's
-      // no-op paths — branch not found, confirmation declined, removal failed —
-      // answer undefined, and closing a space whose checkout is still on disk
-      // is worse than the orphan this feature exists to prevent.
-      await closeSpaces(removed ? [removed.path] : []);
-      return;
+      // Only what was actually removed (D4). gitRemoveWorktree answers
+      // undefined when the branch was not found or the confirmation declined,
+      // and throws, with git's reason, when the removal failed — closing a space
+      // whose checkout is still on disk is worse than the orphan this feature
+      // exists to prevent.
+      const closed = await closeSpaces(removed ? [removed.path] : []);
+
+      // A script that named the branch asked for it to be gone, so under
+      // `--json` nothing removed is a failure. A failed removal has already
+      // thrown with git's reason, and `--json` cannot decline a confirmation —
+      // it never prompts — so what is left is a branch that was gone by the
+      // time it was looked up again.
+      if (!removed && this.jsonEnabled()) {
+        throw new Error(`Could not remove the worktree ${args.branchName}.`);
+      }
+
+      return this.toDocument(removed ? [removed] : [], closed);
     }
 
-    const selected = await checkbox({
-      message: "Select worktree branches to delete",
-      choices: this.getWorktreeChoices(worktrees),
-    });
+    const selected = await askCheckbox(
+      {
+        message: "Select worktree branches to delete",
+        choices: this.getWorktreeChoices(worktrees),
+      },
+      { value: "the branches to remove", flag: "<branchName> -f" },
+    );
 
     if (selected.length === 0) {
-      return;
+      return this.toDocument([], []);
     }
 
     if (selected.some((wt) => !wt.safeToRemove) && !flags.force) {
-      const confirmDelete = await confirm({
-        message:
-          "Some selected branches are not safe to delete. Are you sure you want to continue?",
-        default: false,
-      });
+      const confirmDelete = await askConfirm(
+        {
+          message:
+            "Some selected branches are not safe to delete. Are you sure you want to continue?",
+          default: false,
+        },
+        { value: "removing branches that are not safe to delete", flag: "-f" },
+      );
       if (!confirmDelete) {
-        return;
+        return this.toDocument([], []);
       }
     }
 
@@ -108,6 +133,22 @@ export default class Delete extends BaseCommand {
     const closeSpaces = await this.resolveSpaceCloser();
     const removed = await gitRemoveWorktreesWithProgress(selected);
 
-    await closeSpaces(removed.map((worktree) => worktree.path));
+    const closed = await closeSpaces(removed.map((worktree) => worktree.path));
+
+    return this.toDocument(removed, closed);
+  }
+
+  private toDocument(
+    removed: WorktreeListEntry[],
+    herdrSpacesClosed: string[],
+  ): RemoveDocument {
+    return {
+      removed: removed.map(({ branchName, path }) => ({
+        branch: branchName,
+        path,
+      })),
+      herdrSpacesClosed,
+      warnings: this.warnings,
+    };
   }
 }

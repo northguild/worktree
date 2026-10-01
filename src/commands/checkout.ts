@@ -1,13 +1,13 @@
-import { select } from "@inquirer/prompts";
 import { Args, Flags } from "@oclif/core";
-import ora from "ora";
-import { BaseCommand } from "../lib/base-command.js";
+import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
   gitGetLocalBranches,
   gitGetRemoteBranches,
 } from "../lib/git.js";
+import { createSpinner } from "../lib/progress.js";
+import { askSelect } from "../lib/prompt.js";
 
 export default class Checkout extends BaseCommand {
   static override args = {
@@ -37,13 +37,16 @@ export default class Checkout extends BaseCommand {
   }
 
   private selectRemoteBranch(remoteBranches: string[]) {
-    return select({
-      message: "Select a remote branch to checkout",
-      choices: remoteBranches.map((branchName) => ({
-        name: branchName,
-        value: branchName,
-      })),
-    });
+    return askSelect(
+      {
+        message: "Select a remote branch to checkout",
+        choices: remoteBranches.map((branchName) => ({
+          name: branchName,
+          value: branchName,
+        })),
+      },
+      { value: "the branch to check out", flag: "<branchName>" },
+    );
   }
 
   private getBaseBranchName(branchNameArg: string) {
@@ -52,7 +55,21 @@ export default class Checkout extends BaseCommand {
 
   public async run(): Promise<void> {
     const { args, flags } = await this.parse(Checkout);
-    const spinner = ora("Fetching remote branches").start();
+
+    // Before anything is created, as in branch: an empty or oversized prompt is
+    // a usage error and should not leave a worktree behind.
+    let brief: string | undefined;
+    try {
+      brief = await readAgentBrief({ agent: flags.agent });
+    } catch (error) {
+      this.error(error instanceof Error ? error.message : String(error));
+    }
+
+    // Also before anything is created (#75): a brief with no agent configured
+    // to take it is a missing value, not a tree left behind.
+    await this.assertBriefHasAnAgent({ brief });
+
+    const spinner = createSpinner("Fetching remote branches").start();
     const remoteBranches = await gitGetRemoteBranches();
     const localBranches = await gitGetLocalBranches();
     spinner.stop();
@@ -77,12 +94,11 @@ export default class Checkout extends BaseCommand {
         { isCheckout: true },
       );
       // Same order as branch: env files complete the worktree before the agent
-      // sees it, and the editor stays last.
+      // sees it.
       await copyEnvFilesFromRootPath(projectPath);
-      if (flags.agent !== undefined) {
-        await this.dispatchAgent(projectPath, flags.agent);
-      }
-      await this.openWorktreePath(projectPath);
+      // The brief rides on the open: with Herdr it goes to the agent Herdr
+      // starts, and the detached launch happens only where Herdr did not open.
+      await this.openWorktreePath(projectPath, { brief });
     }
   }
 }

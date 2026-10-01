@@ -94,8 +94,9 @@ It creates the tree, copies every gitignored env-shaped file from the root into 
 the configured opener.
 Two consequences for an agent using it:
 
-- **It is interactive.** With no `--source` it prompts, and it confirms a non-`origin/` source. Give
-  `--source` explicitly so the run does not block on a prompt that has no TTY behind it.
+- **It prompts only for a human.** With no TTY (or `CI`, `--non-interactive`, `--yes`) it never prompts: a
+  non-`origin/` `--source` exits 2 naming `--source origin/<branch>`, and with no `--source` it uses
+  `defaultSourceBranch`, else `origin/main`. Give `--source origin/<branch>` explicitly.
 - **It opens an editor or a Herdr space as its last act**, per the `opener` config key. That is a side
   effect on the user's desktop, not a failure.
 
@@ -110,8 +111,13 @@ worktree list --agents
 
 `/feature-status` reports this where it can and says it cannot tell where it cannot; here it can. The flag
 is opt-in precisely because the session lookup costs something — without it the command costs what it
-always did. What comes back per worktree is a session name and pid, and markers for live, interactive and
-waiting.
+always did. Sessions are found from two sources joined on the real path of their directory: `herdr agent
+list` when `herdr` is on PATH, and the runtime's `<program> agents --json`, where the program is
+`agent.command`'s head or else `herdr.agent`. So a repository with only `herdr.agent` set is covered, and a
+Herdr entry is named by the runtime session it matches. What comes back per worktree is a session name
+(a pid only where the runtime has one), and markers for live, interactive, waiting and `[done]` (a runtime-finished session that Herdr still shows in a pane stays live). With
+neither source available the answer is no sessions, not an error — which is "no answer", not "nobody is
+there"; see the next paragraph.
 
 **A missing marker is not proof of absence.** `WorktreeAgent.live` is optional and the codebase's own
 safety check treats an absent value as live (`!== false`), which is the direction that fails safe. Read it
@@ -129,7 +135,7 @@ where it can — unmerged commits ahead of the source, an ahead count it could n
 changes — and it closes the tree's Herdr space once the checkout is actually gone. **It deletes the local
 branch too** (`git branch -D`, `src/lib/git.ts` `gitRemoveWorktree`), so it is a branch deletion as well
 as a tree removal. `-f` skips the confirmation, and is asked for by name, never added to get past a
-prompt.
+prompt. With no TTY it does not prompt and exits 2 naming `-f`.
 
 ### This section is the only way one gets made
 

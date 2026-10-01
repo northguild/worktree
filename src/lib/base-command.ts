@@ -1,21 +1,23 @@
+import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { confirm } from "@inquirer/prompts";
-import { Command } from "@oclif/core";
-import type { CommandError } from "@oclif/core/interfaces";
+import { inspect } from "node:util";
+import { Command, Flags, ux } from "@oclif/core";
+import type { CommandError, OclifError } from "@oclif/core/interfaces";
 import chalk from "chalk";
-import ora from "ora";
 // `lib/` importing `integrations/` inverts the layering in
 // context/standards/architecture/dependency-boundaries.md. It is a deliberate
 // deviation, recorded in §4.2 of the plan: BaseCommand is the composition point
 // every command inherits — it already reaches for `./git.js` and
-// `@inquirer/prompts` — not a leaf utility. Satisfying the boundary strictly
+// `./prompt.js` — not a leaf utility. Satisfying the boundary strictly
 // means moving this file out of `lib/`, a wider refactor than this feature buys.
 import {
   closeHerdrWorkspace,
   isHerdrInstalled,
   listHerdrWorktrees,
   openHerdrWorktree,
+  promptHerdrAgent,
   startHerdrAgent,
+  toAgentSessionName,
   toHerdrAgentName,
 } from "../integrations/herdr.js";
 import { run, spawnDetached } from "./cli.js";
@@ -24,11 +26,28 @@ import {
   gitGetConfigValue,
   gitGetRootPath,
 } from "./git.js";
-import type { ConfigName } from "./types.js";
+import {
+  isNonInteractive,
+  readProcessInteractionInputs,
+  resolveNonInteractive,
+  setNonInteractive,
+} from "./interaction.js";
+import { createSpinner } from "./progress.js";
+import { askConfirm, MissingValueError } from "./prompt.js";
+import { redactSecrets } from "./redact.js";
+import type {
+  ConfigName,
+  JsonErrorCode,
+  JsonErrorDocument,
+  OpenedAgent,
+  OpenerKind,
+  OpenOutcome,
+} from "./types.js";
 import { splitCommandValue } from "./utils.js";
 
 /**
- * Closes the Herdr spaces of the worktrees whose paths it is given.
+ * Closes the Herdr spaces of the worktrees whose paths it is given, and answers
+ * with the ids of the ones it closed.
  *
  * The seam hands one of these back rather than exposing a close method,
  * because the lookup it closes over has to happen *before* the worktrees are
@@ -37,10 +56,60 @@ import { splitCommandValue } from "./utils.js";
  * first — where two methods would leave a caller free to get it backwards and
  * find the spaces already gone from Herdr's listing.
  */
-type SpaceCloser = (worktreePaths: string[]) => Promise<void>;
+type SpaceCloser = (worktreePaths: string[]) => Promise<string[]>;
 
 /** Does nothing, for every path where there is nothing to close. */
-async function closeNothing() {}
+async function closeNothing(): Promise<string[]> {
+  return [];
+}
+
+const JSON_ERROR_CODES: readonly JsonErrorCode[] = [
+  "missing_value",
+  "invalid_value",
+  "not_found",
+  "timeout",
+  "failed",
+];
+
+// The timeout messages this CLI writes — github.ts, jira.ts, git.ts, herdr.ts
+// and cli.ts all say "<what> did not answer|finish within <n>s".
+const TIMEOUT_MESSAGE = /did not (?:answer|finish) within \d+s/;
+
+function isJsonErrorCode(code: unknown): code is JsonErrorCode {
+  return JSON_ERROR_CODES.includes(code as JsonErrorCode);
+}
+
+/**
+ * The machine-readable code for a failure. An explicit `code` — `this.error(…,
+ * { code })` — wins; then the typed missing value and the bounded-call messages;
+ * then oclif's exit 2, which is how a usage error is raised. Anything else is
+ * `failed`.
+ */
+function toErrorCode(error: Error): JsonErrorCode {
+  if (error instanceof MissingValueError) {
+    return "missing_value";
+  }
+  const { code, oclif } = error as Partial<OclifError> & { code?: unknown };
+  if (isJsonErrorCode(code)) {
+    return code;
+  }
+  if (TIMEOUT_MESSAGE.test(error.message)) {
+    return "timeout";
+  }
+  return oclif?.exit === 2 ? "invalid_value" : "failed";
+}
+
+function toErrorDocument(error: Error, message: string): JsonErrorDocument {
+  return {
+    error: {
+      code: toErrorCode(error),
+      message,
+      ...(error instanceof MissingValueError
+        ? { details: { value: error.value, flag: error.flag } }
+        : {}),
+    },
+  };
+}
 
 /**
  * The label Herdr puts on the space, which is the branch name recovered from
@@ -60,17 +129,263 @@ function toSpaceLabel(worktreePath: string, worktreesRootPath: string) {
     : basename(worktreePath);
 }
 
+/**
+ * The most a brief may be, in bytes (D13). It becomes one argv element of
+ * `herdr agent prompt`, so it is bounded where argv is: Linux caps a single
+ * argument at `MAX_ARG_STRLEN`, 131,072 bytes *including* the terminating NUL.
+ * The largest string that can be spawned is therefore 131,071 bytes, and a
+ * brief that passes validation must always be one that spawns.
+ */
+export const AGENT_BRIEF_MAX_BYTES = 128 * 1024 - 1;
+
+export interface AgentBriefSources {
+  agent?: string;
+  agentFile?: string;
+  agentStdin?: boolean;
+}
+
+/** The part of a stream `readAgentBrief` reads from; `process.stdin` by default. */
+export interface BriefStdin extends AsyncIterable<Buffer | string> {
+  isTTY?: boolean;
+}
+
+function checkBrief(brief: string, source: string): string {
+  if (brief.trim() === "") {
+    throw new Error(`The agent brief from ${source} is empty.`);
+  }
+
+  if (Buffer.byteLength(brief, "utf8") > AGENT_BRIEF_MAX_BYTES) {
+    throw new Error(
+      `The agent brief from ${source} is over ${AGENT_BRIEF_MAX_BYTES} bytes.`,
+    );
+  }
+
+  return brief;
+}
+
+async function readBriefFile(path: string): Promise<string> {
+  let stats: Awaited<ReturnType<typeof stat>>;
+
+  try {
+    stats = await stat(path);
+  } catch {
+    throw new Error(`--agent-file ${path} does not exist or is not readable.`);
+  }
+
+  if (!stats.isFile()) {
+    throw new Error(`--agent-file ${path} is not a regular file.`);
+  }
+
+  // Size first, so a huge file is refused without being read into memory.
+  if (stats.size > AGENT_BRIEF_MAX_BYTES) {
+    throw new Error(
+      `The agent brief from --agent-file is over ${AGENT_BRIEF_MAX_BYTES} bytes.`,
+    );
+  }
+
+  return checkBrief(await readFile(path, "utf8"), "--agent-file");
+}
+
+async function readBriefStdin(stdin: BriefStdin): Promise<string> {
+  // Reading a terminal would wait for a person who was never told to type.
+  if (stdin.isTTY) {
+    throw new Error(
+      "--agent-stdin needs the brief piped in, but stdin is a terminal.",
+    );
+  }
+
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+
+  for await (const chunk of stdin) {
+    const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    bytes += buffer.length;
+
+    // Stops at the cap rather than buffering what will be refused anyway.
+    if (bytes > AGENT_BRIEF_MAX_BYTES) {
+      throw new Error(
+        `The agent brief from --agent-stdin is over ${AGENT_BRIEF_MAX_BYTES} bytes.`,
+      );
+    }
+
+    chunks.push(buffer);
+  }
+
+  return checkBrief(Buffer.concat(chunks).toString("utf8"), "--agent-stdin");
+}
+
+/**
+ * Reads the brief from whichever of `--agent`, `--agent-file` and
+ * `--agent-stdin` was given — the flags are mutually exclusive, so at most one
+ * was. Whole and unchanged, because it is delivered verbatim (D13). Returns
+ * `undefined` when none was given; throws on an empty or oversized brief.
+ */
+export async function readAgentBrief(
+  { agent, agentFile, agentStdin }: AgentBriefSources,
+  stdin: BriefStdin = process.stdin,
+): Promise<string | undefined> {
+  if (agentFile !== undefined) {
+    return readBriefFile(agentFile);
+  }
+
+  if (agentStdin) {
+    return readBriefStdin(stdin);
+  }
+
+  return agent === undefined ? undefined : checkBrief(agent, "--agent");
+}
+
+export interface OpenWorktreeOptions {
+  /** `false` for `--no-open`: no Herdr or editor call, as with `opener=none`. */
+  open?: boolean;
+  /** `false` for `--no-agent`: open, but start no agent. */
+  agent?: boolean;
+  /** The kickoff brief, delivered to the one agent this run starts (D11). */
+  brief?: string;
+}
+
+interface HerdrAgentPlan {
+  kind: string;
+  args: string[];
+  sessionName: string | null;
+}
+
+function missingAgentKind(): MissingValueError {
+  return new MissingValueError(
+    "the agent kind",
+    "`worktree config herdr.agent <kind>`",
+  );
+}
+
+function missingAgentCommand(): MissingValueError {
+  return new MissingValueError(
+    "the agent command",
+    '`worktree config agent.command "<command>"`',
+  );
+}
+
+/** The kind that `--name` is known to mean a session name for (D11). */
+const NAMEABLE_AGENT_KIND = "claude";
+
+/** Background flags would detach the agent from the pane Herdr watches. */
+const BACKGROUND_FLAGS = ["--bg", "--background"];
+
 export abstract class BaseCommand extends Command {
+  /** On every command; `init()` below turns them into the run's mode. */
+  static override baseFlags = {
+    "non-interactive": Flags.boolean({
+      description: "Never prompt or animate; take defaults or fail",
+    }),
+    yes: Flags.boolean({
+      char: "y",
+      description: "Non-interactive: accept defaults instead of prompting",
+    }),
+  };
+
+  /** Resolved once in `init()`; see `lib/interaction.ts` (D1). */
+  protected nonInteractive = false;
+
+  /**
+   * Everything this run warned about, for the `warnings` array of a `--json`
+   * document. Redacted on the way in, so a document built from it needs no
+   * second pass.
+   */
+  protected warnings: string[] = [];
+
+  /**
+   * Under `--json` oclif drops `log` entirely, which would lose the human text
+   * the run still has to say. It goes to stderr instead, so stdout carries the
+   * document and nothing else (D6).
+   */
+  override log(message = "", ...args: string[]) {
+    if (this.jsonEnabled()) {
+      this.logToStderr(message, ...args);
+      return;
+    }
+    super.log(message, ...args);
+  }
+
+  /** oclif suppresses this under `--json` too; it is the one stream left to talk on. */
+  override logToStderr(message: unknown = "", ...args: string[]) {
+    ux.stderr(
+      typeof message === "string" ? message : inspect(message),
+      ...args,
+    );
+  }
+
+  /**
+   * One line of compact JSON, uncoloured: a contract a script parses does not
+   * change with `FORCE_COLOR` or the terminal, and oclif's own printer pretty-
+   * prints and colours.
+   */
+  override logJson(json: unknown) {
+    ux.stdout(JSON.stringify(json));
+  }
+
+  /**
+   * oclif prints nothing for a warning under `--json`, so it goes to stderr
+   * here, and every warning is kept for the document.
+   */
+  override warn(input: string | Error): string | Error {
+    const message = redactSecrets(
+      input instanceof Error ? input.message : input,
+    );
+    this.recordWarning(message);
+    if (this.jsonEnabled()) {
+      this.logToStderr(`Warning: ${message}`);
+    } else {
+      super.warn(message);
+    }
+    return input;
+  }
+
+  /**
+   * For a warning already printed another way — a spinner's `warn` — that the
+   * document should still carry.
+   */
+  protected recordWarning(message: string) {
+    this.warnings.push(redactSecrets(message));
+  }
+
+  async init() {
+    await super.init();
+    const { flags } = await this.parse();
+    const mode = resolveNonInteractive({
+      ...readProcessInteractionInputs(),
+      nonInteractiveFlag: flags["non-interactive"],
+      yesFlag: flags.yes,
+      json: this.jsonEnabled(),
+    });
+    this.nonInteractive = mode;
+    setNonInteractive(mode);
+  }
+
+  // Non-interactive runs take "no" here: the offer is skipped, and
+  // `verifyConfig` names what is missing instead of asking.
   private confirmFirstTimeConfig() {
     const message =
       "Looks like this is your first time running the CLI. Do you want to run the config command now?";
-    return confirm({ message });
+    return askConfirm(
+      { message },
+      {
+        value: "the first-time config offer",
+        flag: "`worktree config`",
+        fallback: false,
+      },
+    );
   }
 
   private confirmMissingConfig() {
     const message =
       "Some required configuration values are missing. Do you want to run the config command now?";
-    return confirm({ message });
+    return askConfirm(
+      { message },
+      {
+        value: "the missing-config offer",
+        flag: "`worktree config`",
+        fallback: false,
+      },
+    );
   }
 
   protected async verifyConfig(configNames: ConfigName[] = []) {
@@ -81,35 +396,179 @@ export abstract class BaseCommand extends Command {
       }
     }
 
-    let isMissingConfig = false;
+    const missingNames: ConfigName[] = [];
     for (const name of configNames) {
       if (!(await gitGetConfigValue(name))) {
-        isMissingConfig = true;
-        break;
+        missingNames.push(name);
       }
     }
 
-    if (isMissingConfig) {
-      if (await this.confirmMissingConfig()) {
-        await this.config.runCommand("config", [
-          "--missing",
-          "--yes",
-          "--names",
-          configNames.join(","),
-        ]);
-      }
-    }
-  }
-
-  protected async openWorktreePath(path: string) {
-    const opener = await gitGetConfigValue("opener");
-
-    if (opener === "herdr") {
-      await this.openHerdrSpace(path);
+    if (missingNames.length === 0) {
       return;
     }
 
-    await this.openCodeEditor(path);
+    // Offering `config` would prompt, so a non-interactive run says what is
+    // missing and carries on: whatever needs a value fails naming its own key,
+    // and what has a fallback (`defaultSourceBranch`) uses it.
+    if (isNonInteractive()) {
+      this.warn(
+        `Missing config: ${missingNames.join(", ")}. Set one with \`worktree config <name> <value>\`.`,
+      );
+      return;
+    }
+
+    if (await this.confirmMissingConfig()) {
+      // `--names` alone means "ask these" (config.ts), so there is no `--yes`:
+      // that flag now means non-interactive.
+      await this.config.runCommand("config", [
+        "--missing",
+        "--names",
+        configNames.join(","),
+      ]);
+    }
+  }
+
+  /** The opener this run uses: the flag first, then the `opener` key. */
+  private async resolveOpener(open: boolean): Promise<OpenerKind> {
+    const configured = await gitGetConfigValue("opener");
+
+    return !open || configured === "none"
+      ? "none"
+      : configured === "herdr"
+        ? "herdr"
+        : "editor";
+  }
+
+  /**
+   * Fails a brief that nothing would take, before anything is created (#75).
+   * Found out afterwards, it leaves a tree with no agent in it: an exit 0 a
+   * coordinator reads as "working", or under `--json` an error document with
+   * no `path` for a tree that is there.
+   *
+   * Who takes a brief is a matter of config, so it is knowable here. Herdr
+   * starts its kind when it will open the tree — Herdr the opener and
+   * installed; every other run, Herdr not installed included, falls to the
+   * detached dispatch, which needs `agent.command`. Neither is a missing value
+   * naming its key. A run without a brief, or with `--no-agent`, hands nothing
+   * over.
+   *
+   * What can only fail once the tree exists — Herdr not opening, a space
+   * already open, an agent that does not start — is `openWorktreePath`'s to
+   * report, and it exits 1 for it.
+   */
+  protected async assertBriefHasAnAgent({
+    open = true,
+    agent = true,
+    brief,
+  }: OpenWorktreeOptions): Promise<void> {
+    if (!agent || brief === undefined) {
+      return;
+    }
+
+    if (
+      (await this.resolveOpener(open)) === "herdr" &&
+      (await isHerdrInstalled())
+    ) {
+      const { kind } = await this.readHerdrAgentKind(brief);
+
+      if (!kind) {
+        throw missingAgentKind();
+      }
+      return;
+    }
+
+    const [head] = splitCommandValue(await gitGetConfigValue("agent.command"));
+
+    if (!head) {
+      throw missingAgentCommand();
+    }
+  }
+
+  /**
+   * The kind Herdr starts, and the `agent.command` it may have come from — the
+   * one place the fallback rule lives, for the preflight and the plan both.
+   */
+  private async readHerdrAgentKind(brief: string | undefined) {
+    const [head, ...tail] = splitCommandValue(
+      await gitGetConfigValue("agent.command"),
+    );
+    // The `agent.command` fallback is for a brief only: without one,
+    // `herdr.agent` alone decides, so someone who set `agent.command` for
+    // `--agent` is not given an agent in every plain open they never asked for.
+    const kind =
+      (await gitGetConfigValue("herdr.agent")) ||
+      (brief !== undefined ? basename(head ?? "") : "");
+
+    return { kind, head, tail };
+  }
+
+  /**
+   * Opens the tree and hands over the brief, if there is one.
+   *
+   * A brief that reached no agent exits 1, though nothing throws: the tree
+   * exists and the outcome reports it, as a failed install does in `branch`.
+   * The warning on the way says why, and `agent.prompted` is the receipt — an
+   * exit 0 with `agent: null` would tell a coordinator the work had started.
+   */
+  protected async openWorktreePath(
+    path: string,
+    { open = true, agent = true, brief }: OpenWorktreeOptions = {},
+  ): Promise<OpenOutcome> {
+    const handoff = agent ? brief : undefined;
+    const outcome = await this.openWithHandoff(path, open, agent, handoff);
+
+    if (handoff !== undefined && !outcome.agent?.prompted) {
+      process.exitCode = 1;
+    }
+
+    return outcome;
+  }
+
+  private async openWithHandoff(
+    path: string,
+    open: boolean,
+    agent: boolean,
+    handoff: string | undefined,
+  ): Promise<OpenOutcome> {
+    const opener = await this.resolveOpener(open);
+
+    if (opener === "herdr") {
+      const { herdr, opened, startedAgent } = await this.openHerdrSpace(
+        path,
+        agent,
+        handoff,
+      );
+
+      // The detached dispatch is for a run where Herdr did not open (D11): a
+      // second agent beside the one Herdr started would be two in one tree.
+      if (!opened && handoff !== undefined) {
+        return { opener, agent: await this.dispatchAgent(path, handoff) };
+      }
+
+      if (opened && handoff !== undefined && !startedAgent) {
+        this.warn(
+          "The brief was not delivered: no agent was started in this Herdr space.",
+        );
+      }
+
+      return { opener, herdr, agent: startedAgent };
+    }
+
+    // Before the opener, so the editor's line stays the last one printed.
+    const dispatched =
+      handoff !== undefined
+        ? await this.dispatchAgent(path, handoff)
+        : undefined;
+
+    // Nothing is opened and nothing is launched: the path is the whole result.
+    // Plain text, no glyph, so a script can take the last word of the line.
+    if (opener === "none") {
+      this.log(`Worktree created at ${path}`);
+    } else {
+      await this.openCodeEditor(path);
+    }
+
+    return { opener, agent: dispatched };
   }
 
   /** One worktree's label, for the open. `toSpaceLabel` holds the rule. */
@@ -148,7 +607,7 @@ export abstract class BaseCommand extends Command {
       return closeNothing;
     }
 
-    const spinner = ora("Finding Herdr spaces").start();
+    const spinner = createSpinner("Finding Herdr spaces").start();
     let spaces: Map<string, string>;
     let worktreesRootPath: string;
 
@@ -192,7 +651,9 @@ export abstract class BaseCommand extends Command {
       // could act on. Decided here deliberately rather than inherited (F-056) —
       // the run continues and the removals still happen, because by the time a
       // caller holds this closure the user has already asked for them.
-      spinner.warn(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.warn(message);
+      this.recordWarning(message);
       return closeNothing;
     }
 
@@ -201,6 +662,8 @@ export abstract class BaseCommand extends Command {
     }
 
     return async (worktreePaths: string[]) => {
+      const closed: string[] = [];
+
       for (const worktreePath of worktreePaths) {
         const workspaceId = spaces.get(worktreePath);
 
@@ -216,11 +679,17 @@ export abstract class BaseCommand extends Command {
           continue;
         }
 
-        await this.closeSpace(
-          workspaceId,
-          toSpaceLabel(worktreePath, worktreesRootPath),
-        );
+        if (
+          await this.closeSpace(
+            workspaceId,
+            toSpaceLabel(worktreePath, worktreesRootPath),
+          )
+        ) {
+          closed.push(workspaceId);
+        }
       }
+
+      return closed;
     };
   }
 
@@ -234,22 +703,37 @@ export abstract class BaseCommand extends Command {
    * the rest of the run with it.
    */
   private async closeSpace(workspaceId: string, label: string) {
-    const spinner = ora(`Closing Herdr space ${label}`).start();
+    const spinner = createSpinner(`Closing Herdr space ${label}`).start();
 
     try {
       await closeHerdrWorkspace(workspaceId);
       spinner.succeed(`Closed Herdr space ${label}`);
+      return true;
     } catch (error) {
-      spinner.warn(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.warn(message);
+      this.recordWarning(message);
+      return false;
     }
   }
 
   /**
    * Awaited, unlike the editor branch: the open answers with the pane the space
    * was built around, which is what an agent start hangs off later.
+   *
+   * `opened` is whether a Herdr space exists for the path afterwards, which is
+   * what decides that no detached agent is dispatched beside it.
    */
-  private async openHerdrSpace(path: string) {
-    const spinner = ora("Opening in Herdr").start();
+  private async openHerdrSpace(
+    path: string,
+    wantsAgent: boolean,
+    brief: string | undefined,
+  ): Promise<{
+    herdr?: OpenOutcome["herdr"];
+    opened: boolean;
+    startedAgent?: OpenedAgent;
+  }> {
+    const spinner = createSpinner("Opening in Herdr").start();
 
     try {
       if (!(await isHerdrInstalled())) {
@@ -262,7 +746,13 @@ export abstract class BaseCommand extends Command {
         gitGetConfigValue("herdr.focus"),
       ]);
 
-      const { alreadyOpen, paneId } = await openHerdrWorktree({
+      // Before the open, so a brief with no agent kind to take it fails before
+      // a space exists rather than after.
+      const plan = wantsAgent
+        ? await this.resolveHerdrAgentPlan(gitRootPath, label, brief)
+        : undefined;
+
+      const { alreadyOpen, paneId, workspaceId } = await openHerdrWorktree({
         path,
         gitRootPath,
         label,
@@ -281,47 +771,132 @@ export abstract class BaseCommand extends Command {
       // Only for a space this command just built. Re-opening a worktree is how
       // someone returns to work already in progress, and the agent they left
       // running is still in that pane — a second start would collide with it.
-      if (!alreadyOpen) {
-        await this.startConfiguredAgent(label, paneId);
-      }
+      const startedAgent =
+        plan && !alreadyOpen
+          ? await this.startConfiguredAgent(label, paneId, plan, brief)
+          : undefined;
+
+      return {
+        opened: true,
+        startedAgent,
+        herdr: {
+          space: workspaceId,
+          pane: paneId,
+          agent: startedAgent ? toHerdrAgentName(label) : null,
+        },
+      };
     } catch (error) {
+      if (error instanceof MissingValueError) {
+        spinner.stop();
+        throw error;
+      }
+
       // D5 — no editor as a consolation prize. Someone who set `opener=herdr`
       // gets told what Herdr said and where the worktree is, and that is all.
       // The command still exits 0: by the time the opener runs the worktree
       // exists and its env files are copied, so failing here would misreport
       // what actually happened.
-      spinner.fail(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.fail(message);
+      this.recordWarning(message);
       this.log(`The worktree is at ${path}`);
+      return { opened: false };
     }
   }
 
   /**
-   * Starts the agent kind named by `herdr.agent` in the pane the new space was
-   * built around. Opt-in, and unset means no agent at all (D9): there are 22
-   * kinds and no canonical one, and `agent start` blocks until the agent
-   * answers, so nobody pays for this who did not ask for it.
+   * Which agent Herdr starts, and with what (D11). `undefined` means none.
+   *
+   * The kind is `herdr.agent`; with a brief it falls back to the program
+   * `agent.command` names, so a user with only `agent.command` is not told to
+   * configure the same thing twice. With a brief and neither, there is nothing to hand it to: that is a missing value and the
+   * run says so, where without a brief it is simply no agent (D9 of #52).
+   */
+  private async resolveHerdrAgentPlan(
+    gitRootPath: string,
+    label: string,
+    brief: string | undefined,
+  ): Promise<HerdrAgentPlan | undefined> {
+    const { kind, head, tail } = await this.readHerdrAgentKind(brief);
+
+    if (!kind) {
+      if (brief !== undefined) {
+        throw missingAgentKind();
+      }
+      return undefined;
+    }
+
+    // The tail belongs to the program `agent.command` names, so it is only
+    // reused when that is the kind being started.
+    const reusable = head !== undefined && basename(head) === kind ? tail : [];
+    const args = reusable.filter((arg) => !BACKGROUND_FLAGS.includes(arg));
+
+    if (args.length < reusable.length) {
+      this.logToStderr(
+        `Dropped ${BACKGROUND_FLAGS.join("/")} from agent.command: Herdr runs the agent in the pane.`,
+      );
+    }
+
+    if (kind !== NAMEABLE_AGENT_KIND) {
+      return { kind, args, sessionName: null };
+    }
+
+    const sessionName = toAgentSessionName(basename(gitRootPath), label);
+    return { kind, args: [...args, "--name", sessionName], sessionName };
+  }
+
+  /**
+   * Starts the planned agent in the pane the new space was built around, then
+   * delivers the brief. Opt-in, and no kind means no agent at all (D9 of #52):
+   * there are 22 kinds and no canonical one, and `agent start` blocks until the
+   * agent answers, so nobody pays for this who did not ask for it.
+   *
+   * The brief never goes in `agent start`'s arguments (D11): Herdr types those
+   * into the pane's shell, so it goes through `agent prompt` once the agent is
+   * ready — `agent start` has already waited, bounded, for that.
    *
    * Never throws. By the time it runs the space is open and correct, so a name
    * that collides with a live agent from another repo, or an agent that does not
    * reach its prompt in time, is a warning about the agent and not a failure of
    * the open (§5).
    */
-  private async startConfiguredAgent(label: string, paneId: string) {
-    const kind = await gitGetConfigValue("herdr.agent");
-
-    if (!kind) {
-      return;
-    }
-
+  private async startConfiguredAgent(
+    label: string,
+    paneId: string,
+    { kind, args, sessionName }: HerdrAgentPlan,
+    brief: string | undefined,
+  ): Promise<OpenedAgent | undefined> {
     const name = toHerdrAgentName(label);
-    const spinner = ora(`Starting ${kind} in ${label}`).start();
+    const spinner = createSpinner(`Starting ${kind} in ${label}`).start();
 
     try {
-      await startHerdrAgent({ name, kind, paneId });
+      await startHerdrAgent({ name, kind, paneId, args });
       spinner.succeed(`Started ${kind} as ${name}`);
     } catch (error) {
-      spinner.warn(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.warn(message);
+      this.recordWarning(message);
+      return undefined;
     }
+
+    if (sessionName) {
+      this.logToStderr(`Agent session name: ${sessionName}`);
+    }
+
+    let prompted = false;
+
+    if (brief !== undefined) {
+      try {
+        await promptHerdrAgent({ paneId, text: brief });
+        prompted = true;
+      } catch (error) {
+        this.warn(
+          `${kind} started, but the brief was not delivered. ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    return { name: sessionName, kind, command: [kind, ...args], prompted };
   }
 
   private async openCodeEditor(path: string) {
@@ -338,7 +913,7 @@ export abstract class BaseCommand extends Command {
     // Unset, whitespace-only and quote-only are the same fact: nothing to
     // launch. The head is what execFile would receive, so it is what decides.
     if (editor) {
-      const spinner = ora(`Opening in ${codeEditor}`).start();
+      const spinner = createSpinner(`Opening in ${codeEditor}`).start();
       // Deliberately not awaited, exactly as the exec callback was not: the
       // editor outlives this command, and the spinner settles when it exits.
       run(editor, [...editorArgs, path]).then(
@@ -350,7 +925,15 @@ export abstract class BaseCommand extends Command {
     }
   }
 
-  protected async dispatchAgent(path: string, prompt: string) {
+  /**
+   * The detached launch, for a run where Herdr did not open (D11). Returns what
+   * it started, or `undefined` when there was nothing to run. `name` is `null`:
+   * this CLI names no session on this path.
+   */
+  protected async dispatchAgent(
+    path: string,
+    prompt: string,
+  ): Promise<OpenedAgent | undefined> {
     const agentCommand = await gitGetConfigValue("agent.command");
     // Split exactly as openWorktreePath splits codeEditor: the head is the
     // program to launch and the tail is leading arguments, with quotes grouping
@@ -363,13 +946,18 @@ export abstract class BaseCommand extends Command {
     // Unset and whitespace-only are the same fact: no agent to run. The head is
     // what spawn would receive, so it is what decides — an empty one makes spawn
     // throw synchronously, which would take the editor launch down with it. The
-    // command named here has to be one that works: `worktree config <name>` with
-    // no value reads the key and discards the result (config.ts:273-274).
+    // command named here has to set the key: `worktree config <name>` with no
+    // value only prints it (`Config.run`). `assertBriefHasAnAgent` fails this
+    // case before the tree exists; it is still reached when Herdr was the
+    // opener, had a kind, and did not open.
     if (!agent) {
       this.log(
         `No agent configured. Run ${chalk.cyan('worktree config agent.command "<command>"')} to set one.`,
       );
-      return;
+      this.recordWarning(
+        'No agent configured, so the brief was not delivered. Run `worktree config agent.command "<command>"` to set one.',
+      );
+      return undefined;
     }
 
     // Fire-and-forget: the agent outlives this command, so there is no exit
@@ -379,6 +967,13 @@ export abstract class BaseCommand extends Command {
       onError: (error: Error) => this.log(chalk.red(`Error: ${error.message}`)),
     });
     this.log(`${chalk.green("✔")} Agent started in ${path}`);
+
+    return {
+      name: null,
+      kind: null,
+      command: [agent, ...agentArgs],
+      prompted: true,
+    };
   }
 
   protected async catch(error: CommandError) {
@@ -387,8 +982,22 @@ export abstract class BaseCommand extends Command {
         // Silently exit
         return;
       }
-      // Color the error message red for better visibility
-      this.log(chalk.red(`Error: ${error.message}`));
+      // stderr and a non-zero exit, so a script can tell a failure from a
+      // success. `this.error(...)` carries its code on `oclif.exit` (2 by
+      // default); anything else is a plain failure.
+      // One line in the plan's D2 shape; its own exit code rides on `oclif.exit`.
+      const message = redactSecrets(error.message);
+      console.error(
+        error instanceof MissingValueError
+          ? `worktree: ${message}`
+          : chalk.red(`Error: ${message}`),
+      );
+      process.exitCode = (error as Partial<OclifError>).oclif?.exit ?? 1;
+      // Under `--json` stdout carries the failure as the one document (D6), so
+      // a script reads the same channel whether the run worked or not.
+      if (this.jsonEnabled()) {
+        this.logJson(toErrorDocument(error, message));
+      }
       return;
     }
     return super.catch(error);

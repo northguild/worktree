@@ -1,9 +1,11 @@
 import type { WorktreeAgent, WorktreeListEntry } from "./types.js";
 import {
   conjoin,
+  slugifyBranchTitle,
   splitCommandValue,
   worktreeListEntryToListName,
 } from "./utils.js";
+import { isValidBranchName } from "./validators.js";
 
 describe("conjoin", () => {
   it.each`
@@ -335,6 +337,49 @@ describe("worktreeListEntryToListName agent details", () => {
     expect(waiting).not.toBe(working);
   });
 
+  // F-033: a finished session used to render as a bare name, which the docs
+  // read as "getting on with its work".
+  it("marks a finished session as done", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f", pid: 9187, live: false }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("Agent: feature-test-1f [done]");
+  });
+
+  it("marks a finished session done even where it was also interactive", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "notes-1f", live: false, interactive: true }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("[done]");
+    expect(result).not.toContain("[interactive]");
+  });
+
+  it("does not mark a session done when liveness is unknown", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f" }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).not.toContain("[done]");
+  });
+
+  it("renders a session with no pid", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "feature-test-1f", waiting: true }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("Agent: feature-test-1f [waiting]");
+  });
+
   // The guard for D8: cleanup shares this renderer and asks for no agents, so
   // its output must not change even once cleanup starts populating the field.
   it("renders nothing about an agent when the caller did not ask", () => {
@@ -376,5 +421,64 @@ describe("worktreeListEntryToListName agent details", () => {
     expect(result).toBe(
       "feature/test (Ahead: 2, Behind: 1, 3 uncommitted changes, Agent: feature-test-1f)",
     );
+  });
+});
+
+describe("slugifyBranchTitle", () => {
+  const longTitle =
+    "Add a dark mode toggle to the settings page so that users can switch themes at runtime";
+
+  it("returns a short title as a plain slug", () => {
+    expect(slugifyBranchTitle("Add Dark Mode!")).toBe("add-dark-mode");
+  });
+
+  it("cuts an 80+ character title at the last dash within 48 characters", () => {
+    const slug = slugifyBranchTitle(longTitle);
+
+    expect(longTitle.length).toBeGreaterThan(80);
+    expect(slug).toBe("add-a-dark-mode-toggle-to-the-settings-page-so");
+    expect(slug.length).toBeLessThanOrEqual(48);
+    expect(slug.endsWith("-")).toBe(false);
+    expect(isValidBranchName(`42-${slug}`)).toBe(true);
+  });
+
+  it("keeps a slug of exactly 48 characters whole", () => {
+    const title = `${"a".repeat(23)} ${"b".repeat(24)}`;
+
+    expect(slugifyBranchTitle(title)).toBe(
+      `${"a".repeat(23)}-${"b".repeat(24)}`,
+    );
+  });
+
+  it("treats a dash right after the 48th character as a boundary", () => {
+    const title = `${"a".repeat(48)} next`;
+
+    expect(slugifyBranchTitle(title)).toBe("a".repeat(48));
+  });
+
+  it("hard-cuts at 48 characters when there is no dash to cut at", () => {
+    expect(slugifyBranchTitle("x".repeat(80))).toBe("x".repeat(48));
+  });
+
+  it("never leaves a trailing dash", () => {
+    expect(slugifyBranchTitle(`${"a".repeat(30)} - ${"b".repeat(40)}`)).toBe(
+      "a".repeat(30),
+    );
+  });
+
+  it.each([
+    "",
+    "   ",
+    "???",
+    "日本語",
+  ])("falls back to issue for %j", (title) => {
+    expect(slugifyBranchTitle(title)).toBe("issue");
+  });
+
+  it("drops path separators and dot runs from the title", () => {
+    const slug = slugifyBranchTitle("../../etc/passwd ../ fix a/b.c..d");
+
+    expect(slug).not.toMatch(/[/.]/);
+    expect(isValidBranchName(`42-${slug}`)).toBe(true);
   });
 });

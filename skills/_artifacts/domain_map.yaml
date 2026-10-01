@@ -86,8 +86,8 @@ skills:
 
       - mistake: 'Skipping worktree config before first branch or checkout'
         mechanism: >
-          defaultSourceBranch is not set; branch will prompt interactively for a source
-          branch, which blocks non-interactive agent runs. codeEditor not set means the
+          defaultSourceBranch is not set; branch offers to run config in a terminal, and
+          a non-interactive run warns naming the key and uses origin/main. codeEditor not set means the
           worktree is created but not opened, unless opener is set to herdr.
         wrong_pattern: |
           # Fresh global install — immediately try to branch
@@ -114,10 +114,11 @@ skills:
         priority: 'MEDIUM'
         status: 'active'
 
-      - mistake: '--source flag given without origin/ prefix causes interactive prompt'
+      - mistake: '--source flag given without origin/ prefix causes interactive prompt, or exit 2 when non-interactive'
         mechanism: >
           A source value without "origin/" triggers a confirm() prompt asking whether
-          to use a local branch. A non-interactive agent run will hang waiting for input.
+          to use a local branch. A non-interactive run does not wait: it exits 2 with
+          "worktree: no default for whether to use the local source branch main; pass --source origin/main".
         wrong_pattern: |
           worktree branch feature/x --source main
         correct_pattern: |
@@ -160,11 +161,12 @@ tensions:
     skills: ['core']
     description: >
       The CLI is designed for interactive human use (confirm prompts, branch pickers,
-      spinners) but agents run it non-interactively. Prompts that a human would answer
-      instantly become hangs in agent contexts.
+      spinners) but agents run it non-interactively (stdin not a TTY, CI set,
+      --non-interactive or --yes). A non-interactive run never prompts: a prompt with
+      a default takes it, and one without exits 2 naming the flag to pass.
     implication: >
       Agents should always provide explicit flag values (--source origin/main,
-      exact branch names) rather than relying on the interactive defaults.
+      exact branch names, remove -f, cleanup --force) rather than relying on defaults.
 
 cross_references: []
 

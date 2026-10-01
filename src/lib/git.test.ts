@@ -6,6 +6,7 @@ import * as cli from "./cli.js";
 import {
   getCurrentBranchName,
   gitCreateWorktree,
+  gitFetch,
   gitGetAbsoluteWorktreesPath,
   gitGetCommitsAheadCount,
   gitGetCommitsBehindCount,
@@ -24,6 +25,7 @@ import {
   gitSetConfigValue,
   isSafeToRemove,
 } from "./git.js";
+import { setNonInteractive } from "./interaction.js";
 import type {
   AgentSession,
   WorktreeAgent,
@@ -141,7 +143,9 @@ describe("git branch parsing", () => {
 
     const branches = await gitGetRemoteBranches();
 
-    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch", "--prune"]);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["fetch", "--prune"], {
+      timeout: 60_000,
+    });
     expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
       "--no-pager",
       "branch",
@@ -560,6 +564,7 @@ describe("gitCreateWorktree", () => {
     ]);
     expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["fetch"], {
       cwd: gitRootPath,
+      timeout: 60_000,
     });
     expect(runSpy).toHaveBeenNthCalledWith(
       3,
@@ -611,6 +616,7 @@ describe("gitCreateWorktree", () => {
     expect(runSpy).toHaveBeenCalledTimes(3);
     expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["fetch"], {
       cwd: spacedGitRootPath,
+      timeout: 60_000,
     });
     expect(runSpy).toHaveBeenNthCalledWith(
       3,
@@ -1116,6 +1122,33 @@ describe("gitGetWorktreeList agent join", () => {
     });
   });
 
+  // D14 and F-021: the Herdr handle and session id ride along, and a session
+  // with no pid still blocks removal.
+  it("carries the session id and Herdr handle, and a missing pid, onto the entry", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+      {
+        name: "feature-one-1f",
+        cwd: onePath,
+        sessionId: "s-1",
+        herdrAgent: "wA:p1",
+        state: "blocked",
+      },
+    ]);
+
+    const [first] = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(first.agent).toEqual({
+      name: "feature-one-1f",
+      pid: undefined,
+      sessionId: "s-1",
+      herdrAgent: "wA:p1",
+      live: true,
+      interactive: false,
+      waiting: true,
+    });
+    expect(first.safeToRemove).toBe(false);
+  });
+
   it("sets no agent when the runtime reports no sessions at all", async () => {
     vi.spyOn(agent, "getAgentSessions").mockResolvedValue([]);
 
@@ -1583,6 +1616,17 @@ describe("gitRemoveWorktree prompt", () => {
     );
   });
 
+  it("fails naming -f, with no prompt, when non-interactive and not forced", async () => {
+    setNonInteractive(true);
+    mockUpToPrompt("1");
+
+    await expect(gitRemoveWorktree("feature/one")).rejects.toMatchObject({
+      message: "no default for confirmation to remove feature/one; pass -f",
+      oclif: { exit: 2 },
+    });
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
   it("removes nothing when the prompt is declined", async () => {
     mockUpToPrompt("1");
 
@@ -1684,25 +1728,38 @@ describe("what the removal helpers report", () => {
       );
     });
 
-    it("reports true when the removal went through", async () => {
+    it("resolves when the removal went through", async () => {
       mockRun.mockResolvedValue("");
 
-      await expect(gitNukeWorktree(branchName)).resolves.toBe(true);
+      await expect(gitNukeWorktree(branchName)).resolves.toBeUndefined();
       expect(spinnerMocks.succeed).toHaveBeenCalledWith(
         `Worktree ${branchName} was removed.`,
       );
     });
 
-    it("reports false when the removal failed, without rethrowing", async () => {
-      // The catch swallows the error deliberately — it is already on the
-      // spinner — so the boolean is the only thing left that can say so.
+    // git's reason is what a caller can act on, and under `--json` the error
+    // document is the only place a script can read it.
+    it("throws with git's reason when the removal failed", async () => {
       mockRun.mockRejectedValue(
-        new Error("Command failed: git worktree remove"),
+        Object.assign(new Error("Command failed: git worktree remove"), {
+          stderr:
+            "fatal: '/repo.worktrees/x' contains modified or untracked files, use --force to delete it\n",
+        }),
       );
 
-      await expect(gitNukeWorktree(branchName)).resolves.toBe(false);
-      expect(spinnerMocks.fail).toHaveBeenCalledWith(
-        `Failed to remove worktree ${branchName}. It may have already been removed.`,
+      await expect(gitNukeWorktree(branchName)).rejects.toThrow(
+        `Could not remove the worktree ${branchName}: fatal: '/repo.worktrees/x' contains modified or untracked files, use --force to delete it`,
+      );
+      // One line says so — the command's error — not the spinner as well.
+      expect(spinnerMocks.fail).not.toHaveBeenCalled();
+      expect(spinnerMocks.stop).toHaveBeenCalled();
+    });
+
+    it("falls back to Node's message when git printed nothing", async () => {
+      mockRun.mockRejectedValue(new Error("spawn git ENOENT"));
+
+      await expect(gitNukeWorktree(branchName)).rejects.toThrow(
+        `Could not remove the worktree ${branchName}: spawn git ENOENT`,
       );
     });
   });
@@ -1748,16 +1805,19 @@ describe("what the removal helpers report", () => {
       ]);
     });
 
-    it("answers undefined when the removal itself failed", async () => {
-      // The third no-op path, and the one a caller is least able to see:
-      // gitNukeWorktree swallows the error, so without the return value this
-      // is indistinguishable from a success.
+    it("throws, rather than answering undefined, when the removal itself failed", async () => {
+      // Not a no-op like the two above: something was asked for and git
+      // refused it, and the caller needs git's reason.
       mockLookupRun();
       mockRun.mockRejectedValue(
-        new Error("Command failed: git worktree remove"),
+        Object.assign(new Error("Command failed: git worktree remove"), {
+          stderr: "fatal: cannot remove a locked working tree\n",
+        }),
       );
 
-      await expect(gitRemoveWorktree(branchName)).resolves.toBeUndefined();
+      await expect(gitRemoveWorktree(branchName)).rejects.toThrow(
+        "fatal: cannot remove a locked working tree",
+      );
     });
 
     it("refuses to remove the worktree it is standing in", async () => {
@@ -1837,5 +1897,53 @@ describe("what the removal helpers report", () => {
         "--force",
       ]);
     });
+  });
+});
+
+describe("git fetch bounds", () => {
+  it("leaves git's own prompting alone when a human is at the terminal", async () => {
+    setNonInteractive(false);
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitFetch();
+
+    expect(runSpy.mock.calls[0][2]?.env).toBeUndefined();
+  });
+
+  it("forbids a credential prompt when non-interactive", async () => {
+    setNonInteractive(true);
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitFetch();
+
+    expect(runSpy).toHaveBeenCalledWith("git", ["fetch", "--prune"], {
+      timeout: 60_000,
+      env: { GIT_TERMINAL_PROMPT: "0" },
+    });
+  });
+
+  it("names the call when the fetch is killed on timeout", async () => {
+    vi.spyOn(cli, "run").mockRejectedValue(
+      Object.assign(new Error("Command failed: git fetch --prune"), {
+        killed: true,
+        code: null,
+      }),
+    );
+
+    await expect(gitFetch()).rejects.toThrow(
+      "Git: git fetch --prune did not answer within 60s.",
+    );
+  });
+
+  it("passes any other fetch failure through untouched", async () => {
+    vi.spyOn(cli, "run").mockRejectedValue(
+      Object.assign(new Error("Command failed: git fetch --prune"), {
+        code: 128,
+      }),
+    );
+
+    await expect(gitFetch()).rejects.toThrow(
+      "Command failed: git fetch --prune",
+    );
   });
 });

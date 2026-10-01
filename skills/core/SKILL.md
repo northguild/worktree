@@ -3,18 +3,20 @@ name: core
 description: >
   Complete usage guide for @northguild/worktree. Covers install, first-time
   setup with worktree config (defaultSourceBranch, opener, codeEditor,
-  herdr.focus, herdr.agent, agent.command, github.token, github.autoAssign,
+  herdr.focus, herdr.agent, agent.command, postCreate, github.token, github.autoAssign,
   jira.host, jira.email, jira.apiToken, branchPrefix.feature,
   branchPrefix.bugfix, branchPrefix.chore), worktree branch, worktree checkout,
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
   --github issue-to-branch, --jira issue-to-branch, handing a new worktree to a
   coding agent with --agent, worktree list --agents, worktree cleanup
-  --ignore-agents, opening worktrees as Herdr spaces and closing those spaces
-  again when the worktree is removed, and automatic copying of gitignored env
+  --ignore-agents, agent mode for scripts and coordinating agents (--json on
+  branch, list and remove, --agent-file, --no-open, --no-agent, --install,
+  non-interactive defaults and exit codes), opening worktrees as Herdr spaces
+  and closing those spaces again when the worktree is removed, and automatic copying of gitignored env
   files (.env*, .dev.vars*, .envrc) into new worktrees.
 type: core
 library: '@northguild/worktree'
-library_version: "1.8.0"
+library_version: "2.0.0"
 sources:
   - "northguild/worktree:README.md"
   - "northguild/worktree:docs/src/app/docs/commands/branch/page.mdx"
@@ -52,8 +54,10 @@ npm install -g @northguild/worktree
 # Run once inside your git repository
 worktree config
 # prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code)
-# and agent.command (e.g. claude --bg), each behind a confirm. The opener keys
-# (opener, herdr.focus, herdr.agent) are offered only when `herdr` is on PATH.
+# agent.command (e.g. claude --bg) and postCreate (e.g. pnpm install), each
+# behind a confirm. The Herdr keys
+# herdr.focus and herdr.agent are offered only when `herdr` is on PATH; opener is
+# always offered. `worktree config <key>` prints one value, for scripts.
 
 # Create your first worktree
 worktree branch feature/my-feature
@@ -108,11 +112,14 @@ worktree branch --jira dev-123
 
 With neither flag, `github.autoAssign` decides whether the issue is
 assigned: `true` always, `false` never, and unset means you are asked once
-and the answer is saved to the key. A failed assignment warns and the
+and the answer is saved to the key (a non-interactive run assigns instead, and
+saves nothing). A failed assignment warns and the
 worktree is still created.
 
 The generated branch name is pre-filled in an interactive prompt and
-editable before confirmation. Branch prefixes are applied when configured:
+editable before confirmation. A non-interactive run takes the pre-filled name
+without asking. With `github.autoAssign` unset it assigns the issue and does
+not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are applied when configured:
 - `Feature` / `Story` → `branchPrefix.feature`
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
@@ -120,9 +127,12 @@ editable before confirmation. Branch prefixes are applied when configured:
 ### Hand a new worktree to a coding agent
 
 ```bash
-# Requires agent.command in config, e.g. claude --bg
+# Detached (non-Herdr) runs need agent.command, e.g. claude --bg; with opener herdr, herdr.agent alone is enough
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent "implement the issue"
+worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 131,071 bytes
+worktree branch feature/x --no-agent                # open, but start no agent
+worktree branch feature/x --no-open                 # print the path, open nothing
 worktree checkout feature/fix-login-timeout -a "find the cause of the timeout"
 ```
 
@@ -131,9 +141,40 @@ inside `<repo>.worktrees/` rather than isolating itself elsewhere. The flag's
 value reaches the agent as a single argument and no shell parses it, so quotes
 and spaces in a prompt are safe.
 
-`--agent` and the editor are independent: with `codeEditor` also configured the
-worktree opens there as well. The agent is started and left running, so
-`worktree` does not wait for it and its output does not appear here.
+There is one agent per worktree. With `opener` `herdr`, Herdr starts it in the
+new space and the brief is submitted with `herdr agent prompt` afterwards, never
+in the start command; the kind is `herdr.agent`, else the program `agent.command`
+names (a brief with neither exits 2). `agent.command`'s arguments are reused
+without `--bg`/`--background`, and `claude` gets `--name <repo>-<branch>`
+(lowercased, never truncated, printed on stderr). Otherwise `agent.command` is
+launched detached and left running, so `worktree` does not wait for it and its
+output does not appear here.
+
+### Drive worktrees from a script or another agent (agent mode)
+
+```bash
+worktree branch --github 42 --json --agent-file brief.md   # one JSON document on stdout
+worktree list --agents --json                               # liveness: agent.live
+worktree remove feature/x -f --json                         # non-interactive remove needs -f
+```
+
+`--json` (on `branch`, `list`, `remove`) implies a non-interactive run: stdout
+is exactly one JSON document, everything for a person goes to stderr, and an
+unknown count is `null`, never `0`. A failure prints
+`{"error":{"code","message"}}` and exits non-zero: `2` for `missing_value`,
+`invalid_value` and `not_found`, `1` for `timeout` and `failed`. A non-interactive
+`branch` installs dependencies and, with `--github`, assigns the issue by
+default (`--no-install`, `--no-assign` switch them off). A failed install still
+prints the document, with `installed.ok` `false`, and exits `1`. `agent.name` in
+the `branch` document is the session name to address; `herdrAgent` in
+`list --json` is Herdr's agent name (the same as `herdr.agent` in the `branch`
+document), or its pane id when Herdr reports none.
+
+A coordinating session should name itself in the brief and say its follow-ups
+carry the user's authority, and give `agent.command` a permission mode
+compatible with its own, or the worker holds cross-session messages for its
+user. The README's "Agent mode" section has the shapes, defaults and the full
+handshake.
 
 ### Maintain the worktree lifecycle
 
@@ -144,6 +185,10 @@ worktree list
 # Name the agent session living in each worktree
 worktree list --agents
 worktree list -a                              # alias
+# Sessions come from `herdr agent list` (when herdr is on PATH) and from
+# `<agent.command program or herdr.agent> agents --json`, joined on the real
+# path of their directory. A finished session shows [done] (unless Herdr still shows it in a pane); with no source
+# available there are simply no sessions.
 
 # Reopen a worktree in your editor
 worktree open feature/add-bulk-actions
@@ -172,7 +217,8 @@ A worktree a live agent session is sitting in is never removed by `cleanup`; it
 is reported as skipped instead. `--force` does not override that — it answers
 the confirmation prompt, not the safety verdict — and `--ignore-agents` does,
 which is why that one has no short alias. The check covers an interactive
-session in your own terminal as well as an agent this tool dispatched.
+session in your own terminal, an agent this tool dispatched, and one Herdr
+started (found through `herdr agent list`).
 
 With `opener` set to `herdr`, both removal commands also close the Herdr space
 the worktree was opened as, so a space does not outlive its checkout. Only
@@ -193,13 +239,14 @@ under `northguild.worktree.*`.
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
-| `opener` | `editor` or `herdr` | where a worktree opens, and for `herdr` where its space is closed on removal; defaults to `editor` |
+| `opener` | `editor`, `herdr` or `none` | where a worktree opens, and for `herdr` where its space is closed on removal; `none` opens nothing and prints `Worktree created at <path>`; defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
-| `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
-| `agent.command` | `claude --bg` | `--agent`, `list --agents`, `cleanup`'s agent check |
+| `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
+| `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
+| `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); runs by default only when non-interactive, or with `--install` |
 | `github.token` | `ghp_...` | `--github` flag |
-| `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask |
+| `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
@@ -214,8 +261,9 @@ worktree config --missing
 # Configure specific keys
 worktree config --missing --names jira.host,jira.email,jira.apiToken
 
-# Non-interactive (answer yes to all confirmations)
-worktree config --yes --missing --names branchPrefix.feature,branchPrefix.bugfix
+# Non-interactive: takes each key's default, or fails naming the key
+# (for example `worktree config github.token <token>`)
+worktree config --yes --names branchPrefix.feature,branchPrefix.bugfix
 
 # List all current values
 worktree config --list
@@ -283,10 +331,11 @@ worktree config          # run once per repo
 worktree branch feature/x
 ```
 
-Without `defaultSourceBranch` set, `branch` prompts interactively for a
-source branch, blocking non-interactive runs. Without `codeEditor`, the
+Without `defaultSourceBranch` set, `branch` offers to run `config` in a
+terminal and uses `origin/main` when non-interactive, with a warning naming the
+missing key. Without `codeEditor`, the
 worktree is created but not opened — unless `opener` is `herdr`, which
-ignores `codeEditor` and opens a Herdr space instead.
+ignores `codeEditor` and opens a Herdr space instead, or `none`, which opens nothing.
 
 Source: `README.md` quick start, `docs/getting-started`
 
@@ -333,11 +382,16 @@ worktree config agent.command "claude --bg"
 worktree branch feature/x --agent "implement the issue"
 ```
 
-With no `agent.command` set, `--agent` logs `No agent configured. Run worktree
+On the detached path (editor or `none` opener, or Herdr failing to open), with
+no `agent.command` set, `--agent` logs `No agent configured. Run worktree
 config agent.command "<command>" to set one.` and carries on: the worktree is
-created, env files are copied, the editor opens, and the exit code is still `0`. Nothing fails, so in a scripted run a skipped dispatch
+created, env files are copied, the worktree opens, and the exit code is still `0`. Nothing fails, so in a scripted run a skipped dispatch
 is indistinguishable from a successful one. Set the key first, or check
 `worktree config --list`.
+
+On the Herdr path (`opener` `herdr`, Herdr opened) a brief with neither
+`herdr.agent` nor `agent.command` set exits `2` instead (`branch` and `checkout`
+both), before any worktree is created, naming `worktree config herdr.agent <kind>`; `herdr.agent` alone is enough there.
 
 Source: `src/lib/base-command.ts` — `dispatchAgent()`
 
@@ -358,8 +412,9 @@ worktree branch feature/x --source origin/main
 ```
 
 A `--source` value without the `origin/` prefix triggers a `confirm()`
-interactive prompt asking whether to use a local branch. This hangs
-non-interactive agent runs.
+interactive prompt asking whether to use a local branch. A non-interactive
+run does not wait for it: it exits 2 with
+`worktree: no default for whether to use the local source branch main; pass --source origin/main`.
 
 Source: `src/commands/branch.ts` — `confirmNonOriginSource()`
 
@@ -410,19 +465,28 @@ Source: `docs/configuration`, `docs/guides/github-issue-integration`
 
 ---
 
-### HIGH Tension: interactive prompts block scripted use
+### HIGH Tension: interactive prompts vs scripted use
 
 The CLI is designed for interactive human use — confirm prompts, branch
-pickers, and spinners are the default UX. In agent or scripted contexts,
-these prompts cause hangs.
+pickers, and spinners are the default UX. A run is non-interactive when stdin
+is not a TTY, `CI` is set (not `""`, `0` or `false`), or `--non-interactive`
+or `--yes`/`-y` is given. It never prompts and never animates: a prompt with a
+default takes it, and one without fails at once with exit 2 and a single
+stderr line, `worktree: no default for <value>; pass <flag>`.
 
-Always provide explicit values when running non-interactively:
+Provide explicit values so nothing is left to default or fail:
 
 ```bash
 # Instead of relying on interactive pickers:
 worktree branch feature/x --source origin/main
 worktree remove feature/x --force
 worktree cleanup --force
+worktree checkout origin/feature/x   # `checkout` and `open` need the branch argument
 ```
+
+Non-interactive `remove` needs `-f` and `cleanup` needs `--force`: removal has
+no default. A missing GitHub token exits 2 and names
+`worktree config github.token <token>` or `gh auth login`; the token is never
+printed.
 
 Source: `src/commands/branch.ts`, `src/commands/cleanup.ts`, `src/commands/remove.ts`

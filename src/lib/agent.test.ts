@@ -1,4 +1,7 @@
-import { expectCommands, mockRun } from "../test-setup.js";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expectCommands, mockRun, mockRunCapturing } from "../test-setup.js";
 import {
   findSessionForPath,
   getAgentSessions,
@@ -6,6 +9,7 @@ import {
   isSessionLive,
   isSessionWaiting,
 } from "./agent.js";
+import * as cli from "./cli.js";
 import * as git from "./git.js";
 import type { AgentSession } from "./types.js";
 
@@ -62,6 +66,7 @@ describe("getAgentSessions", () => {
         name: "notes-1f",
         pid: 9187,
         cwd: "/Users/dev/Documents/notes",
+        sessionId: "53fac4da",
         kind: "interactive",
         status: undefined,
         state: undefined,
@@ -85,7 +90,9 @@ describe("getAgentSessions", () => {
 
     await getAgentSessions();
 
-    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"]);
+    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"], {
+      timeout: 10_000,
+    });
     expect(mockRun).toHaveBeenCalledTimes(1);
     const [, args] = mockRun.mock.calls[0];
     expect(args).not.toContain("--all");
@@ -97,7 +104,24 @@ describe("getAgentSessions", () => {
 
     await getAgentSessions();
 
-    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"]);
+    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"], {
+      timeout: 10_000,
+    });
+  });
+
+  it("invokes a quoted program path whole, as the dispatch would", async () => {
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue(
+      '"/opt/My Tools/claude" --bg',
+    );
+    mockSessionsJson([]);
+
+    await getAgentSessions();
+
+    expect(mockRun).toHaveBeenCalledWith(
+      "/opt/My Tools/claude",
+      ["agents", "--json"],
+      { timeout: 10_000 },
+    );
   });
 
   it("returns nothing and runs nothing when agent.command is unset", async () => {
@@ -181,8 +205,6 @@ describe("getAgentSessions", () => {
     mockSessionsJson([
       null,
       "not-a-session",
-      { name: "no-pid", cwd: worktreePath },
-      { pid: 1, cwd: worktreePath },
       { name: "no-cwd", pid: 2 },
       { name: "empty-cwd", pid: 3, cwd: "" },
       { name: "feature-test-1f", pid: 9187, cwd: worktreePath },
@@ -192,6 +214,404 @@ describe("getAgentSessions", () => {
 
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.name).toBe("feature-test-1f");
+  });
+
+  // F-021. The runtime omits `pid` on a background session it has no process
+  // for, and dropping the entry would read as "nobody is working here".
+  it("keeps a session with no pid", async () => {
+    mockSessionsJson([
+      {
+        cwd: worktreePath,
+        id: "23f50fae",
+        kind: "background",
+        name: "feature-test-1f",
+        sessionId: "s-1",
+        startedAt: 1788600791123,
+        state: "blocked",
+      },
+    ]);
+
+    const [parsed] = await getAgentSessions();
+
+    expect(parsed).toMatchObject({
+      name: "feature-test-1f",
+      cwd: worktreePath,
+      state: "blocked",
+    });
+    expect(parsed?.pid).toBeUndefined();
+  });
+
+  it("keeps a session with no name, labelled by its id", async () => {
+    mockSessionsJson([{ cwd: worktreePath, pid: 1, sessionId: "s-9" }]);
+
+    const [parsed] = await getAgentSessions();
+
+    expect(parsed?.name).toBe("s-9");
+  });
+});
+
+// Shapes captured from Herdr 0.9.0 and Claude Code 2.1.286 on 2026-10-01.
+const herdrSessionId = "a9141896-2083-492e-966d-46becf1cd48a";
+
+function herdrAgent(overrides: Record<string, unknown> = {}) {
+  return {
+    agent: "claude",
+    agent_session: {
+      agent: "claude",
+      kind: "id",
+      source: "herdr:claude",
+      value: herdrSessionId,
+    },
+    agent_status: "idle",
+    cwd: worktreePath,
+    focused: true,
+    foreground_cwd: worktreePath,
+    pane_id: "wA:p1",
+    revision: 13,
+    state_change_seq: 2248,
+    tab_id: "wA:t1",
+    terminal_id: "term_65b9ac75aed611",
+    terminal_title: "✳ Work",
+    terminal_title_stripped: "Work",
+    workspace_id: "wA",
+    ...overrides,
+  };
+}
+
+function mockHerdrAgents(agents: unknown[]) {
+  mockRunCapturing.mockResolvedValueOnce({
+    stdout: JSON.stringify({
+      id: "cli:agent:list",
+      result: { type: "agent_list", agents },
+    }),
+    stderr: "",
+    exitCode: 0,
+  });
+}
+
+function runtimeEntry(overrides: Record<string, unknown> = {}) {
+  return {
+    cwd: worktreePath,
+    kind: "interactive",
+    name: "feature-test-1f",
+    pid: 9187,
+    sessionId: herdrSessionId,
+    startedAt: 1788600791123,
+    status: "idle",
+    ...overrides,
+  };
+}
+
+function mockConfig(values: Record<string, string>) {
+  vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    async (key) => values[key] ?? "",
+  );
+}
+
+describe("getAgentSessions across Herdr and the runtime", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("finds a session with agent.command unset and herdr.agent=claude, named by its sessionId", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(JSON.stringify([runtimeEntry()]));
+    mockHerdrAgents([herdrAgent()]);
+
+    const sessions = await getAgentSessions();
+
+    expect(mockRun).toHaveBeenCalledWith("claude", ["agents", "--json"], {
+      timeout: 10_000,
+    });
+    expect(mockRunCapturing).toHaveBeenCalledWith("herdr", ["agent", "list"], {
+      timeout: 10_000,
+    });
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        name: "feature-test-1f",
+        sessionId: herdrSessionId,
+        herdrAgent: "wA:p1",
+        cwd: worktreePath,
+      }),
+    ]);
+  });
+
+  it("asks the agent.command program in preference to herdr.agent", async () => {
+    mockConfig({ "agent.command": "codex --bg", "herdr.agent": "claude" });
+    expectCommands("codex agents --json");
+    mockRun.mockResolvedValueOnce("[]");
+    mockHerdrAgents([]);
+
+    await getAgentSessions();
+
+    expect(mockRun).toHaveBeenCalledWith("codex", ["agents", "--json"], {
+      timeout: 10_000,
+    });
+  });
+
+  it("keeps a Herdr entry the runtime does not list, on its own", async () => {
+    mockConfig({});
+    mockHerdrAgents([herdrAgent()]);
+
+    const sessions = await getAgentSessions();
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        name: "claude@wA:p1",
+        herdrAgent: "wA:p1",
+        status: "idle",
+        cwd: worktreePath,
+      }),
+    ]);
+    expect(isSessionLive(sessions[0] as AgentSession)).toBe(true);
+  });
+
+  // Herdr's `done` is a finished turn on a pane that is still open, so it must
+  // never be the thing that frees a worktree.
+  it("never reads a Herdr done status as a finished session", async () => {
+    mockConfig({});
+    mockHerdrAgents([herdrAgent({ agent_status: "done" })]);
+
+    const [session] = await getAgentSessions();
+
+    expect(isSessionLive(session as AgentSession)).toBe(true);
+  });
+
+  it("marks a Herdr-only agent that is blocked or idle as waiting", async () => {
+    mockConfig({});
+    mockHerdrAgents([
+      herdrAgent({ agent_status: "blocked", pane_id: "wA:p2" }),
+      herdrAgent({ agent_status: "working", pane_id: "wA:p3" }),
+    ]);
+
+    const sessions = await getAgentSessions();
+
+    expect(sessions.map(isSessionWaiting)).toEqual([true, false]);
+  });
+
+  it("does not join on a session id when the working directories differ", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(JSON.stringify([runtimeEntry()]));
+    mockHerdrAgents([herdrAgent({ cwd: "/repo/elsewhere" })]);
+
+    const sessions = await getAgentSessions();
+
+    expect(sessions).toHaveLength(2);
+    expect(sessions.map((session) => session.herdrAgent)).toEqual([
+      undefined,
+      "wA:p1",
+    ]);
+  });
+
+  it("keeps a pid-less background entry and still joins it to Herdr", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    const { pid: _pid, ...withoutPid } = runtimeEntry({
+      id: "23f50fae",
+      kind: "background",
+      state: "blocked",
+    });
+    mockRun.mockResolvedValueOnce(JSON.stringify([withoutPid]));
+    mockHerdrAgents([herdrAgent()]);
+
+    const [session] = await getAgentSessions();
+
+    expect(session?.pid).toBeUndefined();
+    expect(session?.herdrAgent).toBe("wA:p1");
+    expect(isSessionWaiting(session as AgentSession)).toBe(true);
+  });
+
+  // #74: Herdr reports `name` for an agent it started, and none for one it
+  // only detected; `herdrAgent` is the name, else the pane.
+  it("reports Herdr's agent name as herdrAgent, joined or alone, and the pane when it has none", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(JSON.stringify([runtimeEntry()]));
+    mockHerdrAgents([
+      herdrAgent({
+        name: "wt-139-festival-assistant-on-arc",
+        interactive_ready: true,
+      }),
+      herdrAgent({
+        name: "msg-check",
+        pane_id: "wA:p2",
+        agent_session: undefined,
+        cwd: "/repo/elsewhere",
+      }),
+      herdrAgent({
+        pane_id: "wA:p3",
+        agent_session: undefined,
+        cwd: "/repo/elsewhere",
+      }),
+    ]);
+
+    const sessions = await getAgentSessions();
+
+    expect(sessions.map((session) => session.herdrAgent)).toEqual([
+      "wt-139-festival-assistant-on-arc",
+      "msg-check",
+      "wA:p3",
+    ]);
+    // The display name of a Herdr-only entry stays `<kind>@<pane>`.
+    expect(sessions.map((session) => session.name)).toEqual([
+      "feature-test-1f",
+      "claude@wA:p2",
+      "claude@wA:p3",
+    ]);
+  });
+
+  // A live process has been seen reported `done` by the runtime while Herdr
+  // still had it in a pane; the join must not let that free the worktree.
+  it("does not let a runtime done state through when Herdr lists the session", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(
+      JSON.stringify([runtimeEntry({ kind: "background", state: "done" })]),
+    );
+    mockHerdrAgents([herdrAgent()]);
+
+    const [session] = await getAgentSessions();
+
+    expect(session?.herdrAgent).toBe("wA:p1");
+    expect(isSessionLive(session as AgentSession)).toBe(true);
+  });
+
+  it("still reads a runtime done state as finished when Herdr does not list it", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(
+      JSON.stringify([runtimeEntry({ kind: "background", state: "done" })]),
+    );
+    mockHerdrAgents([]);
+
+    const [session] = await getAgentSessions();
+
+    expect(isSessionLive(session as AgentSession)).toBe(false);
+  });
+
+  describe("realpath", () => {
+    let realDir: string;
+    let linkParent: string;
+
+    beforeEach(() => {
+      realDir = realpathSync(mkdtempSync(join(tmpdir(), "worktree-agent-")));
+      linkParent = realpathSync(
+        mkdtempSync(join(tmpdir(), "worktree-agent-link-")),
+      );
+    });
+
+    afterEach(() => {
+      rmSync(realDir, { recursive: true, force: true });
+      rmSync(linkParent, { recursive: true, force: true });
+    });
+
+    // The macOS `/tmp` -> `/private/tmp` case (F-022), made portable: a symlink
+    // to a real directory is the same two spellings of one place.
+    it("joins entries whose cwd differs only by a symlink", async () => {
+      const linked = join(linkParent, "wt");
+      symlinkSync(realDir, linked);
+      mockConfig({ "herdr.agent": "claude" });
+      expectCommands("claude agents --json");
+      mockRun.mockResolvedValueOnce(
+        JSON.stringify([runtimeEntry({ cwd: realDir })]),
+      );
+      mockHerdrAgents([herdrAgent({ cwd: linked })]);
+
+      const sessions = await getAgentSessions();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]).toMatchObject({
+        name: "feature-test-1f",
+        herdrAgent: "wA:p1",
+        cwd: realDir,
+      });
+    });
+
+    it("hands back real paths, so a symlinked cwd matches a real worktree", async () => {
+      const linked = join(linkParent, "wt");
+      symlinkSync(realDir, linked);
+      mockConfig({ "herdr.agent": "claude" });
+      expectCommands("claude agents --json");
+      mockRun.mockResolvedValueOnce(
+        JSON.stringify([runtimeEntry({ cwd: linked })]),
+      );
+      mockHerdrAgents([]);
+
+      const sessions = await getAgentSessions();
+
+      expect(findSessionForPath(sessions, realDir)).toBeDefined();
+    });
+
+    it("keeps a cwd that does not exist as given", async () => {
+      mockConfig({ "herdr.agent": "claude" });
+      expectCommands("claude agents --json");
+      mockRun.mockResolvedValueOnce(
+        JSON.stringify([runtimeEntry({ cwd: "/gone/away" })]),
+      );
+      mockHerdrAgents([]);
+
+      const [session] = await getAgentSessions();
+
+      expect(session?.cwd).toBe("/gone/away");
+    });
+  });
+
+  describe("with a source missing", () => {
+    it("lists no agents and raises no error when neither source exists", async () => {
+      mockConfig({});
+      vi.spyOn(cli, "commandExists").mockResolvedValueOnce(false);
+
+      await expect(getAgentSessions()).resolves.toEqual([]);
+      expect(mockRun).not.toHaveBeenCalled();
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    it("still lists the runtime's sessions when herdr is not installed", async () => {
+      mockConfig({ "agent.command": "claude --bg" });
+      vi.spyOn(cli, "commandExists").mockResolvedValueOnce(false);
+      expectCommands("claude agents --json");
+      mockRun.mockResolvedValueOnce(JSON.stringify([runtimeEntry()]));
+
+      const sessions = await getAgentSessions();
+
+      expect(sessions).toHaveLength(1);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    it("still lists Herdr's agents when the runtime listing fails", async () => {
+      mockConfig({ "herdr.agent": "claude" });
+      expectCommands("claude agents --json");
+      mockRun.mockRejectedValueOnce(new Error("spawn claude ENOENT"));
+      mockHerdrAgents([herdrAgent()]);
+
+      await expect(getAgentSessions()).resolves.toHaveLength(1);
+    });
+
+    it("lists no Herdr agents when herdr exits non-zero or answers nonsense", async () => {
+      mockConfig({});
+      mockRunCapturing.mockResolvedValueOnce({
+        stdout: "",
+        stderr: '{"error":{"code":"server_not_running","message":"down"}}',
+        exitCode: 1,
+      });
+      await expect(getAgentSessions()).resolves.toEqual([]);
+
+      mockRunCapturing.mockResolvedValueOnce({
+        stdout: JSON.stringify({ result: { agents: "nope" } }),
+        stderr: "",
+        exitCode: 0,
+      });
+      await expect(getAgentSessions()).resolves.toEqual([]);
+    });
+
+    it("drops a Herdr entry with no cwd and keeps the rest", async () => {
+      mockConfig({});
+      mockHerdrAgents([herdrAgent({ cwd: undefined }), herdrAgent()]);
+
+      await expect(getAgentSessions()).resolves.toHaveLength(1);
+    });
   });
 });
 

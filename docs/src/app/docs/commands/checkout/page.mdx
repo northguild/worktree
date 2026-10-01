@@ -13,7 +13,9 @@ worktree checkout <remote-branch>
 worktree checkout <remote-branch> --agent "<prompt>"
 ```
 
-If omitted, `worktree checkout` will show an interactive branch picker.
+If omitted, `worktree checkout` will show an interactive branch picker. A
+[non-interactive run](/docs/commands/branch#non-interactive-runs) has no picker: without the argument it exits
+`2` with `worktree: no default for the branch to check out; pass <branchName>`.
 
 ## Examples
 
@@ -30,4 +32,7 @@ This creates a local tracking branch and worktree directory for that branch.
 `--agent` (short: `-a`) works exactly as it does on [`worktree branch`](/docs/commands/branch#agent-dispatch):
 the checked-out worktree is handed to the agent configured as
 [`agent.command`](/docs/configuration#agent-command), with the flag's value as its prompt and the worktree
-as its working directory. The editor still opens as well.
+as its working directory. The worktree is opened as usual: in Herdr the agent is the one Herdr starts in the
+space and the prompt is submitted to it, otherwise `agent.command` is launched detached. There is one agent
+per worktree either way. `checkout` has no `--agent-file`, `--agent-stdin`, `--no-agent` or `--no-open`; an
+empty or over-131,071-byte prompt is rejected, as on `branch`, and so is a prompt no configured agent would take (see [`branch`](/docs/commands/branch#agent-dispatch)), both before the worktree is created.

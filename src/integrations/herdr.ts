@@ -67,6 +67,21 @@ export interface HerdrAgentStartOptions {
   kind: string;
   /** The pane the space was built around, from the open's `root_pane`. */
   paneId: string;
+  /**
+   * Arguments for the agent itself, passed after `--`. Herdr types them into
+   * the pane's shell with each one quoted, so they travel as separate argv
+   * elements. **Never the brief** (D11): the pane is at a shell prompt while
+   * this runs, and the brief goes through `promptHerdrAgent` once the agent is
+   * up.
+   */
+  args?: string[];
+}
+
+export interface HerdrAgentPromptOptions {
+  /** The pane the agent runs in. */
+  paneId: string;
+  /** The brief, delivered as one submission with its newlines intact. */
+  text: string;
 }
 
 export interface HerdrOpenOptions {
@@ -112,6 +127,27 @@ export interface HerdrListOptions {
    *  workspace's repository, which on a machine with several repos open is
    *  whichever space was last clicked. */
   gitRootPath: string;
+}
+
+/**
+ * One agent in `herdr agent list`, narrowed to what the join with the runtime's
+ * listing reads (D14). Only `cwd` is required: it is the join key.
+ */
+export interface HerdrAgentEntry {
+  /** The agent kind Herdr reports, e.g. `claude`. */
+  kind: string;
+  cwd: string;
+  /** The pane the agent runs in. */
+  paneId?: string;
+  /**
+   * Herdr's name for the agent, which it reports for the ones it started — the
+   * `toHerdrAgentName` handle. Absent for an agent Herdr merely detected.
+   */
+  name?: string;
+  /** `idle`, `working`, `blocked`, `done` or `unknown`; passed through as given. */
+  status?: string;
+  /** The runtime's session id (`agent_session.value`), when Herdr knows it. */
+  sessionId?: string;
 }
 
 /**
@@ -176,8 +212,26 @@ function readErrorBody(envelope: unknown): HerdrErrorBody | undefined {
   return { code, message };
 }
 
+/**
+ * The command as a message names it. The text of an `agent prompt` is the
+ * brief — up to 128 KiB of whatever the caller wrote — and these descriptions
+ * reach stderr and the `--json` `warnings`, so it is named by its size and
+ * never quoted (#72). Done here rather than at each call so no error path can
+ * forget: everything in this file that prints a command comes through it.
+ */
 function describeCommand(args: string[]): string {
-  return `\`${HERDR_EXECUTABLE} ${args.join(" ")}\``;
+  const [group, verb, target, text] = args;
+  const printed =
+    group === "agent" && verb === "prompt" && text !== undefined
+      ? [
+          group,
+          verb,
+          target,
+          `<brief, ${Buffer.byteLength(text, "utf8")} bytes>`,
+        ]
+      : args;
+
+  return `\`${HERDR_EXECUTABLE} ${printed.join(" ")}\``;
 }
 
 /**
@@ -213,8 +267,11 @@ function toHerdrError(args: string[], stderr: string, exitCode: number): Error {
  * unexplained failure, and an unexplained failure is the signal F-041 says is
  * missing in the first place.
  *
- * Only the kill is reworded. Anything else — a `herdr` that is not on PATH, a
- * maxBuffer overflow — is already specific and is passed through untouched.
+ * A kill is reworded, and so is a death on a signal this process did not send
+ * (an OOM kill, a crash): Node words both `Command failed: <argv>`, which would
+ * quote a brief (#72). Anything else — a `herdr` that is not on PATH, a
+ * maxBuffer overflow — is already specific, carries no argv, and is passed
+ * through untouched.
  */
 function toRunnerError(
   args: string[],
@@ -227,6 +284,14 @@ function toRunnerError(
     isRecord(error) && error.killed === true && error.code === null;
 
   if (!timedOut) {
+    // `code === null` with a signal and no kill of ours. No `cause`: it would
+    // carry Node's argv-bearing message to anything that prints the chain.
+    if (isRecord(error) && error.code === null && error.signal) {
+      return new Error(
+        `Herdr: ${describeCommand(args)} was killed by ${String(error.signal)}.`,
+      );
+    }
+
     return error instanceof Error ? error : new Error(String(error));
   }
 
@@ -396,6 +461,7 @@ export async function startHerdrAgent({
   name,
   kind,
   paneId,
+  args = [],
 }: HerdrAgentStartOptions): Promise<void> {
   await runHerdrRequest(
     [
@@ -408,9 +474,39 @@ export async function startHerdrAgent({
       paneId,
       "--timeout",
       String(AGENT_START_TIMEOUT_MS),
+      ...(args.length > 0 ? ["--", ...args] : []),
     ],
     AGENT_START_REQUEST_TIMEOUT_MS,
   );
+}
+
+/**
+ * Submits a brief to the agent in a pane. Without `--wait`, so it returns once
+ * Herdr has delivered the text: verified on 0.9.0 to arrive as one bracketed
+ * paste, submitted once, with its newlines intact. The text is the last
+ * positional and `agent prompt` takes no `--`, which is safe because a value
+ * that starts with `-` is still read as the text when it follows the target.
+ *
+ * Callers start the agent first — `agent start` already waits, bounded, for it
+ * to reach an interactive prompt, so this does not wait again.
+ */
+export async function promptHerdrAgent({
+  paneId,
+  text,
+}: HerdrAgentPromptOptions): Promise<void> {
+  await runHerdrRequest(["agent", "prompt", paneId, text]);
+}
+
+/**
+ * The name the runtime session carries: `<repo>-<branch>`, lowercased, with
+ * every run of characters outside `[a-z0-9-]` turned into one `-` (D12).
+ *
+ * Never truncated, unlike `toHerdrAgentName`: Herdr's 32-character cap is its
+ * own handle's, and cutting this one would make two long branches collide on
+ * the name another session addresses.
+ */
+export function toAgentSessionName(repo: string, branch: string): string {
+  return `${repo}-${branch}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
 }
 
 /**
@@ -499,6 +595,63 @@ export async function listHerdrWorktrees({
   ]);
 
   return readWorktreeList(result);
+}
+
+function readOptionalString(
+  source: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = source[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Narrows one `agents[]` entry. An entry without a `cwd` cannot be joined to a
+ * worktree, so it is dropped rather than failing the listing: this is a lookup
+ * the caller treats as best-effort, and one odd entry should not hide the rest.
+ * The id is read only from an `agent_session` whose `kind` is `id` — the one
+ * form observed — so another form degrades to an unjoined entry.
+ */
+function readAgentEntry(entry: unknown): HerdrAgentEntry | undefined {
+  if (!isRecord(entry)) {
+    return undefined;
+  }
+
+  const cwd = readOptionalString(entry, "cwd");
+  if (!cwd) {
+    return undefined;
+  }
+
+  const session = entry.agent_session;
+
+  return {
+    kind: readOptionalString(entry, "agent") ?? "agent",
+    cwd,
+    paneId: readOptionalString(entry, "pane_id"),
+    name: readOptionalString(entry, "name"),
+    status: readOptionalString(entry, "agent_status"),
+    sessionId:
+      isRecord(session) && session.kind === "id"
+        ? readOptionalString(session, "value")
+        : undefined,
+  };
+}
+
+/**
+ * Lists every agent Herdr knows, across all spaces. Not scoped to a repository:
+ * `agent list` takes no `--cwd`, and the caller joins on the working directory
+ * anyway. Bounded like every other request, and a throw means no answer.
+ */
+export async function listHerdrAgents(): Promise<HerdrAgentEntry[]> {
+  const result = await runHerdrRequest(["agent", "list"]);
+
+  if (!isRecord(result) || !Array.isArray(result.agents)) {
+    throw new Error("Herdr: `agent list` returned no agents array.");
+  }
+
+  return result.agents
+    .map(readAgentEntry)
+    .filter((entry): entry is HerdrAgentEntry => entry !== undefined);
 }
 
 /**

@@ -1,6 +1,6 @@
-import { input } from "@inquirer/prompts";
 import { commandExists, run } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
+import { askInput, assertCanPrompt } from "../lib/prompt.js";
 
 interface GitHubRepository {
   owner: string;
@@ -143,12 +143,19 @@ function getGitHubHeaders(token?: string): Record<string, string> {
   return headers;
 }
 
+// D5. A timed-out `gh auth token` rejects, and the catch below already treats
+// any failure as "no token from gh".
+const GH_AUTH_TOKEN_TIMEOUT_MS = 10_000;
+const GITHUB_REQUEST_TIMEOUT_MS = 15_000;
+
 async function getGitHubTokenFromGhCli(): Promise<string> {
   if (!(await commandExists("gh"))) {
     return "";
   }
   try {
-    return await run("gh", ["auth", "token"]);
+    return await run("gh", ["auth", "token"], {
+      timeout: GH_AUTH_TOKEN_TIMEOUT_MS,
+    });
   } catch {
     return "";
   }
@@ -161,10 +168,17 @@ async function resolveGitHubToken(): Promise<string> {
     return ghToken;
   }
 
+  // A token has no default, and the instructions below are for a human. The
+  // message names where to put one and never echoes a value.
+  const site = {
+    value: "a GitHub token",
+    flag: "`worktree config github.token <token>` or run `gh auth login`",
+  };
+  assertCanPrompt(site);
   console.log(
     "Go to https://github.com/settings/personal-access-tokens/new to create a new token and then paste it here.",
   );
-  const token = await input({ message: "Enter GitHub token:" });
+  const token = await askInput({ message: "Enter GitHub token:" }, site);
   if (!token) {
     throw new Error("GitHub token not provided.");
   }
@@ -177,13 +191,16 @@ interface GitHubRequestOptions {
   body?: unknown;
 }
 
-function fetchGitHub(
+async function fetchGitHub(
   path: string,
   token?: string,
   { method, body }: GitHubRequestOptions = {},
 ): Promise<Response> {
   const headers = getGitHubHeaders(token);
-  const init: RequestInit = { headers };
+  const init: RequestInit = {
+    headers,
+    signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
+  };
 
   if (method) {
     init.method = method;
@@ -196,7 +213,19 @@ function fetchGitHub(
     init.body = JSON.stringify(body);
   }
 
-  return fetch(`https://api.github.com${path}`, init);
+  try {
+    return await fetch(`https://api.github.com${path}`, init);
+  } catch (error) {
+    // The path names the call; the headers, which carry the token, never
+    // reach the message.
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(
+        `GitHub: ${path} did not answer within ${GITHUB_REQUEST_TIMEOUT_MS / 1000}s.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 // fetchGitHubIssue resolves a token lazily, because a public repository answers

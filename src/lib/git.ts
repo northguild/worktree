@@ -1,17 +1,19 @@
 import fs from "node:fs";
 import { EOL } from "node:os";
 import path from "node:path";
-import { confirm } from "@inquirer/prompts";
 import Process from "cli-progress";
-import ora from "ora";
 import {
   findSessionForPath,
   getAgentSessions,
   isSessionInteractive,
   isSessionLive,
   isSessionWaiting,
+  toRealPath,
 } from "./agent.js";
 import { run } from "./cli.js";
+import { isNonInteractive } from "./interaction.js";
+import { createSpinner, isProgressEnabled } from "./progress.js";
+import { askConfirm } from "./prompt.js";
 import type {
   AgentSession,
   ConfigName,
@@ -43,8 +45,39 @@ async function gitCmdGitPath() {
   return run("git", ["rev-parse", "--absolute-git-dir"]);
 }
 
+// D5: a fetch that waits on a remote's socket is bounded, and a hung one says
+// which call hung. A kill leaves no exit code, so `code === null` is what
+// separates it from a maxBuffer overflow; anything else passes through.
+const GIT_FETCH_TIMEOUT_MS = 60_000;
+
+async function runGitFetch(args: string[], cwd?: string) {
+  try {
+    return await run("git", args, {
+      cwd,
+      timeout: GIT_FETCH_TIMEOUT_MS,
+      // Without a terminal a credential prompt can never be answered. The
+      // interactive path keeps git's own default, so a human is still asked.
+      env: isNonInteractive() ? { GIT_TERMINAL_PROMPT: "0" } : undefined,
+    });
+  } catch (error) {
+    const timedOut =
+      error instanceof Error &&
+      "killed" in error &&
+      error.killed === true &&
+      "code" in error &&
+      error.code === null;
+    if (!timedOut) {
+      throw error;
+    }
+    throw new Error(
+      `Git: ${["git", ...args].join(" ")} did not answer within ${GIT_FETCH_TIMEOUT_MS / 1000}s.`,
+      { cause: error },
+    );
+  }
+}
+
 export async function gitFetch() {
-  return run("git", ["fetch", "--prune"]);
+  return runGitFetch(["fetch", "--prune"]);
 }
 
 export async function gitGetRootPath() {
@@ -297,11 +330,16 @@ interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
 // holding both a human's terminal and a dispatched agent is described by
 // whichever findSessionForPath picked. Naming it in the output is what keeps
 // that honest — the marker describes the session it names, not the worktree.
-function toWorktreeAgent(
+async function toWorktreeAgent(
   sessions: AgentSession[],
   worktreePath: string,
-): WorktreeAgent | undefined {
-  const session = findSessionForPath(sessions, worktreePath);
+): Promise<WorktreeAgent | undefined> {
+  // Sessions carry real paths, so the worktree has to as well (F-022). Skipped
+  // when there are no sessions: nothing to compare, and no filesystem call.
+  const session =
+    sessions.length > 0
+      ? findSessionForPath(sessions, await toRealPath(worktreePath))
+      : undefined;
   if (!session) {
     return undefined;
   }
@@ -309,6 +347,8 @@ function toWorktreeAgent(
   return {
     name: session.name,
     pid: session.pid,
+    sessionId: session.sessionId,
+    herdrAgent: session.herdrAgent,
     live: isSessionLive(session),
     interactive: isSessionInteractive(session),
     waiting: isSessionWaiting(session),
@@ -496,7 +536,7 @@ export async function gitGetWorktreeList({
       isCurrent,
       // Empty without includeAgents, so this is undefined for every caller that
       // did not ask — no separate branch needed to keep the field off.
-      agent: toWorktreeAgent(sessions, path),
+      agent: await toWorktreeAgent(sessions, path),
     };
 
     worktreeList.push({
@@ -517,7 +557,7 @@ export async function gitCreateWorktree(
   sourceBranch: string,
   { isCheckout = false }: GitCreateWorktreeOptions = {},
 ): Promise<string> {
-  const spinner = ora(`Creating worktree ${branchName}`).start();
+  const spinner = createSpinner(`Creating worktree ${branchName}`).start();
   try {
     const gitRootPath = await gitGetRootPath();
     const worktreesRootPath = `../${path.basename(gitRootPath)}.worktrees`;
@@ -528,7 +568,7 @@ export async function gitCreateWorktree(
     // case the project is moved in the filesystem. cwd is per-call and never
     // moves this process, so there is nothing to change back afterwards.
     // Fetch the latest changes from the remote
-    await run("git", ["fetch"], { cwd: gitRootPath });
+    await runGitFetch(["fetch"], gitRootPath);
     // If checking out a remote branch, create a local tracking branch. Awaiting
     // in sequence keeps the short-circuit the `&&` chain had: a rejection here
     // is only reached once the fetch has resolved.
@@ -576,39 +616,61 @@ export async function gitNukeWorktreeCmd(
 }
 
 /**
- * Removes a worktree, reporting whether it actually went.
+ * What git said when a command failed: its stderr on one line, or Node's own
+ * message when there is none. execFile puts the captured stderr on the error.
+ */
+function toGitReason(error: unknown): string {
+  const stderr =
+    error instanceof Error &&
+    "stderr" in error &&
+    typeof error.stderr === "string"
+      ? error.stderr
+      : "";
+  const reason = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ");
+
+  return reason || (error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * Removes a worktree, or throws with git's reason for not doing so.
  *
- * The `catch` swallows the failure deliberately — it is already reported on the
- * spinner — so the boolean is the only thing left that can tell a caller a
- * removal did not happen. Without it a caller cannot distinguish this from a
- * success, which is how a space outlives the checkout it was built around.
+ * The reason — a dirty tree, a locked worktree, a branch that will not delete —
+ * is the one thing a caller can act on, and under `--json` the error document
+ * is the only place a script can read it. A throw is also what tells a caller
+ * nothing was removed, which is how a space is kept from outliving the
+ * checkout it was built around. The spinner stops rather than fails, so the
+ * command's own error line is the one that says so.
  */
 export async function gitNukeWorktree(
   branchName: string,
   { force = false }: GitNukeWorktreeCmdOptions = {},
-): Promise<boolean> {
-  const spinner = ora(`Removing worktree ${branchName}`).start();
+): Promise<void> {
+  const spinner = createSpinner(`Removing worktree ${branchName}`).start();
   try {
     await gitNukeWorktreeCmd(branchName, { force });
     spinner.succeed(`Worktree ${branchName} was removed.`);
-    return true;
-  } catch {
-    spinner.fail(
-      `Failed to remove worktree ${branchName}. It may have already been removed.`,
+  } catch (error) {
+    spinner.stop();
+    throw new Error(
+      `Could not remove the worktree ${branchName}: ${toGitReason(error)}`,
+      { cause: error },
     );
-    return false;
   }
 }
 
 /**
  * Removes one worktree by branch name, answering with the entry it removed.
  *
- * `undefined` covers all three ways this ends without removing anything: the
- * branch was not found, the confirmation was declined, or the removal itself
- * failed. A caller acting on the removal — closing the Herdr space built around
- * the checkout, say — must be able to tell those apart from a success, and the
- * entry is also the only place the caller can read the path back from, since
- * this takes a branch name.
+ * `undefined` covers the two ways this ends with nothing to do: the branch was
+ * not found, or the confirmation was declined. A removal git refused throws,
+ * with git's reason (`gitNukeWorktree`). A caller acting on the removal —
+ * closing the Herdr space built around the checkout, say — must be able to tell
+ * those apart from a success, and the entry is also the only place the caller
+ * can read the path back from, since this takes a branch name.
  */
 export async function gitRemoveWorktree(
   branchName: string,
@@ -620,7 +682,9 @@ export async function gitRemoveWorktree(
       `Cannot remove current worktree ${branchName}. Go to another worktree or main repository first.`,
     );
   }
-  const spinner = ora(`Gathering worktree info for ${branchName}`).start();
+  const spinner = createSpinner(
+    `Gathering worktree info for ${branchName}`,
+  ).start();
   const worktreeList = await gitGetWorktreeList();
   const worktree = worktreeList.find(
     (entry) => entry.branchName === branchName,
@@ -631,6 +695,13 @@ export async function gitRemoveWorktree(
   }
   spinner.stop();
 
+  // Removing a worktree destroys it, so "no" is not a default to take: a
+  // non-interactive run has to be told to, with `-f`.
+  const removalSite = {
+    value: `confirmation to remove ${branchName}`,
+    flag: "-f",
+  };
+
   async function promptRemoval(worktree: WorktreeListEntry) {
     // A merged branch is ahead of its base by every sha it was squashed or
     // rebased out of, and warning that those commits are work at risk is the
@@ -639,10 +710,13 @@ export async function gitRemoveWorktree(
     // such a branch exists only there, so it falls through to whichever of the
     // prompts below is actually true of it.
     if (worktree.ahead && !worktree.mergedInto) {
-      return await confirm({
-        message: `This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
-        default: false,
-      });
+      return await askConfirm(
+        {
+          message: `This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
+          default: false,
+        },
+        removalSite,
+      );
     }
     // The count could not be taken, so this worktree may be carrying anything.
     // The generic prompt below would imply there is nothing to weigh, which is
@@ -650,25 +724,34 @@ export async function gitRemoveWorktree(
     // from the same undefined. Naming the reason is what lets someone check
     // before answering. See §3 D1 and D5.
     if (worktree.aheadUnknownReason) {
-      return await confirm({
-        message: `Unpushed commits could not be counted for this branch (${worktree.aheadUnknownReason}), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?`,
-        default: false,
-      });
+      return await askConfirm(
+        {
+          message: `Unpushed commits could not be counted for this branch (${worktree.aheadUnknownReason}), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?`,
+          default: false,
+        },
+        removalSite,
+      );
     }
     if (worktree.uncommittedChanges) {
-      return await confirm({
-        message: `This branch has ${worktree.uncommittedChanges} uncommitted change${worktree.uncommittedChanges > 1 ? "s" : ""} so you might lose some work. Are you sure you want to remove this worktree?`,
-        default: false,
-      });
+      return await askConfirm(
+        {
+          message: `This branch has ${worktree.uncommittedChanges} uncommitted change${worktree.uncommittedChanges > 1 ? "s" : ""} so you might lose some work. Are you sure you want to remove this worktree?`,
+          default: false,
+        },
+        removalSite,
+      );
     }
-    return await confirm({
-      message: "Are you sure you want to remove this worktree?",
-      default: false,
-    });
+    return await askConfirm(
+      {
+        message: "Are you sure you want to remove this worktree?",
+        default: false,
+      },
+      removalSite,
+    );
   }
 
   if (force || (await promptRemoval(worktree))) {
-    const wasRemoved = await gitNukeWorktree(branchName, {
+    await gitNukeWorktree(branchName, {
       // An uncountable branch is forced too. Not because the removal would
       // otherwise fail — a dirty tree already sets this through
       // `uncommittedChanges`, and `git worktree remove` does not refuse a tree
@@ -683,7 +766,7 @@ export async function gitRemoveWorktree(
         !!worktree.uncommittedChanges,
     });
 
-    return wasRemoved ? worktree : undefined;
+    return worktree;
   }
 
   // The confirmation was declined, so nothing was touched.
@@ -704,17 +787,21 @@ export async function gitRemoveWorktree(
 export async function gitRemoveWorktreesWithProgress(
   worktrees: WorktreeListEntry[],
 ): Promise<WorktreeListEntry[]> {
-  const process = new Process.SingleBar(
-    {
-      format: "{bar} {percentage}% ({metaValue}/{metaTotal}) {description}",
-      barCompleteChar: "\u2588",
-      barIncompleteChar: "\u2591",
-      hideCursor: true,
-    },
-    Process.Presets.shades_classic,
-  );
+  // No animated bar where the spinner seam would not animate either (E2): a
+  // non-interactive run, or a terminal with no usable width.
+  const process = isProgressEnabled()
+    ? new Process.SingleBar(
+        {
+          format: "{bar} {percentage}% ({metaValue}/{metaTotal}) {description}",
+          barCompleteChar: "\u2588",
+          barIncompleteChar: "\u2591",
+          hideCursor: true,
+        },
+        Process.Presets.shades_classic,
+      )
+    : undefined;
 
-  process.start(worktrees.length * 10, 0, {
+  process?.start(worktrees.length * 10, 0, {
     metaTotal: worktrees.length,
   });
 
@@ -723,20 +810,20 @@ export async function gitRemoveWorktreesWithProgress(
 
   for (const wt of worktrees) {
     const description = `Deleting ${wt.branchName}`;
-    process.update({ metaValue: i, description });
+    process?.update({ metaValue: i, description });
 
     i++;
 
     await gitNukeWorktreeCmd(wt.branchName, { force: true });
     removed.push(wt);
 
-    process.update(i * 10, {
+    process?.update(i * 10, {
       metaValue: i,
       description: i === worktrees.length ? "Done" : description,
     });
   }
 
-  process.stop();
+  process?.stop();
 
   return removed;
 }

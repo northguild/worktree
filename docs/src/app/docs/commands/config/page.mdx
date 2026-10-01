@@ -11,19 +11,27 @@ Configure defaults and inspect current configuration.
 ```bash
 worktree config
 worktree config <key> <value>
+worktree config <key>
 worktree config --list
 worktree config --list --missing
 worktree config --missing
 worktree config --missing --names <comma-separated-keys>
-worktree config --yes
+worktree config --yes --names <comma-separated-keys>
 ```
+
+`worktree config <key>` with no value prints the current value and nothing else, secrets included as
+`--list` does, so `token=$(worktree config github.token)` works in a script. A key with no value prints
+nothing and exits `0`.
 
 `--missing` filters to values that are not configured yet.
 
 - With `--list`, it only prints config names that currently have no value.
 - Without `--list`, it only prompts for missing values.
-- `--names` limits prompting to specific config keys.
-- `--yes` accepts optional confirmations automatically.
+- `--names` limits prompting to specific config keys. Naming keys is asking for them, so the optional group
+  confirms (Jira, GitHub, prefixes, opener, editor, Herdr, agent) are not asked for them.
+- `--yes` (`-y`) makes the run [non-interactive](/docs/commands/branch#non-interactive-runs): nothing is asked.
+  Each key takes its default, or the value it already holds, and the run fails with exit `2` naming
+  `worktree config <key> <value>` for a key with neither, such as a token. Without `--names` the optional groups have no default and the run fails naming `--names <keys>`.
 
 ## Examples
 
@@ -31,7 +39,10 @@ worktree config --yes
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
 worktree config opener herdr
+worktree config opener none
+worktree config opener
 worktree config agent.command "claude --bg"
+worktree config postCreate "pnpm install"
 worktree config github.autoAssign true
 worktree config --list
 worktree config --list --missing
@@ -45,13 +56,15 @@ Configuration is stored in local Git config under `northguild.worktree.*`.
 ## Opener Keys
 
 - `opener` selects where a finished worktree opens, and for `herdr` where its space is closed
-  again when the worktree is removed: `editor` (default) or `herdr`.
+  again when the worktree is removed: `editor` (default), `herdr` or `none`. With `none` nothing is opened:
+  the command prints `Worktree created at <path>` and stops. An unknown value fails with exit `2`.
 - `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`.
 - `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
-- `herdr.agent` an agent kind to start in a newly opened Herdr space. Unset means no agent.
+- `herdr.agent` an agent kind to start in a newly opened Herdr space. Unset means no agent, unless `branch` or `checkout` is given a brief, in which case the program `agent.command` names is used.
 
-The three opener keys above are listed and prompted for only when the `herdr` CLI is on your `PATH`, or
-when one of them already has a value. `--names` and a direct `worktree config <key> <value>` always work
+`opener` and `codeEditor` are always listed and prompted for. `herdr.focus` and `herdr.agent` are listed and
+prompted for only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
+`opener` is `herdr`). `--names` and a direct `worktree config <key> <value>` always work
 regardless, so a machine can be configured before Herdr is installed.
 
 ## GitHub Integration Keys
@@ -75,3 +88,11 @@ empty keeps any token you already have, rather than clearing it.
   [`branch --agent`](/docs/commands/branch#agent-dispatch) and `checkout --agent`, by
   [`list --agents`](/docs/commands/list), and by [`cleanup`](/docs/commands/cleanup)'s agent check. See
   [Configuration](/docs/configuration#agent-command).
+
+## Post-create Key
+
+- `postCreate` a command to run in every new worktree, such as `pnpm install`. Read by
+  [`branch`](/docs/commands/branch#installing-dependencies); when it is unset the command is inferred from
+  the lockfile instead. It is validated like `agent.command`: its first word has to be on `PATH`. See
+  [Configuration](/docs/configuration#post-create-command). The prompt accepts an empty answer, which leaves
+  it unset.

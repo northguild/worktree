@@ -78,8 +78,9 @@ The setup flow can configure:
 
 - `defaultSourceBranch` for new worktrees, such as `origin/main`
 - `codeEditor` for automatically opening a worktree, such as `code`
-- `opener` for where a worktree opens — `editor` (default) or `herdr`
+- `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
 - `agent.command` for handing a worktree to a coding agent, such as `claude --bg`
+- `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise inferred from the lockfile)
 
 Then create your first worktree:
 
@@ -92,7 +93,8 @@ That will:
 1. create a new branch from your configured source branch
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
 3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc`
-4. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
+4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`), and a failure keeps the worktree, opens nothing and exits `1`
+5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
 
 ## Common Workflows
 
@@ -128,9 +130,11 @@ This creates a local tracking branch in a dedicated worktree.
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 ```
 
-The agent starts with the new worktree as its working directory and the flag's value as its prompt, so it works inside `<repo>.worktrees` alongside everything else. `worktree checkout` takes the same flag.
+The agent starts with the new worktree as its working directory and the flag's value as its prompt, so it works inside `<repo>.worktrees` alongside everything else. `worktree checkout` takes `--agent` too.
 
-This is independent of the editor: with `codeEditor` set as well, the worktree still opens there. It needs `agent.command` configured — without it the worktree is created and opened as usual and only the agent is skipped.
+There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. Otherwise `agent.command` is launched detached, and without it the worktree is created and opened as usual and only the agent is skipped.
+
+For a long prompt, `--agent-file <path>` or `--agent-stdin` reads it whole (at most 131,071 bytes, the most one argument can carry on Linux; the three are mutually exclusive). `--no-agent` opens the worktree without an agent, and `--no-open` creates it and prints its path without opening anything.
 
 ### See what worktrees already exist
 
@@ -143,6 +147,8 @@ To name the agent session living in each worktree:
 ```bash
 worktree list --agents
 ```
+
+Sessions are found from two places, joined on the directory they run in: `herdr agent list` when `herdr` is installed, and the runtime's own `<program> agents --json`, where the program is `agent.command`'s first word or else `herdr.agent`. A finished session shows `[done]`, unless Herdr still shows it in a pane. With neither source available the list simply shows no sessions.
 
 ### Reopen a worktree in your editor
 
@@ -180,7 +186,7 @@ worktree cleanup
 
 The cleanup command targets worktrees that are considered safe to remove, for example branches whose remote no longer exists, and local worktrees with no tracked remote. Either way the worktree has to be carrying nothing — no uncommitted changes, and no commits that have not been pushed. A commit count that could not be taken is never read as a zero, so a worktree whose directory still exists is held back rather than swept when it cannot be checked.
 
-A worktree that an agent session is living in is held back and reported as skipped. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
+A worktree that an agent session is living in is held back and reported as skipped. That includes a session Herdr started for you, found through `herdr agent list`, as well as one in your own terminal. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
 
 With `opener` set to `herdr`, every worktree removed here also has its Herdr space closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space, taking its panes down with the directory.
 
@@ -219,10 +225,175 @@ worktree config --missing
 ```
 
 `codeEditor` is the executable plus any arguments, run without a shell — quotes group, but `~` and
-`$VAR` are not expanded. Set `opener` to `herdr` to open worktrees as
+`$VAR` are not expanded. Set `opener` to `none` to open nothing — `branch` then prints
+`Worktree created at <path>` and stops, which suits scripts and agents. `worktree config <key>` with no
+value prints the stored value. Set `opener` to `herdr` to open worktrees as
 [Herdr](https://herdr.dev) spaces instead of editor windows — and to close those spaces again when
 `remove` or `cleanup` deletes the worktree; `herdr.focus` and `herdr.agent` tune that. See the
 [configuration docs](https://northguild.github.io/worktree/docs/configuration).
+
+## Agent mode
+
+`branch`, `list` and `remove` can run with nothing at the keyboard — from a script, CI, or another coding
+agent — and hand back one JSON document to parse. Nothing in this mode prompts, animates or waits without a
+bound. A run on a terminal behaves exactly as described above.
+
+### What triggers it
+
+A run is non-interactive when any of these hold:
+
+- stdin is not a terminal
+- `CI` is set and is not empty, `0` or `false`
+- `--non-interactive` or `--yes` (`-y`) is given — every command accepts both
+- `--json` is given, on `branch`, `list` or `remove`
+
+A prompt that has a default takes it. One that has none fails at once with exit `2` and a single stderr
+line, `worktree: no default for <value>; pass <flag>`.
+
+### Flags
+
+| Flag | On | Does |
+| --- | --- | --- |
+| `--json` | `branch`, `list`, `remove` | one JSON document on stdout; everything for a person goes to stderr |
+| `--agent <text>`, `--agent-file <path>`, `--agent-stdin` | `branch` (`checkout` takes `--agent`) | the brief for the agent, from a value, a file or piped stdin; mutually exclusive with each other and with `--no-agent`, read whole, empty is refused, at most 131,071 bytes |
+| `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
+| `--no-agent` | `branch` | open as usual, start no agent |
+| `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
+| `--assign` / `--no-assign` | `branch` | assign the `--github` issue to you, or not |
+| `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
+
+### Defaults when non-interactive
+
+- **Branch name** from `--github`: `<prefix><number>-<slug>`, the slug cut to 48 characters at the last dash.
+  With no issue, the name is required.
+- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`, then assign. The default is never saved.
+- **Install:** on. The command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`,
+  `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing to run it says so and carries on. A failure keeps
+  the worktree, starts nothing and exits `1`.
+- **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
+- **Removal** has no default: `remove <branch> -f`.
+- **Bounded calls:** GitHub and Jira requests 15 s, `git fetch` 60 s, `gh auth token` and the session listing
+  10 s, the install 10 min. A command still running at its bound is sent SIGTERM, then SIGKILL 2 s later, so
+  one that ignores SIGTERM cannot hold the run open.
+
+### Output
+
+With `--json`, stdout is one line holding one document, and a count that could not be taken is `null`, never
+`0`. Tokens are never printed.
+
+```bash
+worktree branch --github 42 --json --agent-file brief.md
+```
+
+```json
+{"path":"/abs/repo.worktrees/42-fix-login","branch":"42-fix-login","source":"origin/main",
+ "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,
+ "envFilesCopied":["docs/.env.local"],
+ "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","inferred":true,"ok":true},
+ "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
+ "agent":{"name":"demo-42-fix-login","kind":"claude","command":["claude","--name","demo-42-fix-login"],"prompted":true},
+ "warnings":[]}
+```
+
+- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, or `null`.
+- `assigned` is `null` when no assignment was attempted. `herdr` and `agent` are `null` when skipped, and
+  `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
+- `installed` is `{ran:false,reason}` when skipped. A failed install still prints the whole document, with
+  `installed.ok` `false`, and exits `1`.
+- A brief that was given and not delivered does the same: the whole document, `agent` `null` or
+  `agent.prompted` `false`, the reason in `warnings`, exit `1`.
+
+`list --json` gives `{"worktrees":[{branch,path,current,pathExists,remote,remoteExists,ahead,behind,mergedInto,uncommittedChanges,safeToRemove}]}`.
+With `--agents`, each entry also has `agent`: `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`.
+`herdrAgent` is the name Herdr gives the agent (for example `wt-42-fix-login`, the same as `branch --json`'s `herdr.agent`), or its pane id (for example `w4P:p1`) when Herdr reports no name.
+
+`remove --json` gives `{"removed":[{branch,path}],"herdrSpacesClosed":[…],"warnings":[]}`. Nothing removed is
+never reported as a success.
+
+A failure prints `{"error":{"code","message",…}}` on stdout, one line on stderr, and exits non-zero:
+
+| `code` | Means | Exit |
+| --- | --- | --- |
+| `missing_value` | a value with no default was not given | `2` |
+| `invalid_value` | a value or flag combination was refused | `2` |
+| `not_found` | something named does not exist | `2` |
+| `timeout` | a bounded call did not answer in time | `1` |
+| `failed` | anything else | `1` |
+
+Exit codes follow the same rule without `--json`: `0` success, `1` failure, `2` a usage or value problem.
+A human's Ctrl-C at a prompt stays silent and exits `0`.
+
+### One agent per worktree
+
+With `opener` `herdr`, Herdr starts the agent in the new space and the brief is submitted afterwards with
+`herdr agent prompt`, never inside the start command, so no shell sees it. The agent kind is `herdr.agent`;
+when a brief is given and that is unset, the program `agent.command` names. `agent.command`'s arguments are
+reused without `--bg`, and a `claude` agent gets `--name <repo>-<branch>`, lowercased and never truncated.
+Otherwise `agent.command` is launched detached. `--no-open` and
+`opener` `none` open nothing and still start the detached agent when a brief is given.
+
+A brief that no configured agent would take — no `herdr.agent` or `agent.command` for Herdr, no
+`agent.command` for the detached start — exits `2` with `missing_value` before anything is created.
+A brief that still reaches no agent once the worktree exists (Herdr did not open and there is no
+`agent.command` to fall back to, the space was already open, the agent did not start, the prompt failed)
+prints the whole document with the reason in `warnings` and exits `1`. **`agent.prompted` is the delivery
+receipt**: check it, not just the exit code, when a brief matters.
+
+### How agents are detected
+
+`list --agents` asks two sources, and either may be missing:
+
+1. `herdr agent list`, when `herdr` is on `PATH`.
+2. The runtime's own `<program> agents --json`, where the program is `agent.command`'s first word, else `herdr.agent`.
+
+They are joined on the directory each session runs in, compared as real paths, and a Herdr entry is named by
+the runtime session with the same session id. A session without a `pid` is kept. `live` is `false` for a
+session the runtime reports as finished (`[done]` in the text list), unless Herdr still shows it in a pane. With
+neither source, the result is no agents and no error. `cleanup` holds a worktree back for any session that is still `live`; a finished one does not hold it back.
+
+### A coordinator driving worker agents
+
+A coordinating agent — Claude Code, say — can fan work out to one worktree each:
+
+1. Run `worktree branch --github N --json --agent-file brief.md` per issue.
+2. Make the brief name the coordinating session and say its follow-ups carry the user's authority. Without
+   that, a Claude session treats messages from other sessions as information, not instructions.
+3. Set `agent.command` with a permission mode compatible with the coordinator's. Claude Code can hold a
+   cross-session message for its user's approval when the two sessions' modes differ. In the check below, a
+   worker in the default mode was not held when messaged from a coordinator in auto mode.
+4. Read `agent.name` from the document to address the session, and `worktree list --agents --json` to check it
+   is still `live`.
+5. Finish with `worktree remove <branch> -f --json`.
+
+### Checked from a tool call
+
+Run on 2026-10-01 from Claude Code's Bash tool (no TTY, stdin closed) against this repository and a
+disposable issue, with `opener` `herdr`, `herdr.agent` `claude`, Herdr 0.9.0, Claude Code 2.1.286, Node 24.19.0
+on macOS:
+
+| Command | Exit | Time |
+| --- | --- | --- |
+| `worktree branch --github <issue> --json --agent-file brief.md` | `0` | 18.6 s, 6.8 s of it the install |
+| `worktree list --agents --json` | `0` | 3.6 s |
+| `worktree branch --json` (no name) | `2` | 0.4 s |
+| `worktree remove <branch> -f --json` | `0` | 12.4 s |
+
+The first created the tree, installed, opened a Herdr space and started `claude`, which received the brief and
+replied; the last removed the tree, the branch, the space and the session. The third printed
+`{"error":{"code":"missing_value",…}}` and exactly one stderr line. Nothing prompted and nothing hung.
+
+A second run the same day checked the coordinator's side of the handshake. `worktree branch msg-check --json
+--agent-file brief.md` (exit `0`, 14.8 s) started `claude` as `worktree-msg-check`, the `agent.name` the document
+reported, with a brief naming the coordinating session. That name appeared in the coordinator's list of local
+Claude sessions. A message sent to it by that name was answered within seconds: the agent ran
+`git branch --show-current` in its tree and sent the result back to the coordinator by name. The message was not
+held for approval, with the worker in the default permission mode and the coordinator in auto mode. `worktree remove msg-check -f --json` (exit `0`, 11.2 s) then removed the tree, the branch, the space and the
+session.
+
+The per-command pages have the detail: [`branch`](https://northguild.github.io/worktree/docs/commands/branch),
+[`list`](https://northguild.github.io/worktree/docs/commands/list),
+[`remove`](https://northguild.github.io/worktree/docs/commands/remove) and
+[Herdr spaces](https://northguild.github.io/worktree/docs/guides/herdr-spaces).
 
 ## What The README Covers
 

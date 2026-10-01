@@ -143,6 +143,19 @@ describe("isValidConfigValue", () => {
     );
   });
 
+  it("validates postCreate on its argv head, like agent.command", async () => {
+    vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+
+    expect(await isValidConfigValue("postCreate", "nope install")).toBe(
+      "Command not found: nope",
+    );
+
+    vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+
+    expect(await isValidConfigValue("postCreate", "make setup")).toBe(true);
+    expect(cli.commandExists).toHaveBeenCalledWith("make");
+  });
+
   it("leaves a config name with no case unvalidated", async () => {
     vi.spyOn(cli, "commandExists").mockResolvedValue(false);
 
@@ -240,13 +253,14 @@ describe("isValidBranchName", () => {
 
 describe("isValidOpener", () => {
   it.each`
-    opener      | expected                            | description
-    ${"editor"} | ${true}                             | ${"the default opener"}
-    ${"herdr"}  | ${true}                             | ${"the Herdr opener"}
-    ${"bogus"}  | ${"Opener must be editor or herdr"} | ${"an unknown opener"}
-    ${"Editor"} | ${"Opener must be editor or herdr"} | ${"the right kind in the wrong case"}
-    ${""}       | ${"Opener must be editor or herdr"} | ${"empty string"}
-    ${"herdr "} | ${"Opener must be editor or herdr"} | ${"a trailing space"}
+    opener      | expected                                  | description
+    ${"editor"} | ${true}                                   | ${"the default opener"}
+    ${"herdr"}  | ${true}                                   | ${"the Herdr opener"}
+    ${"none"}   | ${true}                                   | ${"no opener"}
+    ${"bogus"}  | ${"Opener must be editor, herdr or none"} | ${"an unknown opener"}
+    ${"Editor"} | ${"Opener must be editor, herdr or none"} | ${"the right kind in the wrong case"}
+    ${""}       | ${"Opener must be editor, herdr or none"} | ${"empty string"}
+    ${"herdr "} | ${"Opener must be editor, herdr or none"} | ${"a trailing space"}
   `(
     'should return $expected for "$opener" ($description)',
     ({ opener, expected }) => {
@@ -308,7 +322,8 @@ describe("isValidConfigValue — the opener keys", () => {
   it.each`
     configName        | value         | expected                                                                         | description
     ${"opener"}       | ${"herdr"}    | ${true}                                                                          | ${"a known opener"}
-    ${"opener"}       | ${"bogus"}    | ${"Opener must be editor or herdr"}                                              | ${"an unknown opener"}
+    ${"opener"}       | ${"none"}     | ${true}                                                                          | ${"no opener"}
+    ${"opener"}       | ${"bogus"}    | ${"Opener must be editor, herdr or none"}                                        | ${"an unknown opener"}
     ${"herdr.focus"}  | ${"false"}    | ${true}                                                                          | ${"a boolean focus value"}
     ${"herdr.focus"}  | ${"maybe"}    | ${"Value must be true or false"}                                                 | ${"a non-boolean focus value"}
     ${"herdr.agent"}  | ${"claude"}   | ${true}                                                                          | ${"a well-shaped agent kind"}
@@ -352,6 +367,13 @@ describe("isValidConfigValue — github.autoAssign", () => {
 });
 
 describe("validateConfigValue", () => {
+  it("names InvalidConfigValueError as itself, and exits 2 as an invalid value", () => {
+    const error = new InvalidConfigValueError("Invalid email address");
+
+    expect(error.name).toBe("InvalidConfigValueError");
+    expect(error).toMatchObject({ code: "invalid_value", oclif: { exit: 2 } });
+  });
+
   it("should throw InvalidConfigValueError for an unknown opener", async () => {
     await expect(validateConfigValue("opener", "bogus")).rejects.toThrow(
       InvalidConfigValueError,

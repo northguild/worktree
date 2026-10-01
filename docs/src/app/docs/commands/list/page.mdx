@@ -11,6 +11,8 @@ List known worktrees managed for the current repository.
 ```bash
 worktree list
 worktree list --agents
+worktree list --json
+worktree list --agents --json
 ```
 
 Use this before `open`, `remove`, or cleanup decisions.
@@ -20,22 +22,36 @@ Use this before `open`, `remove`, or cleanup decisions.
 | Flag | Alias | Description |
 | --- | --- | --- |
 | `--agents` | `-a` | Show the agent session living in each worktree |
+| `--json` | | Print one JSON document on stdout instead of the list, and run [non-interactively](/docs/commands/branch#non-interactive-runs) |
 
 ## Showing agent sessions
 
-`--agents` asks the agent runtime configured in
-[`agent.command`](/docs/configuration#agent-command) which sessions are open, and names the one
-found in each worktree:
+`--agents` finds the agent sessions that are open and names the one found in each worktree. It asks two
+sources and joins them on the directory each session runs in, compared as real paths so a symlinked or
+differently-cased spelling of the same directory still matches:
+
+- **Herdr**, through `herdr agent list`, when `herdr` is installed. This finds agents Herdr started for
+  you, including ones the runtime does not list a process for.
+- **The agent runtime**, through `<program> agents --json`. The program is the first word of
+  [`agent.command`](/docs/configuration#agent-command), or the
+  [`herdr.agent`](/docs/configuration) kind when `agent.command` is unset.
+
+A Herdr agent that matches a runtime session by session id is named by that session; one the runtime does
+not list is named `<kind>@<pane>`, for example `claude@w5:p1`.
 
 ```text
 - feature/one (Agent: feature-one-1f)
 - feature/two (Ahead: 2, Behind: 1, Agent: feature-two-1f [waiting])
 - feature/three (Agent: notes-1f [interactive])
+- feature/four (Agent: feature-four-1f [done])
 ```
 
 - **No marker** — a background agent that is getting on with its work.
 - **`[waiting]`** — a background agent that is live but not progressing, so it is
   probably waiting on you.
+- **`[done]`** — a session the runtime reports as finished. It no longer holds anything back, so
+  `cleanup` treats the worktree as ordinary stale work. The exception is a session Herdr still shows in
+  a pane: that one is not marked `[done]` and keeps holding the worktree back.
 - **`[interactive]`** — somebody's own terminal session, not an agent this tool
   dispatched. It is listed because `cleanup` will refuse to remove a worktree
   somebody is sitting in, and this is where you find out which those are.
@@ -44,9 +60,10 @@ A worktree with no `Agent:` detail has no session in it. Where a worktree holds
 more than one — a dispatched agent and your own terminal, say — the entry names
 one of them, and the marker describes the session it names.
 
-Without `--agents`, `list` asks the agent runtime nothing and its output is
-unchanged. If `agent.command` is unset, or the runtime is not installed or
-reports nothing usable, `--agents` simply lists no sessions rather than failing.
+Without `--agents`, `list` asks neither source anything and its output is
+unchanged. If neither is available — `herdr` is not installed and neither `agent.command` nor
+`herdr.agent` is set, or the runtime reports nothing usable — `--agents` simply lists no sessions
+rather than failing.
 
 ## Ahead and behind counts
 
@@ -94,3 +111,32 @@ taken at all, and the entry says so instead of looking empty:
 The same detail appears in [`remove`](/docs/commands/remove)'s picker and in
 [`cleanup`](/docs/commands/cleanup)'s report of what it held back, because all
 three render a worktree the same way.
+
+## JSON output
+
+`--json` prints **exactly one JSON document** on stdout, on one line, in place of the list. The spinner lines
+and any warning go to stderr. It implies a [non-interactive run](/docs/commands/branch#non-interactive-runs).
+
+```json
+{"worktrees":[{"branch":"feature/one","path":"/abs/repo.worktrees/feature/one","current":false,"pathExists":true,"remote":"origin/feature/one","remoteExists":true,"ahead":2,"behind":1,"mergedInto":null,"uncommittedChanges":0,"safeToRemove":false}]}
+```
+
+| Key | Value |
+| --- | --- |
+| `branch`, `path` | the worktree's branch and absolute path |
+| `current` | whether it is the worktree you are in |
+| `pathExists` | whether its directory is still on disk |
+| `remote`, `remoteExists` | the upstream the branch tracks, `null` when it tracks none, and whether that remote branch still exists |
+| `ahead`, `behind` | the [counts above](#ahead-and-behind-counts) as numbers |
+| `mergedInto` | the base whose commits already contain all of this branch's changes; `null` when not known to be merged |
+| `uncommittedChanges` | the number of uncommitted changes; `null` when the directory is gone, as there is nothing to count |
+| `safeToRemove` | the verdict [`cleanup`](/docs/commands/cleanup) acts on |
+| `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}`. `herdrAgent` is the name Herdr gives the agent, as `branch --json` reports it in `herdr.agent`, or the agent's pane id when Herdr reports no name |
+
+**A count or flag that could not be taken is `null`, never `0` and never left out.** `ahead` and `uncommittedChanges` are
+`null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, and
+inside `agent` any of `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` is `null` when the
+source did not say. A `0` always means the count was taken and is zero.
+
+A failure prints `{"error":{"code","message"}}` on stdout instead and exits non-zero; the codes are listed under
+[`branch`](/docs/commands/branch#json-output).

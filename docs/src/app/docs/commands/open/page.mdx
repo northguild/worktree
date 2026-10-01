@@ -5,7 +5,7 @@ title: open
 # `worktree open`
 
 Open an existing worktree in your configured editor, or as a Herdr space when `opener` is set to
-`herdr`.
+`herdr`. With `opener` set to `none`, nothing is opened and the path is printed.
 
 ## Usage
 
@@ -19,4 +19,6 @@ worktree open [branch]
 worktree open feature/add-bulk-actions
 ```
 
-If you omit the branch, the CLI presents an interactive picker.
+If you omit the branch, the CLI presents an interactive picker. A
+[non-interactive run](/docs/commands/branch#non-interactive-runs) has no picker: without the argument it exits
+`2` with `worktree: no default for the branch to open; pass <branchName>`.

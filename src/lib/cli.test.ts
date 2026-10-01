@@ -9,7 +9,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
-import { commandExists, run, runCapturing, spawnDetached } from "./cli.js";
+import {
+  commandExists,
+  KILL_GRACE_MS,
+  run,
+  runCapturing,
+  runStreaming,
+  spawnDetached,
+} from "./cli.js";
 
 // src/test-setup.ts mocks ./lib/cli.js for every suite so command tests never
 // execute anything. This file covers the real helper, so it opts back out.
@@ -243,6 +250,98 @@ describe("runCapturing", () => {
   });
 });
 
+describe("runStreaming", () => {
+  // The child's stdout and stderr are our file descriptor 2, so what it prints
+  // is not observable from here; these cases cover the contract around that.
+  it("resolves the exit code, zero or not", async () => {
+    await expect(
+      runStreaming(node, ["-e", ""], { timeout: 10_000 }),
+    ).resolves.toEqual({ exitCode: 0 });
+    await expect(
+      runStreaming(node, ["-e", "process.exit(3)"], { timeout: 10_000 }),
+    ).resolves.toEqual({ exitCode: 3 });
+  });
+
+  it("runs in the directory given as cwd, with its argv untouched", async () => {
+    const marker = join(spacedPath, "streamed.txt");
+    await runStreaming(
+      node,
+      [
+        "-e",
+        "require('node:fs').writeFileSync(process.argv[1], process.cwd() + '|' + process.argv[2])",
+        marker,
+        "a b; $(echo x)",
+      ],
+      { cwd: spacedPath, timeout: 10_000 },
+    );
+
+    expect(readFileSync(marker, "utf8")).toBe(`${spacedPath}|a b; $(echo x)`);
+  });
+
+  it("closes the child's stdin, so a question fails rather than waits", async () => {
+    await expect(
+      runStreaming(
+        node,
+        ["-e", "process.stdin.on('end', () => process.exit(0)).resume()"],
+        { timeout: 10_000 },
+      ),
+    ).resolves.toEqual({ exitCode: 0 });
+  });
+
+  it("kills a child that outlives the timeout, and rejects", async () => {
+    await expect(
+      runStreaming(node, ["-e", sleepForever], { timeout: 200 }),
+    ).rejects.toThrow(/did not finish within/);
+  });
+
+  it("rejects when the program does not exist", async () => {
+    await expect(
+      runStreaming("worktree-no-such-program", [], { timeout: 10_000 }),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+// SIGTERM is only a request, and each helper settles on the child's exit, so a
+// child that ignores it would hold the call open past its bound for as long as
+// it liked. The handler is the script's first statement and the bound is a
+// full second, so the SIGTERM cannot land before the child has said it will
+// ignore it. Concurrent because each case has to sit out the grace period.
+describe.concurrent("a child that ignores SIGTERM", () => {
+  const ignoreTermForever = `process.on("SIGTERM", () => {}); ${sleepForever}`;
+  const bound = { timeout: 1_000 };
+  const settlesWithin = { timeout: 1_000 + KILL_GRACE_MS + 5_000 };
+
+  it(
+    "is killed by run once the grace runs out",
+    settlesWithin,
+    async ({ expect }) => {
+      await expect(
+        run(node, ["-e", ignoreTermForever], bound),
+      ).rejects.toMatchObject({ killed: true, code: null, signal: "SIGKILL" });
+    },
+  );
+
+  it(
+    "is killed by runCapturing once the grace runs out",
+    settlesWithin,
+    async ({ expect }) => {
+      await expect(
+        runCapturing(node, ["-e", ignoreTermForever], bound),
+      ).rejects.toMatchObject({ killed: true, code: null, signal: "SIGKILL" });
+    },
+  );
+
+  it(
+    "is killed by runStreaming once the grace runs out",
+    settlesWithin,
+    async ({ expect }) => {
+      await expect(
+        runStreaming(node, ["-e", ignoreTermForever], bound),
+      ).rejects.toThrow(/did not finish within 1s/);
+    },
+  );
+});
+
 describe("commandExists", () => {
   // basename because process.execPath is absolute, and the point of these cases
   // is to exercise a real PATH lookup rather than hand it a path to stat.
@@ -339,5 +438,26 @@ describe("spawnDetached", () => {
     expect(() => spawnDetached("worktree-no-such-binary")).not.toThrow();
 
     await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+});
+
+describe("env option", () => {
+  const printVar = "process.stdout.write(process.env.WT_TEST_VAR ?? '')";
+  const printPath = "process.stdout.write(process.env.PATH ?? '')";
+
+  it("reaches the child, and keeps the parent's environment", async () => {
+    await expect(
+      run(node, ["-e", printVar], { env: { WT_TEST_VAR: "set" } }),
+    ).resolves.toBe("set");
+    await expect(
+      run(node, ["-e", printPath], { env: { WT_TEST_VAR: "set" } }),
+    ).resolves.toBe(process.env.PATH);
+    await expect(
+      runCapturing(node, ["-e", printVar], { env: { WT_TEST_VAR: "cap" } }),
+    ).resolves.toMatchObject({ stdout: "cap" });
+  });
+
+  it("leaves the child on the parent's environment when none is given", async () => {
+    await expect(run(node, ["-e", printVar])).resolves.toBe("");
   });
 });

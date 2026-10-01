@@ -1,11 +1,20 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { confirm, input } from "@inquirer/prompts";
+import { Config } from "@oclif/core";
 import ora from "ora";
 import * as githubIntegration from "../integrations/github.js";
+import * as herdr from "../integrations/herdr.js";
 import * as jiraIntegration from "../integrations/jira.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
+import { runInstall } from "../lib/install.js";
+import { setNonInteractive } from "../lib/interaction.js";
+import { MissingValueError } from "../lib/prompt.js";
 import * as validators from "../lib/validators.js";
+import { captureOutput } from "../test-setup.js";
 import Branch from "./branch.js";
 
 // Mock the inquirer module
@@ -16,7 +25,13 @@ vi.mock("@inquirer/prompts", () => ({
 
 // Mock env functions
 vi.mock("../lib/env.js", () => ({
-  copyEnvFilesFromRootPath: vi.fn().mockResolvedValue(undefined),
+  copyEnvFilesFromRootPath: vi.fn().mockResolvedValue([]),
+}));
+
+// The step itself is covered by install.test.ts; here only what branch does
+// with its result. Skipped is the benign default.
+vi.mock("../lib/install.js", () => ({
+  runInstall: vi.fn().mockResolvedValue({ ran: false, reason: "skipped" }),
 }));
 
 // Mock ora to suppress spinner output during tests
@@ -40,6 +55,9 @@ vi.mock("ora", () => ({
   })),
 }));
 
+// What `branch` passes the opener when no handoff flag was given.
+const defaultOpenOptions = { open: true, agent: true, brief: undefined };
+
 describe("branch command", () => {
   let branch: Branch;
   let mockOpenWorktreePath: ReturnType<typeof vi.spyOn>;
@@ -47,23 +65,29 @@ describe("branch command", () => {
   const mockInput = vi.mocked(input);
   const mockConfirm = vi.mocked(confirm);
   const mockCopyEnvFiles = vi.mocked(copyEnvFilesFromRootPath);
+  const mockRunInstall = vi.mocked(runInstall);
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRunInstall.mockResolvedValue({ ran: false, reason: "skipped" });
+    mockCopyEnvFiles.mockResolvedValue([]);
     const mockConfig = {
       runCommand: vi.fn().mockResolvedValue(undefined),
     } as any;
     branch = new Branch([], mockConfig);
     mockOpenWorktreePath = vi
       .spyOn(branch as any, "openWorktreePath")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ opener: "editor" });
     mockDispatchAgent = vi
       .spyOn(branch as any, "dispatchAgent")
       .mockResolvedValue(undefined);
 
-    // Mock config verification to prevent first-time config prompts
+    // Mock config verification to prevent first-time config prompts. An agent
+    // is configured, so a case that passes a brief clears the preflight that
+    // refuses one nothing would take; that preflight has its own cases.
     vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
       if (key === "has-called-config") return Promise.resolve("true");
+      if (key === "agent.command") return Promise.resolve("claude --bg");
       return Promise.resolve("");
     });
 
@@ -104,8 +128,13 @@ describe("branch command", () => {
         "feature/test",
         "origin/main",
       );
-      expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree");
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+        report: "stdout",
+      });
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        defaultOpenOptions,
+      );
     });
 
     it("should prompt for branch name when not provided", async () => {
@@ -195,6 +224,7 @@ describe("branch command", () => {
       );
       expect(mockError).toHaveBeenCalledWith(
         "Source branch doesn't exist: origin/nonexistent",
+        { code: "not_found" },
       );
     });
 
@@ -300,6 +330,7 @@ describe("branch command", () => {
       );
       expect(mockError).toHaveBeenCalledWith(
         "Source branch doesn't exist: nonexistent",
+        { code: "not_found" },
       );
     });
 
@@ -743,14 +774,21 @@ describe("branch command", () => {
 
         // §2: nothing here may abort `branch`. A rejected assignment is a
         // warning on the spinner, never a `fail` and never a re-throw.
-        await expect(branch.run()).resolves.toBeUndefined();
+        await expect(branch.run()).resolves.toMatchObject({
+          path: "/path/to/worktree",
+        });
 
         expect(mockGitCreateWorktree).toHaveBeenCalledWith(
           "42-add-dark-mode",
           "origin/main",
         );
-        expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree");
-        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+          report: "stdout",
+        });
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
       });
 
       it("still creates the worktree when the issue comes back unassigned", async () => {
@@ -765,10 +803,15 @@ describe("branch command", () => {
           .spyOn(git, "gitCreateWorktree")
           .mockResolvedValue("/path/to/worktree");
 
-        await expect(branch.run()).resolves.toBeUndefined();
+        await expect(branch.run()).resolves.toMatchObject({
+          path: "/path/to/worktree",
+        });
 
         expect(mockGitCreateWorktree).toHaveBeenCalled();
-        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
 
         // §2 is "never `fail`, never a throw", and only the throw half is
         // pinned by the case above. The last spinner of the run is the
@@ -816,13 +859,18 @@ describe("branch command", () => {
           .spyOn(git, "gitCreateWorktree")
           .mockResolvedValue("/path/to/worktree");
 
-        await expect(branch.run()).resolves.toBeUndefined();
+        await expect(branch.run()).resolves.toMatchObject({
+          path: "/path/to/worktree",
+        });
 
         expect(mockGitCreateWorktree).toHaveBeenCalledWith(
           "42-add-dark-mode",
           "origin/main",
         );
-        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
       });
 
       it("never reaches the assignment seam without --github or --jira", async () => {
@@ -940,7 +988,10 @@ describe("branch command", () => {
           "42-add-dark-mode",
           "origin/main",
         );
-        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
       });
     });
 
@@ -959,74 +1010,453 @@ describe("branch command", () => {
     });
   });
 
-  describe("--agent flag", () => {
+  describe("the agent handoff flags", () => {
+    let tempDir: string;
+
     beforeEach(() => {
+      tempDir = mkdtempSync(join(tmpdir(), "worktree-brief-"));
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
         if (key === "has-called-config") return Promise.resolve("true");
         if (key === "defaultSourceBranch")
           return Promise.resolve("origin/main");
+        if (key === "agent.command") return Promise.resolve("claude --bg");
         return Promise.resolve("");
       });
     });
 
-    it("hands the new worktree to the agent with the prompt", async () => {
+    afterEach(() => {
+      rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    function parsed(flags: Record<string, unknown>) {
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
-        flags: { agent: "implement the issue" },
+        flags,
       });
+    }
+
+    it("hands the prompt to the opener as the brief", async () => {
+      parsed({ agent: "implement the issue" });
 
       await branch.run();
 
-      expect(mockDispatchAgent).toHaveBeenCalledWith(
-        "/path/to/worktree",
-        "implement the issue",
-      );
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        open: true,
+        agent: true,
+        brief: "implement the issue",
+      });
     });
 
-    it("dispatches after the env files are copied and before the editor opens", async () => {
-      (branch as any).parse = vi.fn().mockResolvedValue({
-        args: { branchName: "feature/test" },
-        flags: { agent: "implement the issue" },
-      });
+    it("never dispatches itself, so the opener alone decides Herdr or detached", async () => {
+      parsed({ agent: "implement the issue" });
+
+      await branch.run();
+
+      expect(mockDispatchAgent).not.toHaveBeenCalled();
+    });
+
+    it("opens after the env files are copied", async () => {
+      parsed({ agent: "implement the issue" });
 
       await branch.run();
 
       // The agent starts working immediately, so the worktree has to be
       // complete before it is handed over.
       expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
-        mockDispatchAgent.mock.invocationCallOrder[0],
-      );
-      expect(mockDispatchAgent.mock.invocationCallOrder[0]).toBeLessThan(
         mockOpenWorktreePath.mock.invocationCallOrder[0],
       );
     });
 
-    it("opens the editor as well, since the two are independent", async () => {
+    it("reads the brief from --agent-file", async () => {
+      const file = join(tempDir, "brief.md");
+      writeFileSync(file, "line one\nline two\n");
+      parsed({ "agent-file": file });
+
+      await branch.run();
+
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        open: true,
+        agent: true,
+        brief: "line one\nline two\n",
+      });
+    });
+
+    it("rejects an empty --agent before creating anything", async () => {
+      parsed({ agent: "  " });
+
+      await expect(branch.run()).rejects.toThrow(/empty/);
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("rejects a --agent-file that is empty, missing, a directory, or over the 131,071-byte cap", async () => {
+      const empty = join(tempDir, "empty.md");
+      const big = join(tempDir, "big.md");
+      writeFileSync(empty, "");
+      writeFileSync(big, "x".repeat(131_072));
+
+      for (const [file, message] of [
+        [empty, /empty/],
+        [join(tempDir, "missing.md"), /does not exist/],
+        [tempDir, /not a regular file/],
+        [big, /over 131071 bytes/],
+      ] as const) {
+        parsed({ "agent-file": file });
+        await expect(branch.run()).rejects.toThrow(message);
+      }
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("rejects a --agent over the cap measured in bytes, not characters", async () => {
+      // 90,000 three-byte characters are under 131,071 characters and over 131,071 bytes.
+      parsed({ agent: "€".repeat(90_000) });
+
+      await expect(branch.run()).rejects.toThrow(/over 131071 bytes/);
+    });
+
+    // #75: a brief nothing would take used to be found out only after the tree
+    // was created and installed — as an error with no `path` on the Herdr path,
+    // and as an exit 0 with `agent: null` on every other.
+    describe("a brief with no agent to hand it to", () => {
+      function configure(values: Record<string, string>) {
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "defaultSourceBranch"
+                ? "origin/main"
+                : (values[key] ?? ""),
+          ),
+        );
+      }
+
+      beforeEach(() => {
+        vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+      });
+
+      it("fails as a missing value before the worktree is created", async () => {
+        configure({ opener: "herdr" });
+        parsed({ agent: "implement the issue" });
+
+        const error = await branch.run().catch((thrown: unknown) => thrown);
+
+        expect(error).toBeInstanceOf(MissingValueError);
+        expect(error).toMatchObject({
+          value: "the agent kind",
+          flag: "`worktree config herdr.agent <kind>`",
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+        expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+        expect(mockRunInstall).not.toHaveBeenCalled();
+        expect(mockOpenWorktreePath).not.toHaveBeenCalled();
+      });
+
+      // Every run Herdr does not open falls to the detached dispatch, and that
+      // takes `agent.command` — `herdr.agent` alone is no use to it.
+      it.each([
+        ["the opener is the editor", { opener: "code" }, {}],
+        ["the opener is none", { opener: "none" }, {}],
+        ["--no-open is given", { opener: "herdr" }, { "no-open": true }],
+        [
+          "only herdr.agent is set and --no-open is given",
+          { opener: "herdr", "herdr.agent": "claude" },
+          { "no-open": true },
+        ],
+      ])("fails naming agent.command, before the worktree is created, when %s", async (_label, values, flags) => {
+        configure(values);
+        parsed({ agent: "implement the issue", ...flags });
+
+        const error = await branch.run().catch((thrown: unknown) => thrown);
+
+        expect(error).toBeInstanceOf(MissingValueError);
+        expect(error).toMatchObject({
+          value: "the agent command",
+          flag: '`worktree config agent.command "<command>"`',
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it("fails naming agent.command when Herdr is not installed, for the detached path", async () => {
+        vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(false);
+        configure({ opener: "herdr", "herdr.agent": "claude" });
+        parsed({ agent: "implement the issue" });
+
+        await expect(branch.run()).rejects.toMatchObject({
+          value: "the agent command",
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        [
+          "herdr.agent is set",
+          { opener: "herdr", "herdr.agent": "claude" },
+          {},
+        ],
+        [
+          "agent.command names a program",
+          { opener: "herdr", "agent.command": "claude --bg" },
+          {},
+        ],
+        [
+          "the opener is the editor and agent.command is set",
+          { opener: "code", "agent.command": "claude --bg" },
+          {},
+        ],
+        [
+          "--no-open is given and agent.command is set",
+          { opener: "herdr", "agent.command": "claude --bg" },
+          { "no-open": true },
+        ],
+        ["--no-agent is given", { opener: "herdr" }, { "no-agent": true }],
+      ])("still creates the worktree when %s", async (_label, values, flags) => {
+        configure(values);
+        parsed({ agent: "implement the issue", ...flags });
+        // --no-agent excludes the brief flags, so it carries none.
+        if ("no-agent" in flags) {
+          parsed({ ...flags });
+        }
+
+        await branch.run();
+
+        expect(git.gitCreateWorktree).toHaveBeenCalled();
+      });
+
+      it("still creates the worktree when Herdr is not installed and agent.command is set", async () => {
+        vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(false);
+        configure({ opener: "herdr", "agent.command": "claude --bg" });
+        parsed({ agent: "implement the issue" });
+
+        await branch.run();
+
+        expect(git.gitCreateWorktree).toHaveBeenCalled();
+      });
+
+      it("still creates the worktree when there is no brief", async () => {
+        configure({ opener: "herdr" });
+        parsed({});
+
+        await branch.run();
+
+        expect(git.gitCreateWorktree).toHaveBeenCalled();
+      });
+    });
+
+    it("declares the three brief flags and --no-agent as mutually exclusive", () => {
+      const { flags } = Branch;
+
+      expect(flags.agent.exclusive).toEqual(
+        expect.arrayContaining(["agent-file", "agent-stdin"]),
+      );
+      expect(flags["agent-file"].exclusive).toEqual(
+        expect.arrayContaining(["agent", "agent-stdin"]),
+      );
+      expect(flags["agent-stdin"].exclusive).toEqual(
+        expect.arrayContaining(["agent", "agent-file"]),
+      );
+      for (const flag of [
+        flags.agent,
+        flags["agent-file"],
+        flags["agent-stdin"],
+      ]) {
+        expect(flag.exclusive).toContain("no-agent");
+      }
+    });
+
+    it("passes --no-open and --no-agent to the opener", async () => {
+      parsed({ "no-open": true, "no-agent": true });
+
+      await branch.run();
+
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        open: false,
+        agent: false,
+        brief: undefined,
+      });
+    });
+
+    it("passes no brief when no flag was given", async () => {
+      parsed({});
+
+      await branch.run();
+
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        defaultOpenOptions,
+      );
+    });
+  });
+
+  describe("when non-interactive", () => {
+    beforeEach(() => {
+      setNonInteractive(true);
+    });
+
+    it("takes the issue-derived name, asks nothing, assigns by default and saves nothing", async () => {
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config" || key === "defaultSourceBranch"
+            ? "origin/main"
+            : "",
+        ),
+      );
+      const mockGitCreateWorktree = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
       (branch as any).parse = vi.fn().mockResolvedValue({
-        args: { branchName: "feature/test" },
-        flags: { agent: "implement the issue" },
+        args: {},
+        flags: { github: "42" },
       });
 
       await branch.run();
 
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+        "42-add-dark-mode",
+        "origin/main",
+      );
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+      // D8: unset means assign when non-interactive.
+      expect(githubIntegration.assignGitHubIssue).toHaveBeenCalledWith(42);
+      // One unattended run must not settle the key for a human's later runs.
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "github.autoAssign",
+        expect.anything(),
+      );
     });
 
-    it("still dispatches when the prompt is empty, since the flag was given", async () => {
-      // `--agent ""` is a request for an agent with no prompt, not an absent
-      // flag: the prompt reaches the agent as an empty argument.
+    it.each([
+      ["a configured false", { assign: undefined }, "false"],
+      ["--no-assign", { assign: false }, ""],
+    ])("does not assign with %s", async (_label, flagOverride, configured) => {
+      vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "github.autoAssign"
+            ? configured
+            : key === "has-called-config" || key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+        ),
+      );
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       (branch as any).parse = vi.fn().mockResolvedValue({
-        args: { branchName: "feature/test" },
-        flags: { agent: "" },
+        args: {},
+        flags: { github: "42", ...flagOverride },
       });
 
       await branch.run();
 
-      expect(mockDispatchAgent).toHaveBeenCalledWith("/path/to/worktree", "");
+      expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
+      expect(git.gitSetConfigValue).not.toHaveBeenCalled();
     });
 
-    it("dispatches nothing when the flag is absent", async () => {
+    it("cuts a long issue title to a 48-character slug without asking", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title:
+          "Add a dark mode toggle to the settings page so that users can switch themes at runtime",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config" || key === "defaultSourceBranch"
+            ? "origin/main"
+            : "",
+        ),
+      );
+      const mockGitCreateWorktree = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42" },
+      });
+
+      await branch.run();
+
+      expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+        "42-add-a-dark-mode-toggle-to-the-settings-page-so",
+        "origin/main",
+      );
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it("still honours a configured github.autoAssign", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "github.autoAssign"
+            ? "true"
+            : key === "has-called-config" || key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+        ),
+      );
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42" },
+      });
+
+      await branch.run();
+
+      expect(githubIntegration.assignGitHubIssue).toHaveBeenCalledWith(42);
+    });
+
+    it("fails naming <branchName> when there is no name and no issue", async () => {
+      const mockGitCreateWorktree = vi.spyOn(git, "gitCreateWorktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {},
+      });
+
+      await expect(branch.run()).rejects.toMatchObject({
+        message: "no default for the branch name; pass <branchName>",
+        oclif: { exit: 2 },
+      });
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockGitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("fails naming --source origin/<branch> for a local source", async () => {
+      vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue(["origin/main"]);
+      const mockGitCreateWorktree = vi.spyOn(git, "gitCreateWorktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { source: "develop" },
+      });
+
+      await expect(branch.run()).rejects.toMatchObject({
+        message:
+          "no default for whether to use the local source branch develop; pass --source origin/develop",
+        oclif: { exit: 2 },
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockGitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("names the missing config instead of offering to run config", async () => {
+      const warnSpy = vi
+        .spyOn(branch, "warn")
+        .mockImplementation((input) => input);
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
         flags: {},
@@ -1034,8 +1464,378 @@ describe("branch command", () => {
 
       await branch.run();
 
-      expect(mockDispatchAgent).not.toHaveBeenCalled();
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(branch.config.runCommand).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Missing config: defaultSourceBranch"),
+      );
     });
+  });
+  describe("install step", () => {
+    beforeEach(() => {
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    });
+
+    function parsed(flags: Record<string, unknown>) {
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags,
+      });
+    }
+
+    it("installs in the new tree, after the env files and before the open", async () => {
+      mockRunInstall.mockResolvedValue({
+        ran: true,
+        command: "pnpm install --frozen-lockfile",
+        inferred: true,
+        ok: true,
+      });
+      parsed({ agent: "implement the issue" });
+
+      await branch.run();
+
+      expect(mockRunInstall).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        undefined,
+      );
+      const installOrder = mockRunInstall.mock.invocationCallOrder[0];
+      expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
+        installOrder,
+      );
+      expect(installOrder).toBeLessThan(
+        mockOpenWorktreePath.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("passes --install and --no-install through as given", async () => {
+      parsed({ install: true });
+      await branch.run();
+      expect(mockRunInstall).toHaveBeenLastCalledWith(
+        "/path/to/worktree",
+        true,
+      );
+
+      parsed({ install: false });
+      await branch.run();
+      expect(mockRunInstall).toHaveBeenLastCalledWith(
+        "/path/to/worktree",
+        false,
+      );
+    });
+
+    it("carries on to the opener when the install is skipped", async () => {
+      parsed({});
+
+      await branch.run();
+
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        defaultOpenOptions,
+      );
+    });
+
+    it("keeps the tree, starts neither agent nor opener, and exits 1 when the install fails", async () => {
+      mockRunInstall.mockResolvedValue({
+        ran: true,
+        command: "npm ci",
+        inferred: true,
+        ok: false,
+        reason: "exited with code 1",
+      });
+      parsed({ agent: "implement the issue" });
+
+      await expect(branch.run()).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "`npm ci` failed (exited with code 1). The worktree was created at /path/to/worktree, but nothing was opened and no agent was started. Fix the install there and run `worktree open feature/test`, or run `worktree remove feature/test -f` and re-run with --no-install.",
+        ),
+        oclif: { exit: 1 },
+      });
+
+      expect(mockDispatchAgent).not.toHaveBeenCalled();
+      expect(mockOpenWorktreePath).not.toHaveBeenCalled();
+    });
+  });
+  describe("--json", () => {
+    const originalExitCode = process.exitCode;
+    let output: ReturnType<typeof captureOutput>;
+
+    beforeEach(() => {
+      process.exitCode = undefined;
+      output = captureOutput();
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config" || key === "defaultSourceBranch"
+            ? "origin/main"
+            : "",
+        ),
+      );
+    });
+
+    afterEach(() => {
+      output.restore();
+      process.exitCode = originalExitCode;
+    });
+
+    // Through `_run`, as oclif does: that is what prints the returned document
+    // and what routes a throw to `catch`.
+    async function runJson(
+      args: Record<string, unknown>,
+      flags: Record<string, unknown>,
+      outcome: Record<string, unknown> = { opener: "none" },
+    ) {
+      const command = new Branch(["--json"], await Config.load(process.cwd()));
+      (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
+      (command as any).parsed = true;
+      vi.spyOn(command as any, "openWorktreePath").mockResolvedValue(outcome);
+      return (command as any)._run();
+    }
+
+    it("prints exactly one document with the contract's keys and nothing else on stdout", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+        htmlUrl: "https://github.com/acme/demo/issues/42",
+      } as any);
+      mockCopyEnvFiles.mockResolvedValue(["docs/.env.local"]);
+      mockRunInstall.mockResolvedValue({
+        ran: true,
+        command: "pnpm install --frozen-lockfile",
+        inferred: true,
+        ok: true,
+      });
+
+      await runJson(
+        {},
+        { github: "42" },
+        {
+          opener: "herdr",
+          herdr: { space: "w5", pane: "w5:p1", agent: "wt-42-add-dark-mode" },
+          agent: {
+            name: "demo-42-add-dark-mode",
+            kind: "claude",
+            command: ["claude", "--name", "demo-42-add-dark-mode"],
+            prompted: true,
+          },
+        },
+      );
+
+      // The whole of stdout, not a line of it: any stray text would throw here.
+      expect(output.stdout().trim().split("\n")).toHaveLength(1);
+      const document = output.document();
+      expect(Object.keys(document).sort()).toEqual(
+        [
+          "agent",
+          "assigned",
+          "branch",
+          "envFilesCopied",
+          "herdr",
+          "installed",
+          "issue",
+          "path",
+          "source",
+          "warnings",
+        ].sort(),
+      );
+      expect(document).toEqual({
+        path: "/path/to/worktree",
+        branch: "42-add-dark-mode",
+        source: "origin/main",
+        issue: {
+          provider: "github",
+          number: 42,
+          url: "https://github.com/acme/demo/issues/42",
+        },
+        assigned: true,
+        envFilesCopied: ["docs/.env.local"],
+        installed: {
+          ran: true,
+          command: "pnpm install --frozen-lockfile",
+          inferred: true,
+          ok: true,
+        },
+        herdr: { space: "w5", pane: "w5:p1", agent: "wt-42-add-dark-mode" },
+        agent: {
+          name: "demo-42-add-dark-mode",
+          kind: "claude",
+          command: ["claude", "--name", "demo-42-add-dark-mode"],
+          prompted: true,
+        },
+        warnings: [],
+      });
+    });
+
+    it("reports what was skipped as null, not omitted", async () => {
+      await runJson(
+        { branchName: "feature/test" },
+        { "no-open": true },
+        { opener: "none" },
+      );
+
+      const document = output.document();
+      expect(document).toMatchObject({
+        branch: "feature/test",
+        issue: null,
+        assigned: null,
+        envFilesCopied: [],
+        installed: { ran: false, reason: "skipped" },
+        herdr: null,
+        agent: null,
+        warnings: [],
+      });
+      // `toMatchObject` would pass a missing key against null: assert presence.
+      for (const key of ["issue", "assigned", "herdr", "agent"]) {
+        expect(document).toHaveProperty(key, null);
+      }
+    });
+
+    it("reports a failed assignment as false, and a declined one as null", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+      } as any);
+      vi.spyOn(githubIntegration, "assignGitHubIssue").mockRejectedValue(
+        new Error("403 Forbidden"),
+      );
+
+      await runJson({}, { github: "42" });
+
+      expect(output.document()).toMatchObject({
+        assigned: false,
+        issue: { provider: "github", number: 42, url: null },
+        warnings: [expect.stringContaining("403 Forbidden")],
+      });
+    });
+
+    it("sends the env-file report to stderr", async () => {
+      await runJson({ branchName: "feature/test" }, {});
+
+      expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+        report: "stderr",
+      });
+    });
+
+    it("says warnings on stderr and keeps them in the document", async () => {
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "has-called-config" ? "true" : ""),
+      );
+
+      await runJson({ branchName: "feature/test" }, {});
+
+      expect(output.stderr()).toContain("Warning: Missing config:");
+      // The text is in the document only; no `Warning:` line shares stdout.
+      expect(output.stdout()).not.toContain("Warning:");
+      expect(output.stdout().trim().split("\n")).toHaveLength(1);
+      expect(output.document()).toMatchObject({
+        warnings: [
+          expect.stringContaining("Missing config: defaultSourceBranch"),
+        ],
+      });
+    });
+
+    it("is non-interactive, so a missing name is an error and not a prompt", async () => {
+      await runJson({}, {});
+
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(output.document()).toEqual({
+        error: {
+          code: "missing_value",
+          message: "no default for the branch name; pass <branchName>",
+          details: { value: "the branch name", flag: "<branchName>" },
+        },
+      });
+      expect(output.stderr()).toContain(
+        "worktree: no default for the branch name; pass <branchName>",
+      );
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("gives a brief with no agent kind as missing_value, before a tree exists (#75)", async () => {
+      vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config" || key === "defaultSourceBranch"
+            ? "origin/main"
+            : key === "opener"
+              ? "herdr"
+              : "",
+        ),
+      );
+
+      await runJson({ branchName: "feature/test" }, { agent: "do it" });
+
+      expect(output.document()).toMatchObject({
+        error: { code: "missing_value" },
+      });
+      expect(mockGitCreateWorktreeCalls()).toBe(0);
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("gives an invalid name as invalid_value with a non-zero exit", async () => {
+      await runJson({ branchName: "invalid..branch" }, {});
+
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(mockGitCreateWorktreeCalls()).toBe(0);
+    });
+
+    it("gives a missing source branch as not_found", async () => {
+      vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue(["origin/main"]);
+
+      await runJson(
+        { branchName: "feature/test" },
+        { source: "origin/nonexistent" },
+      );
+
+      expect(output.document()).toEqual({
+        error: {
+          code: "not_found",
+          message: "Source branch doesn't exist: origin/nonexistent",
+        },
+      });
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("keeps the document and exits 1 when the install fails", async () => {
+      mockRunInstall.mockResolvedValue({
+        ran: true,
+        command: "npm ci",
+        inferred: true,
+        ok: false,
+        reason: "exited with code 1",
+      });
+
+      await runJson({ branchName: "feature/test" }, {});
+
+      expect(process.exitCode).toBe(1);
+      expect(output.document()).toMatchObject({
+        path: "/path/to/worktree",
+        installed: { ran: true, ok: false },
+        herdr: null,
+        agent: null,
+        warnings: [expect.stringContaining("`npm ci` failed")],
+      });
+    });
+
+    it("prints no credential from a message that quotes one", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockRejectedValue(
+        new Error(
+          'GitHub: Unable to determine the current repository from origin remote "https://octocat:ghp_abcdefghijklmnopqrstuvwxyz0123456789@example.com/o/r.git".',
+        ),
+      );
+
+      await runJson({}, { github: "42" });
+
+      expect(output.stdout()).not.toContain("ghp_");
+      expect(output.stdout()).not.toContain("octocat:");
+      expect(output.stderr()).not.toContain("ghp_");
+      expect(output.document()).toMatchObject({ error: { code: "failed" } });
+    });
+
+    function mockGitCreateWorktreeCalls() {
+      return vi.mocked(git.gitCreateWorktree).mock.calls.length;
+    }
   });
 });

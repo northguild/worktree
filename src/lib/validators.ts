@@ -1,6 +1,7 @@
 import { commandExists } from "./cli.js";
 import { OPENER_KINDS } from "./constants.js";
 import { gitGetLocalBranches, gitGetRemoteBranches } from "./git.js";
+import { InvalidValueError } from "./prompt.js";
 import { conjoin, splitCommandValue } from "./utils.js";
 
 export function isValidEmail(value: string): true | string {
@@ -132,13 +133,25 @@ export async function isValidConfigValue(
     case "herdr.agent":
       return isValidAgentKind(value);
     case "agent.command":
+    // Executed in every new worktree, so it is held to the same check as the
+    // other command line: its head has to be a program that exists.
+    case "postCreate":
       return await isValidCommandLine(value);
     default:
       return true;
   }
 }
 
-export class InvalidConfigValueError extends Error {}
+/**
+ * A value `worktree config <name> <value>` refuses. The same refusal the
+ * prompt's fallback gets, so the same exit 2 and `invalid_value`.
+ */
+export class InvalidConfigValueError extends InvalidValueError {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidConfigValueError";
+  }
+}
 
 export async function validateConfigValue(
   configName: string,

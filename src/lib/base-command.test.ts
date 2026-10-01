@@ -1,14 +1,29 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+import { confirm } from "@inquirer/prompts";
+import { Config } from "@oclif/core";
 import * as herdr from "../integrations/herdr.js";
 import {
+  captureOutput,
   expectCommands,
   mockRun,
   mockRunCapturing,
   mockSpawnDetached,
 } from "../test-setup.js";
-import { BaseCommand } from "./base-command.js";
+import {
+  AGENT_BRIEF_MAX_BYTES,
+  BaseCommand,
+  type OpenWorktreeOptions,
+  readAgentBrief,
+} from "./base-command.js";
 import * as cli from "./cli.js";
 import * as git from "./git.js";
+import { isNonInteractive, setNonInteractive } from "./interaction.js";
+import { InvalidValueError, MissingValueError } from "./prompt.js";
+import { redactSecrets } from "./redact.js";
 import type { ConfigName } from "./types.js";
 
 // openWorktreePath is the only method covered here that draws a spinner. Mock it
@@ -27,6 +42,8 @@ const spinnerMocks = vi.hoisted(() => {
   return { succeed, fail, warn, stop, start, oraFactory };
 });
 
+vi.mock("@inquirer/prompts", () => ({ confirm: vi.fn() }));
+
 vi.mock("ora", () => ({
   default: spinnerMocks.oraFactory,
 }));
@@ -36,8 +53,8 @@ vi.mock("ora", () => ({
 class TestCommand extends BaseCommand {
   async run() {}
 
-  open(path: string) {
-    return this.openWorktreePath(path);
+  open(path: string, options?: OpenWorktreeOptions) {
+    return this.openWorktreePath(path, options);
   }
 
   dispatch(path: string, prompt: string) {
@@ -46,6 +63,18 @@ class TestCommand extends BaseCommand {
 
   closer() {
     return this.resolveSpaceCloser();
+  }
+
+  verify(names?: ConfigName[]) {
+    return this.verifyConfig(names);
+  }
+
+  catchError(error: Error) {
+    return this.catch(error);
+  }
+
+  raise(message: string): never {
+    return this.error(message);
   }
 }
 
@@ -72,6 +101,17 @@ describe("openWorktreePath", () => {
     // git.ts reads the value through the mocked run(); stub it so the only
     // subprocess call each test sees is the editor launch itself.
     setConfig({ codeEditor: "code" });
+  });
+
+  it("opens nothing and prints the path when opener is none", async () => {
+    setConfig({ opener: "none", codeEditor: "code" });
+    const logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
+
+    await command.open(worktreePath);
+
+    expect(logSpy).toHaveBeenCalledWith(`Worktree created at ${worktreePath}`);
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(spinnerMocks.start).not.toHaveBeenCalled();
   });
 
   it("passes the worktree path as one argument, spaces and all", async () => {
@@ -200,6 +240,98 @@ describe("openWorktreePath", () => {
   });
 });
 
+describe("openWorktreePath — the editor and none openers", () => {
+  const worktreePath = "/repo/project.worktrees/feature/test";
+  let command: TestCommand;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  const originalExitCode = process.exitCode;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
+    mockRun.mockResolvedValue("");
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+  });
+
+  it("makes no editor call for --no-open, and reports opener none", async () => {
+    setConfig({ opener: "editor", codeEditor: "code" });
+
+    const outcome = await command.open(worktreePath, { open: false });
+
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(`Worktree created at ${worktreePath}`);
+    expect(outcome).toEqual({ opener: "none", agent: undefined });
+  });
+
+  it("dispatches the brief detached when the opener is not Herdr", async () => {
+    setConfig({
+      opener: "editor",
+      codeEditor: "code",
+      "agent.command": "claude",
+    });
+
+    expectCommands(`code ${worktreePath}`);
+
+    const outcome = await command.open(worktreePath, { brief: "do it" });
+
+    expect(mockSpawnDetached).toHaveBeenCalledWith(
+      "claude",
+      ["do it"],
+      expect.objectContaining({ cwd: worktreePath }),
+    );
+    expect(outcome).toMatchObject({
+      opener: "editor",
+      agent: { name: null, command: ["claude"], prompted: true },
+    });
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  // The preflight refuses this before a tree exists; reaching the seam anyway
+  // still must not read as a success.
+  it("exits 1, keeping the outcome, when a brief reaches no agent", async () => {
+    setConfig({ opener: "none" });
+    vi.spyOn(command, "logToStderr").mockImplementation(() => {});
+
+    const outcome = await command.open(worktreePath, { brief: "do it" });
+
+    expect(outcome).toEqual({ opener: "none", agent: undefined });
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("dispatches no agent for --no-agent, but still opens the editor", async () => {
+    setConfig({
+      opener: "editor",
+      codeEditor: "code",
+      "agent.command": "claude",
+    });
+
+    expectCommands(`code ${worktreePath}`);
+
+    const outcome = await command.open(worktreePath, {
+      agent: false,
+      brief: "do it",
+    });
+
+    expect(mockSpawnDetached).not.toHaveBeenCalled();
+    expect(mockRun).toHaveBeenCalledWith("code", [worktreePath]);
+    expect(outcome.agent).toBeUndefined();
+    // --no-agent asked for no handoff, so none is missing.
+    expect(process.exitCode).toBeUndefined();
+  });
+});
+
 describe("dispatchAgent", () => {
   const worktreePath = "/repo/project.worktrees/feature/test";
   const prompt = "implement the issue";
@@ -269,8 +401,8 @@ describe("dispatchAgent", () => {
     await command.dispatch(worktreePath, prompt);
 
     expect(mockSpawnDetached).not.toHaveBeenCalled();
-    // The form named here has to be one that does something: `worktree config
-    // <name>` with no value reads the key and discards it (config.ts:273-274).
+    // The form named here has to set the key: `worktree config <name>` with no
+    // value only prints it (`Config.run`).
     expect(logSpy).toHaveBeenCalledWith(
       'No agent configured. Run worktree config agent.command "<command>" to set one.',
     );
@@ -309,9 +441,10 @@ describe("openWorktreePath — the Herdr opener", () => {
   const worktreePath = "/tmp/a b/c";
   let command: TestCommand;
   let mockLog: ReturnType<typeof vi.spyOn>;
+  let mockLogToStderr: ReturnType<typeof vi.spyOn>;
 
-  function openWorktreePath(path: string): Promise<void> {
-    return command.open(path);
+  function openWorktreePath(path: string, options?: OpenWorktreeOptions) {
+    return command.open(path, options);
   }
 
   /**
@@ -325,10 +458,20 @@ describe("openWorktreePath — the Herdr opener", () => {
     );
   }
 
+  const originalExitCode = process.exitCode;
+
   beforeEach(() => {
     vi.clearAllMocks();
     command = new TestCommand([], { runCommand: vi.fn() } as any);
     mockLog = vi.spyOn(command, "log").mockImplementation(() => {});
+    mockLogToStderr = vi
+      .spyOn(command, "logToStderr")
+      .mockImplementation(() => {});
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
   });
 
   describe("the herdr opener", () => {
@@ -522,6 +665,9 @@ describe("openWorktreePath — the Herdr opener", () => {
             "pF1",
             "--timeout",
             "15000",
+            "--",
+            "--name",
+            "a-b-feature-a-thing",
           ],
           // The bound the integration puts on its own subprocess, which is a
           // different thing from the `--timeout` above that Herdr is asked to
@@ -598,6 +744,312 @@ describe("openWorktreePath — the Herdr opener", () => {
           expect.arrayContaining(["wt-178-automate"]),
           expect.anything(),
         );
+      });
+
+      describe("one agent per tree, with the brief", () => {
+        const brief = "line one\n\nline $(touch pwned); 'two'";
+
+        /** The argv of every `herdr agent …` call, in order. */
+        function agentCalls(): string[][] {
+          return mockRunCapturing.mock.calls
+            .map((call) => call[1] as string[])
+            .filter((args) => args[0] === "agent");
+        }
+
+        function startArgs(): string[] {
+          const args = agentCalls().find((call) => call[1] === "start") ?? [];
+          return args.slice(args.indexOf("--") + 1);
+        }
+
+        it("delivers the brief only through `agent prompt`, never `agent start`", async () => {
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          const [start, prompt, ...rest] = agentCalls();
+
+          expect(start?.slice(0, 2)).toEqual(["agent", "start"]);
+          expect(start?.join("\u0000")).not.toContain("line one");
+          expect(prompt).toEqual(["agent", "prompt", "pF1", brief]);
+          expect(rest).toEqual([]);
+          expect(prompt).not.toContain("--wait");
+        });
+
+        it("starts no detached agent beside the one Herdr started", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "claude",
+            "agent.command": "claude --bg",
+          });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+        });
+
+        it("drops --bg and --background from agent.command, and says so on stderr", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "claude",
+            "agent.command": "claude --bg --model opus --background",
+          });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          expect(startArgs()).toEqual([
+            "--model",
+            "opus",
+            "--name",
+            "a-b-feature-a-thing",
+          ]);
+          expect(mockLogToStderr).toHaveBeenCalledWith(
+            expect.stringContaining("Dropped --bg/--background"),
+          );
+        });
+
+        it("names a claude session with the whole branch, however long", async () => {
+          const branch = `70-${"a".repeat(97)}`;
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          mockAgentStarted();
+
+          const outcome = await openWorktreePath(
+            `${gitRootPath}.worktrees/${branch}`,
+            { brief },
+          );
+
+          expect(branch).toHaveLength(100);
+          expect(startArgs()).toEqual(["--name", `a-b-${branch}`]);
+          expect(outcome.agent?.name).toBe(`a-b-${branch}`);
+          // Herdr's own handle keeps its 32-character cap.
+          const handle = agentCalls()[0]?.[2] ?? "";
+          expect(handle.length).toBeLessThanOrEqual(32);
+          expect(mockLogToStderr).toHaveBeenCalledWith(
+            `Agent session name: a-b-${branch}`,
+          );
+        });
+
+        it("takes the kind from agent.command when herdr.agent is unset", async () => {
+          setConfig({
+            opener: "herdr",
+            "agent.command": "/usr/local/bin/claude --bg --model opus",
+          });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          const start = agentCalls()[0] ?? [];
+          expect(start[start.indexOf("--kind") + 1]).toBe("claude");
+          expect(startArgs()).toEqual([
+            "--model",
+            "opus",
+            "--name",
+            "a-b-feature-a-thing",
+          ]);
+        });
+
+        it("reuses agent.command's arguments only when its head is the kind", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "codex",
+            "agent.command": "claude --model opus",
+          });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          expect(agentCalls()[0]).not.toContain("--");
+          expect(agentCalls()[1]).toEqual(["agent", "prompt", "pF1", brief]);
+        });
+
+        it("adds no --name for a kind other than claude", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "codex",
+            "agent.command": "codex --full-auto",
+          });
+          mockAgentStarted();
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(startArgs()).toEqual(["--full-auto"]);
+          expect(outcome.agent?.name).toBeNull();
+        });
+
+        it("fails naming herdr.agent, before opening a space, when a brief has no kind", async () => {
+          setConfig({ opener: "herdr" });
+
+          const error = await openWorktreePath(spacePath, { brief }).catch(
+            (thrown: unknown) => thrown,
+          );
+
+          expect(error).toBeInstanceOf(MissingValueError);
+          expect((error as Error).message).toBe(
+            "no default for the agent kind; pass `worktree config herdr.agent <kind>`",
+          );
+          expect(mockOpenHerdrWorktree).not.toHaveBeenCalled();
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+        });
+
+        it("starts nothing, and does not fail, with no kind and no brief", async () => {
+          // `agent.command` alone must not start an agent without a brief.
+          setConfig({ opener: "herdr", "agent.command": "claude --bg" });
+
+          const outcome = await openWorktreePath(spacePath);
+
+          expect(mockRunCapturing).not.toHaveBeenCalled();
+          expect(outcome.agent).toBeUndefined();
+        });
+
+        it("warns, and reports the brief as not delivered, when the prompt fails", async () => {
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          const warn = vi
+            .spyOn(command, "warn")
+            .mockImplementation((input) => input);
+          mockRunCapturing.mockResolvedValueOnce({
+            stdout: JSON.stringify({ id: "cli:agent:start", result: {} }),
+            stderr: "",
+            exitCode: 0,
+          });
+          mockRunCapturing.mockResolvedValueOnce({
+            stdout: "",
+            stderr: JSON.stringify({
+              error: { code: "agent_blocked", message: "agent is blocked" },
+            }),
+            exitCode: 1,
+          });
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining("the brief was not delivered"),
+          );
+          expect(outcome.agent?.prompted).toBe(false);
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+          // `prompted` is the receipt, and the exit code agrees with it.
+          expect(process.exitCode).toBe(1);
+        });
+
+        it("falls back to the detached dispatch only when Herdr did not open", async () => {
+          setConfig({ opener: "herdr", "agent.command": "claude --bg" });
+          mockOpenHerdrWorktree.mockRejectedValue(
+            new herdr.HerdrError("server_down", "no server"),
+          );
+          vi.spyOn(command, "logToStderr").mockImplementation(() => {});
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(mockSpawnDetached).toHaveBeenCalledWith(
+            "claude",
+            ["--bg", brief],
+            expect.objectContaining({ cwd: spacePath }),
+          );
+          expect(outcome.herdr).toBeUndefined();
+          expect(outcome.agent).toMatchObject({ name: null, prompted: true });
+          expect(process.exitCode).toBeUndefined();
+        });
+
+        it("exits 1 when Herdr did not open and no agent.command can take the brief", async () => {
+          // The one case the preflight cannot see: a kind for Herdr, nothing
+          // for the detached fallback, and an open that fails at runtime.
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          mockOpenHerdrWorktree.mockRejectedValue(
+            new herdr.HerdrError("server_down", "no server"),
+          );
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+          expect(outcome.agent).toBeUndefined();
+          expect(process.exitCode).toBe(1);
+        });
+
+        it("warns, and starts no second agent, when the space was already open", async () => {
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          const warn = vi
+            .spyOn(command, "warn")
+            .mockImplementation((input) => input);
+          mockOpenHerdrWorktree.mockResolvedValue({
+            workspaceId: "wF",
+            paneId: "pF1",
+            alreadyOpen: true,
+          });
+
+          await openWorktreePath(spacePath, { brief });
+
+          expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining("brief was not delivered"),
+          );
+          expect(mockRunCapturing).not.toHaveBeenCalled();
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+          expect(process.exitCode).toBe(1);
+        });
+
+        it("opens the space but starts no agent for --no-agent", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "claude",
+            "agent.command": "claude --bg",
+          });
+
+          const outcome = await openWorktreePath(spacePath, {
+            agent: false,
+            brief,
+          });
+
+          expect(mockOpenHerdrWorktree).toHaveBeenCalled();
+          expect(mockRunCapturing).not.toHaveBeenCalled();
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+          expect(outcome).toEqual({
+            opener: "herdr",
+            herdr: { space: "wF", pane: "pF1", agent: null },
+            agent: undefined,
+          });
+        });
+
+        it("reports the space, pane, Herdr handle and agent as the outcome", async () => {
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          mockAgentStarted();
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(outcome).toEqual({
+            opener: "herdr",
+            herdr: { space: "wF", pane: "pF1", agent: "feature-a-thing" },
+            agent: {
+              name: "a-b-feature-a-thing",
+              kind: "claude",
+              command: ["claude", "--name", "a-b-feature-a-thing"],
+              prompted: true,
+            },
+          });
+          expect(process.exitCode).toBeUndefined();
+        });
+
+        it("makes no Herdr or editor call for --no-open, and prints the path", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "claude",
+            codeEditor: "code",
+          });
+          const isInstalled = vi.spyOn(herdr, "isHerdrInstalled");
+
+          const outcome = await openWorktreePath(spacePath, {
+            open: false,
+            agent: false,
+          });
+
+          expect(isInstalled).not.toHaveBeenCalled();
+          expect(mockOpenHerdrWorktree).not.toHaveBeenCalled();
+          expect(mockRunCapturing).not.toHaveBeenCalled();
+          expect(mockRun).not.toHaveBeenCalled();
+          expect(mockLog).toHaveBeenCalledWith(
+            `Worktree created at ${spacePath}`,
+          );
+          expect(outcome).toEqual({ opener: "none", agent: undefined });
+        });
       });
     });
   });
@@ -773,7 +1225,7 @@ describe("resolveSpaceCloser", () => {
 
       const closeSpaces = await command.closer();
 
-      await expect(closeSpaces([onePath, twoPath])).resolves.toBeUndefined();
+      await expect(closeSpaces([onePath, twoPath])).resolves.toEqual(["wR"]);
       expect(spinnerMocks.warn).toHaveBeenCalledWith(
         "Herdr: workspace wQ not found (workspace_not_found)",
       );
@@ -789,7 +1241,7 @@ describe("resolveSpaceCloser", () => {
 
       const closeSpaces = await command.closer();
 
-      await expect(closeSpaces([onePath, twoPath])).resolves.toBeUndefined();
+      await expect(closeSpaces([onePath, twoPath])).resolves.toEqual([]);
       expect(spinnerMocks.warn).toHaveBeenCalledTimes(1);
       expect(mockClose).not.toHaveBeenCalled();
     });
@@ -800,13 +1252,479 @@ describe("resolveSpaceCloser", () => {
       // what actually happened.
       mockList.mockRejectedValue(new Error("herdr did not answer"));
       const afterFailedLookup = await command.closer();
-      await expect(afterFailedLookup([onePath])).resolves.toBeUndefined();
+      await expect(afterFailedLookup([onePath])).resolves.toEqual([]);
 
       listResolves();
       mockClose.mockRejectedValue(new Error("herdr did not answer"));
       const afterFailedClose = await command.closer();
 
-      await expect(afterFailedClose([onePath])).resolves.toBeUndefined();
+      await expect(afterFailedClose([onePath])).resolves.toEqual([]);
     });
+  });
+});
+
+// `catch` is what turns a thrown error into the process's exit status, so these
+// read process.exitCode and the two streams rather than any internal.
+describe("catch", () => {
+  const originalExitCode = process.exitCode;
+  let command: TestCommand;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    command = new TestCommand([], {} as any);
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+  });
+
+  it("prints a plain error to stderr only and exits 1", async () => {
+    await command.catchError(new Error("boom"));
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][0]).toContain("Error: boom");
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("exits 2 for an error raised through this.error", async () => {
+    let thrown: unknown;
+    try {
+      command.raise("bad input");
+    } catch (error) {
+      thrown = error;
+    }
+
+    await command.catchError(thrown as Error);
+
+    expect(errorSpy.mock.calls[0][0]).toContain("Error: bad input");
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("prints a missing value as the one D2 line and exits 2", async () => {
+    await command.catchError(new MissingValueError("the thing", "--thing"));
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "worktree: no default for the thing; pass --thing",
+    );
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("stays silent and exits 0 when the prompt is cancelled", async () => {
+    const cancelled = new Error("User force closed the prompt");
+    cancelled.name = "ExitPromptError";
+
+    await command.catchError(cancelled);
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
+  });
+});
+
+describe("init — interaction mode", () => {
+  const originalCi = process.env.CI;
+  const stdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+
+  async function initWith(argv: string[]) {
+    const { Config } = await import("@oclif/core");
+    const command = new TestCommand(argv, await Config.load(process.cwd()));
+    await command.init();
+    return command;
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    delete process.env.CI;
+  });
+
+  afterEach(() => {
+    if (stdinIsTTY) {
+      Object.defineProperty(process.stdin, "isTTY", stdinIsTTY);
+    } else {
+      Reflect.deleteProperty(process.stdin, "isTTY");
+    }
+    if (originalCi === undefined) {
+      delete process.env.CI;
+    } else {
+      process.env.CI = originalCi;
+    }
+    setNonInteractive(undefined);
+  });
+
+  it("stays interactive for a human at a terminal", async () => {
+    expect(await initWith([])).toMatchObject({ nonInteractive: false });
+    expect(isNonInteractive()).toBe(false);
+  });
+
+  it.each([
+    "--non-interactive",
+    "--yes",
+    "-y",
+  ])("resolves %s as non-interactive", async (flag) => {
+    expect(await initWith([flag])).toMatchObject({ nonInteractive: true });
+    expect(isNonInteractive()).toBe(true);
+  });
+
+  it("resolves CI as non-interactive, but not CI=false", async () => {
+    process.env.CI = "true";
+    expect(await initWith([])).toMatchObject({ nonInteractive: true });
+    process.env.CI = "false";
+    expect(await initWith([])).toMatchObject({ nonInteractive: false });
+  });
+});
+
+describe("verifyConfig", () => {
+  const mockConfirm = vi.mocked(confirm);
+  let runCommand: ReturnType<typeof vi.fn>;
+  let command: TestCommand;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  // `defaultSourceBranch` is the missing one; the first-time flag is set.
+  beforeEach(() => {
+    runCommand = vi.fn().mockResolvedValue(undefined);
+    command = new TestCommand([], { runCommand } as any);
+    warnSpy = vi.spyOn(command, "warn").mockImplementation((input) => input);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(name === "has-called-config" ? "true" : ""),
+    );
+  });
+
+  it("offers config, and runs it for the named keys without --yes, for a human", async () => {
+    mockConfirm.mockResolvedValue(true);
+
+    await command.verify(["defaultSourceBranch"]);
+
+    expect(mockConfirm).toHaveBeenCalledWith({
+      message:
+        "Some required configuration values are missing. Do you want to run the config command now?",
+    });
+    expect(runCommand).toHaveBeenCalledWith("config", [
+      "--missing",
+      "--names",
+      "defaultSourceBranch",
+    ]);
+  });
+
+  it("offers nothing and names the missing keys when non-interactive", async () => {
+    setNonInteractive(true);
+
+    await command.verify(["defaultSourceBranch", "jira.host"]);
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Missing config: defaultSourceBranch, jira.host"),
+    );
+  });
+
+  it("skips the first-time offer when non-interactive", async () => {
+    setNonInteractive(true);
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+    await command.verify([]);
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("readAgentBrief", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "worktree-brief-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function stdinOf(chunks: string[], isTTY?: boolean) {
+    return Object.assign(Readable.from(chunks), { isTTY });
+  }
+
+  it("is undefined when no source was given", async () => {
+    await expect(readAgentBrief({})).resolves.toBeUndefined();
+  });
+
+  it("returns --agent unchanged", async () => {
+    await expect(readAgentBrief({ agent: "  keep\nas is " })).resolves.toBe(
+      "  keep\nas is ",
+    );
+  });
+
+  it("reads a file whole", async () => {
+    const file = join(tempDir, "brief.md");
+    writeFileSync(file, "# Brief\n\nDo it.\n");
+
+    await expect(readAgentBrief({ agentFile: file })).resolves.toBe(
+      "# Brief\n\nDo it.\n",
+    );
+  });
+
+  it("reads piped stdin whole, across chunks", async () => {
+    await expect(
+      readAgentBrief({ agentStdin: true }, stdinOf(["part one\n", "part two"])),
+    ).resolves.toBe("part one\npart two");
+  });
+
+  it("rejects stdin that is a terminal instead of waiting on it", async () => {
+    await expect(
+      readAgentBrief({ agentStdin: true }, stdinOf([], true)),
+    ).rejects.toThrow(/stdin is a terminal/);
+  });
+
+  it.each([
+    ["--agent", { agent: "" }],
+    ["--agent", { agent: "   \n" }],
+    ["--agent-stdin", { agentStdin: true }],
+  ])("rejects an empty brief from %s", async (_source, sources) => {
+    await expect(readAgentBrief(sources, stdinOf([" \n"]))).rejects.toThrow(
+      /empty/,
+    );
+  });
+
+  it("caps the brief where Linux's single-argument limit allows a spawn (#71)", () => {
+    // MAX_ARG_STRLEN is 131,072 bytes including the terminating NUL.
+    expect(AGENT_BRIEF_MAX_BYTES).toBe(131_071);
+  });
+
+  it("accepts a brief of exactly the cap and rejects one byte more", async () => {
+    const atCap = "x".repeat(AGENT_BRIEF_MAX_BYTES);
+
+    await expect(readAgentBrief({ agent: atCap })).resolves.toBe(atCap);
+    await expect(readAgentBrief({ agent: `${atCap}x` })).rejects.toThrow(
+      /over 131071 bytes/,
+    );
+  });
+
+  it("stops reading stdin once the cap is passed", async () => {
+    const chunk = "x".repeat(100 * 1024);
+
+    await expect(
+      readAgentBrief(
+        { agentStdin: true },
+        stdinOf([chunk, chunk, chunk, chunk]),
+      ),
+    ).rejects.toThrow(/over 131071 bytes/);
+  });
+});
+
+// A command that supports `--json`, which is how a subclass opts in (D6).
+class JsonTestCommand extends TestCommand {
+  static override enableJsonFlag = true;
+
+  say(message: string) {
+    this.log(message);
+  }
+
+  sayToStderr(message: string) {
+    this.logToStderr(message);
+  }
+
+  noteWarning(message: string) {
+    return this.warn(message);
+  }
+
+  printJson(document: unknown) {
+    this.logJson(document);
+  }
+
+  get collected() {
+    return this.warnings;
+  }
+}
+
+describe("--json output", () => {
+  const originalExitCode = process.exitCode;
+  let output: ReturnType<typeof captureOutput>;
+  let command: JsonTestCommand;
+
+  beforeEach(async () => {
+    process.exitCode = undefined;
+    // Loaded first: oclif warns about the .ts command files it cannot import
+    // here, and that is not what these tests are about.
+    command = new JsonTestCommand(["--json"], await Config.load(process.cwd()));
+    output = captureOutput();
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+  });
+
+  it("sends log and logToStderr to stderr and nothing to stdout", () => {
+    command.say("Worktree created at /tmp/x");
+    command.sayToStderr("Agent session name: demo");
+
+    expect(output.stdout()).toBe("");
+    expect(output.stderr()).toContain("Worktree created at /tmp/x");
+    expect(output.stderr()).toContain("Agent session name: demo");
+  });
+
+  it("still logs to stdout when --json was not given", async () => {
+    output.restore();
+    const plain = new JsonTestCommand([], await Config.load(process.cwd()));
+    output = captureOutput();
+
+    plain.say("hello");
+
+    expect(output.stdout()).toContain("hello");
+    expect(output.stderr()).toBe("");
+  });
+
+  it("prints a document as one uncoloured line", () => {
+    command.printJson({ a: 1, b: [null, "x"] });
+
+    expect(output.stdout()).toBe('{"a":1,"b":[null,"x"]}\n');
+  });
+
+  it("says a warning on stderr and keeps it for the document", () => {
+    command.noteWarning("something odd");
+
+    expect(output.stdout()).toBe("");
+    expect(output.stderr()).toContain("Warning: something odd");
+    expect(command.collected).toEqual(["something odd"]);
+  });
+
+  it("keeps a warning a spinner already printed", () => {
+    (command as any).recordWarning("Herdr: gone");
+
+    expect(output.stderr()).toBe("");
+    expect(command.collected).toEqual(["Herdr: gone"]);
+  });
+
+  it("resolves non-interactive from --json alone", async () => {
+    setNonInteractive(false);
+    (command as any).parse = vi.fn().mockResolvedValue({ args: {}, flags: {} });
+
+    await command.init();
+
+    expect(isNonInteractive()).toBe(true);
+  });
+
+  describe("catch", () => {
+    async function failWith(error: Error) {
+      await command.catchError(error);
+      return output.document() as {
+        error: { code: string; message: string; details?: unknown };
+      };
+    }
+
+    it("prints the failure as the one document, and the line on stderr", async () => {
+      const document = await failWith(new Error("boom"));
+
+      expect(document).toEqual({ error: { code: "failed", message: "boom" } });
+      expect(output.stdout().trim().split("\n")).toHaveLength(1);
+      expect(output.stderr()).toContain("Error: boom");
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("gives a missing value its code, details and exit 2", async () => {
+      const document = await failWith(
+        new MissingValueError("the thing", "--thing"),
+      );
+
+      expect(document.error).toEqual({
+        code: "missing_value",
+        message: "no default for the thing; pass --thing",
+        details: { value: "the thing", flag: "--thing" },
+      });
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("gives a refused value invalid_value and exit 2", async () => {
+      const document = await failWith(new InvalidValueError("Bad name"));
+
+      expect(document.error).toEqual({
+        code: "invalid_value",
+        message: "Bad name",
+      });
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("takes an explicit code from this.error", async () => {
+      let thrown: unknown;
+      try {
+        command.error("nothing there", { code: "not_found" });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect((await failWith(thrown as Error)).error.code).toBe("not_found");
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("calls a usage error invalid_value", async () => {
+      let thrown: unknown;
+      try {
+        command.raise("bad input");
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect((await failWith(thrown as Error)).error.code).toBe(
+        "invalid_value",
+      );
+    });
+
+    it.each([
+      "GitHub: /repos/o/r/issues/1 did not answer within 15s.",
+      "Herdr: herdr agent start did not answer within 60s.",
+      "pnpm did not finish within 600s",
+    ])("calls %s a timeout", async (message) => {
+      expect((await failWith(new Error(message))).error.code).toBe("timeout");
+    });
+
+    it("leaves a human's Ctrl-C silent on both streams, exiting 0", async () => {
+      const cancelled = new Error("User force closed the prompt");
+      cancelled.name = "ExitPromptError";
+
+      await command.catchError(cancelled);
+
+      expect(output.stdout()).toBe("");
+      expect(output.stderr()).toBe("");
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("prints no credential from a message that quotes one", async () => {
+      const document = await failWith(
+        new Error(
+          'origin remote "https://octocat:ghp_abcdefghijklmnopqrstuvwxyz0123456789@github.com/o/r.git"',
+        ),
+      );
+
+      expect(document.error.message).toBe(
+        'origin remote "https://***@github.com/o/r.git"',
+      );
+      expect(`${output.stdout()}${output.stderr()}`).not.toMatch(
+        /octocat|ghp_/,
+      );
+    });
+  });
+});
+
+describe("redactSecrets", () => {
+  it("hides URL credentials and token shapes, and leaves the rest alone", () => {
+    expect(redactSecrets("https://user:pw@host/x")).toBe("https://***@host/x");
+    expect(redactSecrets("ssh://git@host/x")).toBe("ssh://***@host/x");
+    expect(
+      redactSecrets("token github_pat_11ABCDEFG0123456789abcdefghij used"),
+    ).toBe("token *** used");
+    expect(redactSecrets("git@github.com:acme/demo.git")).toBe(
+      "git@github.com:acme/demo.git",
+    );
+    expect(redactSecrets("plain text")).toBe("plain text");
   });
 });

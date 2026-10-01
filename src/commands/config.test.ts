@@ -2,6 +2,7 @@
 import { confirm, input } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
 import * as git from "../lib/git.js";
+import { setNonInteractive } from "../lib/interaction.js";
 import * as validators from "../lib/validators.js";
 import Config from "./config.js";
 
@@ -146,6 +147,64 @@ describe("config command", () => {
       await config.run();
 
       expect(mockGetConfigValue).toHaveBeenCalledWith("jira.email");
+      // The value alone, secrets included: scriptable as `$(worktree config k)`.
+      expect(mockConsoleLog).toHaveBeenCalledTimes(1);
+      expect(mockConsoleLog).toHaveBeenCalledWith("test@example.com");
+    });
+
+    it("should print a secret when only its name is provided", async () => {
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("tok_secret");
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "github.token" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockConsoleLog).toHaveBeenCalledWith("tok_secret");
+    });
+
+    it("should print nothing for an unset key", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "jira.email" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockConsoleLog).not.toHaveBeenCalled();
+    });
+
+    it("should store opener none", async () => {
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "opener", value: "none" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith("opener", "none");
+    });
+
+    it("should reject a bogus opener naming the accepted kinds", async () => {
+      // Earlier tests stub the validator; this one wants the real one.
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "opener", value: "bogus" },
+        flags: {},
+      });
+
+      await expect(config.run()).rejects.toThrow("editor, herdr or none");
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "opener",
+        expect.anything(),
+      );
     });
   });
 
@@ -172,6 +231,34 @@ describe("config command", () => {
       });
 
       await expect(config.run()).rejects.toThrow("Invalid email address");
+    });
+
+    it("reports an invalid config value on stderr and exits 2", async () => {
+      const originalExitCode = process.exitCode;
+      const mockConsoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      vi.spyOn(validators, "validateConfigValue").mockRejectedValue(
+        new validators.InvalidConfigValueError("Invalid email address"),
+      );
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "jira.email", value: "invalid-email" },
+        flags: {},
+      });
+
+      try {
+        await config.run().catch((error) => (config as any).catch(error));
+
+        expect(mockConsoleError).toHaveBeenCalledTimes(1);
+        expect(mockConsoleError.mock.calls[0][0]).toContain(
+          "Error: Invalid email address",
+        );
+        expect(mockConsoleLog).not.toHaveBeenCalled();
+        // A refused value is a value problem, as the README's table says.
+        expect(process.exitCode).toBe(2);
+      } finally {
+        process.exitCode = originalExitCode;
+      }
     });
   });
 
@@ -218,8 +305,7 @@ describe("config command", () => {
   });
 
   describe("branch prefix prompts", () => {
-    it("should prompt for all branch prefix variables when user confirms", async () => {
-      mockConfirm.mockResolvedValue(true);
+    it("should prompt for all branch prefix variables without a group confirm when the keys are named", async () => {
       mockInput
         .mockResolvedValueOnce("feature/")
         .mockResolvedValueOnce("fix/")
@@ -240,9 +326,8 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to configure branch name prefixes?",
-      });
+      // Naming the keys is asking for them (R4): no group question.
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({ message: "Prefix for feature branches" }),
       );
@@ -266,7 +351,7 @@ describe("config command", () => {
       );
     });
 
-    it("should skip branch prefix prompts when user declines", async () => {
+    it("should skip branch prefix prompts when a bare run is declined", async () => {
       mockConfirm.mockResolvedValue(false);
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -275,7 +360,6 @@ describe("config command", () => {
           list: false,
           missing: false,
           yes: false,
-          names: "branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore",
         },
       });
 
@@ -284,21 +368,22 @@ describe("config command", () => {
       expect(mockConfirm).toHaveBeenCalledWith({
         message: "Do you want to configure branch name prefixes?",
       });
-      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Prefix for feature branches" }),
+      );
     });
 
-    it("should skip the confirmation prompt when --yes is set", async () => {
-      mockInput
-        .mockResolvedValueOnce("feature/")
-        .mockResolvedValueOnce("fix/")
-        .mockResolvedValueOnce("chore/");
+    it("takes the defaults without asking when the run is non-interactive", async () => {
+      setNonInteractive(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
         flags: {
           list: false,
           missing: false,
-          yes: true,
           names: "branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore",
         },
       });
@@ -306,7 +391,35 @@ describe("config command", () => {
       await config.run();
 
       expect(mockConfirm).not.toHaveBeenCalled();
-      expect(mockInput).toHaveBeenCalledTimes(3);
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "branchPrefix.feature",
+        "feature/",
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "branchPrefix.bugfix",
+        "fix/",
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "branchPrefix.chore",
+        "chore/",
+      );
+    });
+
+    it("fails naming --names when a non-interactive run names no keys", async () => {
+      setNonInteractive(true);
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false },
+      });
+
+      await expect(config.run()).rejects.toMatchObject({
+        message: expect.stringContaining("pass --names <keys>"),
+        oclif: { exit: 2 },
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).not.toHaveBeenCalled();
     });
   });
 
@@ -365,6 +478,113 @@ describe("config command", () => {
       );
     });
   });
+  describe("postCreate prompt", () => {
+    const postCreateFlags = {
+      list: false,
+      missing: false,
+      yes: false,
+      names: "postCreate",
+    };
+
+    it("prompts for the command and stores it trimmed, without a group confirm when named", async () => {
+      mockInput.mockResolvedValue(" pnpm install ");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: postCreateFlags,
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Command to run in each new"),
+        }),
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "postCreate",
+        "pnpm install",
+      );
+    });
+
+    it("accepts an empty answer, which declines a fixed command", async () => {
+      mockInput.mockResolvedValue("");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: postCreateFlags,
+      });
+
+      await config.run();
+
+      const { validate } = mockInput.mock.calls[0][0] as {
+        validate: (value: string) => Promise<true | string>;
+      };
+      expect(await validate("")).toBe(true);
+      expect(mockSetConfigValue).toHaveBeenCalledWith("postCreate", "");
+    });
+
+    it("skips the prompt when a bare run is declined", async () => {
+      mockConfirm.mockResolvedValue(false);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message:
+          "Do you want to run a command in new worktrees after they are created?",
+      });
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Command to run in each new"),
+        }),
+      );
+    });
+
+    it("keeps the stored value when a non-interactive run names the key", async () => {
+      setNonInteractive(true);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "postCreate" ? "make setup" : "true"),
+      );
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: postCreateFlags,
+      });
+
+      await config.run();
+
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "postCreate",
+        "make setup",
+      );
+    });
+
+    it("is listed with the other keys", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: true },
+      });
+      const log = vi.spyOn(config, "log").mockImplementation(() => {});
+
+      await config.run();
+
+      expect(log.mock.calls.map((call) => call[0])).toContain("postCreate");
+    });
+  });
+
   describe("agent.command prompt", () => {
     const agentFlags = {
       list: false,
@@ -373,8 +593,7 @@ describe("config command", () => {
       names: "agent.command",
     };
 
-    it("should prompt for the agent command and store it when the user confirms", async () => {
-      mockConfirm.mockResolvedValue(true);
+    it("should prompt for the agent command and store it without a group confirm when the key is named", async () => {
       mockInput.mockResolvedValue("claude --bg");
       const mockSetConfigValue = vi
         .spyOn(git, "gitSetConfigValue")
@@ -387,9 +606,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to hand new worktrees to a coding agent?",
-      });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({
           message: "Command to start the coding agent?",
@@ -401,12 +618,12 @@ describe("config command", () => {
       );
     });
 
-    it("should skip the agent prompt when the user declines", async () => {
+    it("should skip the agent prompt when a bare run is declined", async () => {
       mockConfirm.mockResolvedValue(false);
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
-        flags: agentFlags,
+        flags: { list: false, missing: false },
       });
 
       await config.run();
@@ -414,28 +631,52 @@ describe("config command", () => {
       expect(mockConfirm).toHaveBeenCalledWith({
         message: "Do you want to hand new worktrees to a coding agent?",
       });
-      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Command to start the coding agent?",
+        }),
+      );
     });
 
-    it("should skip the confirmation prompt when --yes is set", async () => {
-      mockInput.mockResolvedValue("claude --bg");
+    it("fails naming the key when a non-interactive run has no agent command", async () => {
+      setNonInteractive(true);
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
-        flags: { ...agentFlags, yes: true },
+        flags: agentFlags,
       });
 
-      await config.run();
-
+      await expect(config.run()).rejects.toMatchObject({
+        message:
+          "no default for agent.command; pass worktree config agent.command <value>",
+        oclif: { exit: 2 },
+      });
       expect(mockConfirm).not.toHaveBeenCalled();
-      expect(mockInput).toHaveBeenCalledTimes(1);
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it("fails naming github.token when a non-interactive run has no token", async () => {
+      setNonInteractive(true);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          names: "github.token",
+        },
+      });
+
+      await expect(config.run()).rejects.toMatchObject({
+        message:
+          "no default for github.token; pass worktree config github.token <token>",
+      });
+      expect(mockInput).not.toHaveBeenCalled();
     });
 
     // No agent runtime is named as a fallback, unlike codeEditor's "code".
     // Suggesting one would make this tool depend on a particular CLI, which
     // AGENT-MODE-PLAN §2 rules out.
     it("should offer no default agent runtime when none is configured", async () => {
-      mockConfirm.mockResolvedValue(true);
       mockInput.mockResolvedValue("claude");
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -455,7 +696,6 @@ describe("config command", () => {
     });
 
     it("should pre-fill with the existing value when one is configured", async () => {
-      mockConfirm.mockResolvedValue(true);
       mockInput.mockResolvedValue("codex -q");
       vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
         if (key === "has-called-config") return Promise.resolve("true");
@@ -483,7 +723,6 @@ describe("config command", () => {
     // accepted while the program alone is what gets looked up. Exercising the
     // captured validate pins the behaviour rather than the function identity.
     it("should validate the entered command on its argv head", async () => {
-      mockConfirm.mockResolvedValue(true);
       mockInput.mockResolvedValue("claude --bg");
       const mockCommandExists = vi
         .spyOn(cli, "commandExists")
@@ -503,6 +742,30 @@ describe("config command", () => {
       expect(await validate("claude --bg")).toBe(true);
       expect(mockCommandExists).toHaveBeenCalledWith("claude");
       expect(await validate("   ")).toBe("Command cannot be empty");
+    });
+  });
+
+  describe("the run verifyConfig delegates to", () => {
+    it("asks no Jira group confirm for missing Jira keys, as before the flag changed", async () => {
+      mockInput
+        .mockResolvedValueOnce("example.atlassian.com")
+        .mockResolvedValueOnce("me@example.com")
+        .mockResolvedValueOnce("token");
+
+      // Exactly the arguments BaseCommand.verifyConfig passes: no `--yes`.
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: true,
+          names: "jira.host,jira.email,jira.apiToken",
+        },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).toHaveBeenCalledTimes(3);
     });
   });
 
@@ -528,7 +791,8 @@ describe("config command", () => {
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: "Which opener should new worktrees use? (editor or herdr)",
+          message:
+            "Which opener should new worktrees use? (editor, herdr or none)",
           default: "editor",
           prefill: "tab",
           validate: validators.isValidOpener,
@@ -546,7 +810,7 @@ describe("config command", () => {
       expect(mockSetConfigValue).toHaveBeenCalledWith("herdr.focus", "false");
     });
 
-    it("should skip both prompts when the user declines", async () => {
+    it("should skip both prompts when a bare run is declined", async () => {
       mockConfirm.mockResolvedValue(false);
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -555,7 +819,6 @@ describe("config command", () => {
           list: false,
           missing: false,
           yes: false,
-          names: "opener,herdr.focus",
         },
       });
 
@@ -567,7 +830,11 @@ describe("config command", () => {
       expect(mockConfirm).toHaveBeenCalledWith({
         message: "Do you want to configure Herdr space options?",
       });
-      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Should opening a worktree focus its Herdr space?",
+        }),
+      );
     });
 
     it("should pre-fill both prompts with the configured values", async () => {
@@ -717,7 +984,7 @@ describe("config command", () => {
       );
     });
 
-    it("should ask one confirm for the group and skip both prompts when declined", async () => {
+    it("should ask one confirm for the group and skip both prompts when a bare run is declined", async () => {
       mockConfirm.mockResolvedValue(false);
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -726,7 +993,6 @@ describe("config command", () => {
           list: false,
           missing: false,
           yes: false,
-          names: "github.token,github.autoAssign",
         },
       });
 
@@ -735,8 +1001,9 @@ describe("config command", () => {
       expect(mockConfirm).toHaveBeenCalledWith({
         message: "Do you want to configure GitHub issue options?",
       });
-      expect(mockConfirm).toHaveBeenCalledTimes(1);
-      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({ message: "GitHub personal access token" }),
+      );
     });
 
     it("should keep a stored github.token when the prompt is answered empty", async () => {
@@ -861,7 +1128,7 @@ describe("config command", () => {
   // that only mean something with it. `commandExists` is stubbed true globally
   // in test-setup, so "installed" is the default every other suite sees.
   describe("hiding the Herdr keys when herdr is absent", () => {
-    const herdrKeys = ["opener", "herdr.focus", "herdr.agent"];
+    const herdrKeys = ["herdr.focus", "herdr.agent"];
 
     // vitest.config.ts sets no restoreMocks, and clearAllMocks keeps
     // implementations, so a commandExists stub left here would leak into any
@@ -925,11 +1192,22 @@ describe("config command", () => {
 
       expect(listedNames()).toContain("herdr.agent=claude");
       // The two that hold no value stay hidden.
-      expect(listedNames()).not.toContain("opener");
       expect(listedNames()).not.toContain("herdr.focus");
     });
 
-    it("asks neither the opener nor the Herdr confirm when herdr is absent", async () => {
+    it("always lists opener, because `none` is useful without herdr", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: false },
+      });
+
+      await config.run();
+
+      expect(listedNames()).toContain("opener");
+    });
+
+    it("asks the opener confirm but not the Herdr one when herdr is absent", async () => {
       vi.spyOn(cli, "commandExists").mockResolvedValue(false);
       mockConfirm.mockResolvedValue(false);
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -940,7 +1218,7 @@ describe("config command", () => {
       await config.run();
 
       const asked = mockConfirm.mock.calls.map((call) => call[0]?.message);
-      expect(asked).not.toContain(
+      expect(asked).toContain(
         "Do you want to choose where new worktrees are opened?",
       );
       expect(asked).not.toContain(
@@ -999,6 +1277,7 @@ describe("config command", () => {
 
       const message = String(errorSpy.mock.calls[0]?.[0]);
       expect(message).toContain("codeEditor");
+      expect(message).toContain("opener");
       for (const key of herdrKeys) {
         expect(message).not.toContain(key);
       }
@@ -1011,7 +1290,6 @@ describe("config command", () => {
       const setConfigValue = vi
         .spyOn(git, "gitSetConfigValue")
         .mockResolvedValue();
-      mockConfirm.mockResolvedValue(true);
       mockInput.mockResolvedValue("herdr");
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -1020,10 +1298,7 @@ describe("config command", () => {
 
       await config.run();
 
-      const asked = mockConfirm.mock.calls.map((call) => call[0]?.message);
-      expect(asked).toContain(
-        "Do you want to choose where new worktrees are opened?",
-      );
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(setConfigValue).toHaveBeenCalledWith("opener", "herdr");
     });
   });

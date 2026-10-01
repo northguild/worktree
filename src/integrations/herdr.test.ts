@@ -3,9 +3,12 @@ import {
   closeHerdrWorkspace,
   HerdrError,
   isHerdrInstalled,
+  listHerdrAgents,
   listHerdrWorktrees,
   openHerdrWorktree,
+  promptHerdrAgent,
   startHerdrAgent,
+  toAgentSessionName,
   toHerdrAgentName,
 } from "./herdr.js";
 
@@ -387,6 +390,43 @@ describe("startHerdrAgent", () => {
     const herdrWait = Number(args[args.indexOf("--timeout") + 1]);
 
     expect(timeoutOf(0)).toBeGreaterThan(herdrWait);
+  });
+
+  it("passes agent arguments after `--`, as separate elements", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: makeAgentStartedEnvelope(),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await startHerdrAgent({
+      name: "wt-x",
+      kind: "claude",
+      paneId: "pF1",
+      args: ["--model", "opus", "--name", "repo-x; $(id)"],
+    });
+
+    const args = mockRunCapturing.mock.calls[0]?.[1] as string[];
+
+    expect(args.slice(args.indexOf("--"))).toEqual([
+      "--",
+      "--model",
+      "opus",
+      "--name",
+      "repo-x; $(id)",
+    ]);
+  });
+
+  it("sends no `--` when the agent has no arguments", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: makeAgentStartedEnvelope(),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await startAgent();
+
+    expect(mockRunCapturing.mock.calls[0]?.[1]).not.toContain("--");
   });
 
   it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
@@ -815,5 +855,253 @@ describe("the request timeout", () => {
     mockRunCapturing.mockRejectedValue(enoent);
 
     await expect(openThisWorktree()).rejects.toBe(enoent);
+  });
+});
+
+describe("promptHerdrAgent", () => {
+  it("submits the text as one positional after the pane, with no --wait", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: JSON.stringify({
+        id: "cli:agent:prompt",
+        result: { type: "ok" },
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+    const text = "- do it\n\nthen $(touch x); stop";
+
+    await expect(
+      promptHerdrAgent({ paneId: "pF1", text }),
+    ).resolves.toBeUndefined();
+    expect(mockRunCapturing).toHaveBeenCalledWith(
+      "herdr",
+      ["agent", "prompt", "pF1", text],
+      { timeout: expect.any(Number) },
+    );
+  });
+
+  it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: "",
+      stderr: makeErrorEnvelope("agent_blocked", "agent is blocked"),
+      exitCode: 1,
+    });
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: "hi" }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toMatchObject({ code: "agent_blocked" });
+  });
+});
+
+describe("promptHerdrAgent errors never quote the brief (#72)", () => {
+  const brief = "SECRET-BRIEF-MARKER: rotate the keys\n$(touch x)";
+  const size = Buffer.byteLength(brief, "utf8");
+
+  it("names a timed-out prompt's brief by its size", async () => {
+    mockRunCapturing.mockRejectedValue(
+      Object.assign(
+        new Error(`Command failed: herdr agent prompt pF1 ${brief}`),
+        {
+          killed: true,
+          signal: "SIGTERM",
+          code: null,
+        },
+      ),
+    );
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: brief }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect((error as Error).message).toContain(
+      `herdr agent prompt pF1 <brief, ${size} bytes>`,
+    );
+    expect((error as Error).message).toMatch(/did not answer within 10s\.$/);
+    expect((error as Error).message).not.toContain("SECRET-BRIEF-MARKER");
+  });
+
+  it("names a prompt's brief by its size when Herdr died on a signal we did not send", async () => {
+    mockRunCapturing.mockRejectedValue(
+      Object.assign(
+        new Error(`Command failed: herdr agent prompt pF1 ${brief}\n`),
+        { killed: false, code: null, signal: "SIGKILL" },
+      ),
+    );
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: brief }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect((error as Error).message).toBe(
+      `Herdr: \`herdr agent prompt pF1 <brief, ${size} bytes>\` was killed by SIGKILL.`,
+    );
+    expect((error as Error).cause).toBeUndefined();
+  });
+
+  it("names a failed prompt's brief by its size when Herdr sent no envelope", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: "",
+      stderr: "socket closed",
+      exitCode: 1,
+    });
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: brief }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect((error as Error).message).toBe(
+      `Herdr: \`herdr agent prompt pF1 <brief, ${size} bytes>\` exited with code 1: socket closed`,
+    );
+  });
+
+  it("names a prompt answered without a result by its size", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: JSON.stringify({ id: "cli:agent:prompt" }),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: brief }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect((error as Error).message).toContain(`<brief, ${size} bytes>`);
+    expect((error as Error).message).not.toContain("SECRET-BRIEF-MARKER");
+  });
+});
+
+describe("listHerdrAgents", () => {
+  // The entry shape captured from Herdr 0.9.0 on 2026-10-01; fields this
+  // feature does not read are kept so the narrowing runs against the real thing.
+  const liveEntry = {
+    agent: "claude",
+    agent_session: {
+      agent: "claude",
+      kind: "id",
+      source: "herdr:claude",
+      value: "a9141896-2083-492e-966d-46becf1cd48a",
+    },
+    agent_status: "idle",
+    cwd: "/Users/x/repo",
+    focused: true,
+    foreground_cwd: "/Users/x/repo",
+    pane_id: "wA:p1",
+    revision: 13,
+    state_change_seq: 2248,
+    tab_id: "wA:t1",
+    terminal_id: "term_65b9ac75aed611",
+    terminal_title: "✳ Work",
+    terminal_title_stripped: "Work",
+    workspace_id: "wA",
+  };
+
+  function answer(agents: unknown) {
+    mockRunCapturing.mockResolvedValue({
+      stdout: JSON.stringify({
+        id: "cli:agent:list",
+        result: { type: "agent_list", agents },
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+  }
+
+  it("narrows each entry to the fields the join reads, bounded", async () => {
+    answer([liveEntry]);
+
+    await expect(listHerdrAgents()).resolves.toEqual([
+      {
+        kind: "claude",
+        cwd: "/Users/x/repo",
+        paneId: "wA:p1",
+        status: "idle",
+        sessionId: "a9141896-2083-492e-966d-46becf1cd48a",
+      },
+    ]);
+    expect(mockRunCapturing).toHaveBeenCalledWith("herdr", ["agent", "list"], {
+      timeout: expect.any(Number),
+    });
+  });
+
+  // Herdr 0.9.0 reports `name` (and `interactive_ready`) for an agent it started
+  // itself, and omits `name` for one it only detected (#74).
+  it("reads Herdr's agent name when it reports one, and leaves it out otherwise", async () => {
+    answer([
+      {
+        ...liveEntry,
+        name: "wt-139-festival-assistant-on-arc",
+        interactive_ready: true,
+      },
+      { ...liveEntry, pane_id: "wA:p2" },
+    ]);
+
+    const [named, unnamed] = await listHerdrAgents();
+
+    expect(named).toMatchObject({
+      name: "wt-139-festival-assistant-on-arc",
+      paneId: "wA:p1",
+    });
+    expect(unnamed?.name).toBeUndefined();
+    expect(unnamed?.paneId).toBe("wA:p2");
+  });
+
+  it("leaves the session id out of an agent with no session recorded", async () => {
+    const { agent_session: _session, ...bare } = liveEntry;
+    answer([bare]);
+
+    const [entry] = await listHerdrAgents();
+
+    expect(entry?.sessionId).toBeUndefined();
+  });
+
+  it("leaves the session id out of a session form it has not seen", async () => {
+    answer([
+      { ...liveEntry, agent_session: { kind: "path", value: "/some/file" } },
+    ]);
+
+    const [entry] = await listHerdrAgents();
+
+    expect(entry?.sessionId).toBeUndefined();
+  });
+
+  it("drops entries that cannot be joined and keeps the rest", async () => {
+    answer([null, "x", { ...liveEntry, cwd: undefined }, liveEntry]);
+
+    await expect(listHerdrAgents()).resolves.toHaveLength(1);
+  });
+
+  it("rejects when the result carries no agents array", async () => {
+    answer("nope");
+
+    await expect(listHerdrAgents()).rejects.toThrow("no agents array");
+  });
+
+  it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: "",
+      stderr: makeErrorEnvelope("server_not_running", "not running"),
+      exitCode: 1,
+    });
+
+    await expect(listHerdrAgents()).rejects.toMatchObject({
+      code: "server_not_running",
+    });
+  });
+});
+
+describe("toAgentSessionName", () => {
+  it("joins repo and branch, lowercased, with runs of other characters as one dash", () => {
+    expect(toAgentSessionName("Worktree", "feature/Add_Thing 2")).toBe(
+      "worktree-feature-add-thing-2",
+    );
+  });
+
+  it("never truncates a long branch", () => {
+    const branch = `70-${"a".repeat(97)}`;
+
+    expect(branch).toHaveLength(100);
+    expect(toAgentSessionName("worktree", branch)).toBe(`worktree-${branch}`);
   });
 });

@@ -30,7 +30,7 @@ worktree config --missing --names opener          # prompts for it regardless
 worktree config opener herdr
 ```
 
-`opener` accepts `editor` or `herdr`. Unset means `editor`, so nothing changes for anyone who
+`opener` accepts `editor`, `herdr` or `none`. Unset means `editor`, so nothing changes for anyone who
 does not set it.
 
 The key is stored in local Git config under `northguild.worktree.opener`, so it applies to one
@@ -63,7 +63,7 @@ worktree config herdr.focus false
 
 ## Start an agent with the space
 
-Optional, and off unless you set it:
+Optional, and off unless you set it (or give `worktree branch` a brief, below):
 
 ```bash
 worktree config herdr.agent claude
@@ -77,9 +77,26 @@ its own message.
 The agent starts only for a space this command just opened. Re-opening a worktree does not start a
 second agent, because the one you left running is still in that pane.
 
-The agent name is derived from the branch and coerced to what Herdr accepts. If the start fails —
-most often a name already taken by a live agent from another repository — you get a warning, and
-the space is still open and correct.
+Herdr's name for the agent is derived from the branch and coerced to what Herdr accepts, which includes
+a 32-character cap. If the start fails — most often a name already taken by a live agent from another
+repository — you get a warning, and the space is still open and correct.
+
+This is **the** agent for the worktree: `worktree branch --agent "<prompt>"` does not start a second one
+beside it. Whenever Herdr starts an agent:
+
+- `agent.command`'s arguments are passed to it when it names the same program, with `--bg` and
+  `--background` dropped, because the agent runs in the pane.
+- For `claude`, `--name <repo>-<branch>` is added, lowercased and never shortened, and printed on stderr.
+
+With a brief (`--agent`, `--agent-file` or `--agent-stdin`):
+
+- The kind is `herdr.agent`, or else the program [`agent.command`](/docs/configuration#agent-command)
+  names, so you can leave `herdr.agent` unset. With a brief and neither, `worktree branch` exits `2` before it creates anything and names the
+  key to set. Without a brief, only `herdr.agent` starts an agent.
+- The brief is submitted with `herdr agent prompt` once the agent is ready, never as part of
+  `herdr agent start`.
+
+`--no-agent` opens the space without an agent, and `--no-open` skips Herdr for the run.
 
 ## When the worktree goes
 
@@ -137,7 +154,9 @@ It does not fall back to your editor. Setting `opener herdr` is a deliberate cho
 unexpected editor window is not a useful consolation prize.
 
 The command still exits `0`. By the time the opener runs, the branch, the worktree and the copied
-env files all exist — the only thing that failed is the last step.
+env files all exist — the only thing that failed is the last step. The exception is a run given a brief
+(`--agent`): if no agent ends up with it, the run exits `1`, because the agent working on it was part of
+what was asked for.
 
 ### Closing
 
@@ -164,6 +183,6 @@ closed — the removals still happen.
 
 | Key | Values | Default |
 |---|---|---|
-| `opener` | `editor` or `herdr` | `editor` |
+| `opener` | `editor`, `herdr` or `none` | `editor` |
 | `herdr.focus` | `true` or `false` | `true` |
 | `herdr.agent` | an agent kind, such as `claude` | unset — no agent |

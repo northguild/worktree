@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
-import ora from "ora";
 import { run } from "./cli.js";
 import { gitGetRootPath } from "./git.js";
+import { createSpinner } from "./progress.js";
 
 /**
  * Env-shaped filenames, widened past the two this tool used to name. `.env` and
@@ -92,7 +92,10 @@ function renderPath(envFile: string) {
  * interesting part of `docs/worker/.dev.vars` is `docs/worker`, and an absolute
  * prefix repeated down the column is what buries it.
  *
- * The whole report goes to stdout, heading included. The spinner covers only
+ * Resolves with the paths copied, relative to the repository root as printed.
+ *
+ * The whole report goes to stdout, heading included (stderr when `report` says
+ * so). The spinner covers only
  * the lookup, and is stopped rather than resolved into the heading, because ora
  * writes to stderr: a heading there and its rows here would split the report in
  * two under any redirection, which is the one situation where someone is
@@ -100,9 +103,13 @@ function renderPath(envFile: string) {
  */
 export async function copyEnvFilesFromRootPath(
   destinationWorktreePath: string,
-) {
+  { report = "stdout" }: { report?: "stdout" | "stderr" } = {},
+): Promise<string[]> {
+  // A run whose stdout carries a machine-readable document sends the report to
+  // stderr instead, so the document stays the only thing on stdout.
+  const say = report === "stderr" ? console.error : console.log;
   const gitRootPath = await gitGetRootPath();
-  const spinner = ora("Looking for env files to copy").start();
+  const spinner = createSpinner("Looking for env files to copy").start();
 
   let envFiles: string[];
   try {
@@ -119,11 +126,11 @@ export async function copyEnvFilesFromRootPath(
   // env file someone expected looks identical to one that never needed any, and
   // this line is what separates "none found" from "the copy never ran".
   if (envFiles.length === 0) {
-    console.log(`No env files to copy from ${gitRootPath}`);
-    return;
+    say(`No env files to copy from ${gitRootPath}`);
+    return [];
   }
 
-  console.log(
+  say(
     `Copying ${chalk.bold(envFiles.length)} env ${envFiles.length === 1 ? "file" : "files"} from ${gitRootPath}:`,
   );
 
@@ -145,6 +152,8 @@ export async function copyEnvFilesFromRootPath(
         { cause: error },
       );
     }
-    console.log(`  ${chalk.green("✔")} ${renderPath(envFile)}`);
+    say(`  ${chalk.green("✔")} ${renderPath(envFile)}`);
   }
+
+  return envFiles;
 }

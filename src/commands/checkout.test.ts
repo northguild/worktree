@@ -1,7 +1,10 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { select } from "@inquirer/prompts";
+import * as herdr from "../integrations/herdr.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
+import { setNonInteractive } from "../lib/interaction.js";
+import { MissingValueError } from "../lib/prompt.js";
 import Checkout from "./checkout.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -65,7 +68,9 @@ describe("checkout command", () => {
       { isCheckout: true },
     );
     expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree");
-    expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+    expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+      brief: undefined,
+    });
     expect(mockSelect).not.toHaveBeenCalled();
   });
 
@@ -182,9 +187,42 @@ describe("checkout command", () => {
       ]);
       vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "agent.command" ? "claude --bg" : ""),
+      );
     });
 
-    it("hands the checked-out worktree to the agent with the prompt", async () => {
+    it("fails a brief with no agent command before creating a worktree", async () => {
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "review this branch" },
+      });
+
+      await expect(checkout.run()).rejects.toMatchObject({
+        value: "the agent command",
+      });
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("fails a brief with no agent kind before creating a worktree (#75)", async () => {
+      vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "opener" ? "herdr" : ""),
+      );
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "review this branch" },
+      });
+
+      await expect(checkout.run()).rejects.toBeInstanceOf(MissingValueError);
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+    });
+
+    it("hands the prompt to the opener as the brief, after the env files", async () => {
       (checkout as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
         flags: { agent: "review this branch" },
@@ -192,21 +230,29 @@ describe("checkout command", () => {
 
       await checkout.run();
 
-      expect(mockDispatchAgent).toHaveBeenCalledWith(
-        "/path/to/worktree",
-        "review this branch",
-      );
-      // The worktree has to be complete before the agent sees it, and the
-      // editor still opens afterwards.
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        brief: "review this branch",
+      });
+      // The worktree has to be complete before the agent sees it.
       expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
-        mockDispatchAgent.mock.invocationCallOrder[0],
-      );
-      expect(mockDispatchAgent.mock.invocationCallOrder[0]).toBeLessThan(
         mockOpenWorktreePath.mock.invocationCallOrder[0],
       );
+      // The opener decides Herdr or detached, so checkout never dispatches.
+      expect(mockDispatchAgent).not.toHaveBeenCalled();
     });
 
-    it("dispatches nothing when the flag is absent", async () => {
+    it("rejects an empty prompt before creating a worktree", async () => {
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "" },
+      });
+
+      await expect(checkout.run()).rejects.toThrow(/empty/);
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("passes no brief when the flag is absent", async () => {
       (checkout as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
         flags: {},
@@ -215,7 +261,26 @@ describe("checkout command", () => {
       await checkout.run();
 
       expect(mockDispatchAgent).not.toHaveBeenCalled();
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        brief: undefined,
+      });
     });
+  });
+
+  it("fails naming the branch argument, without a picker, when non-interactive", async () => {
+    setNonInteractive(true);
+    vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue(["origin/main"]);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
+    const mockCreateWorktree = vi.spyOn(git, "gitCreateWorktree");
+    (checkout as any).parse = vi
+      .fn()
+      .mockResolvedValue({ args: {}, flags: {} });
+
+    await expect(checkout.run()).rejects.toMatchObject({
+      message: "no default for the branch to check out; pass <branchName>",
+      oclif: { exit: 2 },
+    });
+    expect(mockSelect).not.toHaveBeenCalled();
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
   });
 });

@@ -62,6 +62,7 @@ describe("Jira integration", () => {
           Authorization: `Basic ${Buffer.from("test@example.com:api-token").toString("base64")}`,
           Accept: "application/json",
         },
+        signal: expect.any(AbortSignal),
       },
     );
     expect(issue.key).toBe("DEV-123");
@@ -172,5 +173,39 @@ describe("Jira integration", () => {
     const isValid = await validateJiraCredentials();
 
     expect(isValid).toBe(true);
+  });
+
+  it("rejects a Jira request that never answers, naming the call and not the token", async () => {
+    expectCommands(
+      "git config northguild.worktree.jira.host",
+      "git config northguild.worktree.jira.email",
+      "git config northguild.worktree.jira.apiToken",
+    );
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("https://example.atlassian.net/")
+      .mockResolvedValueOnce("test@example.com")
+      .mockResolvedValueOnce("api-token");
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(
+      AbortSignal.abort(new DOMException("timed out", "TimeoutError")),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            if (init.signal?.aborted) {
+              reject(init.signal.reason);
+            }
+          }),
+      ),
+    );
+
+    const failure = fetchJiraIssue("dev-123");
+
+    await expect(failure).rejects.toThrow(
+      "Jira: /rest/api/3/issue/DEV-123 did not answer within 15s.",
+    );
+    await expect(failure).rejects.not.toThrow(/api-token/);
+    expect(AbortSignal.timeout).toHaveBeenCalledWith(15_000);
   });
 });
