@@ -56,8 +56,8 @@ context/              planning-workflow artifacts (this directory)
   gitignored. `ci.yml` runs a secret scan that fails the build if a key value is committed.
 - **One generated file must be committed in sync with `package.json`'s version:**
   `docs/src/lib/site-meta.ts`. Run `pnpm sync-version` after a version bump; CI hard-fails on drift via
-  `git diff --exit-code`. Use the
-  root `pnpm docs:dev`, not `pnpm --filter docs dev` — the former syncs the version first.
+  `git diff --exit-code`. Use the root `pnpm docs:dev`, not `pnpm --filter docs dev` — the former syncs
+  the version first.
 - **One lockfile, at the root.** There is no `.npmrc` — the one that pinned
   `shared-workspace-lockfile=true` was removed in 260eb2f, and pnpm's default keeps the behaviour. CI
   still fails the build if `docs/pnpm-lock.yaml` ever appears, so do not add one.

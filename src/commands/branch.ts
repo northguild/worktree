@@ -47,7 +47,8 @@ Exit codes:
 0 success
 1 failure, or the worktree was made but the install failed or the brief
 was not delivered
-2 usage: a value with no default is missing, a value is invalid, not found`;
+2 usage: a value with no default is missing, a value is invalid, or the
+--source branch does not exist (a missing issue exits 1)`;
   // One JSON document on stdout, everything human on stderr (D6).
   static override enableJsonFlag = true;
   static override examples = [

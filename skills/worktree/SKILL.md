@@ -183,11 +183,12 @@ document:
 ```
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, or
-  `null`.
+  `null`; `url` can itself be `null`.
 - `assigned` is `null` when no assignment was attempted.
 - `herdr` and `agent` are `null` when skipped. `agent.command` leaves the brief
-  out. `agent.name` and `agent.kind` are `null` where this CLI named nothing
-  (a detached start). `herdr.agent` is `null` when no agent was started in the
+  out. `agent.name` is `null` where this CLI named nothing: a detached
+  start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a
+  detached start. `herdr.agent` is `null` when no agent was started in the
   pane.
 - `installed` is `{ran:false,reason}` when skipped. A failed install still
   prints the whole document, with `installed.ok` `false` and a `reason`, and
@@ -206,8 +207,9 @@ document:
 ```
 
 `remote` is `null` when the branch tracks nothing, and `ahead`, `behind`,
-`mergedInto`, `pathExists`, `remoteExists` and `uncommittedChanges` are `null`
-when they could not be taken. With `--agents`, each entry also has `agent`:
+`pathExists`, `remoteExists` and `uncommittedChanges` are `null` when they
+could not be taken. `mergedInto` is `null` when the branch is not known to be
+merged. With `--agents`, each entry also has `agent`:
 `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`, whose
 `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` can each be
 `null`. `herdrAgent` is the name Herdr gives the agent (for example
@@ -322,7 +324,7 @@ under `northguild.worktree.*`.
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
-| `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; unset, the inferred install runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
+| `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
 | `github.token` | `ghp_...` | `--github` flag |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
@@ -462,7 +464,7 @@ worktree branch feature/x --agent "implement the issue"
 
 A brief with no agent configured to take it exits `2` before any worktree is
 created, naming the missing key: `worktree config agent.command "<command>"` for
-the detached start (editor or `none` opener, or Herdr not installed), or
+the detached start (editor or `none` opener, `--no-open`, or Herdr not installed), or
 `worktree config herdr.agent <kind>` on the Herdr path, where `herdr.agent`
 alone is enough (`branch` and `checkout` both). Set the key first, or check
 `worktree config --list`.

@@ -79,7 +79,7 @@ to answer questions.
 
 #### 2. Agent Skill (`skills/worktree/SKILL.md`)
 
-The repo ships a plain Agent Skill, installable with `npx skills add northguild/worktree`.
+The repo ships a plain Agent Skill, installable with `npx skills add northguild/worktree --skill worktree`.
 `skills/worktree/SKILL.md` is a structured markdown document that describes the Worktree
 CLI's core patterns and canonical terminology. It is hand-written: edit it in
 the same change as the code that makes it untrue. It is included in the system
