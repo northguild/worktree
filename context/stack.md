@@ -26,7 +26,7 @@ src/commands/         one file per CLI command; each default-exports a BaseComma
 src/lib/              CLI helpers — git integration, validators, env, types, constants, cli
 src/integrations/     GitHub and Jira integrations
 scripts/              version-sync script, run by `pnpm sync-version`
-skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`
+skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`. Nothing on npm discovers it since TanStack Intent went (`skills add` reads GitHub); it stays in `files` so an `npm i -g` install has a copy matching its own version on disk
 docs/                 Next.js 16 + Nextra 4 docs app, React 19, Base UI; own package.json
 docs/src/app/         docs content
 docs/src/             UI, components, chat client, site metadata

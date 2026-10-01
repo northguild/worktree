@@ -208,7 +208,8 @@ document:
 
 `remote` is `null` when the branch tracks nothing, and `ahead`, `behind`,
 `pathExists`, `remoteExists` and `uncommittedChanges` are `null` when they
-could not be taken. `mergedInto` is `null` when the branch is not known to be
+could not be taken. `current` and `safeToRemove` are never `null`: they read
+`false` when unknown. `mergedInto` is `null` when the branch is not known to be
 merged. With `--agents`, each entry also has `agent`:
 `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`, whose
 `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` can each be
