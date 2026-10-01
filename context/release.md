@@ -60,13 +60,16 @@ touching two paths owes whatever each of their rows says, which may be two notes
 
 ## What records a note
 
-**Nothing records a note here.** There is no notes directory, no `CHANGELOG`, no `## Unreleased` heading
-and no fragment directory. `docs/src/app/docs/changelog/page.mdx` is a hand-written page stating the
+**A Changesets fragment directory, `.changeset/`, is being adopted** (#87). `pnpm changeset:add` writes a
+note there, and `changeset version` consumes the notes into a `CHANGELOG.md` that does not exist yet. Until
+that feature's last phase re-fills this file, no release has consumed a note, so this section's answer is
+still incomplete. `docs/src/app/docs/changelog/page.mdx` is a hand-written page stating the
 single-latest-docs policy, not a changelog, and it stays in [`stack.md`](stack.md)'s Documentation index.
 
-**Nothing asks for a note on a change either** — no CI job checks for one — so there is no release-commit
-exemption to record. If a mechanism is added, write both here: the check, and what exempts the commit that
-consumed the notes.
+**The check:** `.github/workflows/release-note.yml` runs `pnpm changeset:status` on a pull request that
+touches `src/**`, `bin/**`, `skills/**` or `package.json`, and fails when the package changed and no note
+was added. **The exemption:** a pull request that moves the root `package.json` version, read from the
+tree against the merge base — the release pull request, whose notes `changeset version` consumed.
 
 ## At what granularity
 
