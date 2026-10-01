@@ -9,8 +9,10 @@ description: >
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
   --github issue-to-branch, --jira issue-to-branch, handing a new worktree to a
   coding agent with --agent, worktree list --agents, worktree cleanup
-  --ignore-agents, opening worktrees as Herdr spaces and closing those spaces
-  again when the worktree is removed, and automatic copying of gitignored env
+  --ignore-agents, agent mode for scripts and coordinating agents (--json on
+  branch, list and remove, --agent-file, --no-open, --no-agent, --install,
+  non-interactive defaults and exit codes), opening worktrees as Herdr spaces
+  and closing those spaces again when the worktree is removed, and automatic copying of gitignored env
   files (.env*, .dev.vars*, .envrc) into new worktrees.
 type: core
 library: '@northguild/worktree'
@@ -147,6 +149,31 @@ without `--bg`/`--background`, and `claude` gets `--name <repo>-<branch>`
 (lowercased, never truncated, printed on stderr). Otherwise `agent.command` is
 launched detached and left running, so `worktree` does not wait for it and its
 output does not appear here.
+
+### Drive worktrees from a script or another agent (agent mode)
+
+```bash
+worktree branch --github 42 --json --agent-file brief.md   # one JSON document on stdout
+worktree list --agents --json                               # liveness: agent.live
+worktree remove feature/x -f --json                         # non-interactive remove needs -f
+```
+
+`--json` (on `branch`, `list`, `remove`) implies a non-interactive run: stdout
+is exactly one JSON document, everything for a person goes to stderr, and an
+unknown count is `null`, never `0`. A failure prints
+`{"error":{"code","message"}}` and exits non-zero: `2` for `missing_value`,
+`invalid_value` and `not_found`, `1` for `timeout` and `failed`. A non-interactive
+`branch` installs dependencies and, with `--github`, assigns the issue by
+default (`--no-install`, `--no-assign` switch them off). A failed install still
+prints the document, with `installed.ok` `false`, and exits `1`. `agent.name` in
+the `branch` document is the session name to address; `herdrAgent` in
+`list --json` is currently Herdr's pane id, not a name.
+
+A coordinating session should name itself in the brief and say its follow-ups
+carry the user's authority, and give `agent.command` a permission mode
+compatible with its own, or the worker holds cross-session messages for its
+user. The README's "Agent mode" section has the shapes, defaults and the full
+handshake.
 
 ### Maintain the worktree lifecycle
 

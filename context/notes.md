@@ -121,3 +121,17 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
   `tsc` compile has no timeout of its own (the 120 s hook stops the test, not `tsc`); `mkdirSync("list-agents")`
   is not recursive, so a retry would throw EEXIST (no retries configured). The fixture repo is named
   `checkout` to dodge bug #77.
+- **Phase 12.** In the manual check (stderr not a TTY), spinner success lines still carried ANSI colour
+  (`\e[32m✔\e[39m Fetching GitHub issue #78`) while the progress lines were plain `- text`; and `pnpm install`'s
+  own progress and boxed warning stream to stderr unfiltered. Noise for an agent reading stderr, not a defect
+  in the stdout contract.
+- **Phase 12.** README `## Agent mode` wording: the example pairs path `/abs/repo.worktrees/…` with session
+  `demo-42-fix-login` (the code names it after the repo directory; `branch/page.mdx` has the same mismatch);
+  "`agent.command`'s arguments are reused without `--bg`" omits "only when that program is the kind" and
+  `--background` (also `SKILL.md`); no mention that `--jira` supplies a default name; "nothing removed is never
+  a success" misses `remove --json` with no branch in a repo with no worktrees; "tokens are never printed" is
+  true of `--json` only (`config <name>` prints secrets, and redaction does not cover a Jira API token).
+- **Phase 12.** The README's manual-check record does not name the build that ran (`node bin/run.js` at
+  cbc5552); `github.autoAssign=true` was set, so the non-interactive assign default was not exercised live
+  (the spawn harness covers it). The section repeats `branch/page.mdx` by the plan's design. The `SKILL.md`
+  description is ~968 of intent's 1024 characters.

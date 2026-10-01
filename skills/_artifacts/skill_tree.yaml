@@ -27,7 +27,10 @@ skills:
       branchPrefix.*), worktree branch, checkout, list, open, remove/rm,
       cleanup, --github and --jira issue-to-branch workflows, handing a
       new worktree to a coding agent with --agent, list --agents, cleanup
-      --ignore-agents, automatic gitignored env file copying, and opening
+      --ignore-agents, agent mode for scripts and coordinating agents (--json
+      on branch, list and remove, --agent-file, --no-open, --no-agent,
+      --install, non-interactive defaults and exit codes), automatic
+      gitignored env file copying, and opening
       worktrees as Herdr spaces — closing those spaces again when remove
       or cleanup deletes the worktree.
     requires: []
