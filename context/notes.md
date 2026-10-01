@@ -146,3 +146,7 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - **Phase 13.** Bugs found in this branch's own unmerged code are fixed here, not filed: #71/#72/#74/#75/#76
   were filed from Phases 8–10 and could not be worked from `main`. `/feature-close`: the PR body carries
   `Closes #71 #72 #74 #75 #76`.
+- **Phase 14.** Plan Q6 is still open as written: does 1.9.0 (minor) hold now that errors exit non-zero
+  (D4)? The bump implements D16 as decided; confirm before the PR merges, since the merge is what tags and
+  publishes. `context/release.md` lines 103 and 109 ("`v1.8.0` is its latest", "green … through 1.8.0") go
+  stale once 1.9.0 is tagged and released — true today, so nothing owed here.
