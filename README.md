@@ -196,7 +196,7 @@ worktree cleanup
 
 The cleanup command targets worktrees that are considered safe to remove, for example branches whose remote no longer exists, and local worktrees with no tracked remote. Either way the worktree has to be carrying nothing — no uncommitted changes, and no commits that have not been pushed. A commit count that could not be taken is never read as a zero, so a worktree whose directory still exists is held back rather than swept when it cannot be checked.
 
-A worktree that an agent session is living in is held back and reported as skipped. That includes a session Herdr started for you, found through `herdr agent list`, as well as one in your own terminal. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
+A worktree that an agent session is working in is held back and reported as skipped. A session that is only idle does not hold anything back. That includes a session Herdr started for you, found through `herdr agent list`, as well as one in your own terminal. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
 
 With `opener` set to `herdr`, every worktree removed here also has its Herdr space closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space, taking its panes down with the directory.
 
@@ -359,7 +359,7 @@ receipt**: check it, not just the exit code, when a brief matters.
 They are joined on the directory each session runs in, compared as real paths, and a Herdr entry is named by
 the runtime session with the same session id. A session without a `pid` is kept. `live` is `false` for a
 session the runtime reports as finished (`[done]` in the text list), unless Herdr still shows it in a pane. With
-neither source, the result is no agents and no error. `cleanup` holds a worktree back for any session that is still `live`; a finished one does not hold it back.
+neither source, the result is no agents and no error. `cleanup` holds a worktree back for any session that is still `live` and not just idle; a finished or idle one does not hold it back. A session counts as idle when the runtime's `status` or Herdr's status is `idle` (or Herdr's `done`) and none of the statuses it has says otherwise.
 
 ### A coordinator driving worker agents
 
