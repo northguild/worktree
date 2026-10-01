@@ -860,3 +860,16 @@ describe("remove command — --json", () => {
     expect(output.stdout()).not.toContain("No worktree branches found");
   });
 });
+
+describe("remove command — --help", () => {
+  it("documents the --json shape and the exit codes", () => {
+    const help = Remove.description ?? "";
+
+    for (const key of ["removed", "herdrSpacesClosed", "warnings", "--force"]) {
+      expect(help).toContain(key);
+    }
+    expect(help).toContain("0 success");
+    expect(help).toContain("1 failure");
+    expect(help).toContain("2 usage");
+  });
+});

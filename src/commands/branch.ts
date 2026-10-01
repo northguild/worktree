@@ -27,7 +27,28 @@ export default class Branch extends BaseCommand {
   static override args = {
     branchName: Args.string({ description: "Name of the branch to create" }),
   };
-  static override description = "Create a worktree branch";
+  // The first line is the summary oclif lists in `worktree --help`; the rest is
+  // the `--json` shape and exit codes, kept to key names and nullability.
+  static override description = `Create a worktree branch
+
+--json prints one document on stdout:
+path, branch, source, issue, assigned, envFilesCopied, installed, herdr,
+agent, warnings
+issue: {provider:"github", number, url|null}, {provider:"jira", key,
+url|null} or null
+assigned: boolean, or null if no assignment was attempted
+installed: {ran:true, command, inferred, ok, reason?} or {ran:false, reason}
+herdr: {space, pane, agent|null}, or null if Herdr was not opened
+agent: {name|null, kind|null, command[], prompted}, or null if none started
+agent.prompted is the delivery receipt for a brief.
+On failure: {error:{code, message, details?}} on stdout.
+
+Exit codes:
+0 success
+1 failure, or the worktree was made but the install failed or the brief
+was not delivered
+2 usage: a value with no default is missing, a value is invalid, or the
+--source branch does not exist (a missing issue exits 1)`;
   // One JSON document on stdout, everything human on stderr (D6).
   static override enableJsonFlag = true;
   static override examples = [

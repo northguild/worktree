@@ -66,22 +66,20 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-10-01 that is 926 and 66 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-10-01 that is 929 and 66 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 
 ## Not run by Gate 1
 
-- **`pnpm sync-version`** — generation, not verification. It *writes* `docs/src/lib/site-meta.ts`,
-  `skills/core/SKILL.md` and `skills/_artifacts/skill_tree.yaml` from `package.json`'s version, so it must
+- **`pnpm sync-version`** — generation, not verification. It *writes* `docs/src/lib/site-meta.ts`
+  from `package.json`'s version, so it must
   never sit in a gate section: Gate 1 does not mutate the working tree. Run it after a version bump and
   commit the result — `ci.yml` runs it and then hard-fails on drift via `git diff --exit-code`.
 - **`pnpm docs:build`** — needs the `GEMINI_WORKER_URL` repository variable baked in at build time.
   Deploy concern; `docs-deploy.yml` owns it.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID`. Never run against production from a workstation; `worker-deploy.yml` owns it.
-- **`pnpm intent:validate` / `pnpm intent:stale`** — both shell out to `npx @tanstack/intent@latest`,
-  so they need network access and are not version-pinned. Not a per-task gate.
 
 ## Rules
 

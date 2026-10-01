@@ -97,7 +97,7 @@ a feature that touches `docs/` deploys the site on merge, bump or no bump.
 ### The wires
 
 - **Bump** — by hand, inside the feature's own pull request: the root `package.json` version, then
-  `pnpm sync-version` to regenerate the three files `ci.yml` checks for drift. No script consumes notes.
+  `pnpm sync-version` to regenerate `docs/src/lib/site-meta.ts`, the one file `ci.yml` checks for drift. No script consumes notes.
 - **Tag** — `tag-on-version-change.yml`, on a push to `main` that touches `package.json` and moves its
   version: an annotated `v<version>` tag by `github-actions[bot]`. **Runs**, green on every recent merge;
   `v1.8.0` is its latest.

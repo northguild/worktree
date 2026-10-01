@@ -45,6 +45,14 @@ Or run directly without global install:
   </Tabs.Tab>
 </Tabs>
 
+### Agent skill
+
+To teach a coding agent how to drive `worktree`, including its `--json` agent mode, add the usage skill:
+
+<TerminalBlock>npx skills add northguild/worktree --skill worktree</TerminalBlock>
+
+At a terminal the command asks which agent(s) to install the skill into; run from inside a coding agent it installs without asking, and `--agent <name>` chooses. It is separate from, and in addition to, the install above: the skill teaches an agent the CLI, it does not install the CLI.
+
 ## Initial Configuration
 
 Run once inside your repository:

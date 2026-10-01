@@ -16,7 +16,19 @@ export default class Delete extends BaseCommand {
   static override args = {
     branchName: Args.string({ description: "Name of the branch to remove" }),
   };
-  static override description = "Remove worktree branches";
+  // The first line is the summary oclif lists in `worktree --help`; the rest is
+  // the `--json` shape and exit codes, kept to key names and nullability.
+  static override description = `Remove worktree branches
+
+--json prints one document on stdout:
+{removed: [{branch, path}], herdrSpacesClosed: [id], warnings: [string]}
+On failure: {error:{code, message, details?}} on stdout.
+A non-interactive run needs <branchName> and --force.
+
+Exit codes:
+0 success
+1 failure, such as git refusing the removal
+2 usage: <branchName> or --force missing, or the branch was not found`;
   // One JSON document on stdout, everything human on stderr (D6).
   static override enableJsonFlag = true;
   static override examples = [
