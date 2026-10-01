@@ -264,7 +264,7 @@ The Cloudflare Worker deploys automatically on pushes to `main` that touch
 
 The docs site's version label comes from `docs/src/lib/site-meta.ts`, which `pnpm sync-version` writes
 from the root `package.json`. A release runs it as part of `pnpm changeset:prepare-release`, so the new
-version arrives in the release pull request; `pnpm docs:dev` runs it first locally. Changesets ignores the
+version arrives in the release pull request; `pnpm docs:dev` runs its docs half (`pnpm docs:sync-version`) first locally. Changesets ignores the
 `docs` package (it is private and has no npm release), so docs changes need no release note and the site
 deploys on its own, not on a version.
 
