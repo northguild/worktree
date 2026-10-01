@@ -1,42 +1,11 @@
 ---
-name: core
+name: worktree
 description: >
-  Complete usage guide for @northguild/worktree. Covers install, first-time
-  setup with worktree config (defaultSourceBranch, opener, codeEditor,
-  herdr.focus, herdr.agent, agent.command, postCreate, github.token, github.autoAssign,
-  jira.host, jira.email, jira.apiToken, branchPrefix.feature,
-  branchPrefix.bugfix, branchPrefix.chore), worktree branch, worktree checkout,
-  worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
-  --github issue-to-branch, --jira issue-to-branch, handing a new worktree to a
-  coding agent with --agent, worktree list --agents, worktree cleanup
-  --ignore-agents, agent mode for scripts and coordinating agents (--json on
-  branch, list and remove, --agent-file, --no-open, --no-agent, --install,
-  non-interactive defaults and exit codes), opening worktrees as Herdr spaces
-  and closing those spaces again when the worktree is removed, and automatic copying of gitignored env
-  files (.env*, .dev.vars*, .envrc) into new worktrees.
-type: core
-library: '@northguild/worktree'
-library_version: "2.0.0"
-sources:
-  - "northguild/worktree:README.md"
-  - "northguild/worktree:docs/src/app/docs/commands/branch/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/checkout/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/cleanup/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/config/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/list/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/open/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/commands/remove/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/configuration/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/github-issue-integration/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/jira-integration/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/env-files/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/editor-integration/page.mdx"
-  - "northguild/worktree:docs/src/app/docs/guides/herdr-spaces/page.mdx"
-  - "northguild/worktree:src/commands/branch.ts"
-  - "northguild/worktree:src/lib/agent.ts"
-  - "northguild/worktree:src/lib/base-command.ts"
-  - "northguild/worktree:src/lib/git.ts"
-  - "northguild/worktree:src/lib/validators.ts"
+  Use when creating, listing, opening, removing or cleaning up git worktrees
+  with the `worktree` CLI (@northguild/worktree), including starting a
+  worktree from a GitHub or Jira issue, handing a new worktree to a coding
+  agent, opening worktrees as Herdr spaces, and driving worktrees from a
+  script, CI or another coding agent with `--json`.
 ---
 
 # @northguild/worktree
@@ -152,29 +121,141 @@ output does not appear here.
 
 ### Drive worktrees from a script or another agent (agent mode)
 
+`branch`, `list` and `remove` can run with nothing at the keyboard: from a
+script, CI or another coding agent, handing back one JSON document to parse.
+Nothing in this mode prompts, animates or waits without a bound.
+
 ```bash
 worktree branch --github 42 --json --agent-file brief.md   # one JSON document on stdout
 worktree list --agents --json                               # liveness: agent.live
 worktree remove feature/x -f --json                         # non-interactive remove needs -f
 ```
 
-`--json` (on `branch`, `list`, `remove`) implies a non-interactive run: stdout
-is exactly one JSON document, everything for a person goes to stderr, and an
-unknown count is `null`, never `0`. A failure prints
-`{"error":{"code","message"}}` and exits non-zero: `2` for `missing_value`,
-`invalid_value` and `not_found`, `1` for `timeout` and `failed`. A non-interactive
-`branch` installs dependencies and, with `--github`, assigns the issue by
-default (`--no-install`, `--no-assign` switch them off). A failed install still
-prints the document, with `installed.ok` `false`, and exits `1`. `agent.name` in
-the `branch` document is the session name to address; `herdrAgent` in
-`list --json` is Herdr's agent name (the same as `herdr.agent` in the `branch`
-document), or its pane id when Herdr reports none.
+A run is non-interactive when any of these hold: stdin is not a terminal, `CI`
+is set and is not empty, `0` or `false`, `--non-interactive` or `--yes` (`-y`)
+is given (every command accepts both), or `--json` is given on `branch`, `list`
+or `remove`. A prompt that has a default takes it. One that has none fails at
+once with exit `2` and a single stderr line,
+`worktree: no default for <value>; pass <flag>`.
 
-A coordinating session should name itself in the brief and say its follow-ups
-carry the user's authority, and give `agent.command` a permission mode
-compatible with its own, or the worker holds cross-session messages for its
-user. The README's "Agent mode" section has the shapes, defaults and the full
-handshake.
+Flags for agent mode:
+
+| Flag | On | Does |
+|---|---|---|
+| `--json` | `branch`, `list`, `remove` | one JSON document on stdout; everything for a person goes to stderr |
+| `--agent <text>`, `--agent-file <path>`, `--agent-stdin` | `branch` (`checkout` takes `--agent`) | the brief for the agent, from a value, a file or piped stdin; mutually exclusive with each other and with `--no-agent`; read whole, empty is refused, at most 131,071 bytes |
+| `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
+| `--no-agent` | `branch` | open as usual, start no agent |
+| `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
+| `--assign` / `--no-assign` | `branch` | assign the `--github` issue to you, or not |
+| `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
+
+Defaults when non-interactive:
+
+- **Branch name** from `--github`: `<prefix><number>-<slug>`, the slug cut to
+  48 characters at the last dash. With no issue, the branch name is required.
+- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`, then
+  assign. The default is never saved.
+- **Install:** on. The command is `postCreate`, else inferred from the lockfile
+  (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing
+  to run it says so and carries on. A failure keeps the worktree, starts nothing
+  and exits `1`.
+- **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
+- **Removal** has no default: `remove <branch> -f`.
+- **Bounded calls:** GitHub and Jira requests 15 s, `git fetch` 60 s,
+  `gh auth token` and the session listing 10 s, the install 10 min. A command
+  still running at its bound is sent SIGTERM, then SIGKILL 2 s later.
+
+#### Output
+
+With `--json`, stdout is one line holding one document, and a count that could
+not be taken is `null`, never `0`. Tokens are never printed. The `branch`
+document:
+
+```json
+{"path":"/abs/repo.worktrees/42-fix-login","branch":"42-fix-login","source":"origin/main",
+ "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,
+ "envFilesCopied":["docs/.env.local"],
+ "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","inferred":true,"ok":true},
+ "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
+ "agent":{"name":"demo-42-fix-login","kind":"claude","command":["claude","--name","demo-42-fix-login"],"prompted":true},
+ "warnings":[]}
+```
+
+- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, or
+  `null`; `url` can itself be `null`.
+- `assigned` is `null` when no assignment was attempted.
+- `herdr` and `agent` are `null` when skipped. `agent.command` leaves the brief
+  out. `agent.name` is `null` where this CLI named nothing: a detached
+  start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a
+  detached start. `herdr.agent` is `null` when no agent was started in the
+  pane.
+- `installed` is `{ran:false,reason}` when skipped. A failed install still
+  prints the whole document, with `installed.ok` `false` and a `reason`, and
+  exits `1`.
+- A brief that was given and not delivered does the same: the whole document,
+  `agent` `null` or `agent.prompted` `false`, the reason in `warnings`, exit `1`.
+  **`agent.prompted` is the delivery receipt**: check it, not just the exit
+  code, when a brief matters.
+
+`list --json` gives `{"worktrees":[...]}`, one entry per worktree:
+
+```json
+{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x","current":false,"pathExists":true,
+ "remote":"origin/feature/x","remoteExists":true,"ahead":0,"behind":0,"mergedInto":null,
+ "uncommittedChanges":0,"safeToRemove":false}
+```
+
+`remote` is `null` when the branch tracks nothing, and `ahead`, `behind`,
+`pathExists`, `remoteExists` and `uncommittedChanges` are `null` when they
+could not be taken. `current` and `safeToRemove` are never `null`: they read
+`false` when unknown. `mergedInto` is `null` when the branch is not known to be
+merged. With `--agents`, each entry also has `agent`:
+`null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`, whose
+`sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` can each be
+`null`. `herdrAgent` is the name Herdr gives the agent (for example
+`wt-42-fix-login`, the same as `herdr.agent` in the `branch` document), or its
+pane id (for example `w4P:p1`) when Herdr reports no name. `agent.name` in the
+`branch` document is the session name to address.
+
+`remove --json` gives
+`{"removed":[{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"}],"herdrSpacesClosed":["w5"],"warnings":[]}`.
+Naming a branch and removing nothing is a failure, never a success.
+
+A failure prints `{"error":{"code","message"}}` on stdout, one line on stderr,
+and exits non-zero. A `missing_value` error also carries
+`details:{value,flag}` naming what was missing and the flag that supplies it.
+
+| `code` | Means | Exit |
+|---|---|---|
+| `missing_value` | a value with no default was not given | `2` |
+| `invalid_value` | a value or flag combination was refused | `2` |
+| `not_found` | something named does not exist | `2` |
+| `timeout` | a bounded call did not answer in time | `1` |
+| `failed` | anything else | `1` |
+
+Exit codes follow the same rule without `--json`: `0` success, `1` failure,
+`2` a usage or value problem. A human's Ctrl-C at a prompt stays silent and
+exits `0`.
+
+A brief that no configured agent would take (no `herdr.agent` or
+`agent.command` for Herdr, no `agent.command` for the detached start) exits `2`
+with `missing_value` before anything is created.
+
+#### A coordinator driving worker agents
+
+A coordinating agent can fan work out to one worktree each:
+
+1. Run `worktree branch --github N --json --agent-file brief.md` per issue.
+2. Make the brief name the coordinating session and say its follow-ups carry
+   the user's authority. Without that, a Claude session treats messages from
+   other sessions as information, not instructions.
+3. Set `agent.command` with a permission mode compatible with the
+   coordinator's. Claude Code can hold a cross-session message for its user's
+   approval when the two sessions' modes differ, and the worker then waits.
+4. Read `agent.name` from the document to address the session, and
+   `worktree list --agents --json` to check it is still `live`.
+5. Finish with `worktree remove <branch> -f --json`.
 
 ### Maintain the worktree lifecycle
 
@@ -244,7 +325,7 @@ under `northguild.worktree.*`.
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
-| `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); runs by default only when non-interactive, or with `--install` |
+| `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
 | `github.token` | `ghp_...` | `--github` flag |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
@@ -337,7 +418,7 @@ missing key. Without `codeEditor`, the
 worktree is created but not opened — unless `opener` is `herdr`, which
 ignores `codeEditor` and opens a Herdr space instead, or `none`, which opens nothing.
 
-Source: `README.md` quick start, `docs/getting-started`
+Source: `src/commands/branch.ts`
 
 ---
 
@@ -382,16 +463,17 @@ worktree config agent.command "claude --bg"
 worktree branch feature/x --agent "implement the issue"
 ```
 
-On the detached path (editor or `none` opener, or Herdr failing to open), with
-no `agent.command` set, `--agent` logs `No agent configured. Run worktree
-config agent.command "<command>" to set one.` and carries on: the worktree is
-created, env files are copied, the worktree opens, and the exit code is still `0`. Nothing fails, so in a scripted run a skipped dispatch
-is indistinguishable from a successful one. Set the key first, or check
+A brief with no agent configured to take it exits `2` before any worktree is
+created, naming the missing key: `worktree config agent.command "<command>"` for
+the detached start (editor or `none` opener, `--no-open`, or Herdr not installed), or
+`worktree config herdr.agent <kind>` on the Herdr path, where `herdr.agent`
+alone is enough (`branch` and `checkout` both). Set the key first, or check
 `worktree config --list`.
 
-On the Herdr path (`opener` `herdr`, Herdr opened) a brief with neither
-`herdr.agent` nor `agent.command` set exits `2` instead (`branch` and `checkout`
-both), before any worktree is created, naming `worktree config herdr.agent <kind>`; `herdr.agent` alone is enough there.
+The soft path remains only for a run where Herdr was the opener, had an agent
+kind, and did not open: with no `agent.command` to fall back to, the worktree is
+created, a `No agent configured` warning is printed, and the exit code is `1`
+because the brief was not delivered.
 
 Source: `src/lib/base-command.ts` — `dispatchAgent()`
 

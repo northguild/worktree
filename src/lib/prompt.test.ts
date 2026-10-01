@@ -119,10 +119,21 @@ describe("prompt seam, non-interactive", () => {
     });
   });
 
-  it("fails a select and a checkbox, which have no default", async () => {
+  it("takes a select's fallback without asking, including an empty one", async () => {
+    const config = { message: "pick", choices: ["a", "b", ""] };
+
+    expect(await askSelect(config, { ...site, fallback: "b" })).toBe("b");
+    expect(await askSelect(config, { ...site, fallback: "" })).toBe("");
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it("fails a select with no fallback, and a checkbox, which has no default", async () => {
     await expect(
       askSelect({ message: "pick", choices: [{ value: 1 }] }, site),
-    ).rejects.toBeInstanceOf(MissingValueError);
+    ).rejects.toMatchObject({
+      message: "no default for the thing; pass --thing",
+      oclif: { exit: 2 },
+    });
     await expect(
       askCheckbox({ message: "pick", choices: [{ value: 1 }] }, site),
     ).rejects.toBeInstanceOf(MissingValueError);

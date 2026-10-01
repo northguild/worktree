@@ -25,9 +25,9 @@ bin/                  oclif entry point — bin/run.js, produced by tsc
 src/commands/         one file per CLI command; each default-exports a BaseCommand subclass
 src/lib/              CLI helpers — git integration, validators, env, types, constants, cli
 src/integrations/     GitHub and Jira integrations
-scripts/              version-sync scripts, run by `pnpm sync-version`; `release-notes.mjs`, which publish.yml uses to cut a version's CHANGELOG section
+scripts/              version-sync script, run by `pnpm sync-version`; `release-notes.mjs`, which publish.yml uses to cut a version's CHANGELOG section
 .changeset/           Changesets config and pending release notes (`.changeset/<name>.md`)
-skills/               shipped inside the npm package (package.json `files`); generated — see below
+skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`. Nothing on npm discovers it since TanStack Intent went (`skills add` reads GitHub); it stays in `files` so an `npm i -g` install has a copy matching its own version on disk
 docs/                 Next.js 16 + Nextra 4 docs app, React 19, Base UI; own package.json
 docs/src/app/         docs content
 docs/src/             UI, components, chat client, site metadata
@@ -55,12 +55,11 @@ context/              planning-workflow artifacts (this directory)
   secrets (`pnpm --filter docs worker:setup-secret`, i.e. `wrangler secret put`). For local development,
   `worker:setup-dev-vars` reads it from `docs/.env.local` and writes `docs/worker/.dev.vars`; both are
   gitignored. `ci.yml` runs a secret scan that fails the build if a key value is committed.
-- **Three generated files must be committed in sync with `package.json`'s version:**
-  `docs/src/lib/site-meta.ts`, `skills/core/SKILL.md`, `skills/_artifacts/skill_tree.yaml`. The
-  version bump arrives through `pnpm changeset:prepare-release` in the release pull request, which runs
-  `pnpm sync-version` after `changeset version`; never bump by hand. CI hard-fails on drift via
-  `git diff --exit-code`. Use the
-  root `pnpm docs:dev`, not `pnpm --filter docs dev` — the former syncs the version first.
+- **One generated file must be committed in sync with `package.json`'s version:**
+  `docs/src/lib/site-meta.ts`. The version bump arrives through `pnpm changeset:prepare-release` in the
+  release pull request, which runs `pnpm sync-version` after `changeset version`; never bump by hand. CI
+  hard-fails on drift via `git diff --exit-code`. Use the root `pnpm docs:dev`, not `pnpm --filter docs dev`
+  — the former syncs the version first.
 - **One lockfile, at the root.** There is no `.npmrc` — the one that pinned
   `shared-workspace-lockfile=true` was removed in 260eb2f, and pnpm's default keeps the behaviour. CI
   still fails the build if `docs/pnpm-lock.yaml` ever appears, so do not add one.
@@ -82,7 +81,7 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | `docs/src/app/docs/` | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration/`, `getting-started/`, `faq/`, and `guides/` (6) |
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
-| `skills/core/SKILL.md`, `skills/_artifacts/` | the `@tanstack/intent` skill consumers; shipped in the npm package | a command or flag change that the skill tree describes — **but see the caveat below** |
+| `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |
 | `docs/src/app/docs/changelog/page.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
 
 **Nothing is published outside this repository.** The GitHub Pages site is built from `docs/` by
@@ -97,12 +96,9 @@ sweeping the tree finds every surface.
   adopted by [`git.md`](git.md) in 2026-09-06 and **reversed there on 2026-09-09**: the agent now commits.
   The manifest is scoped to suggesting lint fixes on a PR, not to the phase loop, so the two disagree on
   paper and `git.md` is the executable answer.
-- **`skills/` is hand-written prose with two generated lines in it.** `pnpm sync-version` rewrites *only*
-  the `library_version:` field of `skills/core/SKILL.md` and the `version:` field of
-  `skills/_artifacts/skill_tree.yaml` — `scripts/sync-intent-version.mjs:20-45` is a two-field regex
-  replace, nothing more. So the version lines are never hand-edited, and everything around them is a real
-  documentation surface that a command change can make untrue. `skill_spec.md` and `domain_map.yaml` are
-  hand-written throughout.
+- **`skills/worktree/SKILL.md` is hand-written throughout.** Nothing generates any part of it, so a command
+  or flag change can make it untrue and the change that does so fixes it. The docs worker reads it by path
+  (`docs/worker/build-context.mjs`), so moving it means repointing that script.
 
 This project stated the standing rule itself, in `changelog/page.mdx`, before the workflow arrived:
 *"Update relevant docs pages in the same change."*

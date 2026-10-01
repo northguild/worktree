@@ -35,7 +35,7 @@ What each section takes, and the alternative answers written out, are in
 | Path | Announces to | Deserves a note when | A bump means |
 |---|---|---|---|
 | `src/**`, `bin/**` (the CLI) | people installing `@northguild/worktree` | behaviour a user can see changes: a command, flag, output, config key or exit code; a fix that changes what a command does | semver — `major` for a breaking change, `minor` for a new capability, `patch` for a fix |
-| `skills/**` | people installing the package (the skill files ship in it) | the shipped skill text changes; the generated version lines (`pnpm sync-version`) do not count | semver, as above |
+| `skills/**` | people installing the package (the skill files ship in it, and `npx skills add` reads them) | the shipped skill text changes | semver, as above |
 | `package.json` dependencies | people installing the package | a runtime `dependencies` change that reaches an installer. A devDependency-only change owes none by this column, but see the gap under *The check* | semver, as above |
 
 **`docs/**`, `context/**` and `.github/**` owe no note.** `docs` is a private package that deploys on its
@@ -125,7 +125,7 @@ or no bump.
 ### The wires
 
 - **Bump** — a release pull request made with `pnpm changeset:prepare-release` (`changeset version`, then
-  `pnpm sync-version` to regenerate the three files `ci.yml` checks for drift). It must come from that
+  `pnpm sync-version` to regenerate `docs/src/lib/site-meta.ts`, the one file `ci.yml` checks for drift). It must come from that
   command: it writes the version's `CHANGELOG.md` section, and a hand-edited version bump has none, so
   `publish.yml` stops before publishing.
 - **Tag, release, publish** — one workflow, `publish.yml`, on a push to `main` that touches `package.json`

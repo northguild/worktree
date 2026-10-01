@@ -111,15 +111,21 @@ export async function askInput(
   return site.fallback;
 }
 
-/** A pick from a list. There is no sensible default, so a non-interactive run fails. */
+/**
+ * A pick from a list. `fallback` is the value a non-interactive run takes;
+ * leave it out when no choice is a sensible default, so there is none.
+ */
 export async function askSelect<Value>(
   config: Parameters<typeof select<Value>>[0],
-  site: PromptSite,
+  site: PromptSite & { fallback?: Value },
 ) {
-  if (isNonInteractive()) {
+  if (!isNonInteractive()) {
+    return select<Value>(config);
+  }
+  if (site.fallback === undefined) {
     throw missing(site);
   }
-  return select<Value>(config);
+  return site.fallback;
 }
 
 /** A multi-pick from a list. No default either. */

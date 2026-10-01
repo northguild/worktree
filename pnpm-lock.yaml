@@ -60,9 +60,6 @@ importers:
       '@oclif/test':
         specifier: ^4.1.17
         version: 4.1.17(@oclif/core@4.10.3)
-      '@tanstack/intent':
-        specifier: ^0.0.29
-        version: 0.0.29
       '@types/cli-progress':
         specifier: ^3.11.6
         version: 3.11.6
@@ -1869,10 +1866,6 @@ packages:
     resolution: {integrity: sha512-AmIq5MBcop+gYKFutowGU7py9idorJkp4a4lsR2ZIZ5qa4ekl4jWqj6Vu+kvRPpJiBl3QpiFbm9bjBvO2DueFA==}
     peerDependencies:
       solid-js: '>=1.9.9'
-
-  '@tanstack/intent@0.0.29':
-    resolution: {integrity: sha512-tJcWapEkXGRLHE7mQYvQS0xIWrzKm2n7fQ/lOy4LCdR1hX0Yxb9QnwRwd0oqmmr54ObP9/5sfiD8vELxL/r30g==}
-    hasBin: true
 
   '@tanstack/pacer-lite@0.1.1':
     resolution: {integrity: sha512-y/xtNPNt/YeyoVxE/JCx+T7yjEzpezmbb+toK8DDD1P4m7Kzs5YR956+7OKexG3f8aXgC3rLZl7b1V+yNUSy5w==}
@@ -6126,11 +6119,6 @@ snapshots:
       - preact
       - react
       - vue
-
-  '@tanstack/intent@0.0.29':
-    dependencies:
-      cac: 6.7.14
-      yaml: 2.8.3
 
   '@tanstack/pacer-lite@0.1.1': {}
 

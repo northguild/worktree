@@ -1,12 +1,11 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { checkbox, confirm } from "@inquirer/prompts";
-import { Config } from "@oclif/core";
 import * as herdr from "../integrations/herdr.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import { MissingValueError } from "../lib/prompt.js";
 import type { ConfigName } from "../lib/types.js";
-import { captureOutput, mockRunCapturing } from "../test-setup.js";
+import { captureOutput, loadConfig, mockRunCapturing } from "../test-setup.js";
 import Remove from "./remove.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -722,7 +721,7 @@ describe("remove command — --json", () => {
     flags: Record<string, unknown> = {},
     closed: string[] = [],
   ) {
-    const command = new Remove(["--json"], await Config.load(process.cwd()));
+    const command = new Remove(["--json"], await loadConfig());
     (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
     (command as any).parsed = true;
     vi.spyOn(command as any, "resolveSpaceCloser").mockResolvedValue(
@@ -859,5 +858,18 @@ describe("remove command — --json", () => {
       warnings: [],
     });
     expect(output.stdout()).not.toContain("No worktree branches found");
+  });
+});
+
+describe("remove command — --help", () => {
+  it("documents the --json shape and the exit codes", () => {
+    const help = Remove.description ?? "";
+
+    for (const key of ["removed", "herdrSpacesClosed", "warnings", "--force"]) {
+      expect(help).toContain(key);
+    }
+    expect(help).toContain("0 success");
+    expect(help).toContain("1 failure");
+    expect(help).toContain("2 usage");
   });
 });

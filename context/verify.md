@@ -66,17 +66,17 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-10-01 that is 899 and 66 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-10-01 that is 929 and 66 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 
 ## Not run by Gate 1
 
-- **`pnpm sync-version`** — generation, not verification. It *writes* `docs/src/lib/site-meta.ts`,
-  `skills/core/SKILL.md` and `skills/_artifacts/skill_tree.yaml` from `package.json`'s version, so it must
-  never sit in a gate section: Gate 1 does not mutate the working tree. `pnpm changeset:prepare-release`
-  runs it after `changeset version`, so the release pull request carries the result; run it by hand only to
-  repair drift. `ci.yml` runs it and then hard-fails on drift via `git diff --exit-code`.
+- **`pnpm sync-version`** — generation, not verification. It *writes* `docs/src/lib/site-meta.ts`
+  from `package.json`'s version, so it must never sit in a gate section: Gate 1 does not mutate the working
+  tree. `pnpm changeset:prepare-release` runs it after `changeset version`, so the release pull request
+  carries the result; run it by hand only to repair drift. `ci.yml` runs it and then hard-fails on drift via
+  `git diff --exit-code`.
 - **`pnpm changeset:add`** — not a gate: interactive (it prompts for a bump level and a description) and it
   writes a `.changeset/*.md` file. Run it when a change owes a release note, per [`release.md`](release.md).
 - **`pnpm changeset:status`** — not a gate: it compares against `origin/main`, so it needs that ref and a
@@ -89,8 +89,6 @@ it in passing rather than treating a mismatch as a failure.
   Deploy concern; `docs-deploy.yml` owns it.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID`. Never run against production from a workstation; `worker-deploy.yml` owns it.
-- **`pnpm intent:validate` / `pnpm intent:stale`** — both shell out to `npx @tanstack/intent@latest`,
-  so they need network access and are not version-pinned. Not a per-task gate.
 
 ## Rules
 

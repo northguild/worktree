@@ -2,7 +2,7 @@
 /**
  * build-context.mjs
  *
- * Reads all docs MDX files + the root SKILL.md and generates
+ * Reads all docs MDX files + skills/worktree/SKILL.md and generates
  * docs/worker/docs-context.ts which exports a
  * single SYSTEM_PROMPT string that is embedded in the worker at
  * build time.
@@ -109,10 +109,10 @@ console.log(
   `✓ Wrote docs-routes.generated.ts (${VALID_DOC_ROUTES.length} routes)`,
 );
 
-const skillPath = join(repoRoot, "skills/core/SKILL.md");
+const skillPath = join(repoRoot, "skills/worktree/SKILL.md");
 const skillContent = existsSync(skillPath)
   ? readFileSync(skillPath, "utf8")
-  : "(skills/core/SKILL.md not found — run npx @tanstack/intent@latest validate)";
+  : "(skills/worktree/SKILL.md not found)";
 
 // ── Assemble system prompt ────────────────────────────────────────────────────
 
@@ -160,5 +160,5 @@ console.log(
   `  Docs sections: ${(docsContent.match(/^### Docs:/gm) || []).length}`,
 );
 console.log(
-  `  Skill guide: ${existsSync(skillPath) ? "✓ found" : "⚠ missing (SKILL.md not yet created)"}`,
+  `  Skill guide: ${existsSync(skillPath) ? "✓ found" : "⚠ missing (skills/worktree/SKILL.md not found)"}`,
 );

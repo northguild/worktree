@@ -1,11 +1,10 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
-import { Config } from "@oclif/core";
 import ora from "ora";
 import * as git from "../lib/git.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import type { WorktreeListEntry } from "../lib/types.js";
 import * as utils from "../lib/utils.js";
-import { captureOutput } from "../test-setup.js";
+import { captureOutput, loadConfig } from "../test-setup.js";
 import List from "./list.js";
 
 const spinnerMocks = vi.hoisted(() => {
@@ -174,7 +173,7 @@ describe("list command", () => {
     // Through `_run`, as oclif does, so the returned document is what gets
     // printed and the mode is resolved by `init`.
     async function runJson(flags: Record<string, unknown>) {
-      const command = new List(["--json"], await Config.load(process.cwd()));
+      const command = new List(["--json"], await loadConfig());
       (command as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
       (command as any).parsed = true;
       await (command as any)._run();
@@ -357,5 +356,24 @@ describe("list command", () => {
         process.exitCode = originalExitCode;
       }
     });
+  });
+});
+
+describe("list command — --help", () => {
+  it("documents the --json shape and the exit codes", () => {
+    const help = List.description ?? "";
+
+    for (const key of [
+      "worktrees",
+      "safeToRemove",
+      "uncommittedChanges",
+      "sessionId",
+      "herdrAgent",
+    ]) {
+      expect(help).toContain(key);
+    }
+    expect(help).toContain("0 success");
+    expect(help).toContain("1 failure");
+    expect(help).toContain("2 usage");
   });
 });

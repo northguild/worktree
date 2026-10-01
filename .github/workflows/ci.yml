@@ -30,8 +30,6 @@ jobs:
           fi
       - name: Verify generated docs metadata is committed
         run: git diff --exit-code -- docs/src/lib/site-meta.ts
-      - name: Verify skill files are in sync with package.json
-        run: git diff --exit-code -- skills/core/SKILL.md skills/_artifacts/skill_tree.yaml
       - name: Secret scan - detect accidental API keys
         run: |
           if git grep -n "GEMINI_API""_KEY=AI" -- ':!.github/workflows/' >/dev/null 2>&1; then

@@ -9,17 +9,15 @@ import {
   OPENER_KINDS,
 } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
-import { askConfirm, askInput } from "../lib/prompt.js";
-import type { ConfigName } from "../lib/types.js";
+import { askConfirm, askInput, askSelect } from "../lib/prompt.js";
+import type { ConfigName, OpenerKind } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
 import {
   isValidAgentKind,
-  isValidBoolean,
   isValidBranch,
   isValidCommand,
   isValidCommandLine,
   isValidEmail,
-  isValidOpener,
   validateConfigValue,
 } from "../lib/validators.js";
 
@@ -310,19 +308,34 @@ export default class Config extends BaseCommand {
       }
 
       if (shouldPrompt("github.autoAssign")) {
-        const githubAutoAssign = await this.askConfigInput(
-          "github.autoAssign",
+        // Select values are compared with `===`, so anything but an explicit
+        // "true" or "false" (unset, empty, a hand-edited oddity) is normalised
+        // to the "ask me" choice before it becomes the default or the fallback.
+        const storedAutoAssign = await gitGetConfigValue("github.autoAssign");
+        const autoAssignDefault =
+          storedAutoAssign === "true" || storedAutoAssign === "false"
+            ? storedAutoAssign
+            : "";
+        const githubAutoAssign = await askSelect<"true" | "false" | "">(
           {
-            message:
-              "Should `branch --github` assign the issue to you? (leave unset to be asked each time)",
-            // Empty is a valid answer as well as a valid state: the key is
-            // tri-state through unset (D3), so this prompt has to be the way to
-            // keep being asked at branch time, not only the way to settle it.
-            validate: (value: string) =>
-              value.trim() === "" || isValidBoolean(value.trim()),
+            message: "Should `branch --github` assign the issue to you?",
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              // Empty is a valid answer as well as a valid state: the key is
+              // tri-state through unset (D3), so this prompt has to be the way
+              // to keep being asked at branch time, not only the way to settle it.
+              { name: "Ask me each time", value: "" },
+            ],
+            default: autoAssignDefault,
+          },
+          {
+            value: "github.autoAssign",
+            flag: "worktree config github.autoAssign <true|false>",
+            fallback: autoAssignDefault,
           },
         );
-        await gitSetConfigValue("github.autoAssign", githubAutoAssign.trim());
+        await gitSetConfigValue("github.autoAssign", githubAutoAssign);
       }
     }
 
@@ -388,13 +401,23 @@ export default class Config extends BaseCommand {
         flags.names,
       ))
     ) {
-      const opener = await this.askConfigInput(
-        "opener",
+      // Select values are compared with `===`, so anything that is not one of
+      // the three kinds (unset, empty, a hand-edited oddity) is normalised to
+      // "editor" before it becomes the default or the non-interactive fallback.
+      const storedOpener = await gitGetConfigValue("opener");
+      const openerDefault =
+        OPENER_KINDS.find((kind) => kind === storedOpener) ?? "editor";
+      const opener = await askSelect<OpenerKind>(
         {
-          message: `Which opener should new worktrees use? (${conjoin(OPENER_KINDS, "or")})`,
-          validate: isValidOpener,
+          message: "Which opener should new worktrees use?",
+          choices: OPENER_KINDS.map((kind) => ({ name: kind, value: kind })),
+          default: openerDefault,
         },
-        "editor",
+        {
+          value: "opener",
+          flag: "worktree config opener <editor|herdr|none>",
+          fallback: openerDefault,
+        },
       );
       await gitSetConfigValue("opener", opener);
     }
@@ -427,21 +450,28 @@ export default class Config extends BaseCommand {
       ))
     ) {
       if (shouldPrompt("herdr.focus")) {
-        const herdrFocus = await this.askConfigInput(
-          "herdr.focus",
+        // Only an explicit "false" means no: unset or empty is the documented
+        // default of true. A non-interactive run takes that same answer.
+        const focusDefault =
+          (await gitGetConfigValue("herdr.focus")) !== "false";
+        const herdrFocus = await askConfirm(
           {
             message: "Should opening a worktree focus its Herdr space?",
-            validate: isValidBoolean,
+            default: focusDefault,
           },
-          "true",
+          {
+            value: "herdr.focus",
+            flag: "worktree config herdr.focus <true|false>",
+            fallback: focusDefault,
+          },
         );
-        await gitSetConfigValue("herdr.focus", herdrFocus);
+        await gitSetConfigValue("herdr.focus", String(herdrFocus));
       }
 
       if (shouldPrompt("herdr.agent")) {
         const herdrAgent = await this.askConfigInput("herdr.agent", {
           message:
-            "Which agent should start in a new Herdr space? (empty for none)",
+            "Which agent kind should start in every new Herdr space? (empty: none, or with `--agent` the program `agent.command` names)",
           // Empty is not a valid kind, but it is a valid answer: the key is
           // opt-in (D9), so this prompt has to be the way to decline as well as
           // the way to choose, or a `--missing` run would force an agent on
@@ -456,7 +486,7 @@ export default class Config extends BaseCommand {
     if (
       shouldPrompt("agent.command") &&
       (await this.confirmGroup(
-        "Do you want to hand new worktrees to a coding agent?",
+        "Do you want to set the command that `--agent` runs to start a coding agent?",
         "the coding agent",
         flags.names,
       ))
@@ -465,7 +495,8 @@ export default class Config extends BaseCommand {
       // Suggesting one would make this tool depend on a particular CLI, which
       // AGENT-MODE-PLAN §2 rules out.
       const agentCommand = await this.askConfigInput("agent.command", {
-        message: "Command to start the coding agent?",
+        message:
+          "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
         validate: isValidCommandLine,
       });
       await gitSetConfigValue("agent.command", agentCommand);

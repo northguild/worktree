@@ -36,7 +36,7 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 |---|---|---|
 | `worker:dev` | Runs the **already-built** worker locally at `http://localhost:8787` | After `worker:build`, when you want to test against the local worker |
 | `worker:build:watch` | Rebuilds the worker bundle on every file save | In a separate terminal during active worker development |
-| `worker:build-context` | Scans MDX files + `skills/core/SKILL.md` → regenerates `worker/docs-context.ts` (system prompt) **and** `src/chat/docs-routes.generated.ts` (valid link list) | After adding/editing any docs page or the skill guide |
+| `worker:build-context` | Scans MDX files + `skills/worktree/SKILL.md` → regenerates `worker/docs-context.ts` (system prompt) **and** `src/chat/docs-routes.generated.ts` (valid link list) | After adding/editing any docs page or the skill guide |
 | `worker:build` | Runs `worker:build-context` then bundles `worker.ts` via tsup | Before `worker:dev`, or manually before deploying |
 
 > **Tip:** Use `dev:local:watch` (see [Local development](#local-development)) to run the full stack in one command instead of managing terminals manually.
@@ -235,7 +235,7 @@ The system prompt embedded in this worker contains, in order:
 1. **Persona & scope instructions** — restricts answers to the docs and skill guide
 2. **Linking rules** — an auto-generated list of valid `/docs/...` routes the AI
    may link to; derived from the MDX filesystem scan in `build-context.mjs`
-3. **`skills/core/SKILL.md`** — TanStack Intent skill guide (product vocabulary
+3. **`skills/worktree/SKILL.md`** — Agent Skill guide (product vocabulary
    and core patterns)
 4. **Doc pages** — every `*.mdx` file under `src/app/docs/`, stripped of JSX
 

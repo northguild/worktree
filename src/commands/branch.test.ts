@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { confirm, input } from "@inquirer/prompts";
-import { Config } from "@oclif/core";
 import ora from "ora";
 import * as githubIntegration from "../integrations/github.js";
 import * as herdr from "../integrations/herdr.js";
@@ -14,7 +13,7 @@ import { runInstall } from "../lib/install.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import { MissingValueError } from "../lib/prompt.js";
 import * as validators from "../lib/validators.js";
-import { captureOutput } from "../test-setup.js";
+import { captureOutput, loadConfig } from "../test-setup.js";
 import Branch from "./branch.js";
 
 // Mock the inquirer module
@@ -1584,7 +1583,7 @@ describe("branch command", () => {
       flags: Record<string, unknown>,
       outcome: Record<string, unknown> = { opener: "none" },
     ) {
-      const command = new Branch(["--json"], await Config.load(process.cwd()));
+      const command = new Branch(["--json"], await loadConfig());
       (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
       (command as any).parsed = true;
       vi.spyOn(command as any, "openWorktreePath").mockResolvedValue(outcome);
@@ -1837,5 +1836,25 @@ describe("branch command", () => {
     function mockGitCreateWorktreeCalls() {
       return vi.mocked(git.gitCreateWorktree).mock.calls.length;
     }
+  });
+});
+
+describe("branch command — --help", () => {
+  it("documents the --json shape and the exit codes", () => {
+    const help = Branch.description ?? "";
+
+    for (const key of [
+      "envFilesCopied",
+      "installed",
+      "prompted",
+      "herdr",
+      "issue",
+      "assigned",
+    ]) {
+      expect(help).toContain(key);
+    }
+    expect(help).toContain("0 success");
+    expect(help).toContain("1 failure");
+    expect(help).toContain("2 usage");
   });
 });
