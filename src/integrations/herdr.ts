@@ -67,6 +67,21 @@ export interface HerdrAgentStartOptions {
   kind: string;
   /** The pane the space was built around, from the open's `root_pane`. */
   paneId: string;
+  /**
+   * Arguments for the agent itself, passed after `--`. Herdr types them into
+   * the pane's shell with each one quoted, so they travel as separate argv
+   * elements. **Never the brief** (D11): the pane is at a shell prompt while
+   * this runs, and the brief goes through `promptHerdrAgent` once the agent is
+   * up.
+   */
+  args?: string[];
+}
+
+export interface HerdrAgentPromptOptions {
+  /** The pane the agent runs in. */
+  paneId: string;
+  /** The brief, delivered as one submission with its newlines intact. */
+  text: string;
 }
 
 export interface HerdrOpenOptions {
@@ -396,6 +411,7 @@ export async function startHerdrAgent({
   name,
   kind,
   paneId,
+  args = [],
 }: HerdrAgentStartOptions): Promise<void> {
   await runHerdrRequest(
     [
@@ -408,9 +424,39 @@ export async function startHerdrAgent({
       paneId,
       "--timeout",
       String(AGENT_START_TIMEOUT_MS),
+      ...(args.length > 0 ? ["--", ...args] : []),
     ],
     AGENT_START_REQUEST_TIMEOUT_MS,
   );
+}
+
+/**
+ * Submits a brief to the agent in a pane. Without `--wait`, so it returns once
+ * Herdr has delivered the text: verified on 0.9.0 to arrive as one bracketed
+ * paste, submitted once, with its newlines intact. The text is the last
+ * positional and `agent prompt` takes no `--`, which is safe because a value
+ * that starts with `-` is still read as the text when it follows the target.
+ *
+ * Callers start the agent first — `agent start` already waits, bounded, for it
+ * to reach an interactive prompt, so this does not wait again.
+ */
+export async function promptHerdrAgent({
+  paneId,
+  text,
+}: HerdrAgentPromptOptions): Promise<void> {
+  await runHerdrRequest(["agent", "prompt", paneId, text]);
+}
+
+/**
+ * The name the runtime session carries: `<repo>-<branch>`, lowercased, with
+ * every run of characters outside `[a-z0-9-]` turned into one `-` (D12).
+ *
+ * Never truncated, unlike `toHerdrAgentName`: Herdr's 32-character cap is its
+ * own handle's, and cutting this one would make two long branches collide on
+ * the name another session addresses.
+ */
+export function toAgentSessionName(repo: string, branch: string): string {
+  return `${repo}-${branch}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
 }
 
 /**

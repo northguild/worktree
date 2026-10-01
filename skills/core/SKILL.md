@@ -125,9 +125,12 @@ not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are
 ### Hand a new worktree to a coding agent
 
 ```bash
-# Requires agent.command in config, e.g. claude --bg
+# Detached (non-Herdr) runs need agent.command, e.g. claude --bg; with opener herdr, herdr.agent alone is enough
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent "implement the issue"
+worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 256 KB
+worktree branch feature/x --no-agent                # open, but start no agent
+worktree branch feature/x --no-open                 # print the path, open nothing
 worktree checkout feature/fix-login-timeout -a "find the cause of the timeout"
 ```
 
@@ -136,9 +139,14 @@ inside `<repo>.worktrees/` rather than isolating itself elsewhere. The flag's
 value reaches the agent as a single argument and no shell parses it, so quotes
 and spaces in a prompt are safe.
 
-`--agent` and the editor are independent: with `codeEditor` also configured the
-worktree opens there as well. The agent is started and left running, so
-`worktree` does not wait for it and its output does not appear here.
+There is one agent per worktree. With `opener` `herdr`, Herdr starts it in the
+new space and the brief is submitted with `herdr agent prompt` afterwards, never
+in the start command; the kind is `herdr.agent`, else the program `agent.command`
+names (a brief with neither exits 2). `agent.command`'s arguments are reused
+without `--bg`/`--background`, and `claude` gets `--name <repo>-<branch>`
+(lowercased, never truncated, printed on stderr). Otherwise `agent.command` is
+launched detached and left running, so `worktree` does not wait for it and its
+output does not appear here.
 
 ### Maintain the worktree lifecycle
 
@@ -201,7 +209,7 @@ under `northguild.worktree.*`.
 | `opener` | `editor`, `herdr` or `none` | where a worktree opens, and for `herdr` where its space is closed on removal; `none` opens nothing and prints `Worktree created at <path>`; defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
-| `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
+| `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `agent.command` | `claude --bg` | `--agent`, `list --agents`, `cleanup`'s agent check |
 | `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); runs by default only when non-interactive, or with `--install` |
 | `github.token` | `ghp_...` | `--github` flag |
@@ -341,11 +349,16 @@ worktree config agent.command "claude --bg"
 worktree branch feature/x --agent "implement the issue"
 ```
 
-With no `agent.command` set, `--agent` logs `No agent configured. Run worktree
+On the detached path (editor or `none` opener, or Herdr failing to open), with
+no `agent.command` set, `--agent` logs `No agent configured. Run worktree
 config agent.command "<command>" to set one.` and carries on: the worktree is
-created, env files are copied, the editor opens, and the exit code is still `0`. Nothing fails, so in a scripted run a skipped dispatch
+created, env files are copied, the worktree opens, and the exit code is still `0`. Nothing fails, so in a scripted run a skipped dispatch
 is indistinguishable from a successful one. Set the key first, or check
 `worktree config --list`.
+
+On the Herdr path (`opener` `herdr`, Herdr opened) a brief with neither
+`herdr.agent` nor `agent.command` set exits `2` instead, naming
+`worktree config herdr.agent <kind>`; `herdr.agent` alone is enough there.
 
 Source: `src/lib/base-command.ts` — `dispatchAgent()`
 

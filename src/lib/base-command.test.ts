@@ -1,4 +1,8 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
 import { confirm } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
 import {
@@ -7,7 +11,12 @@ import {
   mockRunCapturing,
   mockSpawnDetached,
 } from "../test-setup.js";
-import { BaseCommand } from "./base-command.js";
+import {
+  AGENT_BRIEF_MAX_BYTES,
+  BaseCommand,
+  type OpenWorktreeOptions,
+  readAgentBrief,
+} from "./base-command.js";
 import * as cli from "./cli.js";
 import * as git from "./git.js";
 import { isNonInteractive, setNonInteractive } from "./interaction.js";
@@ -41,8 +50,8 @@ vi.mock("ora", () => ({
 class TestCommand extends BaseCommand {
   async run() {}
 
-  open(path: string) {
-    return this.openWorktreePath(path);
+  open(path: string, options?: OpenWorktreeOptions) {
+    return this.openWorktreePath(path, options);
   }
 
   dispatch(path: string, prompt: string) {
@@ -228,6 +237,76 @@ describe("openWorktreePath", () => {
   });
 });
 
+describe("openWorktreePath — the editor and none openers", () => {
+  const worktreePath = "/repo/project.worktrees/feature/test";
+  let command: TestCommand;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
+    mockRun.mockResolvedValue("");
+  });
+
+  it("makes no editor call for --no-open, and reports opener none", async () => {
+    setConfig({ opener: "editor", codeEditor: "code" });
+
+    const outcome = await command.open(worktreePath, { open: false });
+
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(`Worktree created at ${worktreePath}`);
+    expect(outcome).toEqual({ opener: "none", agent: undefined });
+  });
+
+  it("dispatches the brief detached when the opener is not Herdr", async () => {
+    setConfig({
+      opener: "editor",
+      codeEditor: "code",
+      "agent.command": "claude",
+    });
+
+    expectCommands(`code ${worktreePath}`);
+
+    const outcome = await command.open(worktreePath, { brief: "do it" });
+
+    expect(mockSpawnDetached).toHaveBeenCalledWith(
+      "claude",
+      ["do it"],
+      expect.objectContaining({ cwd: worktreePath }),
+    );
+    expect(outcome).toMatchObject({
+      opener: "editor",
+      agent: { name: null, command: ["claude"], prompted: true },
+    });
+  });
+
+  it("dispatches no agent for --no-agent, but still opens the editor", async () => {
+    setConfig({
+      opener: "editor",
+      codeEditor: "code",
+      "agent.command": "claude",
+    });
+
+    expectCommands(`code ${worktreePath}`);
+
+    const outcome = await command.open(worktreePath, {
+      agent: false,
+      brief: "do it",
+    });
+
+    expect(mockSpawnDetached).not.toHaveBeenCalled();
+    expect(mockRun).toHaveBeenCalledWith("code", [worktreePath]);
+    expect(outcome.agent).toBeUndefined();
+  });
+});
+
 describe("dispatchAgent", () => {
   const worktreePath = "/repo/project.worktrees/feature/test";
   const prompt = "implement the issue";
@@ -337,9 +416,10 @@ describe("openWorktreePath — the Herdr opener", () => {
   const worktreePath = "/tmp/a b/c";
   let command: TestCommand;
   let mockLog: ReturnType<typeof vi.spyOn>;
+  let mockLogToStderr: ReturnType<typeof vi.spyOn>;
 
-  function openWorktreePath(path: string): Promise<void> {
-    return command.open(path);
+  function openWorktreePath(path: string, options?: OpenWorktreeOptions) {
+    return command.open(path, options);
   }
 
   /**
@@ -357,6 +437,9 @@ describe("openWorktreePath — the Herdr opener", () => {
     vi.clearAllMocks();
     command = new TestCommand([], { runCommand: vi.fn() } as any);
     mockLog = vi.spyOn(command, "log").mockImplementation(() => {});
+    mockLogToStderr = vi
+      .spyOn(command, "logToStderr")
+      .mockImplementation(() => {});
   });
 
   describe("the herdr opener", () => {
@@ -550,6 +633,9 @@ describe("openWorktreePath — the Herdr opener", () => {
             "pF1",
             "--timeout",
             "15000",
+            "--",
+            "--name",
+            "a-b-feature-a-thing",
           ],
           // The bound the integration puts on its own subprocess, which is a
           // different thing from the `--timeout` above that Herdr is asked to
@@ -626,6 +712,292 @@ describe("openWorktreePath — the Herdr opener", () => {
           expect.arrayContaining(["wt-178-automate"]),
           expect.anything(),
         );
+      });
+
+      describe("one agent per tree, with the brief", () => {
+        const brief = "line one\n\nline $(touch pwned); 'two'";
+
+        /** The argv of every `herdr agent …` call, in order. */
+        function agentCalls(): string[][] {
+          return mockRunCapturing.mock.calls
+            .map((call) => call[1] as string[])
+            .filter((args) => args[0] === "agent");
+        }
+
+        function startArgs(): string[] {
+          const args = agentCalls().find((call) => call[1] === "start") ?? [];
+          return args.slice(args.indexOf("--") + 1);
+        }
+
+        it("delivers the brief only through `agent prompt`, never `agent start`", async () => {
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          const [start, prompt, ...rest] = agentCalls();
+
+          expect(start?.slice(0, 2)).toEqual(["agent", "start"]);
+          expect(start?.join("\u0000")).not.toContain("line one");
+          expect(prompt).toEqual(["agent", "prompt", "pF1", brief]);
+          expect(rest).toEqual([]);
+          expect(prompt).not.toContain("--wait");
+        });
+
+        it("starts no detached agent beside the one Herdr started", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "claude",
+            "agent.command": "claude --bg",
+          });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+        });
+
+        it("drops --bg and --background from agent.command, and says so on stderr", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "claude",
+            "agent.command": "claude --bg --model opus --background",
+          });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          expect(startArgs()).toEqual([
+            "--model",
+            "opus",
+            "--name",
+            "a-b-feature-a-thing",
+          ]);
+          expect(mockLogToStderr).toHaveBeenCalledWith(
+            expect.stringContaining("Dropped --bg/--background"),
+          );
+        });
+
+        it("names a claude session with the whole branch, however long", async () => {
+          const branch = `70-${"a".repeat(97)}`;
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          mockAgentStarted();
+
+          const outcome = await openWorktreePath(
+            `${gitRootPath}.worktrees/${branch}`,
+            { brief },
+          );
+
+          expect(branch).toHaveLength(100);
+          expect(startArgs()).toEqual(["--name", `a-b-${branch}`]);
+          expect(outcome.agent?.name).toBe(`a-b-${branch}`);
+          // Herdr's own handle keeps its 32-character cap.
+          const handle = agentCalls()[0]?.[2] ?? "";
+          expect(handle.length).toBeLessThanOrEqual(32);
+          expect(mockLogToStderr).toHaveBeenCalledWith(
+            `Agent session name: a-b-${branch}`,
+          );
+        });
+
+        it("takes the kind from agent.command when herdr.agent is unset", async () => {
+          setConfig({
+            opener: "herdr",
+            "agent.command": "/usr/local/bin/claude --bg --model opus",
+          });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          const start = agentCalls()[0] ?? [];
+          expect(start[start.indexOf("--kind") + 1]).toBe("claude");
+          expect(startArgs()).toEqual([
+            "--model",
+            "opus",
+            "--name",
+            "a-b-feature-a-thing",
+          ]);
+        });
+
+        it("reuses agent.command's arguments only when its head is the kind", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "codex",
+            "agent.command": "claude --model opus",
+          });
+          mockAgentStarted();
+
+          await openWorktreePath(spacePath, { brief });
+
+          expect(agentCalls()[0]).not.toContain("--");
+          expect(agentCalls()[1]).toEqual(["agent", "prompt", "pF1", brief]);
+        });
+
+        it("adds no --name for a kind other than claude", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "codex",
+            "agent.command": "codex --full-auto",
+          });
+          mockAgentStarted();
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(startArgs()).toEqual(["--full-auto"]);
+          expect(outcome.agent?.name).toBeNull();
+        });
+
+        it("fails naming herdr.agent, before opening a space, when a brief has no kind", async () => {
+          setConfig({ opener: "herdr" });
+
+          const error = await openWorktreePath(spacePath, { brief }).catch(
+            (thrown: unknown) => thrown,
+          );
+
+          expect(error).toBeInstanceOf(MissingValueError);
+          expect((error as Error).message).toBe(
+            "no default for the agent kind; pass `worktree config herdr.agent <kind>`",
+          );
+          expect(mockOpenHerdrWorktree).not.toHaveBeenCalled();
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+        });
+
+        it("starts nothing, and does not fail, with no kind and no brief", async () => {
+          // `agent.command` alone must not start an agent without a brief.
+          setConfig({ opener: "herdr", "agent.command": "claude --bg" });
+
+          const outcome = await openWorktreePath(spacePath);
+
+          expect(mockRunCapturing).not.toHaveBeenCalled();
+          expect(outcome.agent).toBeUndefined();
+        });
+
+        it("warns, and reports the brief as not delivered, when the prompt fails", async () => {
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          const warn = vi
+            .spyOn(command, "warn")
+            .mockImplementation((input) => input);
+          mockRunCapturing.mockResolvedValueOnce({
+            stdout: JSON.stringify({ id: "cli:agent:start", result: {} }),
+            stderr: "",
+            exitCode: 0,
+          });
+          mockRunCapturing.mockResolvedValueOnce({
+            stdout: "",
+            stderr: JSON.stringify({
+              error: { code: "agent_blocked", message: "agent is blocked" },
+            }),
+            exitCode: 1,
+          });
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining("the brief was not delivered"),
+          );
+          expect(outcome.agent?.prompted).toBe(false);
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+        });
+
+        it("falls back to the detached dispatch only when Herdr did not open", async () => {
+          setConfig({ opener: "herdr", "agent.command": "claude --bg" });
+          mockOpenHerdrWorktree.mockRejectedValue(
+            new herdr.HerdrError("server_down", "no server"),
+          );
+          vi.spyOn(command, "logToStderr").mockImplementation(() => {});
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(mockSpawnDetached).toHaveBeenCalledWith(
+            "claude",
+            ["--bg", brief],
+            expect.objectContaining({ cwd: spacePath }),
+          );
+          expect(outcome.herdr).toBeUndefined();
+          expect(outcome.agent).toMatchObject({ name: null, prompted: true });
+        });
+
+        it("warns, and starts no second agent, when the space was already open", async () => {
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          const warn = vi
+            .spyOn(command, "warn")
+            .mockImplementation((input) => input);
+          mockOpenHerdrWorktree.mockResolvedValue({
+            workspaceId: "wF",
+            paneId: "pF1",
+            alreadyOpen: true,
+          });
+
+          await openWorktreePath(spacePath, { brief });
+
+          expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining("brief was not delivered"),
+          );
+          expect(mockRunCapturing).not.toHaveBeenCalled();
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+        });
+
+        it("opens the space but starts no agent for --no-agent", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "claude",
+            "agent.command": "claude --bg",
+          });
+
+          const outcome = await openWorktreePath(spacePath, {
+            agent: false,
+            brief,
+          });
+
+          expect(mockOpenHerdrWorktree).toHaveBeenCalled();
+          expect(mockRunCapturing).not.toHaveBeenCalled();
+          expect(mockSpawnDetached).not.toHaveBeenCalled();
+          expect(outcome).toEqual({
+            opener: "herdr",
+            herdr: { space: "wF", pane: "pF1", agent: null },
+            agent: undefined,
+          });
+        });
+
+        it("reports the space, pane, Herdr handle and agent as the outcome", async () => {
+          setConfig({ opener: "herdr", "herdr.agent": "claude" });
+          mockAgentStarted();
+
+          const outcome = await openWorktreePath(spacePath, { brief });
+
+          expect(outcome).toEqual({
+            opener: "herdr",
+            herdr: { space: "wF", pane: "pF1", agent: "feature-a-thing" },
+            agent: {
+              name: "a-b-feature-a-thing",
+              kind: "claude",
+              command: ["claude", "--name", "a-b-feature-a-thing"],
+              prompted: true,
+            },
+          });
+        });
+
+        it("makes no Herdr or editor call for --no-open, and prints the path", async () => {
+          setConfig({
+            opener: "herdr",
+            "herdr.agent": "claude",
+            codeEditor: "code",
+          });
+          const isInstalled = vi.spyOn(herdr, "isHerdrInstalled");
+
+          const outcome = await openWorktreePath(spacePath, {
+            open: false,
+            agent: false,
+          });
+
+          expect(isInstalled).not.toHaveBeenCalled();
+          expect(mockOpenHerdrWorktree).not.toHaveBeenCalled();
+          expect(mockRunCapturing).not.toHaveBeenCalled();
+          expect(mockRun).not.toHaveBeenCalled();
+          expect(mockLog).toHaveBeenCalledWith(
+            `Worktree created at ${spacePath}`,
+          );
+          expect(outcome).toEqual({ opener: "none", agent: undefined });
+        });
       });
     });
   });
@@ -1012,5 +1384,82 @@ describe("verifyConfig", () => {
     expect(mockConfirm).not.toHaveBeenCalled();
     expect(runCommand).not.toHaveBeenCalled();
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("readAgentBrief", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "worktree-brief-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function stdinOf(chunks: string[], isTTY?: boolean) {
+    return Object.assign(Readable.from(chunks), { isTTY });
+  }
+
+  it("is undefined when no source was given", async () => {
+    await expect(readAgentBrief({})).resolves.toBeUndefined();
+  });
+
+  it("returns --agent unchanged", async () => {
+    await expect(readAgentBrief({ agent: "  keep\nas is " })).resolves.toBe(
+      "  keep\nas is ",
+    );
+  });
+
+  it("reads a file whole", async () => {
+    const file = join(tempDir, "brief.md");
+    writeFileSync(file, "# Brief\n\nDo it.\n");
+
+    await expect(readAgentBrief({ agentFile: file })).resolves.toBe(
+      "# Brief\n\nDo it.\n",
+    );
+  });
+
+  it("reads piped stdin whole, across chunks", async () => {
+    await expect(
+      readAgentBrief({ agentStdin: true }, stdinOf(["part one\n", "part two"])),
+    ).resolves.toBe("part one\npart two");
+  });
+
+  it("rejects stdin that is a terminal instead of waiting on it", async () => {
+    await expect(
+      readAgentBrief({ agentStdin: true }, stdinOf([], true)),
+    ).rejects.toThrow(/stdin is a terminal/);
+  });
+
+  it.each([
+    ["--agent", { agent: "" }],
+    ["--agent", { agent: "   \n" }],
+    ["--agent-stdin", { agentStdin: true }],
+  ])("rejects an empty brief from %s", async (_source, sources) => {
+    await expect(readAgentBrief(sources, stdinOf([" \n"]))).rejects.toThrow(
+      /empty/,
+    );
+  });
+
+  it("accepts a brief of exactly 256 KB and rejects one byte more", async () => {
+    const atCap = "x".repeat(AGENT_BRIEF_MAX_BYTES);
+
+    await expect(readAgentBrief({ agent: atCap })).resolves.toBe(atCap);
+    await expect(readAgentBrief({ agent: `${atCap}x` })).rejects.toThrow(
+      /over 256 KB/,
+    );
+  });
+
+  it("stops reading stdin once the cap is passed", async () => {
+    const chunk = "x".repeat(100 * 1024);
+
+    await expect(
+      readAgentBrief(
+        { agentStdin: true },
+        stdinOf([chunk, chunk, chunk, chunk]),
+      ),
+    ).rejects.toThrow(/over 256 KB/);
   });
 });

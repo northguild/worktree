@@ -130,9 +130,11 @@ This creates a local tracking branch in a dedicated worktree.
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 ```
 
-The agent starts with the new worktree as its working directory and the flag's value as its prompt, so it works inside `<repo>.worktrees` alongside everything else. `worktree checkout` takes the same flag.
+The agent starts with the new worktree as its working directory and the flag's value as its prompt, so it works inside `<repo>.worktrees` alongside everything else. `worktree checkout` takes `--agent` too.
 
-This is independent of the editor: with `codeEditor` set as well, the worktree still opens there. It needs `agent.command` configured — without it the worktree is created and opened as usual and only the agent is skipped.
+There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. Otherwise `agent.command` is launched detached, and without it the worktree is created and opened as usual and only the agent is skipped.
+
+For a long prompt, `--agent-file <path>` or `--agent-stdin` reads it whole (at most 256 KB; the three are mutually exclusive). `--no-agent` opens the worktree without an agent, and `--no-open` creates it and prints its path without opening anything.
 
 ### See what worktrees already exist
 

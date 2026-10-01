@@ -12,7 +12,7 @@ title: Configuration
 - `opener` (`editor`, `herdr` or `none`, default `editor`)
 - `codeEditor` (example: `code`)
 - `herdr.focus` (`true` or `false`, default `true`)
-- `herdr.agent` (example: `claude`, unset means no agent)
+- `herdr.agent` (example: `claude`; unset means no agent, unless `worktree branch` or `checkout` is given a brief, which falls back to `agent.command`'s program)
 - `agent.command` (the coding agent to hand a new worktree to, example: `claude --bg`)
 - `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means infer from the lockfile)
 - `github.token` (GitHub personal access token)
@@ -118,6 +118,12 @@ specific to one vendor — any agent CLI of the same shape works. The same rules
 space, and `~` and `$VAR` are not expanded.
 
 The key is optional and unset by default.
+
+When the worktree opens as a Herdr space, the agent is started by Herdr instead, and `agent.command` only
+supplies what to start: its program is the agent kind when a brief is given and [`herdr.agent`](/docs/guides/herdr-spaces#start-an-agent-with-the-space) is unset, and its
+arguments are reused when the program is that kind — without `--bg` or `--background`, which would take the
+agent out of the pane. For `claude`, `--name <repo>-<branch>` is added. See
+[Agent Dispatch](/docs/commands/branch#agent-dispatch).
 
 ## Post-create Command
 

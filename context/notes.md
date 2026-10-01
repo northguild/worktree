@@ -78,3 +78,20 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - **Phase 7.** The install-failure advice "run `worktree open <branch>`" does not re-send an `--agent`
   brief on the detached path; Phase 8's handoff rework is where to revisit it. `remove -f` refuses when run
   from inside that worktree.
+- **Phase 8.** The plan's Phase 8 `Files:` line omits `src/commands/checkout.ts`; editing it was necessary
+  (otherwise checkout dispatches a detached agent and Herdr starts a second, against D11). `checkout --agent ""`
+  is now rejected (D13), reversing the old dispatch-an-empty-prompt behaviour.
+- **Phase 8.** The missing-kind `MissingValueError` (exit 2) fires after the tree is created and installed;
+  it could be checked in `branch.ts` beside `readAgentBrief`, before creation.
+- **Phase 8.** A user's own `--name` in `agent.command`'s tail is not removed, so `claude` gets two; which one
+  wins is unverified, and `agent.name` could then differ from the real session name.
+- **Phase 8.** `--agent-stdin` on a pipe that is never closed blocks indefinitely (inherent; needs the flag
+  passed explicitly). Closed stdin and `/dev/null` reach EOF and are rejected as empty.
+- **Phase 8.** Docs: branch page steps 6/7 put the open before the agent, but on the editor and `none` paths
+  the detached agent is dispatched first; "space already open plus a brief" (warns, not delivered) is
+  undocumented; the herdr-spaces guide's line 66 names only `worktree branch`, not `checkout --agent`;
+  `SKILL.md`'s detached-path paragraph says "the worktree opens", untrue for `opener none`.
+- **Phase 8.** `readBriefFile`'s bare `catch {}` drops the original error as `cause`
+  (`typescript/error-handling.md`). One over-width line in the `resolveHerdrAgentPlan` docstring.
+- **Phase 8.** Phase 7's install-failure advice note (brief not re-sent by `worktree open`) still stands;
+  Phase 8 did not change it.

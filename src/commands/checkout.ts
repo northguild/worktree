@@ -1,5 +1,5 @@
 import { Args, Flags } from "@oclif/core";
-import { BaseCommand } from "../lib/base-command.js";
+import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
@@ -55,6 +55,16 @@ export default class Checkout extends BaseCommand {
 
   public async run(): Promise<void> {
     const { args, flags } = await this.parse(Checkout);
+
+    // Before anything is created, as in branch: an empty or oversized prompt is
+    // a usage error and should not leave a worktree behind.
+    let brief: string | undefined;
+    try {
+      brief = await readAgentBrief({ agent: flags.agent });
+    } catch (error) {
+      this.error(error instanceof Error ? error.message : String(error));
+    }
+
     const spinner = createSpinner("Fetching remote branches").start();
     const remoteBranches = await gitGetRemoteBranches();
     const localBranches = await gitGetLocalBranches();
@@ -80,12 +90,11 @@ export default class Checkout extends BaseCommand {
         { isCheckout: true },
       );
       // Same order as branch: env files complete the worktree before the agent
-      // sees it, and the editor stays last.
+      // sees it.
       await copyEnvFilesFromRootPath(projectPath);
-      if (flags.agent !== undefined) {
-        await this.dispatchAgent(projectPath, flags.agent);
-      }
-      await this.openWorktreePath(projectPath);
+      // The brief rides on the open: with Herdr it goes to the agent Herdr
+      // starts, and the detached launch happens only where Herdr did not open.
+      await this.openWorktreePath(projectPath, { brief });
     }
   }
 }

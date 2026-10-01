@@ -1,4 +1,7 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { confirm, input } from "@inquirer/prompts";
 import ora from "ora";
 import * as githubIntegration from "../integrations/github.js";
@@ -47,6 +50,9 @@ vi.mock("ora", () => ({
     }),
   })),
 }));
+
+// What `branch` passes the opener when no handoff flag was given.
+const defaultOpenOptions = { open: true, agent: true, brief: undefined };
 
 describe("branch command", () => {
   let branch: Branch;
@@ -115,7 +121,10 @@ describe("branch command", () => {
         "origin/main",
       );
       expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree");
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        defaultOpenOptions,
+      );
     });
 
     it("should prompt for branch name when not provided", async () => {
@@ -760,7 +769,10 @@ describe("branch command", () => {
           "origin/main",
         );
         expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree");
-        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
       });
 
       it("still creates the worktree when the issue comes back unassigned", async () => {
@@ -778,7 +790,10 @@ describe("branch command", () => {
         await expect(branch.run()).resolves.toBeUndefined();
 
         expect(mockGitCreateWorktree).toHaveBeenCalled();
-        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
 
         // §2 is "never `fail`, never a throw", and only the throw half is
         // pinned by the case above. The last spinner of the run is the
@@ -832,7 +847,10 @@ describe("branch command", () => {
           "42-add-dark-mode",
           "origin/main",
         );
-        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
       });
 
       it("never reaches the assignment seam without --github or --jira", async () => {
@@ -950,7 +968,10 @@ describe("branch command", () => {
           "42-add-dark-mode",
           "origin/main",
         );
-        expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
       });
     });
 
@@ -969,8 +990,11 @@ describe("branch command", () => {
     });
   });
 
-  describe("--agent flag", () => {
+  describe("the agent handoff flags", () => {
+    let tempDir: string;
+
     beforeEach(() => {
+      tempDir = mkdtempSync(join(tmpdir(), "worktree-brief-"));
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
         if (key === "has-called-config") return Promise.resolve("true");
@@ -980,72 +1004,139 @@ describe("branch command", () => {
       });
     });
 
-    it("hands the new worktree to the agent with the prompt", async () => {
+    afterEach(() => {
+      rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    function parsed(flags: Record<string, unknown>) {
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
-        flags: { agent: "implement the issue" },
+        flags,
       });
+    }
+
+    it("hands the prompt to the opener as the brief", async () => {
+      parsed({ agent: "implement the issue" });
 
       await branch.run();
 
-      expect(mockDispatchAgent).toHaveBeenCalledWith(
-        "/path/to/worktree",
-        "implement the issue",
-      );
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        open: true,
+        agent: true,
+        brief: "implement the issue",
+      });
     });
 
-    it("dispatches after the env files are copied and before the editor opens", async () => {
-      (branch as any).parse = vi.fn().mockResolvedValue({
-        args: { branchName: "feature/test" },
-        flags: { agent: "implement the issue" },
-      });
+    it("never dispatches itself, so the opener alone decides Herdr or detached", async () => {
+      parsed({ agent: "implement the issue" });
+
+      await branch.run();
+
+      expect(mockDispatchAgent).not.toHaveBeenCalled();
+    });
+
+    it("opens after the env files are copied", async () => {
+      parsed({ agent: "implement the issue" });
 
       await branch.run();
 
       // The agent starts working immediately, so the worktree has to be
       // complete before it is handed over.
       expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
-        mockDispatchAgent.mock.invocationCallOrder[0],
-      );
-      expect(mockDispatchAgent.mock.invocationCallOrder[0]).toBeLessThan(
         mockOpenWorktreePath.mock.invocationCallOrder[0],
       );
     });
 
-    it("opens the editor as well, since the two are independent", async () => {
-      (branch as any).parse = vi.fn().mockResolvedValue({
-        args: { branchName: "feature/test" },
-        flags: { agent: "implement the issue" },
-      });
+    it("reads the brief from --agent-file", async () => {
+      const file = join(tempDir, "brief.md");
+      writeFileSync(file, "line one\nline two\n");
+      parsed({ "agent-file": file });
 
       await branch.run();
 
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        open: true,
+        agent: true,
+        brief: "line one\nline two\n",
+      });
     });
 
-    it("still dispatches when the prompt is empty, since the flag was given", async () => {
-      // `--agent ""` is a request for an agent with no prompt, not an absent
-      // flag: the prompt reaches the agent as an empty argument.
-      (branch as any).parse = vi.fn().mockResolvedValue({
-        args: { branchName: "feature/test" },
-        flags: { agent: "" },
-      });
+    it("rejects an empty --agent before creating anything", async () => {
+      parsed({ agent: "  " });
 
-      await branch.run();
+      await expect(branch.run()).rejects.toThrow(/empty/);
 
-      expect(mockDispatchAgent).toHaveBeenCalledWith("/path/to/worktree", "");
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
-    it("dispatches nothing when the flag is absent", async () => {
-      (branch as any).parse = vi.fn().mockResolvedValue({
-        args: { branchName: "feature/test" },
-        flags: {},
-      });
+    it("rejects a --agent-file that is empty, missing, a directory, or over 256 KB", async () => {
+      const empty = join(tempDir, "empty.md");
+      const big = join(tempDir, "big.md");
+      writeFileSync(empty, "");
+      writeFileSync(big, "x".repeat(256 * 1024 + 1));
+
+      for (const [file, message] of [
+        [empty, /empty/],
+        [join(tempDir, "missing.md"), /does not exist/],
+        [tempDir, /not a regular file/],
+        [big, /over 256 KB/],
+      ] as const) {
+        parsed({ "agent-file": file });
+        await expect(branch.run()).rejects.toThrow(message);
+      }
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("rejects a --agent over 256 KB measured in bytes, not characters", async () => {
+      // 90,000 three-byte characters are under 256 K characters and over 256 KB.
+      parsed({ agent: "€".repeat(90_000) });
+
+      await expect(branch.run()).rejects.toThrow(/over 256 KB/);
+    });
+
+    it("declares the three brief flags and --no-agent as mutually exclusive", () => {
+      const { flags } = Branch;
+
+      expect(flags.agent.exclusive).toEqual(
+        expect.arrayContaining(["agent-file", "agent-stdin"]),
+      );
+      expect(flags["agent-file"].exclusive).toEqual(
+        expect.arrayContaining(["agent", "agent-stdin"]),
+      );
+      expect(flags["agent-stdin"].exclusive).toEqual(
+        expect.arrayContaining(["agent", "agent-file"]),
+      );
+      for (const flag of [
+        flags.agent,
+        flags["agent-file"],
+        flags["agent-stdin"],
+      ]) {
+        expect(flag.exclusive).toContain("no-agent");
+      }
+    });
+
+    it("passes --no-open and --no-agent to the opener", async () => {
+      parsed({ "no-open": true, "no-agent": true });
 
       await branch.run();
 
-      expect(mockDispatchAgent).not.toHaveBeenCalled();
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        open: false,
+        agent: false,
+        brief: undefined,
+      });
+    });
+
+    it("passes no brief when no flag was given", async () => {
+      parsed({});
+
+      await branch.run();
+
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        defaultOpenOptions,
+      );
     });
   });
 
@@ -1243,7 +1334,7 @@ describe("branch command", () => {
       });
     }
 
-    it("installs in the new tree, after the env files and before dispatch and open", async () => {
+    it("installs in the new tree, after the env files and before the open", async () => {
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "pnpm install --frozen-lockfile",
@@ -1261,9 +1352,6 @@ describe("branch command", () => {
       const installOrder = mockRunInstall.mock.invocationCallOrder[0];
       expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
         installOrder,
-      );
-      expect(installOrder).toBeLessThan(
-        mockDispatchAgent.mock.invocationCallOrder[0],
       );
       expect(installOrder).toBeLessThan(
         mockOpenWorktreePath.mock.invocationCallOrder[0],
@@ -1291,7 +1379,10 @@ describe("branch command", () => {
 
       await branch.run();
 
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        defaultOpenOptions,
+      );
     });
 
     it("keeps the tree, starts neither agent nor opener, and exits 1 when the install fails", async () => {

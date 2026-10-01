@@ -1,7 +1,7 @@
 import { Args, Flags } from "@oclif/core";
 import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
 import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
-import { BaseCommand } from "../lib/base-command.js";
+import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
@@ -30,6 +30,9 @@ export default class Branch extends BaseCommand {
     "<%= config.bin %> <%= command.id %> --github 42 --assign",
     "<%= config.bin %> <%= command.id %> --jira DEV-123",
     '<%= config.bin %> <%= command.id %> --github 42 --agent "implement the issue"',
+    "<%= config.bin %> <%= command.id %> --github 42 --agent-file brief.md",
+    "<%= config.bin %> <%= command.id %> --github 42 --no-agent",
+    "<%= config.bin %> <%= command.id %> my-new-branch --no-open",
   ];
 
   static override flags = {
@@ -45,10 +48,28 @@ export default class Branch extends BaseCommand {
       char: "j",
       description: "Create a branch from a Jira issue (issue ID)",
     }),
+    // The three brief sources are one choice (D13), and `--no-agent` says there
+    // is no brief to deliver, so it excludes all of them.
     agent: Flags.string({
       char: "a",
       description:
         "Start the configured coding agent in the new worktree with this prompt",
+      exclusive: ["agent-file", "agent-stdin", "no-agent"],
+    }),
+    "agent-file": Flags.string({
+      description: "Like --agent, reading the prompt from this file",
+      exclusive: ["agent", "agent-stdin", "no-agent"],
+    }),
+    "agent-stdin": Flags.boolean({
+      description: "Like --agent, reading the prompt from stdin",
+      exclusive: ["agent", "agent-file", "no-agent"],
+    }),
+    "no-agent": Flags.boolean({
+      description: "Open the worktree but start no agent",
+    }),
+    "no-open": Flags.boolean({
+      description:
+        "Create the worktree and print its path, without opening it in Herdr or the editor",
     }),
     // Source-agnostic on purpose (D2). Jira has assignees too, and the
     // per-integration difference belongs in the config key rather than in the
@@ -323,6 +344,19 @@ export default class Branch extends BaseCommand {
       this.error("--assign/--no-assign requires either --github or --jira.");
     }
 
+    // Read before anything is created: an empty or oversized brief is a usage
+    // error, and it should not leave a worktree behind.
+    let brief: string | undefined;
+    try {
+      brief = await readAgentBrief({
+        agent: flags.agent,
+        agentFile: flags["agent-file"],
+        agentStdin: flags["agent-stdin"],
+      });
+    } catch (error) {
+      this.error(error instanceof Error ? error.message : String(error));
+    }
+
     const configNames: ConfigName[] = !flags.source
       ? ["defaultSourceBranch"]
       : [];
@@ -366,9 +400,10 @@ export default class Branch extends BaseCommand {
       );
     }
 
-    if (flags.agent !== undefined) {
-      await this.dispatchAgent(projectPath, flags.agent);
-    }
-    await this.openWorktreePath(projectPath);
+    await this.openWorktreePath(projectPath, {
+      open: !flags["no-open"],
+      agent: !flags["no-agent"],
+      brief,
+    });
   }
 }

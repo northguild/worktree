@@ -66,7 +66,9 @@ describe("checkout command", () => {
       { isCheckout: true },
     );
     expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree");
-    expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+    expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+      brief: undefined,
+    });
     expect(mockSelect).not.toHaveBeenCalled();
   });
 
@@ -185,7 +187,7 @@ describe("checkout command", () => {
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
     });
 
-    it("hands the checked-out worktree to the agent with the prompt", async () => {
+    it("hands the prompt to the opener as the brief, after the env files", async () => {
       (checkout as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
         flags: { agent: "review this branch" },
@@ -193,21 +195,29 @@ describe("checkout command", () => {
 
       await checkout.run();
 
-      expect(mockDispatchAgent).toHaveBeenCalledWith(
-        "/path/to/worktree",
-        "review this branch",
-      );
-      // The worktree has to be complete before the agent sees it, and the
-      // editor still opens afterwards.
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        brief: "review this branch",
+      });
+      // The worktree has to be complete before the agent sees it.
       expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
-        mockDispatchAgent.mock.invocationCallOrder[0],
-      );
-      expect(mockDispatchAgent.mock.invocationCallOrder[0]).toBeLessThan(
         mockOpenWorktreePath.mock.invocationCallOrder[0],
       );
+      // The opener decides Herdr or detached, so checkout never dispatches.
+      expect(mockDispatchAgent).not.toHaveBeenCalled();
     });
 
-    it("dispatches nothing when the flag is absent", async () => {
+    it("rejects an empty prompt before creating a worktree", async () => {
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "" },
+      });
+
+      await expect(checkout.run()).rejects.toThrow(/empty/);
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("passes no brief when the flag is absent", async () => {
       (checkout as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
         flags: {},
@@ -216,7 +226,9 @@ describe("checkout command", () => {
       await checkout.run();
 
       expect(mockDispatchAgent).not.toHaveBeenCalled();
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
+        brief: undefined,
+      });
     });
   });
 

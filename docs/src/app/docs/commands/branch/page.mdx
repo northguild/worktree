@@ -16,6 +16,10 @@ worktree branch --github <issue-number> --assign
 worktree branch --github <issue-number> --no-assign
 worktree branch --jira <issue-id>
 worktree branch <name> --agent "<prompt>"
+worktree branch <name> --agent-file <path>
+worktree branch <name> --agent-stdin
+worktree branch <name> --no-agent
+worktree branch <name> --no-open
 worktree branch <name> --install
 worktree branch <name> --no-install
 ```
@@ -33,6 +37,10 @@ worktree branch --jira DEV-123
 worktree branch --jira dev-123
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent "implement the issue"
+worktree branch --github 42 --agent-file brief.md
+cat brief.md | worktree branch --github 42 --agent-stdin
+worktree branch --github 42 --no-agent
+worktree branch feature/add-bulk-actions --no-open
 worktree branch feature/add-bulk-actions --install
 worktree branch feature/add-bulk-actions --no-install
 ```
@@ -150,23 +158,50 @@ Jira authentication requires three configuration keys:
 
 ## Agent Dispatch
 
-Use the `--agent` flag (short: `-a`) to hand the new worktree to the coding agent configured as
-[`agent.command`](/docs/configuration#agent-command). The flag's value is the prompt the agent starts with.
+Use the `--agent` flag (short: `-a`) to hand the new worktree to a coding agent with a prompt, called the
+brief. The brief can come from one of three places, and they are mutually exclusive:
+
+| Flag | The brief is |
+|---|---|
+| `--agent "<text>"` | the flag's value |
+| `--agent-file <path>` | the whole of a file, which has to exist and be a regular file |
+| `--agent-stdin` | the whole of piped stdin; a terminal on stdin is refused rather than waited on |
 
 ```bash
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
+worktree branch --github 42 --agent-file brief.md
 ```
 
-- The agent runs **with the new worktree as its working directory**, so it works inside
-  `<repo>.worktrees/<branch-name>` rather than picking a directory of its own.
-- The prompt is passed as a **single argument**, so quotes, apostrophes and semicolons in it reach the
-  agent unchanged. No shell interprets it.
-- The agent is started and left running — `worktree` does not wait for it, and its output does not appear
-  here. Use your agent's own tooling to follow it.
-- `--agent` and the editor are **independent**: if `codeEditor` is configured, the worktree still opens in
-  it as well.
-- If `agent.command` is not configured, `worktree` says so and carries on — the worktree is still created
-  and the editor still opens.
+An empty brief, or one over **256 KB**, is rejected before anything is created. The brief is delivered
+verbatim, so quotes, apostrophes, semicolons and newlines in it reach the agent unchanged and no shell
+interprets it.
+
+There is **one agent per worktree**, started one of two ways:
+
+- **When the worktree opens as a Herdr space** (`opener` `herdr`), the agent is started in the space's pane
+  with `herdr agent start`, and the brief is then submitted to it with `herdr agent prompt`, once, after the
+  agent is ready. The brief is never part of the start command.
+  - The agent kind is [`herdr.agent`](/docs/guides/herdr-spaces#start-an-agent-with-the-space), or else the program
+    [`agent.command`](/docs/configuration#agent-command) names. With a brief and neither, the run exits `2`
+    with `` worktree: no default for the agent kind; pass `worktree config herdr.agent <kind>` ``.
+  - When `agent.command` names the same program, its arguments are passed to the agent, minus `--bg` and
+    `--background` (a note says so on stderr): Herdr runs the agent in the pane, so a background flag would
+    take it out of sight.
+  - For `claude`, `--name <session>` is added. The session name is `<repo>-<branch>`, lowercased, with every
+    run of characters outside `a-z`, `0-9` and `-` turned into `-`, and never shortened. It is printed on
+    stderr. Herdr's own handle for the agent is separate and capped at 32 characters.
+  - If starting the agent fails, or the brief cannot be delivered, a warning says so and the worktree and
+    space are kept.
+- **Otherwise** (editor opener, `opener` `none`, or Herdr failing to open) `agent.command` is launched
+  detached with the brief as its last argument and the new worktree as its working directory. It is started
+  and left running; `worktree` does not wait for it and its output does not appear here. If `agent.command`
+  is not configured, `worktree` says so and carries on.
+
+`--no-agent` opens the worktree as usual but starts no agent. `--no-open` creates the worktree and prints
+`Worktree created at <path>` without calling Herdr or the editor, for this run only, like `opener` `none`;
+an agent is still started, detached, when a brief is given, unless `--no-agent` says otherwise.
+
+[`checkout`](/docs/commands/checkout) takes `--agent` and follows the same rules.
 
 ## Non-interactive runs
 
@@ -190,5 +225,5 @@ animates; progress goes to stderr as plain lines.
 4. Copies the gitignored env files into the new worktree — see
    [Environment Files](/docs/guides/env-files).
 5. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
-6. Starts the configured coding agent in it (with `--agent`).
-7. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none`, opens nothing and prints `Worktree created at <path>`.
+6. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
+7. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
