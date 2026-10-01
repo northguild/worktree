@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { confirm } from "@inquirer/prompts";
+import { Config } from "@oclif/core";
 import * as herdr from "../integrations/herdr.js";
 import {
+  captureOutput,
   expectCommands,
   mockRun,
   mockRunCapturing,
@@ -16,6 +18,7 @@ import {
   BaseCommand,
   type OpenWorktreeOptions,
   readAgentBrief,
+  redactSecrets,
 } from "./base-command.js";
 import * as cli from "./cli.js";
 import * as git from "./git.js";
@@ -1173,7 +1176,7 @@ describe("resolveSpaceCloser", () => {
 
       const closeSpaces = await command.closer();
 
-      await expect(closeSpaces([onePath, twoPath])).resolves.toBeUndefined();
+      await expect(closeSpaces([onePath, twoPath])).resolves.toEqual(["wR"]);
       expect(spinnerMocks.warn).toHaveBeenCalledWith(
         "Herdr: workspace wQ not found (workspace_not_found)",
       );
@@ -1189,7 +1192,7 @@ describe("resolveSpaceCloser", () => {
 
       const closeSpaces = await command.closer();
 
-      await expect(closeSpaces([onePath, twoPath])).resolves.toBeUndefined();
+      await expect(closeSpaces([onePath, twoPath])).resolves.toEqual([]);
       expect(spinnerMocks.warn).toHaveBeenCalledTimes(1);
       expect(mockClose).not.toHaveBeenCalled();
     });
@@ -1200,13 +1203,13 @@ describe("resolveSpaceCloser", () => {
       // what actually happened.
       mockList.mockRejectedValue(new Error("herdr did not answer"));
       const afterFailedLookup = await command.closer();
-      await expect(afterFailedLookup([onePath])).resolves.toBeUndefined();
+      await expect(afterFailedLookup([onePath])).resolves.toEqual([]);
 
       listResolves();
       mockClose.mockRejectedValue(new Error("herdr did not answer"));
       const afterFailedClose = await command.closer();
 
-      await expect(afterFailedClose([onePath])).resolves.toBeUndefined();
+      await expect(afterFailedClose([onePath])).resolves.toEqual([]);
     });
   });
 });
@@ -1461,5 +1464,203 @@ describe("readAgentBrief", () => {
         stdinOf([chunk, chunk, chunk, chunk]),
       ),
     ).rejects.toThrow(/over 256 KB/);
+  });
+});
+
+// A command that supports `--json`, which is how a subclass opts in (D6).
+class JsonTestCommand extends TestCommand {
+  static override enableJsonFlag = true;
+
+  say(message: string) {
+    this.log(message);
+  }
+
+  sayToStderr(message: string) {
+    this.logToStderr(message);
+  }
+
+  noteWarning(message: string) {
+    return this.warn(message);
+  }
+
+  printJson(document: unknown) {
+    this.logJson(document);
+  }
+
+  get collected() {
+    return this.warnings;
+  }
+}
+
+describe("--json output", () => {
+  const originalExitCode = process.exitCode;
+  let output: ReturnType<typeof captureOutput>;
+  let command: JsonTestCommand;
+
+  beforeEach(async () => {
+    process.exitCode = undefined;
+    // Loaded first: oclif warns about the .ts command files it cannot import
+    // here, and that is not what these tests are about.
+    command = new JsonTestCommand(["--json"], await Config.load(process.cwd()));
+    output = captureOutput();
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+  });
+
+  it("sends log and logToStderr to stderr and nothing to stdout", () => {
+    command.say("Worktree created at /tmp/x");
+    command.sayToStderr("Agent session name: demo");
+
+    expect(output.stdout()).toBe("");
+    expect(output.stderr()).toContain("Worktree created at /tmp/x");
+    expect(output.stderr()).toContain("Agent session name: demo");
+  });
+
+  it("still logs to stdout when --json was not given", async () => {
+    output.restore();
+    const plain = new JsonTestCommand([], await Config.load(process.cwd()));
+    output = captureOutput();
+
+    plain.say("hello");
+
+    expect(output.stdout()).toContain("hello");
+    expect(output.stderr()).toBe("");
+  });
+
+  it("prints a document as one uncoloured line", () => {
+    command.printJson({ a: 1, b: [null, "x"] });
+
+    expect(output.stdout()).toBe('{"a":1,"b":[null,"x"]}\n');
+  });
+
+  it("says a warning on stderr and keeps it for the document", () => {
+    command.noteWarning("something odd");
+
+    expect(output.stdout()).toBe("");
+    expect(output.stderr()).toContain("Warning: something odd");
+    expect(command.collected).toEqual(["something odd"]);
+  });
+
+  it("keeps a warning a spinner already printed", () => {
+    (command as any).recordWarning("Herdr: gone");
+
+    expect(output.stderr()).toBe("");
+    expect(command.collected).toEqual(["Herdr: gone"]);
+  });
+
+  it("resolves non-interactive from --json alone", async () => {
+    setNonInteractive(false);
+    (command as any).parse = vi.fn().mockResolvedValue({ args: {}, flags: {} });
+
+    await command.init();
+
+    expect(isNonInteractive()).toBe(true);
+  });
+
+  describe("catch", () => {
+    async function failWith(error: Error) {
+      await command.catchError(error);
+      return output.document() as {
+        error: { code: string; message: string; details?: unknown };
+      };
+    }
+
+    it("prints the failure as the one document, and the line on stderr", async () => {
+      const document = await failWith(new Error("boom"));
+
+      expect(document).toEqual({ error: { code: "failed", message: "boom" } });
+      expect(output.stdout().trim().split("\n")).toHaveLength(1);
+      expect(output.stderr()).toContain("Error: boom");
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("gives a missing value its code, details and exit 2", async () => {
+      const document = await failWith(
+        new MissingValueError("the thing", "--thing"),
+      );
+
+      expect(document.error).toEqual({
+        code: "missing_value",
+        message: "no default for the thing; pass --thing",
+        details: { value: "the thing", flag: "--thing" },
+      });
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("takes an explicit code from this.error", async () => {
+      let thrown: unknown;
+      try {
+        command.error("nothing there", { code: "not_found" });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect((await failWith(thrown as Error)).error.code).toBe("not_found");
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("calls a usage error invalid_value", async () => {
+      let thrown: unknown;
+      try {
+        command.raise("bad input");
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect((await failWith(thrown as Error)).error.code).toBe(
+        "invalid_value",
+      );
+    });
+
+    it.each([
+      "GitHub: /repos/o/r/issues/1 did not answer within 15s.",
+      "Herdr: herdr agent start did not answer within 60s.",
+      "pnpm did not finish within 600s",
+    ])("calls %s a timeout", async (message) => {
+      expect((await failWith(new Error(message))).error.code).toBe("timeout");
+    });
+
+    it("leaves a human's Ctrl-C silent on both streams, exiting 0", async () => {
+      const cancelled = new Error("User force closed the prompt");
+      cancelled.name = "ExitPromptError";
+
+      await command.catchError(cancelled);
+
+      expect(output.stdout()).toBe("");
+      expect(output.stderr()).toBe("");
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("prints no credential from a message that quotes one", async () => {
+      const document = await failWith(
+        new Error(
+          'origin remote "https://octocat:ghp_abcdefghijklmnopqrstuvwxyz0123456789@github.com/o/r.git"',
+        ),
+      );
+
+      expect(document.error.message).toBe(
+        'origin remote "https://***@github.com/o/r.git"',
+      );
+      expect(`${output.stdout()}${output.stderr()}`).not.toMatch(
+        /octocat|ghp_/,
+      );
+    });
+  });
+});
+
+describe("redactSecrets", () => {
+  it("hides URL credentials and token shapes, and leaves the rest alone", () => {
+    expect(redactSecrets("https://user:pw@host/x")).toBe("https://***@host/x");
+    expect(redactSecrets("ssh://git@host/x")).toBe("ssh://***@host/x");
+    expect(
+      redactSecrets("token github_pat_11ABCDEFG0123456789abcdefghij used"),
+    ).toBe("token *** used");
+    expect(redactSecrets("git@github.com:acme/demo.git")).toBe(
+      "git@github.com:acme/demo.git",
+    );
+    expect(redactSecrets("plain text")).toBe("plain text");
   });
 });

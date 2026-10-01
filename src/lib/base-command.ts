@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { Command, Flags } from "@oclif/core";
+import { inspect } from "node:util";
+import { Command, Flags, ux } from "@oclif/core";
 import type { CommandError, OclifError } from "@oclif/core/interfaces";
 import chalk from "chalk";
 // `lib/` importing `integrations/` inverts the layering in
@@ -33,11 +34,17 @@ import {
 } from "./interaction.js";
 import { createSpinner } from "./progress.js";
 import { askConfirm, MissingValueError } from "./prompt.js";
-import type { ConfigName, OpenerKind } from "./types.js";
+import type {
+  ConfigName,
+  JsonErrorCode,
+  JsonErrorDocument,
+  OpenerKind,
+} from "./types.js";
 import { splitCommandValue } from "./utils.js";
 
 /**
- * Closes the Herdr spaces of the worktrees whose paths it is given.
+ * Closes the Herdr spaces of the worktrees whose paths it is given, and answers
+ * with the ids of the ones it closed.
  *
  * The seam hands one of these back rather than exposing a close method,
  * because the lookup it closes over has to happen *before* the worktrees are
@@ -46,10 +53,73 @@ import { splitCommandValue } from "./utils.js";
  * first — where two methods would leave a caller free to get it backwards and
  * find the spaces already gone from Herdr's listing.
  */
-type SpaceCloser = (worktreePaths: string[]) => Promise<void>;
+type SpaceCloser = (worktreePaths: string[]) => Promise<string[]>;
 
 /** Does nothing, for every path where there is nothing to close. */
-async function closeNothing() {}
+async function closeNothing(): Promise<string[]> {
+  return [];
+}
+
+const JSON_ERROR_CODES: readonly JsonErrorCode[] = [
+  "missing_value",
+  "invalid_value",
+  "not_found",
+  "timeout",
+  "failed",
+];
+
+// The timeout messages this CLI writes — github.ts, jira.ts, git.ts, herdr.ts
+// and cli.ts all say "<what> did not answer|finish within <n>s".
+const TIMEOUT_MESSAGE = /did not (?:answer|finish) within \d+s/;
+
+// A secret has no place in any output (security/secrets.md), and some messages
+// come from places that echo what they were given: a remote URL with
+// credentials in it is the realistic one (github.ts quotes the origin it could
+// not parse). Redacted at the point of output, so every route to stdout or
+// stderr is covered by one rule instead of each message being checked.
+const URL_CREDENTIALS = /(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi;
+const TOKEN_SHAPES =
+  /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g;
+
+export function redactSecrets(text: string): string {
+  return text.replace(URL_CREDENTIALS, "$1***@").replace(TOKEN_SHAPES, "***");
+}
+
+function isJsonErrorCode(code: unknown): code is JsonErrorCode {
+  return JSON_ERROR_CODES.includes(code as JsonErrorCode);
+}
+
+/**
+ * The machine-readable code for a failure. An explicit `code` — `this.error(…,
+ * { code })` — wins; then the typed missing value and the bounded-call messages;
+ * then oclif's exit 2, which is how a usage error is raised. Anything else is
+ * `failed`.
+ */
+function toErrorCode(error: Error): JsonErrorCode {
+  if (error instanceof MissingValueError) {
+    return "missing_value";
+  }
+  const { code, oclif } = error as Partial<OclifError> & { code?: unknown };
+  if (isJsonErrorCode(code)) {
+    return code;
+  }
+  if (TIMEOUT_MESSAGE.test(error.message)) {
+    return "timeout";
+  }
+  return oclif?.exit === 2 ? "invalid_value" : "failed";
+}
+
+function toErrorDocument(error: Error, message: string): JsonErrorDocument {
+  return {
+    error: {
+      code: toErrorCode(error),
+      message,
+      ...(error instanceof MissingValueError
+        ? { details: { value: error.value, flag: error.flag } }
+        : {}),
+    },
+  };
+}
 
 /**
  * The label Herdr puts on the space, which is the branch name recovered from
@@ -229,6 +299,68 @@ export abstract class BaseCommand extends Command {
 
   /** Resolved once in `init()`; see `lib/interaction.ts` (D1). */
   protected nonInteractive = false;
+
+  /**
+   * Everything this run warned about, for the `warnings` array of a `--json`
+   * document. Redacted on the way in, so a document built from it needs no
+   * second pass.
+   */
+  protected warnings: string[] = [];
+
+  /**
+   * Under `--json` oclif drops `log` entirely, which would lose the human text
+   * the run still has to say. It goes to stderr instead, so stdout carries the
+   * document and nothing else (D6).
+   */
+  override log(message = "", ...args: string[]) {
+    if (this.jsonEnabled()) {
+      this.logToStderr(message, ...args);
+      return;
+    }
+    super.log(message, ...args);
+  }
+
+  /** oclif suppresses this under `--json` too; it is the one stream left to talk on. */
+  override logToStderr(message: unknown = "", ...args: string[]) {
+    ux.stderr(
+      typeof message === "string" ? message : inspect(message),
+      ...args,
+    );
+  }
+
+  /**
+   * One line of compact JSON, uncoloured: a contract a script parses does not
+   * change with `FORCE_COLOR` or the terminal, and oclif's own printer pretty-
+   * prints and colours.
+   */
+  override logJson(json: unknown) {
+    ux.stdout(JSON.stringify(json));
+  }
+
+  /**
+   * oclif prints nothing for a warning under `--json`, so it goes to stderr
+   * here, and every warning is kept for the document.
+   */
+  override warn(input: string | Error): string | Error {
+    const message = redactSecrets(
+      input instanceof Error ? input.message : input,
+    );
+    this.recordWarning(message);
+    if (this.jsonEnabled()) {
+      this.logToStderr(`Warning: ${message}`);
+    } else {
+      super.warn(message);
+    }
+    return input;
+  }
+
+  /**
+   * For a warning already printed another way — a spinner's `warn` — that the
+   * document should still carry.
+   */
+  protected recordWarning(message: string) {
+    this.warnings.push(redactSecrets(message));
+  }
 
   async init() {
     await super.init();
@@ -443,7 +575,9 @@ export abstract class BaseCommand extends Command {
       // could act on. Decided here deliberately rather than inherited (F-056) —
       // the run continues and the removals still happen, because by the time a
       // caller holds this closure the user has already asked for them.
-      spinner.warn(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.warn(message);
+      this.recordWarning(message);
       return closeNothing;
     }
 
@@ -452,6 +586,8 @@ export abstract class BaseCommand extends Command {
     }
 
     return async (worktreePaths: string[]) => {
+      const closed: string[] = [];
+
       for (const worktreePath of worktreePaths) {
         const workspaceId = spaces.get(worktreePath);
 
@@ -467,11 +603,17 @@ export abstract class BaseCommand extends Command {
           continue;
         }
 
-        await this.closeSpace(
-          workspaceId,
-          toSpaceLabel(worktreePath, worktreesRootPath),
-        );
+        if (
+          await this.closeSpace(
+            workspaceId,
+            toSpaceLabel(worktreePath, worktreesRootPath),
+          )
+        ) {
+          closed.push(workspaceId);
+        }
       }
+
+      return closed;
     };
   }
 
@@ -490,8 +632,12 @@ export abstract class BaseCommand extends Command {
     try {
       await closeHerdrWorkspace(workspaceId);
       spinner.succeed(`Closed Herdr space ${label}`);
+      return true;
     } catch (error) {
-      spinner.warn(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.warn(message);
+      this.recordWarning(message);
+      return false;
     }
   }
 
@@ -574,7 +720,9 @@ export abstract class BaseCommand extends Command {
       // The command still exits 0: by the time the opener runs the worktree
       // exists and its env files are copied, so failing here would misreport
       // what actually happened.
-      spinner.fail(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.fail(message);
+      this.recordWarning(message);
       this.log(`The worktree is at ${path}`);
       return { opened: false };
     }
@@ -660,7 +808,9 @@ export abstract class BaseCommand extends Command {
       await startHerdrAgent({ name, kind, paneId, args });
       spinner.succeed(`Started ${kind} as ${name}`);
     } catch (error) {
-      spinner.warn(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.warn(message);
+      this.recordWarning(message);
       return undefined;
     }
 
@@ -737,6 +887,9 @@ export abstract class BaseCommand extends Command {
       this.log(
         `No agent configured. Run ${chalk.cyan('worktree config agent.command "<command>"')} to set one.`,
       );
+      this.recordWarning(
+        'No agent configured, so the brief was not delivered. Run `worktree config agent.command "<command>"` to set one.',
+      );
       return undefined;
     }
 
@@ -766,12 +919,18 @@ export abstract class BaseCommand extends Command {
       // success. `this.error(...)` carries its code on `oclif.exit` (2 by
       // default); anything else is a plain failure.
       // One line in the plan's D2 shape; its own exit code rides on `oclif.exit`.
+      const message = redactSecrets(error.message);
       console.error(
         error instanceof MissingValueError
-          ? `worktree: ${error.message}`
-          : chalk.red(`Error: ${error.message}`),
+          ? `worktree: ${message}`
+          : chalk.red(`Error: ${message}`),
       );
       process.exitCode = (error as Partial<OclifError>).oclif?.exit ?? 1;
+      // Under `--json` stdout carries the failure as the one document (D6), so
+      // a script reads the same channel whether the run worked or not.
+      if (this.jsonEnabled()) {
+        this.logJson(toErrorDocument(error, message));
+      }
       return;
     }
     return super.catch(error);

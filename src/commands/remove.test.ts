@@ -1,10 +1,12 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { checkbox, confirm } from "@inquirer/prompts";
+import { Config } from "@oclif/core";
 import * as herdr from "../integrations/herdr.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import { MissingValueError } from "../lib/prompt.js";
 import type { ConfigName } from "../lib/types.js";
-import { mockRunCapturing } from "../test-setup.js";
+import { captureOutput, mockRunCapturing } from "../test-setup.js";
 import Remove from "./remove.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -119,6 +121,7 @@ describe("remove command", () => {
       );
       expect(mockError).toHaveBeenCalledWith(
         'Branch "feature/nonexistent" not found.',
+        { code: "not_found" },
       );
       expect(git.gitRemoveWorktree).not.toHaveBeenCalled();
     });
@@ -671,5 +674,159 @@ describe("remove command — the herdr closer", () => {
     expect(mockList).not.toHaveBeenCalled();
     expect(mockClose).not.toHaveBeenCalled();
     expect(mockRunCapturing).not.toHaveBeenCalled();
+  });
+});
+
+describe("remove command — --json", () => {
+  const originalExitCode = process.exitCode;
+  let output: ReturnType<typeof captureOutput>;
+
+  const worktree = {
+    path: "/path/to/project.worktrees/feature/safe",
+    branchName: "feature/safe",
+    remote: "",
+    ahead: 0,
+    remoteExists: false,
+    pathExists: true,
+    uncommittedChanges: 0,
+    safeToRemove: true,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    output = captureOutput();
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+  });
+
+  // Through `_run`, as oclif does: it prints the returned document and routes
+  // a throw to `catch`.
+  async function runJson(
+    args: Record<string, unknown>,
+    flags: Record<string, unknown> = {},
+    closed: string[] = [],
+  ) {
+    const command = new Remove(["--json"], await Config.load(process.cwd()));
+    (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
+    (command as any).parsed = true;
+    vi.spyOn(command as any, "resolveSpaceCloser").mockResolvedValue(
+      async () => closed,
+    );
+    await (command as any)._run();
+  }
+
+  it("prints one document with what was removed and the spaces closed", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([worktree]);
+    vi.spyOn(git, "gitRemoveWorktree").mockResolvedValue(worktree);
+
+    await runJson({ branchName: "feature/safe" }, { force: true }, ["w5"]);
+
+    expect(output.stdout().trim().split("\n")).toHaveLength(1);
+    const document = output.document();
+    expect(Object.keys(document).sort()).toEqual([
+      "herdrSpacesClosed",
+      "removed",
+      "warnings",
+    ]);
+    expect(document).toEqual({
+      removed: [{ branch: "feature/safe", path: worktree.path }],
+      herdrSpacesClosed: ["w5"],
+      warnings: [],
+    });
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("fails as not_found for a branch that is not there", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([worktree]);
+
+    await runJson({ branchName: "feature/nope" }, { force: true });
+
+    expect(output.document()).toEqual({
+      error: {
+        code: "not_found",
+        message: 'Branch "feature/nope" not found.',
+      },
+    });
+    expect(output.stderr()).toContain('Branch "feature/nope" not found.');
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("fails as not_found for a named branch when there are no worktrees at all", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([]);
+
+    await runJson({ branchName: "feature/nope" }, { force: true });
+
+    expect(output.document()).toMatchObject({ error: { code: "not_found" } });
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("names the flag it needs, and removes nothing, without -f", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([worktree]);
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktree")
+      .mockRejectedValue(
+        new MissingValueError("confirmation to remove feature/safe", "-f"),
+      );
+
+    await runJson({ branchName: "feature/safe" });
+
+    expect(mockRemove).toHaveBeenCalledWith("feature/safe", {
+      force: undefined,
+    });
+    expect(output.document()).toEqual({
+      error: {
+        code: "missing_value",
+        message: "no default for confirmation to remove feature/safe; pass -f",
+        details: { value: "confirmation to remove feature/safe", flag: "-f" },
+      },
+    });
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("needs <branchName>: with none it fails naming it, and prompts for nothing", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([worktree]);
+
+    await runJson({}, { force: true });
+
+    expect(checkbox).not.toHaveBeenCalled();
+    expect(output.document()).toEqual({
+      error: {
+        code: "missing_value",
+        message: "no default for the branches to remove; pass <branchName> -f",
+        details: {
+          value: "the branches to remove",
+          flag: "<branchName> -f",
+        },
+      },
+    });
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("fails when the removal did not happen, rather than reporting an empty success", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([worktree]);
+    vi.spyOn(git, "gitRemoveWorktree").mockResolvedValue(undefined);
+
+    await runJson({ branchName: "feature/safe" }, { force: true });
+
+    expect(output.document()).toMatchObject({ error: { code: "failed" } });
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("reports an empty repository as an empty document", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([]);
+
+    await runJson({});
+
+    expect(output.document()).toEqual({
+      removed: [],
+      herdrSpacesClosed: [],
+      warnings: [],
+    });
+    expect(output.stdout()).not.toContain("No worktree branches found");
   });
 });

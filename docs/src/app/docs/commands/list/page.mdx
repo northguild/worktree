@@ -11,6 +11,8 @@ List known worktrees managed for the current repository.
 ```bash
 worktree list
 worktree list --agents
+worktree list --json
+worktree list --agents --json
 ```
 
 Use this before `open`, `remove`, or cleanup decisions.
@@ -20,6 +22,7 @@ Use this before `open`, `remove`, or cleanup decisions.
 | Flag | Alias | Description |
 | --- | --- | --- |
 | `--agents` | `-a` | Show the agent session living in each worktree |
+| `--json` | | Print one JSON document on stdout instead of the list, and run [non-interactively](/docs/commands/branch#non-interactive-runs) |
 
 ## Showing agent sessions
 
@@ -108,3 +111,32 @@ taken at all, and the entry says so instead of looking empty:
 The same detail appears in [`remove`](/docs/commands/remove)'s picker and in
 [`cleanup`](/docs/commands/cleanup)'s report of what it held back, because all
 three render a worktree the same way.
+
+## JSON output
+
+`--json` prints **exactly one JSON document** on stdout, on one line, in place of the list. The spinner lines
+and any warning go to stderr. It implies a [non-interactive run](/docs/commands/branch#non-interactive-runs).
+
+```json
+{"worktrees":[{"branch":"feature/one","path":"/abs/repo.worktrees/feature/one","current":false,"pathExists":true,"remote":"origin/feature/one","remoteExists":true,"ahead":2,"behind":1,"mergedInto":null,"uncommittedChanges":0,"safeToRemove":false}]}
+```
+
+| Key | Value |
+| --- | --- |
+| `branch`, `path` | the worktree's branch and absolute path |
+| `current` | whether it is the worktree you are in |
+| `pathExists` | whether its directory is still on disk |
+| `remote`, `remoteExists` | the upstream the branch tracks, `null` when it tracks none, and whether that remote branch still exists |
+| `ahead`, `behind` | the [counts above](#ahead-and-behind-counts) as numbers |
+| `mergedInto` | the base whose commits already contain all of this branch's changes; `null` when not known to be merged |
+| `uncommittedChanges` | the number of uncommitted changes; `null` when the directory is gone, as there is nothing to count |
+| `safeToRemove` | the verdict [`cleanup`](/docs/commands/cleanup) acts on |
+| `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}` |
+
+**A count or flag that could not be taken is `null`, never `0` and never left out.** `ahead` and `uncommittedChanges` are
+`null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, and
+inside `agent` any of `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` is `null` when the
+source did not say. A `0` always means the count was taken and is zero.
+
+A failure prints `{"error":{"code","message"}}` on stdout instead and exits non-zero; the codes are listed under
+[`branch`](/docs/commands/branch#json-output).

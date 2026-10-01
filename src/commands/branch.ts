@@ -1,7 +1,11 @@
 import { Args, Flags } from "@oclif/core";
 import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
 import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
-import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
+import {
+  BaseCommand,
+  type OpenOutcome,
+  readAgentBrief,
+} from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
@@ -10,11 +14,11 @@ import {
   gitGetRemoteBranches,
   gitSetConfigValue,
 } from "../lib/git.js";
-import { runInstall } from "../lib/install.js";
+import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
 import { askConfirm, askInput } from "../lib/prompt.js";
-import type { ConfigName } from "../lib/types.js";
+import type { BranchDocument, BranchIssue, ConfigName } from "../lib/types.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 import { isValidBranchName } from "../lib/validators.js";
 
@@ -23,6 +27,8 @@ export default class Branch extends BaseCommand {
     branchName: Args.string({ description: "Name of the branch to create" }),
   };
   static override description = "Create a worktree branch";
+  // One JSON document on stdout, everything human on stderr (D6).
+  static override enableJsonFlag = true;
   static override examples = [
     "<%= config.bin %> <%= command.id %> my-new-branch",
     "<%= config.bin %> <%= command.id %> my-new-branch --source origin/main",
@@ -33,6 +39,7 @@ export default class Branch extends BaseCommand {
     "<%= config.bin %> <%= command.id %> --github 42 --agent-file brief.md",
     "<%= config.bin %> <%= command.id %> --github 42 --no-agent",
     "<%= config.bin %> <%= command.id %> my-new-branch --no-open",
+    "<%= config.bin %> <%= command.id %> --github 42 --json",
   ];
 
   static override flags = {
@@ -121,7 +128,9 @@ export default class Branch extends BaseCommand {
 
       if (sourceFlag.startsWith("origin/")) {
         if (!remoteBranches.includes(sourceFlag)) {
-          this.error(`Source branch doesn't exist: ${sourceFlag}`);
+          this.error(`Source branch doesn't exist: ${sourceFlag}`, {
+            code: "not_found",
+          });
         }
         return sourceFlag;
       }
@@ -129,7 +138,9 @@ export default class Branch extends BaseCommand {
       if (await this.confirmNonOriginSource(sourceFlag)) {
         const localBranches = await gitGetLocalBranches();
         if (!localBranches.includes(sourceFlag)) {
-          this.error(`Source branch doesn't exist: ${sourceFlag}`);
+          this.error(`Source branch doesn't exist: ${sourceFlag}`, {
+            code: "not_found",
+          });
         }
         if (remoteBranches.includes(`origin/${sourceFlag}`)) {
           if (await this.confirmRemoteNameConflict(sourceFlag)) {
@@ -177,7 +188,11 @@ export default class Branch extends BaseCommand {
     );
   }
 
-  private async getGithubIssueBranchName(issueNumberFlag: string) {
+  /** The name derived from the issue, and the issue the document reports. */
+  private async getGithubIssueBranchName(issueNumberFlag: string): Promise<{
+    branchName: string;
+    issue: BranchIssue;
+  }> {
     const issueNumber = this.getGithubIssueNumber(issueNumberFlag);
     const spinner = createSpinner(
       `Fetching GitHub issue #${issueNumber}`,
@@ -186,21 +201,42 @@ export default class Branch extends BaseCommand {
       const issue = await fetchGitHubIssue(issueNumber);
       const prefix = await this.getGitHubBranchPrefix(issue.type?.name);
       spinner.succeed();
-      return `${prefix}${issue.number}-${slugifyBranchTitle(issue.title)}`;
+      return {
+        branchName: `${prefix}${issue.number}-${slugifyBranchTitle(issue.title)}`,
+        issue: {
+          provider: "github",
+          number: issue.number,
+          url: issue.htmlUrl ?? null,
+        },
+      };
     } catch (error) {
       spinner.fail();
       throw error;
     }
   }
 
-  private async getJiraIssueBranchName(issueKeyFlag: string) {
-    const spinner = createSpinner(
-      `Fetching Jira issue ${issueKeyFlag.toUpperCase()}`,
-    ).start();
+  private async getJiraIssueBranchName(issueKeyFlag: string): Promise<{
+    branchName: string;
+    issue: BranchIssue;
+  }> {
+    const key = issueKeyFlag.trim().toUpperCase();
+    const spinner = createSpinner(`Fetching Jira issue ${key}`).start();
     try {
       const branchName = await getJiraBranchNameFromIssue(issueKeyFlag);
       spinner.succeed();
-      return branchName;
+      // Built from the configured host, never from the credentials beside it.
+      const host = (await gitGetConfigValue("jira.host"))
+        .trim()
+        .replace(/^https?:\/\//i, "")
+        .replace(/\/+$/, "");
+      return {
+        branchName,
+        issue: {
+          provider: "jira",
+          key,
+          url: host ? `https://${host}/browse/${key}` : null,
+        },
+      };
     } catch (error) {
       spinner.fail();
       throw error;
@@ -274,7 +310,7 @@ export default class Branch extends BaseCommand {
    * `assigned` is false when the login never appeared in the returned issue's
    * assignees, which is what a write without push access looks like.
    */
-  private async assignGithubIssue(issueNumberFlag: string) {
+  private async assignGithubIssue(issueNumberFlag: string): Promise<boolean> {
     const issueNumber = this.getGithubIssueNumber(issueNumberFlag);
     const spinner = createSpinner(
       `Assigning GitHub issue #${issueNumber}`,
@@ -284,38 +320,40 @@ export default class Branch extends BaseCommand {
       const { login, assigned } = await assignGitHubIssue(issueNumber);
       if (assigned) {
         spinner.succeed(`Assigned issue #${issueNumber} to ${login}`);
-        return;
+        return true;
       }
-      spinner.warn(
-        `Issue #${issueNumber} was not assigned to ${login}. Assigning requires a token with push access to the repository.`,
-      );
+      const message = `Issue #${issueNumber} was not assigned to ${login}. Assigning requires a token with push access to the repository.`;
+      spinner.warn(message);
+      this.recordWarning(message);
     } catch (error) {
-      spinner.warn(
-        `Could not assign issue #${issueNumber}. ${error instanceof Error ? error.message : String(error)}`,
-      );
+      const message = `Could not assign issue #${issueNumber}. ${error instanceof Error ? error.message : String(error)}`;
+      spinner.warn(message);
+      this.recordWarning(message);
     }
+    return false;
   }
 
   private async getBranchName(
     branchNameArg?: string,
     flags?: { github?: string; jira?: string },
-  ) {
+  ): Promise<{ branchName: string; issue: BranchIssue | null }> {
     if (
       !flags?.github &&
       !flags?.jira &&
       branchNameArg &&
       this.validateBranchName(branchNameArg)
     ) {
-      return branchNameArg;
+      return { branchName: branchNameArg, issue: null };
     }
 
-    const defaultValue = flags?.github
+    const derived = flags?.github
       ? await this.getGithubIssueBranchName(flags.github)
       : flags?.jira
         ? await this.getJiraIssueBranchName(flags.jira)
-        : "";
+        : undefined;
+    const defaultValue = derived?.branchName ?? "";
 
-    return await askInput(
+    const branchName = await askInput(
       {
         message: "Branch name",
         default: defaultValue,
@@ -329,9 +367,11 @@ export default class Branch extends BaseCommand {
         fallback: defaultValue || undefined,
       },
     );
+
+    return { branchName, issue: derived?.issue ?? null };
   }
 
-  public async run(): Promise<void> {
+  public async run(): Promise<BranchDocument> {
     const { args, flags } = await this.parse(Branch);
     if (flags.github && flags.jira) {
       this.error("Please provide either --github or --jira, not both.");
@@ -367,17 +407,23 @@ export default class Branch extends BaseCommand {
 
     // If there is no source flag provided, make sure defaultSourceBranch is configured
     await this.verifyConfig(configNames);
-    const branchName = await this.getBranchName(args.branchName, flags);
+    const { branchName, issue } = await this.getBranchName(
+      args.branchName,
+      flags,
+    );
 
     // Decided before the worktree exists (D7), so the prompt cannot appear
     // after the creation spinners or behind a launched editor. Being assigned
     // when creation then fails is bounded by the endpoint's own idempotency:
     // it does not replace existing assignees, so the retry is harmless.
+    // `null` until an assignment is attempted: "not attempted" and "failed"
+    // are different facts for the document.
+    let assigned: boolean | null = null;
     if (flags.jira && flags.assign) {
       this.warn("Assignment is not supported for Jira issues yet.");
     } else if (flags.github) {
       if (await this.shouldAssignGithubIssue(flags.assign)) {
-        await this.assignGithubIssue(flags.github);
+        assigned = await this.assignGithubIssue(flags.github);
       }
     }
 
@@ -386,7 +432,10 @@ export default class Branch extends BaseCommand {
     // Env files first: the agent starts working immediately, so it has to find a
     // worktree that is already complete. The editor stays last so its "Worktree
     // created" fallback remains the final line.
-    await copyEnvFilesFromRootPath(projectPath);
+    // The report goes to stderr under `--json`, so stdout stays the document.
+    const envFilesCopied = await copyEnvFilesFromRootPath(projectPath, {
+      report: this.jsonEnabled() ? "stderr" : "stdout",
+    });
 
     // Before the agent and before any opener: both start working in the tree at
     // once, and one dropped into a tree without its dependencies is worse than
@@ -394,16 +443,76 @@ export default class Branch extends BaseCommand {
     // stops here, so the handoff never starts in a broken one.
     const installed = await runInstall(projectPath, flags.install);
     if (installed.ran && !installed.ok) {
-      this.error(
-        `\`${installed.command}\` failed (${installed.reason}). The worktree was created at ${projectPath}, but nothing was opened and no agent was started. Fix the install there and run \`worktree open ${branchName}\`, or run \`worktree remove ${branchName} -f\` and re-run with --no-install.`,
-        { exit: 1 },
-      );
+      const message = `\`${installed.command}\` failed (${installed.reason}). The worktree was created at ${projectPath}, but nothing was opened and no agent was started. Fix the install there and run \`worktree open ${branchName}\`, or run \`worktree remove ${branchName} -f\` and re-run with --no-install.`;
+
+      if (!this.jsonEnabled()) {
+        this.error(message, { exit: 1 });
+      }
+
+      // The document is the report of a tree that exists, so it is still
+      // printed — with `installed.ok: false`, the message in `warnings` and
+      // exit 1 — rather than an error document that would leave out the path.
+      this.warn(message);
+      process.exitCode = 1;
+      return this.toDocument({
+        projectPath,
+        branchName,
+        sourceBranch,
+        issue,
+        assigned,
+        envFilesCopied,
+        installed,
+      });
     }
 
-    await this.openWorktreePath(projectPath, {
+    const outcome = await this.openWorktreePath(projectPath, {
       open: !flags["no-open"],
       agent: !flags["no-agent"],
       brief,
     });
+
+    return this.toDocument({
+      projectPath,
+      branchName,
+      sourceBranch,
+      issue,
+      assigned,
+      envFilesCopied,
+      installed,
+      outcome,
+    });
+  }
+
+  private toDocument({
+    projectPath,
+    branchName,
+    sourceBranch,
+    issue,
+    assigned,
+    envFilesCopied,
+    installed,
+    outcome,
+  }: {
+    projectPath: string;
+    branchName: string;
+    sourceBranch: string;
+    issue: BranchIssue | null;
+    assigned: boolean | null;
+    envFilesCopied: string[];
+    installed: InstallResult;
+    outcome?: OpenOutcome;
+  }): BranchDocument {
+    return {
+      path: projectPath,
+      branch: branchName,
+      source: sourceBranch,
+      issue,
+      assigned,
+      envFilesCopied,
+      installed,
+      herdr: outcome?.herdr ?? null,
+      agent: outcome?.agent ?? null,
+      warnings: this.warnings,
+    };
   }
 }

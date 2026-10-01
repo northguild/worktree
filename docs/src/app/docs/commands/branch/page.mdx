@@ -22,6 +22,7 @@ worktree branch <name> --no-agent
 worktree branch <name> --no-open
 worktree branch <name> --install
 worktree branch <name> --no-install
+worktree branch <name> --json
 ```
 
 ## Examples
@@ -43,6 +44,7 @@ worktree branch --github 42 --no-agent
 worktree branch feature/add-bulk-actions --no-open
 worktree branch feature/add-bulk-actions --install
 worktree branch feature/add-bulk-actions --no-install
+worktree branch --github 42 --json --agent-file brief.md
 ```
 
 ## GitHub Issue Branching
@@ -205,8 +207,8 @@ an agent is still started, detached, when a brief is given, unless `--no-agent` 
 
 ## Non-interactive runs
 
-A run is non-interactive when stdin is not a terminal, `CI` is set (and is not empty, `0` or `false`), or
-`--non-interactive` or `--yes` (`-y`) is given; every command accepts both flags. It never prompts and never
+A run is non-interactive when stdin is not a terminal, `CI` is set (and is not empty, `0` or `false`),
+`--non-interactive` or `--yes` (`-y`) is given, or `--json` is given; every command accepts the two flags. It never prompts and never
 animates; progress goes to stderr as plain lines.
 
 - A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign` assigns the
@@ -227,3 +229,50 @@ animates; progress goes to stderr as plain lines.
 5. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
 6. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
 7. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
+
+## JSON output
+
+`--json` makes stdout carry **exactly one JSON document** and nothing else, on one line, for a script or
+another agent to parse. It implies a [non-interactive run](#non-interactive-runs). Everything meant for a
+person goes to stderr instead: the spinner lines, the env-file list, notes and warnings.
+
+```json
+{"path":"/abs/repo.worktrees/70-headless-agent-mode","branch":"70-headless-agent-mode","source":"origin/main",
+ "issue":{"provider":"github","number":70,"url":"https://github.com/acme/demo/issues/70"},"assigned":true,
+ "envFilesCopied":["docs/.env.local"],
+ "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","inferred":true,"ok":true},
+ "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-70-headless-agent-mode"},
+ "agent":{"name":"demo-70-headless-agent-mode","kind":"claude","command":["claude","--name","demo-70-headless-agent-mode"],"prompted":true},
+ "warnings":[]}
+```
+
+| Key | Value |
+| --- | --- |
+| `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
+| `issue` | `{provider:"github", number, url}` or `{provider:"jira", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
+| `assigned` | `true` or `false` once an assignment was attempted; `null` when none was (no issue, `--no-assign`, or a configured `false`) |
+| `envFilesCopied` | the env files copied, relative to the repository root; `[]` when there were none |
+| `installed` | `{ran:true, command, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped |
+| `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |
+| `agent` | `{name, kind, command, prompted}` for the agent that was started; `null` when none was. `command` leaves out the brief. `name` is the session name, `null` where `worktree` named nothing (a detached start) |
+| `warnings` | what went wrong without stopping the run: a failed assignment, a Herdr or agent failure, missing config |
+
+A failed install still prints the document, with `installed.ok` `false` and the message in `warnings`, and
+exits `1`: the worktree exists, so its path is reported rather than left out of an error.
+
+A failure otherwise prints a different document, still one line on stdout, and exits non-zero. A line
+describing it goes to stderr as usual:
+
+```json
+{"error":{"code":"missing_value","message":"no default for the branch name; pass <branchName>","details":{"value":"the branch name","flag":"<branchName>"}}}
+```
+
+| `code` | Means | Exit |
+| --- | --- | --- |
+| `missing_value` | a value with no default was not given; `details` names it and the flag | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief | `2` |
+| `not_found` | something named does not exist, such as the `--source` branch | `2` |
+| `timeout` | a call that is bounded did not answer in time | `1` |
+| `failed` | anything else | `1` |
+
+No token or password is ever printed: URL credentials and token-shaped strings are masked in every message.

@@ -107,3 +107,12 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - **Phase 9.** `isHerdrInstalled` → `commandExists` runs `which herdr` with no timeout; it now sits on the
   `list --agents` and `cleanup` path. Tests use `as AgentSession` casts. A comment in `agent.ts` `joinSessions`
   has a mid-sentence line break.
+- **Phase 10.** `remove.ts` throws a generic `Could not remove the worktree X.` (the cause is already swallowed
+  in `gitNukeWorktree`); `remove --json` with no `<branchName>` in a repo with no worktrees returns an empty
+  success, while §4 says it needs one (with worktrees present it gives `missing_value`).
+- **Phase 10.** `src/lib/types.ts` now type-imports from `./base-command.js` and `./install.js` (type-only
+  cycle). `github.ts:178` still uses `console.log` (unreachable under `--json`). `src/test-setup.ts` gained the
+  shared `captureOutput()` helper, outside the phase's Files.
+- **Phase 10.** `list --json` drops `aheadUnknownReason`; the `timeout` error code is found by matching message
+  text; fire-and-forget editor/spawn failures settle after the document is printed, so they miss `warnings`.
+  `issue` for Jira is `{provider:"jira",key,url}`, beyond §4's GitHub-only shape (documented).

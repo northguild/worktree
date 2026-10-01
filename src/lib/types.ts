@@ -1,4 +1,6 @@
+import type { OpenedAgent, OpenOutcome } from "./base-command.js";
 import type { CONFIG_NAMES, OPENER_KINDS } from "./constants.js";
+import type { InstallResult } from "./install.js";
 
 export type ConfigName = (typeof CONFIG_NAMES)[number];
 
@@ -78,4 +80,83 @@ export interface WorktreeListEntry extends WorktreeListBaseEntry {
   uncommittedChanges?: number;
   safeToRemove?: boolean;
   agent?: WorktreeAgent;
+}
+
+// The documents `--json` prints on stdout, one per run (D6). A count or value
+// that could not be taken is `null` in them, never omitted and never 0: a
+// reader cannot tell "unknown" from "none" if both look the same.
+
+/** The machine-readable reason an `--json` run failed. */
+export type JsonErrorCode =
+  | "missing_value"
+  | "invalid_value"
+  | "not_found"
+  | "timeout"
+  | "failed";
+
+/** What stdout carries instead of a command's document when the run fails. */
+export interface JsonErrorDocument {
+  error: {
+    code: JsonErrorCode;
+    message: string;
+    details?: Record<string, unknown>;
+  };
+}
+
+/** The issue a branch was derived from; `url` is `null` when not known. */
+export type BranchIssue =
+  | { provider: "github"; number: number; url: string | null }
+  | { provider: "jira"; key: string; url: string | null };
+
+export interface BranchDocument {
+  path: string;
+  branch: string;
+  source: string;
+  issue: BranchIssue | null;
+  /** `null` when no assignment was attempted. */
+  assigned: boolean | null;
+  envFilesCopied: string[];
+  installed: InstallResult;
+  /** `null` when Herdr was not opened. */
+  herdr: OpenOutcome["herdr"] | null;
+  /** `null` when no agent was started. */
+  agent: OpenedAgent | null;
+  warnings: string[];
+}
+
+export interface WorktreeListAgentDocument {
+  name: string;
+  sessionId: string | null;
+  herdrAgent: string | null;
+  live: boolean | null;
+  interactive: boolean | null;
+  waiting: boolean | null;
+}
+
+export interface WorktreeListEntryDocument {
+  branch: string;
+  path: string;
+  current: boolean;
+  pathExists: boolean | null;
+  /** The upstream ref, `null` when the branch tracks none. */
+  remote: string | null;
+  remoteExists: boolean | null;
+  ahead: number | null;
+  behind: number | null;
+  mergedInto: string | null;
+  uncommittedChanges: number | null;
+  safeToRemove: boolean;
+  /** Present only with `--agents`; `null` when no session lives there. */
+  agent?: WorktreeListAgentDocument | null;
+}
+
+export interface WorktreeListDocument {
+  worktrees: WorktreeListEntryDocument[];
+}
+
+export interface RemoveDocument {
+  removed: { branch: string; path: string }[];
+  /** The Herdr workspace ids that were closed. */
+  herdrSpacesClosed: string[];
+  warnings: string[];
 }

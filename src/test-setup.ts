@@ -75,8 +75,48 @@ function expectCommands(...commands: string[]) {
   expectedCommands.push(...commands);
 }
 
+// What a `--json` run wrote, per stream, for the suites that assert stdout is
+// exactly one document. Spies on the process streams
+// and on `console`, which oclif's `ux` and `BaseCommand.catch` print through.
+// `restore()` puts them back; call it in `afterEach`, because a
+// stream left spied would swallow the runner's own output.
+function captureOutput() {
+  const out: string[] = [];
+  const err: string[] = [];
+  const spies = [
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      out.push(String(chunk));
+      return true;
+    }),
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      err.push(String(chunk));
+      return true;
+    }),
+    // oclif's `ux.stdout` and `ux.stderr` are `console.log` and `console.error`.
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      out.push(`${args.join(" ")}\n`);
+    }),
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      err.push(`${args.join(" ")}\n`);
+    }),
+  ];
+
+  return {
+    restore: () => {
+      for (const spy of spies) {
+        spy.mockRestore();
+      }
+    },
+    stdout: () => out.join(""),
+    stderr: () => err.join(""),
+    /** The whole of stdout as one document: throws if it is anything else. */
+    document: () => JSON.parse(out.join("")) as Record<string, unknown>,
+  };
+}
+
 // Export the mocks and helper for use in tests
 export {
+  captureOutput,
   expectCommands,
   mockRun,
   mockRunCapturing,

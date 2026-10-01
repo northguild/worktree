@@ -8,7 +8,7 @@ import {
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
 import { askCheckbox, askConfirm, Separator } from "../lib/prompt.js";
-import type { WorktreeListEntry } from "../lib/types.js";
+import type { RemoveDocument, WorktreeListEntry } from "../lib/types.js";
 import { worktreeListEntryToListName } from "../lib/utils.js";
 
 export default class Delete extends BaseCommand {
@@ -17,9 +17,12 @@ export default class Delete extends BaseCommand {
     branchName: Args.string({ description: "Name of the branch to remove" }),
   };
   static override description = "Remove worktree branches";
+  // One JSON document on stdout, everything human on stderr (D6).
+  static override enableJsonFlag = true;
   static override examples = [
     "<%= config.bin %> <%= command.id %>",
     "<%= config.bin %> <%= command.id %> my-new-branch",
+    "<%= config.bin %> <%= command.id %> my-new-branch --force --json",
   ];
   static override flags = {
     force: Flags.boolean({
@@ -48,22 +51,27 @@ export default class Delete extends BaseCommand {
     return [...safeToRemove, ...unsafeToRemove];
   }
 
-  public async run(): Promise<void> {
+  public async run(): Promise<RemoveDocument> {
     const { args, flags } = await this.parse(Delete);
     const spinner = createSpinner("Gathering worktree branches").start();
     const worktrees = await gitGetWorktreeList();
     spinner.stop();
 
-    if (worktrees.length === 0) {
+    // A named branch under `--json` is a request a script is waiting on, so an
+    // empty list falls through to the not-found error below instead of
+    // reporting a success that removed nothing.
+    if (worktrees.length === 0 && !(this.jsonEnabled() && args.branchName)) {
       this.log("No worktree branches found.");
-      return;
+      return this.toDocument([], []);
     }
 
     if (args.branchName) {
       const wt = worktrees.find((wt) => wt.branchName === args.branchName);
 
       if (!wt) {
-        this.error(`Branch "${args.branchName}" not found.`);
+        this.error(`Branch "${args.branchName}" not found.`, {
+          code: "not_found",
+        });
       }
 
       // Resolved before the removal, never after: `git worktree remove` and
@@ -80,8 +88,16 @@ export default class Delete extends BaseCommand {
       // no-op paths — branch not found, confirmation declined, removal failed —
       // answer undefined, and closing a space whose checkout is still on disk
       // is worse than the orphan this feature exists to prevent.
-      await closeSpaces(removed ? [removed.path] : []);
-      return;
+      const closed = await closeSpaces(removed ? [removed.path] : []);
+
+      // `gitRemoveWorktree` answers undefined for a failed removal as well as a
+      // declined one, and prints which. A script that named the branch asked
+      // for it to be gone, so under `--json` nothing removed is a failure.
+      if (!removed && this.jsonEnabled()) {
+        throw new Error(`Could not remove the worktree ${args.branchName}.`);
+      }
+
+      return this.toDocument(removed ? [removed] : [], closed);
     }
 
     const selected = await askCheckbox(
@@ -93,7 +109,7 @@ export default class Delete extends BaseCommand {
     );
 
     if (selected.length === 0) {
-      return;
+      return this.toDocument([], []);
     }
 
     if (selected.some((wt) => !wt.safeToRemove) && !flags.force) {
@@ -106,7 +122,7 @@ export default class Delete extends BaseCommand {
         { value: "removing branches that are not safe to delete", flag: "-f" },
       );
       if (!confirmDelete) {
-        return;
+        return this.toDocument([], []);
       }
     }
 
@@ -114,6 +130,22 @@ export default class Delete extends BaseCommand {
     const closeSpaces = await this.resolveSpaceCloser();
     const removed = await gitRemoveWorktreesWithProgress(selected);
 
-    await closeSpaces(removed.map((worktree) => worktree.path));
+    const closed = await closeSpaces(removed.map((worktree) => worktree.path));
+
+    return this.toDocument(removed, closed);
+  }
+
+  private toDocument(
+    removed: WorktreeListEntry[],
+    herdrSpacesClosed: string[],
+  ): RemoveDocument {
+    return {
+      removed: removed.map(({ branchName, path }) => ({
+        branch: branchName,
+        path,
+      })),
+      herdrSpacesClosed,
+      warnings: this.warnings,
+    };
   }
 }

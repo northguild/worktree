@@ -11,6 +11,7 @@ Remove one or more worktrees.
 ```bash
 worktree remove [branch]
 worktree remove [branch] --force
+worktree remove <branch> --force --json
 ```
 
 ## Examples
@@ -76,3 +77,28 @@ already gone, so there is nothing to retry.
 
 With `opener` unset or set to `editor`, nothing here applies and no Herdr process is started. See
 [Herdr Spaces](/docs/guides/herdr-spaces#when-the-worktree-goes).
+
+## JSON output
+
+`--json` prints **exactly one JSON document** on stdout, on one line, and implies a
+[non-interactive run](/docs/commands/branch#non-interactive-runs): nothing is asked, so it needs a branch name
+and `-f`.
+
+```bash
+worktree remove feature/add-bulk-actions --force --json
+```
+
+```json
+{"removed":[{"branch":"feature/add-bulk-actions","path":"/abs/repo.worktrees/feature/add-bulk-actions"}],"herdrSpacesClosed":["w5"],"warnings":[]}
+```
+
+| Key | Value |
+| --- | --- |
+| `removed` | the worktrees that were removed, each with its `branch` and `path` |
+| `herdrSpacesClosed` | the Herdr workspace ids that were closed; `[]` when `opener` is not `herdr` or nothing was open |
+| `warnings` | what went wrong without stopping the run, such as a Herdr space that would not close |
+
+The spinner lines and warnings go to stderr. A failure prints `{"error":{"code","message"}}` on stdout instead
+and exits non-zero; the codes are listed under [`branch`](/docs/commands/branch#json-output). A named branch
+that does not exist is `not_found`, a missing `-f` is `missing_value`, and a removal that did not happen is
+`failed` — with `--json`, "nothing removed" is never reported as a success.
