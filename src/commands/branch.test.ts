@@ -1045,7 +1045,7 @@ describe("branch command", () => {
       setNonInteractive(true);
     });
 
-    it("takes the issue-derived name, asks nothing, and assigns nothing unconfigured", async () => {
+    it("takes the issue-derived name, asks nothing, assigns by default and saves nothing", async () => {
       const mockSetConfigValue = vi
         .spyOn(git, "gitSetConfigValue")
         .mockResolvedValue();
@@ -1076,12 +1076,73 @@ describe("branch command", () => {
       );
       expect(mockInput).not.toHaveBeenCalled();
       expect(mockConfirm).not.toHaveBeenCalled();
-      expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
+      // D8: unset means assign when non-interactive.
+      expect(githubIntegration.assignGitHubIssue).toHaveBeenCalledWith(42);
       // One unattended run must not settle the key for a human's later runs.
       expect(mockSetConfigValue).not.toHaveBeenCalledWith(
         "github.autoAssign",
         expect.anything(),
       );
+    });
+
+    it.each([
+      ["a configured false", { assign: undefined }, "false"],
+      ["--no-assign", { assign: false }, ""],
+    ])("does not assign with %s", async (_label, flagOverride, configured) => {
+      vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "github.autoAssign"
+            ? configured
+            : key === "has-called-config" || key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+        ),
+      );
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42", ...flagOverride },
+      });
+
+      await branch.run();
+
+      expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
+      expect(git.gitSetConfigValue).not.toHaveBeenCalled();
+    });
+
+    it("cuts a long issue title to a 48-character slug without asking", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title:
+          "Add a dark mode toggle to the settings page so that users can switch themes at runtime",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config" || key === "defaultSourceBranch"
+            ? "origin/main"
+            : "",
+        ),
+      );
+      const mockGitCreateWorktree = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42" },
+      });
+
+      await branch.run();
+
+      expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+        "42-add-a-dark-mode-toggle-to-the-settings-page-so",
+        "origin/main",
+      );
+      expect(mockInput).not.toHaveBeenCalled();
     });
 
     it("still honours a configured github.autoAssign", async () => {

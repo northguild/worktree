@@ -21,8 +21,11 @@ A [non-interactive run](/docs/commands/branch#non-interactive-runs) takes it wit
 ## How Branch Names Are Built
 
 1. Read issue number and title from the GitHub API.
-2. Sanitize the title into a branch-safe slug.
-3. Optionally prepend a configured prefix based on issue type.
+2. Sanitize the title into a branch-safe slug: lowercase letters, digits and dashes only, so a title can never add a `/` or `..` to the name.
+3. Cut the slug to at most 48 characters at the last dash, so it ends on a whole word. A single word longer than 48 characters is cut at 48.
+4. Optionally prepend a configured prefix based on issue type, giving `<prefix><number>-<slug>`.
+
+For example, an issue 42 titled "Add a dark mode toggle to the settings page so that users can switch themes at runtime" becomes `42-add-a-dark-mode-toggle-to-the-settings-page-so`. The name is the same whether or not you are prompted.
 
 Supported issue-type prefix mapping:
 
@@ -51,10 +54,14 @@ repository you may be asked for one, unless the resolution order above already s
 Creating the branch is the moment you have demonstrably started work, so `worktree` can say so on the issue
 for you.
 
-- `--assign` assigns it to the authenticated user; `--no-assign` skips it for that run.
-- With neither flag, `github.autoAssign` decides: `true` always, `false` never.
-- If that key is unset you are asked once, and your answer is saved to it. A non-interactive run neither asks
-  nor saves, and does not assign. To change your mind later:
+The decision is made in this order:
+
+1. `--assign` assigns it to the authenticated user; `--no-assign` skips it for that run.
+2. `github.autoAssign`: `true` always, `false` never. An explicit `false` is respected in every mode.
+3. A non-interactive run assigns. The default is not saved, so one unattended run does not settle the key.
+4. Otherwise you are asked once, and your answer is saved to `github.autoAssign`.
+
+To change your mind later:
 
 ```bash
 worktree config github.autoAssign true

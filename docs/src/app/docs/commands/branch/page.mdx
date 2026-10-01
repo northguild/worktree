@@ -47,6 +47,10 @@ Use the `--github` flag to create a suggested branch name from an issue in the c
 
 If no prefix is configured, `worktree` falls back to an empty prefix and still generates a valid branch name.
 
+The name is `<prefix><number>-<slug>`. The title becomes a lowercase slug of letters, digits and dashes, cut to at most 48 characters at the last
+dash, so the name ends on a whole word. A single word longer than 48 characters is cut at 48. The name is the
+same whether or not you are asked, so one issue never gives two different branches.
+
 GitHub authentication is resolved in this order:
 
 1. `northguild.worktree.github.token` from local git config.
@@ -62,10 +66,14 @@ worktree: no default for a GitHub token; pass `worktree config github.token <tok
 ### Assigning the issue to yourself
 
 `--assign` assigns the issue to the authenticated user as part of creating the branch, and `--no-assign`
-skips it for that one run. Without either flag the decision comes from
-[`github.autoAssign`](/docs/configuration#github-integration-notes), and if that key is unset you are asked
-once — your answer is saved to it, so the question is not repeated. A non-interactive run does not ask and
-does not save: with the key unset it does not assign, so pass `--assign` or set the key to assign there.
+skips it for that one run. Without either flag the decision is made in this order:
+
+1. `--assign` or `--no-assign`.
+2. [`github.autoAssign`](/docs/configuration#github-integration-notes): `true` assigns, `false` never does.
+3. A non-interactive run assigns. The default is not saved, so one unattended run does not settle the key.
+4. Otherwise you are asked once, and your answer is saved to `github.autoAssign` so the question is not repeated.
+
+A configured `false` is respected in every mode; pass `--assign` to override it for one run.
 
 ```bash
 worktree branch --github 42 --assign
@@ -132,8 +140,8 @@ A run is non-interactive when stdin is not a terminal, `CI` is set (and is not e
 `--non-interactive` or `--yes` (`-y`) is given; every command accepts both flags. It never prompts and never
 animates; progress goes to stderr as plain lines.
 
-- A prompt with a default takes it: the issue-derived branch name, and "do not assign" when
-  `github.autoAssign` is unset.
+- A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign` assigns the
+  issue (without saving the key); `false` or `--no-assign` still skips it.
 - A prompt with none fails at once, exit `2`, with one line on stderr:
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`).

@@ -109,13 +109,14 @@ worktree branch --jira dev-123
 
 With neither flag, `github.autoAssign` decides whether the issue is
 assigned: `true` always, `false` never, and unset means you are asked once
-and the answer is saved to the key. A failed assignment warns and the
+and the answer is saved to the key (a non-interactive run assigns instead, and
+saves nothing). A failed assignment warns and the
 worktree is still created.
 
 The generated branch name is pre-filled in an interactive prompt and
 editable before confirmation. A non-interactive run takes the pre-filled name
-without asking, and does not assign the issue unless `--assign` or
-`github.autoAssign` says to. Branch prefixes are applied when configured:
+without asking. With `github.autoAssign` unset it assigns the issue and does
+not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are applied when configured:
 - `Feature` / `Story` → `branchPrefix.feature`
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
@@ -202,7 +203,7 @@ under `northguild.worktree.*`.
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
 | `agent.command` | `claude --bg` | `--agent`, `list --agents`, `cleanup`'s agent check |
 | `github.token` | `ghp_...` | `--github` flag |
-| `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask |
+| `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |

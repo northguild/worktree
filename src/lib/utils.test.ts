@@ -1,9 +1,11 @@
 import type { WorktreeAgent, WorktreeListEntry } from "./types.js";
 import {
   conjoin,
+  slugifyBranchTitle,
   splitCommandValue,
   worktreeListEntryToListName,
 } from "./utils.js";
+import { isValidBranchName } from "./validators.js";
 
 describe("conjoin", () => {
   it.each`
@@ -376,5 +378,64 @@ describe("worktreeListEntryToListName agent details", () => {
     expect(result).toBe(
       "feature/test (Ahead: 2, Behind: 1, 3 uncommitted changes, Agent: feature-test-1f)",
     );
+  });
+});
+
+describe("slugifyBranchTitle", () => {
+  const longTitle =
+    "Add a dark mode toggle to the settings page so that users can switch themes at runtime";
+
+  it("returns a short title as a plain slug", () => {
+    expect(slugifyBranchTitle("Add Dark Mode!")).toBe("add-dark-mode");
+  });
+
+  it("cuts an 80+ character title at the last dash within 48 characters", () => {
+    const slug = slugifyBranchTitle(longTitle);
+
+    expect(longTitle.length).toBeGreaterThan(80);
+    expect(slug).toBe("add-a-dark-mode-toggle-to-the-settings-page-so");
+    expect(slug.length).toBeLessThanOrEqual(48);
+    expect(slug.endsWith("-")).toBe(false);
+    expect(isValidBranchName(`42-${slug}`)).toBe(true);
+  });
+
+  it("keeps a slug of exactly 48 characters whole", () => {
+    const title = `${"a".repeat(23)} ${"b".repeat(24)}`;
+
+    expect(slugifyBranchTitle(title)).toBe(
+      `${"a".repeat(23)}-${"b".repeat(24)}`,
+    );
+  });
+
+  it("treats a dash right after the 48th character as a boundary", () => {
+    const title = `${"a".repeat(48)} next`;
+
+    expect(slugifyBranchTitle(title)).toBe("a".repeat(48));
+  });
+
+  it("hard-cuts at 48 characters when there is no dash to cut at", () => {
+    expect(slugifyBranchTitle("x".repeat(80))).toBe("x".repeat(48));
+  });
+
+  it("never leaves a trailing dash", () => {
+    expect(slugifyBranchTitle(`${"a".repeat(30)} - ${"b".repeat(40)}`)).toBe(
+      "a".repeat(30),
+    );
+  });
+
+  it.each([
+    "",
+    "   ",
+    "???",
+    "日本語",
+  ])("falls back to issue for %j", (title) => {
+    expect(slugifyBranchTitle(title)).toBe("issue");
+  });
+
+  it("drops path separators and dot runs from the title", () => {
+    const slug = slugifyBranchTitle("../../etc/passwd ../ fix a/b.c..d");
+
+    expect(slug).not.toMatch(/[/.]/);
+    expect(isValidBranchName(`42-${slug}`)).toBe(true);
   });
 });

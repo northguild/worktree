@@ -113,6 +113,33 @@ export function sanitizeBranchName(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+// The slug is cut to at most this many characters so a long issue title does
+// not make a branch name (and the worktree directory named after it) unwieldy.
+export const BRANCH_SLUG_MAX_LENGTH = 48;
+
+/**
+ * The title part of a derived branch name (D7): `sanitizeBranchName`, cut to at
+ * most `BRANCH_SLUG_MAX_LENGTH` characters at the last `-` at or before that
+ * length, so the slug ends on a whole word. The same slug is used in both modes,
+ * so one GitHub issue never yields two names. Jira names do not use it.
+ *
+ * A title whose first 49 characters hold no `-` (one unbroken word) has no word
+ * boundary to cut at, so it is hard-cut at the limit. An empty result falls back
+ * to `issue`.
+ *
+ * Because `sanitizeBranchName` keeps only `[a-z0-9_-]`, the result can never
+ * contain `/`, `.` or `..` from the title, so a title cannot steer the path.
+ */
+export function slugifyBranchTitle(title: string) {
+  const slug = sanitizeBranchName(title);
+  if (slug.length <= BRANCH_SLUG_MAX_LENGTH) {
+    return slug || "issue";
+  }
+  // One extra character, so a `-` sitting exactly after the limit is a boundary.
+  const boundary = slug.lastIndexOf("-", BRANCH_SLUG_MAX_LENGTH);
+  return slug.slice(0, boundary > 0 ? boundary : BRANCH_SLUG_MAX_LENGTH);
+}
+
 /**
  * Splits a configured command value into an executable plus its arguments,
  * honouring single and double quotes. `open -a "Sublime Text"` is the value a

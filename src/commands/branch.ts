@@ -14,7 +14,7 @@ import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
 import { askConfirm, askInput } from "../lib/prompt.js";
 import type { ConfigName } from "../lib/types.js";
-import { sanitizeBranchName } from "../lib/utils.js";
+import { slugifyBranchTitle } from "../lib/utils.js";
 import { isValidBranchName } from "../lib/validators.js";
 
 export default class Branch extends BaseCommand {
@@ -157,7 +157,7 @@ export default class Branch extends BaseCommand {
       const issue = await fetchGitHubIssue(issueNumber);
       const prefix = await this.getGitHubBranchPrefix(issue.type?.name);
       spinner.succeed();
-      return `${prefix}${issue.number}-${sanitizeBranchName(issue.title) || "issue"}`;
+      return `${prefix}${issue.number}-${slugifyBranchTitle(issue.title)}`;
     } catch (error) {
       spinner.fail();
       throw error;
@@ -179,17 +179,18 @@ export default class Branch extends BaseCommand {
   }
 
   /**
-   * Flag, then config, then prompt (D4). The key is tri-state through unset
+   * Flag, then config, then true when non-interactive, then prompt (D4, D8). The key is tri-state through unset
    * (D3): `true` always assigns, `false` never does, and unset means ask.
    *
    * The prompt persists its own answer (D5) and its text names the key it
    * writes, because a declined answer is otherwise invisible and permanent —
    * the feature would simply stop offering itself with nothing to point at.
    *
-   * A non-interactive run that reaches the prompt does not assign and does not
-   * save an answer: assigning is a write to someone else's tracker, and one
-   * unattended run must not settle a key for the human who runs this later.
-   * The precedence for agent runs is Phase 6 (D8).
+   * A non-interactive run that reaches this point assigns, and does not save
+   * anything (D8): an agent that named an issue asked for it to be worked, and
+   * assigning is what says so. An explicit `false` never gets here, so it still
+   * wins. The default is not persisted because one unattended run must not
+   * settle the key for the human who runs this later.
    */
   private async shouldAssignGithubIssue(assignFlag?: boolean) {
     if (assignFlag !== undefined) {
@@ -204,6 +205,10 @@ export default class Branch extends BaseCommand {
       return false;
     }
 
+    if (isNonInteractive()) {
+      return true;
+    }
+
     const answer = await askConfirm(
       {
         message:
@@ -212,12 +217,8 @@ export default class Branch extends BaseCommand {
       {
         value: "whether to assign the issue",
         flag: "--assign or --no-assign",
-        fallback: false,
       },
     );
-    if (isNonInteractive()) {
-      return answer;
-    }
     // The worktree is the deliverable (§2), and this write is only bookkeeping
     // about whether to assign. `gitSetConfigValue` does not swallow the way
     // `gitGetConfigValue` does, so an unwrapped failure here — a stale

@@ -55,3 +55,12 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - **Phase 5.** The `opener=none` path line goes to stdout; Phase 10's `branch --json` has to route it.
 - **Phase 5.** `guides/editor-integration/page.mdx:55-58` mentions only `herdr` as an alternative to an
   editor — incomplete, not untrue.
+- **Phase 6.** D7's 48-character cut applies to GitHub-derived names only. Extending it to Jira
+  (`jira.ts:210`, which shares `sanitizeBranchName`) was tried and reverted at Gate 2 as unapproved scope;
+  it would change a human's pre-filled Jira name. A `/roadmap` candidate if wanted.
+- **Phase 6.** `commands/branch/page.mdx:69-71` contradicts itself ("Without either flag the decision is
+  made in this order: 1. `--assign` or `--no-assign`").
+- **Phase 6.** `branch.ts:182` cites "(D4, D8)", mixing the earlier assignment plan's numbering with this
+  plan's; `utils.ts:130` says `sanitizeBranchName` keeps `[a-z0-9_-]` when `_` is collapsed to `-`.
+- **Phase 6.** Plan §7 had no Phase 6 rows for `skills/core/SKILL.md` or `configuration/page.mdx`; D8 made
+  both untrue and this phase fixed them.
