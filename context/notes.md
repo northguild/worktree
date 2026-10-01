@@ -7,3 +7,6 @@ Branch-local, advisory. Deleted whole by `/feature-close`.
 - **Phase 1** — plan §8's interactive terminal pass is owed for every changed prompt; run once after the last prompt phase lands, since unit tests mock `@inquirer/prompts`.
 - **Phase 2** — `askSelect` does not check its `fallback` against `config.choices` the way `askInput` validates its fallback; a caller must pass a normalised value (plan §4 already says so for `github.autoAssign`).
 - **Phase 2** — the no-fallback select test in `src/lib/prompt.test.ts` asserts message and exit code via `toMatchObject` rather than `toBeInstanceOf(MissingValueError)`; behaviourally equivalent, class no longer pinned.
+- **Phase 3** — a non-interactive `--yes --names github.autoAssign` over a hand-edited invalid stored value (e.g. `maybe`) now writes `""` instead of re-writing it; `branch.ts` treats both as unset, so assignment is unchanged. Not pinned by a test.
+- **Phase 3** — the comment on the "Ask me each time" choice in `src/commands/config.ts` cites "(D3)", which is the earlier agent-mode plan's D3, not this plan's.
+- **Phase 3** — `pnpm test` logs oclif `MODULE_NOT_FOUND` warnings for `src/commands/{branch,checkout,remove}.ts` importing `.js` paths; those files are untouched by this branch, so the warnings predate it.

@@ -9,12 +9,11 @@ import {
   OPENER_KINDS,
 } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
-import { askConfirm, askInput } from "../lib/prompt.js";
+import { askConfirm, askInput, askSelect } from "../lib/prompt.js";
 import type { ConfigName } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
 import {
   isValidAgentKind,
-  isValidBoolean,
   isValidBranch,
   isValidCommand,
   isValidCommandLine,
@@ -310,19 +309,34 @@ export default class Config extends BaseCommand {
       }
 
       if (shouldPrompt("github.autoAssign")) {
-        const githubAutoAssign = await this.askConfigInput(
-          "github.autoAssign",
+        // Select values are compared with `===`, so anything but an explicit
+        // "true" or "false" (unset, empty, a hand-edited oddity) is normalised
+        // to the "ask me" choice before it becomes the default or the fallback.
+        const storedAutoAssign = await gitGetConfigValue("github.autoAssign");
+        const autoAssignDefault =
+          storedAutoAssign === "true" || storedAutoAssign === "false"
+            ? storedAutoAssign
+            : "";
+        const githubAutoAssign = await askSelect<"true" | "false" | "">(
           {
-            message:
-              "Should `branch --github` assign the issue to you? (leave unset to be asked each time)",
-            // Empty is a valid answer as well as a valid state: the key is
-            // tri-state through unset (D3), so this prompt has to be the way to
-            // keep being asked at branch time, not only the way to settle it.
-            validate: (value: string) =>
-              value.trim() === "" || isValidBoolean(value.trim()),
+            message: "Should `branch --github` assign the issue to you?",
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              // Empty is a valid answer as well as a valid state: the key is
+              // tri-state through unset (D3), so this prompt has to be the way
+              // to keep being asked at branch time, not only the way to settle it.
+              { name: "Ask me each time", value: "" },
+            ],
+            default: autoAssignDefault,
+          },
+          {
+            value: "github.autoAssign",
+            flag: "worktree config github.autoAssign <true|false>",
+            fallback: autoAssignDefault,
           },
         );
-        await gitSetConfigValue("github.autoAssign", githubAutoAssign.trim());
+        await gitSetConfigValue("github.autoAssign", githubAutoAssign);
       }
     }
 

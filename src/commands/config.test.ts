@@ -1,5 +1,5 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
-import { confirm, input } from "@inquirer/prompts";
+import { confirm, input, select } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
@@ -9,6 +9,7 @@ import Config from "./config.js";
 vi.mock("@inquirer/prompts", () => ({
   confirm: vi.fn(),
   input: vi.fn(),
+  select: vi.fn(),
 }));
 
 describe("config command", () => {
@@ -16,6 +17,7 @@ describe("config command", () => {
   let mockConsoleLog: ReturnType<typeof vi.spyOn>;
   const mockInput = vi.mocked(input);
   const mockConfirm = vi.mocked(confirm);
+  const mockSelect = vi.mocked(select);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1005,9 +1007,8 @@ describe("config command", () => {
   // keys are actually answerable — the dead-key shape is what they guard.
   describe("GitHub issue prompts", () => {
     it("should set both github.token and github.autoAssign from a prompt run", async () => {
-      mockInput
-        .mockResolvedValueOnce("ghp_prompted_token")
-        .mockResolvedValueOnce("true");
+      mockInput.mockResolvedValueOnce("ghp_prompted_token");
+      mockSelect.mockResolvedValueOnce("true");
       const mockSetConfigValue = vi
         .spyOn(git, "gitSetConfigValue")
         .mockResolvedValue();
@@ -1039,12 +1040,15 @@ describe("config command", () => {
       };
       expect(tokenPromptOptions.default).toBeUndefined();
       expect(tokenPromptOptions.prefill).toBeUndefined();
-      expect(mockInput).toHaveBeenCalledWith(
+      expect(mockSelect).toHaveBeenCalledWith(
         expect.objectContaining({
-          message:
-            "Should `branch --github` assign the issue to you? (leave unset to be asked each time)",
+          message: "Should `branch --github` assign the issue to you?",
           default: "",
-          prefill: "tab",
+          choices: [
+            { name: "Yes, always", value: "true" },
+            { name: "No, never", value: "false" },
+            { name: "Ask me each time", value: "" },
+          ],
         }),
       );
       expect(mockSetConfigValue).toHaveBeenCalledWith(
@@ -1113,64 +1117,107 @@ describe("config command", () => {
       );
     });
 
-    it("should pre-fill github.autoAssign with the configured value", async () => {
-      mockInput.mockResolvedValue("false");
+    const withStoredAutoAssign = (stored: string) =>
       vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
         if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "github.autoAssign") return Promise.resolve("false");
+        if (key === "github.autoAssign") return Promise.resolve(stored);
         return Promise.resolve("");
       });
 
+    const parseAutoAssignRun = (flags: Record<string, unknown>) => {
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
         flags: {
           list: false,
           missing: false,
-          yes: true,
           names: "github.autoAssign",
+          ...flags,
         },
       });
+    };
+
+    it.each([
+      ["true", "true"],
+      ["false", "false"],
+      ["", ""],
+      ["maybe", ""],
+    ])("should preselect the choice for a stored github.autoAssign of %j", async (stored, expected) => {
+      mockSelect.mockResolvedValue(expected);
+      withStoredAutoAssign(stored);
+      parseAutoAssignRun({ yes: false });
 
       await config.run();
 
-      expect(mockInput).toHaveBeenCalledWith(
-        expect.objectContaining({ default: "false", prefill: "editable" }),
+      expect(mockSelect).toHaveBeenCalledWith(
+        expect.objectContaining({ default: expected }),
       );
+      expect(mockInput).not.toHaveBeenCalled();
     });
 
-    it("should let an empty answer keep github.autoAssign unset while rejecting a non-boolean", async () => {
-      mockInput.mockResolvedValue("");
+    it.each([
+      ["Yes, always", "true"],
+      ["No, never", "false"],
+      ["Ask me each time", ""],
+    ])("should write the %s answer to github.autoAssign as %j", async (_label, answer) => {
+      mockSelect.mockResolvedValue(answer);
       const mockSetConfigValue = vi
         .spyOn(git, "gitSetConfigValue")
         .mockResolvedValue();
-
-      (config as any).parse = vi.fn().mockResolvedValue({
-        args: {},
-        flags: {
-          list: false,
-          missing: false,
-          yes: true,
-          names: "github.autoAssign",
-        },
-      });
+      withStoredAutoAssign(answer === "true" ? "false" : "true");
+      parseAutoAssignRun({ yes: false });
 
       await config.run();
 
-      const options = mockInput.mock.calls.at(0)?.[0] as {
-        validate: (value: string) => true | string;
-      };
+      // "Ask me" writes an empty string, which is how a stored value is cleared.
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "github.autoAssign",
+        answer,
+      );
+    });
 
-      // The key is tri-state through unset (D3): unset means "ask me at branch
-      // time", so this prompt has to be the way to stay unset as well as the
-      // way to settle it. A `--missing` run must not be able to force a
-      // permanent yes or no on someone who has not decided.
-      expect(options.validate("")).toBe(true);
-      expect(options.validate("   ")).toBe(true);
-      expect(options.validate("true")).toBe(true);
-      expect(options.validate("false")).toBe(true);
-      expect(options.validate("maybe")).toBe("Value must be true or false");
+    it.each([
+      ["false", "false"],
+      ["true", "true"],
+      ["", ""],
+    ])("should take a stored github.autoAssign of %j without exiting 2 when non-interactive", async (stored, expected) => {
+      setNonInteractive(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      withStoredAutoAssign(stored);
+      parseAutoAssignRun({ yes: true });
 
+      await config.run();
+
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "github.autoAssign",
+        expected,
+      );
+    });
+
+    it("should still offer an unset github.autoAssign on a --missing run", async () => {
+      // The key is tri-state through unset (D3): `--missing` must keep offering
+      // it until it is settled, and "Ask me each time" must be a way to answer.
+      mockSelect.mockResolvedValue("");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      parseAutoAssignRun({ missing: true, yes: false });
+
+      await config.run();
+
+      expect(mockSelect).toHaveBeenCalledTimes(1);
       expect(mockSetConfigValue).toHaveBeenCalledWith("github.autoAssign", "");
+    });
+
+    it("should not offer a settled github.autoAssign on a --missing run", async () => {
+      withStoredAutoAssign("true");
+      parseAutoAssignRun({ missing: true, yes: false });
+
+      await config.run();
+
+      expect(mockSelect).not.toHaveBeenCalled();
     });
 
     it("should not ask the GitHub confirm when no GitHub key is being prompted", async () => {
