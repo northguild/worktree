@@ -359,3 +359,22 @@ describe("list command", () => {
     });
   });
 });
+
+describe("list command — --help", () => {
+  it("documents the --json shape and the exit codes", () => {
+    const help = List.description ?? "";
+
+    for (const key of [
+      "worktrees",
+      "safeToRemove",
+      "uncommittedChanges",
+      "sessionId",
+      "herdrAgent",
+    ]) {
+      expect(help).toContain(key);
+    }
+    expect(help).toContain("0 success");
+    expect(help).toContain("1 failure");
+    expect(help).toContain("2 usage");
+  });
+});

@@ -1839,3 +1839,23 @@ describe("branch command", () => {
     }
   });
 });
+
+describe("branch command — --help", () => {
+  it("documents the --json shape and the exit codes", () => {
+    const help = Branch.description ?? "";
+
+    for (const key of [
+      "envFilesCopied",
+      "installed",
+      "prompted",
+      "herdr",
+      "issue",
+      "assigned",
+    ]) {
+      expect(help).toContain(key);
+    }
+    expect(help).toContain("0 success");
+    expect(help).toContain("1 failure");
+    expect(help).toContain("2 usage");
+  });
+});

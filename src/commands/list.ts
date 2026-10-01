@@ -55,7 +55,24 @@ function toEntryDocument(
 }
 
 export default class List extends BaseCommand {
-  static override description = "List worktree branches";
+  // The first line is the summary oclif lists in `worktree --help`; the rest is
+  // the `--json` shape and exit codes, kept to key names and nullability.
+  static override description = `List worktree branches
+
+--json prints one document on stdout: {worktrees: [entry]}
+entry: branch, path, current, pathExists, remote, remoteExists, ahead,
+behind, mergedInto, uncommittedChanges, safeToRemove
+remote is null when the branch tracks nothing. mergedInto is null when not
+known to be merged. pathExists, remoteExists, ahead, behind and
+uncommittedChanges are null when they could not be taken, never 0.
+With --agents each entry also has agent: null, or {name, sessionId,
+herdrAgent, live, interactive, waiting}, where all but name can be null.
+On failure: {error:{code, message, details?}} on stdout.
+
+Exit codes:
+0 success
+1 failure
+2 usage: a value is invalid`;
   // One JSON document on stdout, everything human on stderr (D6).
   static override enableJsonFlag = true;
   static override examples = [

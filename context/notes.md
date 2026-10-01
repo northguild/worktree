@@ -19,3 +19,9 @@ Branch-local observations from the gates. Nothing reads this file; `/feature-clo
 - **Phase 3:** the install scope (project vs `-g`) isn't mentioned. Nobody has run `-g`.
 - **Phase 3:** `docs/README.md:82` still reads `npx skills add northguild/worktree` without `--skill worktree`.
   Run against this repo, that form lists all ten skills.
+- **Phase 4:** `SKILL.md:208-210` puts `mergedInto` with the fields that are null "when they could not be
+  taken". `list --help` and `types.ts:96` say it is null when "not known to be merged". The help is right.
+- **Phase 4:** `branch --help`'s exit-2 "not found" covers only `--source`. A missing GitHub/Jira issue
+  rethrows a plain error (`branch.ts:233-235`) and exits 1.
+- **Phase 4:** the help tests are substring checks on `description`. With no `static summary`, oclif prints
+  the first line twice in `--help`.
