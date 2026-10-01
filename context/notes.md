@@ -13,3 +13,9 @@ Branch-local observations from the gates. Nothing reads this file; `/feature-clo
 - **Phase 2:** the skill's `Source:` lines name docs-site paths, which an installed copy can't follow.
   They're provenance, not instructions.
 - **Phase 2:** the `postCreate` row says "unset" twice. Wording only.
+- **Phase 3:** the install docs say "the command asks which agent(s) to install into". That holds for a person
+  at a terminal. Run from inside a coding agent, `skills` 1.7.0 prints "Agent detected — installing
+  non-interactively" and installs into its default set of agents without asking. `--agent <name>` chooses.
+- **Phase 3:** the install scope (project vs `-g`) isn't mentioned. Nobody has run `-g`.
+- **Phase 3:** `docs/README.md:82` still reads `npx skills add northguild/worktree` without `--skill worktree`.
+  Run against this repo, that form lists all ten skills.

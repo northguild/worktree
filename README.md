@@ -66,6 +66,15 @@ Or run it without a global install:
 npx @northguild/worktree --help
 ```
 
+To teach a coding agent how to drive `worktree`, including its `--json` agent mode, add the usage skill:
+
+```bash
+npx skills add northguild/worktree --skill worktree
+```
+
+The command asks which agent(s) to install the skill into. It is separate from, and in addition to,
+`npm install -g`: the skill teaches an agent the CLI, it does not install the CLI.
+
 ## Quick Start
 
 Run the initial configuration once inside a Git repository:
