@@ -611,7 +611,8 @@ describe("config command", () => {
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: "Command to start the coding agent?",
+          message:
+            "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
         }),
       );
       expect(mockSetConfigValue).toHaveBeenCalledWith(
@@ -631,11 +632,13 @@ describe("config command", () => {
       await config.run();
 
       expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to hand new worktrees to a coding agent?",
+        message:
+          "Do you want to set the command that `--agent` runs to start a coding agent?",
       });
       expect(mockInput).not.toHaveBeenCalledWith(
         expect.objectContaining({
-          message: "Command to start the coding agent?",
+          message:
+            "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
         }),
       );
     });
@@ -690,7 +693,8 @@ describe("config command", () => {
 
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: "Command to start the coding agent?",
+          message:
+            "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
           default: "",
           prefill: "tab",
         }),
@@ -714,7 +718,8 @@ describe("config command", () => {
 
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: "Command to start the coding agent?",
+          message:
+            "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
           default: "codex -q",
           prefill: "editable",
         }),
@@ -962,7 +967,7 @@ describe("config command", () => {
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({
           message:
-            "Which agent should start in a new Herdr space? (empty for none)",
+            "Which agent kind should start in every new Herdr space? (empty: none, or with `--agent` the program `agent.command` names)",
           default: "",
           prefill: "tab",
         }),

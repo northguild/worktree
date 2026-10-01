@@ -462,7 +462,7 @@ export default class Config extends BaseCommand {
       if (shouldPrompt("herdr.agent")) {
         const herdrAgent = await this.askConfigInput("herdr.agent", {
           message:
-            "Which agent should start in a new Herdr space? (empty for none)",
+            "Which agent kind should start in every new Herdr space? (empty: none, or with `--agent` the program `agent.command` names)",
           // Empty is not a valid kind, but it is a valid answer: the key is
           // opt-in (D9), so this prompt has to be the way to decline as well as
           // the way to choose, or a `--missing` run would force an agent on
@@ -477,7 +477,7 @@ export default class Config extends BaseCommand {
     if (
       shouldPrompt("agent.command") &&
       (await this.confirmGroup(
-        "Do you want to hand new worktrees to a coding agent?",
+        "Do you want to set the command that `--agent` runs to start a coding agent?",
         "the coding agent",
         flags.names,
       ))
@@ -486,7 +486,8 @@ export default class Config extends BaseCommand {
       // Suggesting one would make this tool depend on a particular CLI, which
       // AGENT-MODE-PLAN §2 rules out.
       const agentCommand = await this.askConfigInput("agent.command", {
-        message: "Command to start the coding agent?",
+        message:
+          "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
         validate: isValidCommandLine,
       });
       await gitSetConfigValue("agent.command", agentCommand);

@@ -12,8 +12,8 @@ title: Configuration
 - `opener` (`editor`, `herdr` or `none`, default `editor`)
 - `codeEditor` (example: `code`)
 - `herdr.focus` (`true` or `false`, default `true`)
-- `herdr.agent` (example: `claude`; unset means no agent, unless `worktree branch` or `checkout` is given a brief, which falls back to `agent.command`'s program)
-- `agent.command` (the coding agent to hand a new worktree to, example: `claude --bg`)
+- `herdr.agent` (example: `claude`; the agent kind that starts in every new Herdr space. Unset means no agent, unless `worktree branch` or `checkout` is given a brief, which falls back to `agent.command`'s program)
+- `agent.command` (the command `--agent` runs to hand a brief to a coding agent, example: `claude --bg`)
 - `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means infer from the lockfile)
 - `github.token` (GitHub personal access token)
 - `github.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
@@ -94,7 +94,7 @@ relying on expansion.
 
 ## Agent Command
 
-`agent.command` names the coding agent that a worktree can be handed to. Like `codeEditor` it is a command
+`agent.command` is the command that `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The agent that starts in every new Herdr space, brief or not, is [`herdr.agent`](/docs/guides/herdr-spaces#start-an-agent-with-the-space). Like `codeEditor` it is a command
 line, not just a program name, and it is split the same way: the first word is the program to launch, and
 anything after it is passed to that program as leading arguments.
 

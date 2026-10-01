@@ -60,7 +60,7 @@ Configuration is stored in local Git config under `northguild.worktree.*`.
   the command prints `Worktree created at <path>` and stops. An unknown value fails with exit `2`.
 - `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`.
 - `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
-- `herdr.agent` an agent kind to start in a newly opened Herdr space. Unset means no agent, unless `branch` or `checkout` is given a brief, in which case the program `agent.command` names is used.
+- `herdr.agent` the agent kind that starts in every newly opened Herdr space, with or without a brief. Unset means no agent, unless `branch` or `checkout` is given a brief (`--agent`), in which case the program `agent.command` names is used.
 
 `opener` and `codeEditor` are always listed and prompted for. `herdr.focus` and `herdr.agent` are listed and
 prompted for only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
@@ -85,7 +85,7 @@ empty keeps any token you already have, rather than clearing it.
 
 ## Agent Key
 
-- `agent.command` the coding agent to hand a worktree to. Read by
+- `agent.command` the command `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The wizard asks for it behind a yes/no, and the [`herdr.agent`](#opener-keys) question is asked separately. Read by
   [`branch --agent`](/docs/commands/branch#agent-dispatch) and `checkout --agent`, by
   [`list --agents`](/docs/commands/list), and by [`cleanup`](/docs/commands/cleanup)'s agent check. See
   [Configuration](/docs/configuration#agent-command).
