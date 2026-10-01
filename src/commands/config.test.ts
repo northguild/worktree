@@ -840,7 +840,7 @@ describe("config command", () => {
       ["none", "none"],
       ["", "editor"],
       ["vscode", "editor"],
-    ])("should preselect %j for a stored opener of %j", async (stored, expected) => {
+    ])("should turn a stored opener of %j into a preselected %j", async (stored, expected) => {
       mockSelect.mockResolvedValue(expected);
       withStoredOpener(stored);
       parseOpenerRun(true);
