@@ -16,7 +16,7 @@ description: >
   files (.env*, .dev.vars*, .envrc) into new worktrees.
 type: core
 library: '@northguild/worktree'
-library_version: "1.9.0"
+library_version: "2.0.0"
 sources:
   - "northguild/worktree:README.md"
   - "northguild/worktree:docs/src/app/docs/commands/branch/page.mdx"
