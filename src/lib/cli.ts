@@ -116,6 +116,57 @@ export function runCapturing(
 }
 
 /**
+ * Runs a long command whose output a person or an agent is waiting to read:
+ * the child's stdout and stderr both go to this process's stderr, as it
+ * produces them, so stdout stays free for the command's own result. Nothing is
+ * captured. The child's stdin is closed, so a tool that would ask a question
+ * fails instead of waiting.
+ *
+ * argv only, as everywhere in this module. Resolves with the exit code, so a
+ * failing command is the caller's to report; rejects when the program never
+ * ran, or when it outlived `timeout` and was killed (SIGTERM). The timeout is
+ * required: a caller that wants no bound has `run`.
+ */
+export function runStreaming(
+  file: string,
+  args: string[],
+  { cwd, timeout, env }: ExecOptions & { timeout: number },
+): Promise<{ exitCode: number }> {
+  return new Promise((resolve, reject) => {
+    // File descriptor 2 twice: the child writes straight to our stderr.
+    const child = spawn(file, args, {
+      cwd,
+      env: mergeEnv(env),
+      stdio: ["ignore", 2, 2],
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeout);
+
+    child.on("error", (error: Error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(
+          new Error(
+            `${file} did not finish within ${Math.round(timeout / 1000)}s`,
+          ),
+        );
+      } else if (code === null) {
+        reject(new Error(`${file} was stopped by ${signal}`));
+      } else {
+        resolve({ exitCode: code });
+      }
+    });
+  });
+}
+
+/**
  * Looks up one program name, verbatim. It is not given a command line: every
  * caller splits first — the two validators through `splitCommandValue`, so a
  * quoted program path containing a space arrives here as one name rather than

@@ -16,6 +16,8 @@ worktree branch --github <issue-number> --assign
 worktree branch --github <issue-number> --no-assign
 worktree branch --jira <issue-id>
 worktree branch <name> --agent "<prompt>"
+worktree branch <name> --install
+worktree branch <name> --no-install
 ```
 
 ## Examples
@@ -31,6 +33,8 @@ worktree branch --jira DEV-123
 worktree branch --jira dev-123
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent "implement the issue"
+worktree branch feature/add-bulk-actions --install
+worktree branch feature/add-bulk-actions --no-install
 ```
 
 ## GitHub Issue Branching
@@ -95,6 +99,36 @@ worktree config github.autoAssign true    # always assign, stop asking
 - `--assign` and `--no-assign` both require `--github` or `--jira`; on their own there is no issue to act
   on. `--assign --jira` warns that Jira assignment is not supported yet and carries on.
 
+## Installing dependencies
+
+After the worktree exists and its env files are copied, `branch` can install its dependencies, **before**
+anything is opened or any agent is started, so neither lands in a tree without them.
+
+- **The command** is [`postCreate`](/docs/configuration#post-create-command) when it is set. Otherwise it is
+  inferred from the first lockfile found in the new worktree:
+
+  | Lockfile | Command |
+  |---|---|
+  | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
+  | `package-lock.json` | `npm ci` |
+  | `yarn.lock` | `yarn install` |
+  | `bun.lock` | `bun install --frozen-lockfile` |
+
+  `bun.lockb` is not recognised. `yarn install` has no lock flag because classic and berry disagree on it.
+- **When it runs:** a [non-interactive run](#non-interactive-runs) installs by default. A terminal run
+  installs only when `postCreate` is set or `--install` is given. `--no-install` switches it off for the run,
+  whatever else is set.
+- **How it runs:** by argv in the new worktree, never through a shell, with its output on stderr and a
+  10 minute limit.
+- **Nothing to run:** with no `postCreate` and no lockfile, or when the program is not on `PATH`, `branch`
+  says why on stderr and carries on.
+- **A failed install** (non-zero exit, or the limit reached) keeps the worktree, opens nothing, starts no
+  agent, and exits `1`. Nothing is rolled back. Fix the install in the worktree and run
+  `worktree open <branch>`, or run `worktree remove <branch> -f` and re-run `branch` with `--no-install`.
+  Re-running `branch` as it was fails, because the branch already exists.
+
+`checkout` has no install step.
+
 ## Jira Issue Branching
 
 Use the `--jira` flag to create a suggested branch name from an issue in your Jira workspace.
@@ -145,6 +179,7 @@ animates; progress goes to stderr as plain lines.
 - A prompt with none fails at once, exit `2`, with one line on stderr:
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`).
+- Dependencies are installed by default, from `postCreate` or the lockfile; `--no-install` skips it.
 - Missing config is not offered to `config`: `defaultSourceBranch` unset warns and falls back to `origin/main`.
 
 ## What It Does
@@ -154,5 +189,6 @@ animates; progress goes to stderr as plain lines.
 3. Adds a worktree under `<repo>.worktrees/<branch-name>`.
 4. Copies the gitignored env files into the new worktree — see
    [Environment Files](/docs/guides/env-files).
-5. Starts the configured coding agent in it (with `--agent`).
-6. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none`, opens nothing and prints `Worktree created at <path>`.
+5. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
+6. Starts the configured coding agent in it (with `--agent`).
+7. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none`, opens nothing and prints `Worktree created at <path>`.

@@ -42,6 +42,7 @@ worktree config opener herdr
 worktree config opener none
 worktree config opener
 worktree config agent.command "claude --bg"
+worktree config postCreate "pnpm install"
 worktree config github.autoAssign true
 worktree config --list
 worktree config --list --missing
@@ -87,3 +88,11 @@ empty keeps any token you already have, rather than clearing it.
   [`branch --agent`](/docs/commands/branch#agent-dispatch) and `checkout --agent`, by
   [`list --agents`](/docs/commands/list), and by [`cleanup`](/docs/commands/cleanup)'s agent check. See
   [Configuration](/docs/configuration#agent-command).
+
+## Post-create Key
+
+- `postCreate` a command to run in every new worktree, such as `pnpm install`. Read by
+  [`branch`](/docs/commands/branch#installing-dependencies); when it is unset the command is inferred from
+  the lockfile instead. It is validated like `agent.command`: its first word has to be on `PATH`. See
+  [Configuration](/docs/configuration#post-create-command). The prompt accepts an empty answer, which leaves
+  it unset.

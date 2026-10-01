@@ -9,7 +9,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
-import { commandExists, run, runCapturing, spawnDetached } from "./cli.js";
+import {
+  commandExists,
+  run,
+  runCapturing,
+  runStreaming,
+  spawnDetached,
+} from "./cli.js";
 
 // src/test-setup.ts mocks ./lib/cli.js for every suite so command tests never
 // execute anything. This file covers the real helper, so it opts back out.
@@ -240,6 +246,57 @@ describe("runCapturing", () => {
     ]);
 
     expect(result).toEqual({ stdout: "slow", stderr: "", exitCode: 0 });
+  });
+});
+
+describe("runStreaming", () => {
+  // The child's stdout and stderr are our file descriptor 2, so what it prints
+  // is not observable from here; these cases cover the contract around that.
+  it("resolves the exit code, zero or not", async () => {
+    await expect(
+      runStreaming(node, ["-e", ""], { timeout: 10_000 }),
+    ).resolves.toEqual({ exitCode: 0 });
+    await expect(
+      runStreaming(node, ["-e", "process.exit(3)"], { timeout: 10_000 }),
+    ).resolves.toEqual({ exitCode: 3 });
+  });
+
+  it("runs in the directory given as cwd, with its argv untouched", async () => {
+    const marker = join(spacedPath, "streamed.txt");
+    await runStreaming(
+      node,
+      [
+        "-e",
+        "require('node:fs').writeFileSync(process.argv[1], process.cwd() + '|' + process.argv[2])",
+        marker,
+        "a b; $(echo x)",
+      ],
+      { cwd: spacedPath, timeout: 10_000 },
+    );
+
+    expect(readFileSync(marker, "utf8")).toBe(`${spacedPath}|a b; $(echo x)`);
+  });
+
+  it("closes the child's stdin, so a question fails rather than waits", async () => {
+    await expect(
+      runStreaming(
+        node,
+        ["-e", "process.stdin.on('end', () => process.exit(0)).resume()"],
+        { timeout: 10_000 },
+      ),
+    ).resolves.toEqual({ exitCode: 0 });
+  });
+
+  it("kills a child that outlives the timeout, and rejects", async () => {
+    await expect(
+      runStreaming(node, ["-e", sleepForever], { timeout: 200 }),
+    ).rejects.toThrow(/did not finish within/);
+  });
+
+  it("rejects when the program does not exist", async () => {
+    await expect(
+      runStreaming("worktree-no-such-program", [], { timeout: 10_000 }),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

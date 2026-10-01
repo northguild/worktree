@@ -10,6 +10,7 @@ import {
   gitGetRemoteBranches,
   gitSetConfigValue,
 } from "../lib/git.js";
+import { runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
 import { askConfirm, askInput } from "../lib/prompt.js";
@@ -56,6 +57,13 @@ export default class Branch extends BaseCommand {
       allowNo: true,
       description:
         "Assign the issue to you when creating a branch from --github",
+    }),
+    // Unset is meaningful: it defers to postCreate and the run's mode (D9), so
+    // there is no `default`. `--no-install` is the one switch that wins over both.
+    install: Flags.boolean({
+      allowNo: true,
+      description:
+        "Install dependencies in the new worktree (on by default when non-interactive or postCreate is set)",
     }),
   };
 
@@ -345,6 +353,19 @@ export default class Branch extends BaseCommand {
     // worktree that is already complete. The editor stays last so its "Worktree
     // created" fallback remains the final line.
     await copyEnvFilesFromRootPath(projectPath);
+
+    // Before the agent and before any opener: both start working in the tree at
+    // once, and one dropped into a tree without its dependencies is worse than
+    // none. A failure keeps the tree (§2, the worktree is the deliverable) and
+    // stops here, so the handoff never starts in a broken one.
+    const installed = await runInstall(projectPath, flags.install);
+    if (installed.ran && !installed.ok) {
+      this.error(
+        `\`${installed.command}\` failed (${installed.reason}). The worktree was created at ${projectPath}, but nothing was opened and no agent was started. Fix the install there and run \`worktree open ${branchName}\`, or run \`worktree remove ${branchName} -f\` and re-run with --no-install.`,
+        { exit: 1 },
+      );
+    }
+
     if (flags.agent !== undefined) {
       await this.dispatchAgent(projectPath, flags.agent);
     }

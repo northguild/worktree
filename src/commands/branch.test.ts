@@ -5,6 +5,7 @@ import * as githubIntegration from "../integrations/github.js";
 import * as jiraIntegration from "../integrations/jira.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
+import { runInstall } from "../lib/install.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import * as validators from "../lib/validators.js";
 import Branch from "./branch.js";
@@ -18,6 +19,12 @@ vi.mock("@inquirer/prompts", () => ({
 // Mock env functions
 vi.mock("../lib/env.js", () => ({
   copyEnvFilesFromRootPath: vi.fn().mockResolvedValue(undefined),
+}));
+
+// The step itself is covered by install.test.ts; here only what branch does
+// with its result. Skipped is the benign default.
+vi.mock("../lib/install.js", () => ({
+  runInstall: vi.fn().mockResolvedValue({ ran: false, reason: "skipped" }),
 }));
 
 // Mock ora to suppress spinner output during tests
@@ -48,9 +55,11 @@ describe("branch command", () => {
   const mockInput = vi.mocked(input);
   const mockConfirm = vi.mocked(confirm);
   const mockCopyEnvFiles = vi.mocked(copyEnvFilesFromRootPath);
+  const mockRunInstall = vi.mocked(runInstall);
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRunInstall.mockResolvedValue({ ran: false, reason: "skipped" });
     const mockConfig = {
       runCommand: vi.fn().mockResolvedValue(undefined),
     } as any;
@@ -1220,6 +1229,90 @@ describe("branch command", () => {
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("Missing config: defaultSourceBranch"),
       );
+    });
+  });
+  describe("install step", () => {
+    beforeEach(() => {
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    });
+
+    function parsed(flags: Record<string, unknown>) {
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags,
+      });
+    }
+
+    it("installs in the new tree, after the env files and before dispatch and open", async () => {
+      mockRunInstall.mockResolvedValue({
+        ran: true,
+        command: "pnpm install --frozen-lockfile",
+        inferred: true,
+        ok: true,
+      });
+      parsed({ agent: "implement the issue" });
+
+      await branch.run();
+
+      expect(mockRunInstall).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        undefined,
+      );
+      const installOrder = mockRunInstall.mock.invocationCallOrder[0];
+      expect(mockCopyEnvFiles.mock.invocationCallOrder[0]).toBeLessThan(
+        installOrder,
+      );
+      expect(installOrder).toBeLessThan(
+        mockDispatchAgent.mock.invocationCallOrder[0],
+      );
+      expect(installOrder).toBeLessThan(
+        mockOpenWorktreePath.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("passes --install and --no-install through as given", async () => {
+      parsed({ install: true });
+      await branch.run();
+      expect(mockRunInstall).toHaveBeenLastCalledWith(
+        "/path/to/worktree",
+        true,
+      );
+
+      parsed({ install: false });
+      await branch.run();
+      expect(mockRunInstall).toHaveBeenLastCalledWith(
+        "/path/to/worktree",
+        false,
+      );
+    });
+
+    it("carries on to the opener when the install is skipped", async () => {
+      parsed({});
+
+      await branch.run();
+
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree");
+    });
+
+    it("keeps the tree, starts neither agent nor opener, and exits 1 when the install fails", async () => {
+      mockRunInstall.mockResolvedValue({
+        ran: true,
+        command: "npm ci",
+        inferred: true,
+        ok: false,
+        reason: "exited with code 1",
+      });
+      parsed({ agent: "implement the issue" });
+
+      await expect(branch.run()).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "`npm ci` failed (exited with code 1). The worktree was created at /path/to/worktree, but nothing was opened and no agent was started. Fix the install there and run `worktree open feature/test`, or run `worktree remove feature/test -f` and re-run with --no-install.",
+        ),
+        oclif: { exit: 1 },
+      });
+
+      expect(mockDispatchAgent).not.toHaveBeenCalled();
+      expect(mockOpenWorktreePath).not.toHaveBeenCalled();
     });
   });
 });

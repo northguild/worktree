@@ -80,6 +80,7 @@ The setup flow can configure:
 - `codeEditor` for automatically opening a worktree, such as `code`
 - `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
 - `agent.command` for handing a worktree to a coding agent, such as `claude --bg`
+- `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise inferred from the lockfile)
 
 Then create your first worktree:
 
@@ -92,7 +93,8 @@ That will:
 1. create a new branch from your configured source branch
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
 3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc`
-4. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
+4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`), and a failure keeps the worktree, opens nothing and exits `1`
+5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
 
 ## Common Workflows
 

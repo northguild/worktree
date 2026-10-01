@@ -132,6 +132,9 @@ export async function isValidConfigValue(
     case "herdr.agent":
       return isValidAgentKind(value);
     case "agent.command":
+    // Executed in every new worktree, so it is held to the same check as the
+    // other command line: its head has to be a program that exists.
+    case "postCreate":
       return await isValidCommandLine(value);
     default:
       return true;

@@ -15,6 +15,7 @@ export const CONFIG_NAMES = [
   "herdr.focus",
   "herdr.agent",
   "agent.command",
+  "postCreate",
   "defaultSourceBranch",
 ] as const;
 

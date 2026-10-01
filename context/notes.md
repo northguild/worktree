@@ -64,3 +64,17 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
   plan's; `utils.ts:130` says `sanitizeBranchName` keeps `[a-z0-9_-]` when `_` is collapsed to `-`.
 - **Phase 6.** Plan §7 had no Phase 6 rows for `skills/core/SKILL.md` or `configuration/page.mdx`; D8 made
   both untrue and this phase fixed them.
+- **Phase 7.** `runStreaming`'s timeout sends SIGTERM to the direct child only — no SIGKILL follow-up, no
+  process-group kill — so a package manager that ignores TERM, or a grandchild it leaves, can outlive the
+  10-minute bound and keep writing to fd 2.
+- **Phase 7.** The inferred install runs the checked-out branch's lifecycle scripts (`postinstall`) by
+  default on every non-interactive run, including `--source origin/<someone else's branch>`. D9's design;
+  plan §8 *Security* names only "executed config values" — the trust model is worth writing down.
+- **Phase 7.** `skills/core/SKILL.md` `postCreate` row ("runs by default only when non-interactive, or with
+  `--install`") reads as if a set `postCreate` never runs on a terminal; D9 runs it there too.
+- **Phase 7.** A relative `postCreate` (`./setup.sh`) is checked by `which` from the process cwd but runs
+  with cwd = the new tree. The docs say the first word has to be on `PATH`.
+- **Phase 7.** `runStreaming`'s timeout message rounds sub-second bounds to "0s" (test-only case).
+- **Phase 7.** The install-failure advice "run `worktree open <branch>`" does not re-send an `--agent`
+  brief on the detached path; Phase 8's handoff rework is where to revisit it. `remove -f` refuses when run
+  from inside that worktree.

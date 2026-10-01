@@ -471,6 +471,26 @@ export default class Config extends BaseCommand {
       await gitSetConfigValue("agent.command", agentCommand);
     }
 
+    if (
+      shouldPrompt("postCreate") &&
+      (await this.confirmGroup(
+        "Do you want to run a command in new worktrees after they are created?",
+        "the post-create command",
+        flags.names,
+      ))
+    ) {
+      const postCreate = await this.askConfigInput("postCreate", {
+        message:
+          "Command to run in each new worktree, for example `pnpm install` (empty to infer one from the lockfile)",
+        // Empty is a valid answer, as it is for `herdr.agent`: `branch` infers
+        // the command from the lockfile, so this prompt has to be the way to
+        // decline a fixed one as well as to set one.
+        validate: async (value: string) =>
+          value.trim() === "" || (await isValidCommandLine(value.trim())),
+      });
+      await gitSetConfigValue("postCreate", postCreate.trim());
+    }
+
     this.log(`${chalk.green("✔")} Configuration complete!${EOL}`);
   }
 

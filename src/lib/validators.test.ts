@@ -143,6 +143,19 @@ describe("isValidConfigValue", () => {
     );
   });
 
+  it("validates postCreate on its argv head, like agent.command", async () => {
+    vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+
+    expect(await isValidConfigValue("postCreate", "nope install")).toBe(
+      "Command not found: nope",
+    );
+
+    vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+
+    expect(await isValidConfigValue("postCreate", "make setup")).toBe(true);
+    expect(cli.commandExists).toHaveBeenCalledWith("make");
+  });
+
   it("leaves a config name with no case unvalidated", async () => {
     vi.spyOn(cli, "commandExists").mockResolvedValue(false);
 

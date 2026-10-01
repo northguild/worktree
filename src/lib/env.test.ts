@@ -84,6 +84,40 @@ describe("copyEnvFilesFromRootPath", () => {
     expect(copyFileSync).not.toHaveBeenCalled();
   });
 
+  it("resolves the copied paths, relative to the repository root", async () => {
+    mockGitResponses(nulTerminated(".env", "docs/.env.local"));
+
+    await expect(copyEnvFilesFromRootPath(worktreePath)).resolves.toEqual([
+      ".env",
+      "docs/.env.local",
+    ]);
+  });
+
+  it("resolves an empty list when there is nothing to copy", async () => {
+    mockGitResponses("");
+
+    await expect(copyEnvFilesFromRootPath(worktreePath)).resolves.toEqual([]);
+  });
+
+  it("prints the report on stdout by default and on stderr when asked", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockGitResponses(nulTerminated(".env"));
+    await copyEnvFilesFromRootPath(worktreePath);
+
+    expect(loggedLines()).toHaveLength(2);
+    expect(error).not.toHaveBeenCalled();
+
+    log.mockClear();
+    mockGitResponses(nulTerminated(".env"));
+    await copyEnvFilesFromRootPath(worktreePath, { report: "stderr" });
+
+    expect(log).not.toHaveBeenCalled();
+    expect(error.mock.calls.map((call) => String(call[0]))).toEqual([
+      `Copying 1 env file from ${rootPath}:`,
+      "  ✔ .env",
+    ]);
+  });
+
   it("copies the framework variants and tool files the two old names missed", async () => {
     mockGitResponses(
       nulTerminated(

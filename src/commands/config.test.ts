@@ -477,6 +477,113 @@ describe("config command", () => {
       );
     });
   });
+  describe("postCreate prompt", () => {
+    const postCreateFlags = {
+      list: false,
+      missing: false,
+      yes: false,
+      names: "postCreate",
+    };
+
+    it("prompts for the command and stores it trimmed, without a group confirm when named", async () => {
+      mockInput.mockResolvedValue(" pnpm install ");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: postCreateFlags,
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Command to run in each new"),
+        }),
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "postCreate",
+        "pnpm install",
+      );
+    });
+
+    it("accepts an empty answer, which declines a fixed command", async () => {
+      mockInput.mockResolvedValue("");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: postCreateFlags,
+      });
+
+      await config.run();
+
+      const { validate } = mockInput.mock.calls[0][0] as {
+        validate: (value: string) => Promise<true | string>;
+      };
+      expect(await validate("")).toBe(true);
+      expect(mockSetConfigValue).toHaveBeenCalledWith("postCreate", "");
+    });
+
+    it("skips the prompt when a bare run is declined", async () => {
+      mockConfirm.mockResolvedValue(false);
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message:
+          "Do you want to run a command in new worktrees after they are created?",
+      });
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Command to run in each new"),
+        }),
+      );
+    });
+
+    it("keeps the stored value when a non-interactive run names the key", async () => {
+      setNonInteractive(true);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "postCreate" ? "make setup" : "true"),
+      );
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: postCreateFlags,
+      });
+
+      await config.run();
+
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "postCreate",
+        "make setup",
+      );
+    });
+
+    it("is listed with the other keys", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: true },
+      });
+      const log = vi.spyOn(config, "log").mockImplementation(() => {});
+
+      await config.run();
+
+      expect(log.mock.calls.map((call) => call[0])).toContain("postCreate");
+    });
+  });
+
   describe("agent.command prompt", () => {
     const agentFlags = {
       list: false,

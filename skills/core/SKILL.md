@@ -3,7 +3,7 @@ name: core
 description: >
   Complete usage guide for @northguild/worktree. Covers install, first-time
   setup with worktree config (defaultSourceBranch, opener, codeEditor,
-  herdr.focus, herdr.agent, agent.command, github.token, github.autoAssign,
+  herdr.focus, herdr.agent, agent.command, postCreate, github.token, github.autoAssign,
   jira.host, jira.email, jira.apiToken, branchPrefix.feature,
   branchPrefix.bugfix, branchPrefix.chore), worktree branch, worktree checkout,
   worktree list, worktree open, worktree remove (alias: rm), worktree cleanup,
@@ -52,7 +52,8 @@ npm install -g @northguild/worktree
 # Run once inside your git repository
 worktree config
 # prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code)
-# and agent.command (e.g. claude --bg), each behind a confirm. The Herdr keys
+# agent.command (e.g. claude --bg) and postCreate (e.g. pnpm install), each
+# behind a confirm. The Herdr keys
 # herdr.focus and herdr.agent are offered only when `herdr` is on PATH; opener is
 # always offered. `worktree config <key>` prints one value, for scripts.
 
@@ -202,6 +203,7 @@ under `northguild.worktree.*`.
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none |
 | `agent.command` | `claude --bg` | `--agent`, `list --agents`, `cleanup`'s agent check |
+| `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); runs by default only when non-interactive, or with `--install` |
 | `github.token` | `ghp_...` | `--github` flag |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |

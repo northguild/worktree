@@ -14,6 +14,7 @@ title: Configuration
 - `herdr.focus` (`true` or `false`, default `true`)
 - `herdr.agent` (example: `claude`, unset means no agent)
 - `agent.command` (the coding agent to hand a new worktree to, example: `claude --bg`)
+- `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means infer from the lockfile)
 - `github.token` (GitHub personal access token)
 - `github.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
@@ -118,6 +119,24 @@ space, and `~` and `$VAR` are not expanded.
 
 The key is optional and unset by default.
 
+## Post-create Command
+
+`postCreate` is the command `worktree branch` runs in a new worktree to install its dependencies. It is a
+command line, split and validated exactly like `agent.command`: the first word is the program and has to be
+on `PATH` when you set it, quotes group an argument containing a space, and no shell parses the value.
+
+```bash
+worktree config postCreate "pnpm install"
+worktree config postCreate "make setup"
+```
+
+When it is set it is used as written, and it also turns the install on for a terminal run. When it is
+unset, `branch` infers the command from the new worktree's lockfile (`pnpm-lock.yaml`, `package-lock.json`,
+`yarn.lock`, then `bun.lock`) and installs by default only when non-interactive. `--no-install` skips it for
+one run. See [`branch`](/docs/commands/branch#installing-dependencies).
+
+The key is optional and unset by default.
+
 ## Platform Support
 
 `worktree` is developed and tested on macOS and Linux. **Windows is not supported.** Nothing here is
@@ -136,6 +155,7 @@ worktree config opener herdr
 worktree config herdr.focus false
 worktree config herdr.agent claude
 worktree config agent.command "claude --bg"
+worktree config postCreate "pnpm install"
 worktree config github.token <token>
 worktree config jira.host https://company.atlassian.net
 worktree config jira.email your-email@example.com

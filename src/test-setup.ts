@@ -7,6 +7,7 @@ import { setNonInteractive } from "./lib/interaction.js";
 const mockRun: ReturnType<typeof vi.fn> = vi.fn();
 const mockRunCapturing: ReturnType<typeof vi.fn> = vi.fn();
 const mockSpawnDetached: ReturnType<typeof vi.fn> = vi.fn();
+const mockRunStreaming: ReturnType<typeof vi.fn> = vi.fn();
 let expectedCommands: string[] = [];
 
 // This factory replaces the whole module, so anything cli.js exports has to be
@@ -16,6 +17,7 @@ vi.mock("./lib/cli.js", () => ({
   spawnDetached: mockSpawnDetached,
   commandExists: vi.fn().mockResolvedValue(true),
   runCapturing: mockRunCapturing,
+  runStreaming: mockRunStreaming,
 }));
 
 // A run() call reads as its argv joined, with the cwd appended when one is
@@ -48,6 +50,7 @@ beforeEach(() => {
   // reaches runCapturing without mocking it gets undefined back rather than a
   // promise, and fails somewhere unrelated to what it is testing.
   mockRunCapturing.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+  mockRunStreaming.mockResolvedValue({ exitCode: 0 });
   expectedCommands = [];
 });
 
@@ -73,4 +76,10 @@ function expectCommands(...commands: string[]) {
 }
 
 // Export the mocks and helper for use in tests
-export { expectCommands, mockRun, mockRunCapturing, mockSpawnDetached };
+export {
+  expectCommands,
+  mockRun,
+  mockRunCapturing,
+  mockRunStreaming,
+  mockSpawnDetached,
+};
