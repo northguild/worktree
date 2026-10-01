@@ -771,7 +771,8 @@ describe("config command", () => {
 
   describe("opener prompts", () => {
     it("should set both opener and herdr.focus from a prompt run", async () => {
-      mockInput.mockResolvedValueOnce("herdr").mockResolvedValueOnce("false");
+      mockInput.mockResolvedValueOnce("herdr");
+      mockConfirm.mockResolvedValueOnce(false);
       const mockSetConfigValue = vi
         .spyOn(git, "gitSetConfigValue")
         .mockResolvedValue();
@@ -788,7 +789,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).toHaveBeenCalledTimes(1);
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({
           message:
@@ -798,16 +799,30 @@ describe("config command", () => {
           validate: validators.isValidOpener,
         }),
       );
-      expect(mockInput).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: "Should opening a worktree focus its Herdr space?",
-          default: "true",
-          prefill: "tab",
-          validate: validators.isValidBoolean,
-        }),
-      );
+      // Unset means yes: the documented default of herdr.focus is true.
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Should opening a worktree focus its Herdr space?",
+        default: true,
+      });
       expect(mockSetConfigValue).toHaveBeenCalledWith("opener", "herdr");
       expect(mockSetConfigValue).toHaveBeenCalledWith("herdr.focus", "false");
+    });
+
+    it("should write true when herdr.focus is confirmed", async () => {
+      mockConfirm.mockResolvedValueOnce(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, names: "herdr.focus" },
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith("herdr.focus", "true");
     });
 
     it("should skip both prompts when a bare run is declined", async () => {
@@ -830,7 +845,7 @@ describe("config command", () => {
       expect(mockConfirm).toHaveBeenCalledWith({
         message: "Do you want to configure Herdr space options?",
       });
-      expect(mockInput).not.toHaveBeenCalledWith(
+      expect(mockConfirm).not.toHaveBeenCalledWith(
         expect.objectContaining({
           message: "Should opening a worktree focus its Herdr space?",
         }),
@@ -839,6 +854,7 @@ describe("config command", () => {
 
     it("should pre-fill both prompts with the configured values", async () => {
       mockInput.mockResolvedValue("herdr");
+      mockConfirm.mockResolvedValue(false);
       vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
         if (key === "has-called-config") return Promise.resolve("true");
         if (key === "opener") return Promise.resolve("herdr");
@@ -861,9 +877,66 @@ describe("config command", () => {
       expect(mockInput).toHaveBeenCalledWith(
         expect.objectContaining({ default: "herdr", prefill: "editable" }),
       );
-      expect(mockInput).toHaveBeenCalledWith(
-        expect.objectContaining({ default: "false", prefill: "editable" }),
-      );
+      // A stored "false" defaults the confirm to no.
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Should opening a worktree focus its Herdr space?",
+        default: false,
+      });
+    });
+
+    it("should default herdr.focus to yes when the stored value is empty", async () => {
+      mockConfirm.mockResolvedValue(true);
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, names: "herdr.focus" },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Should opening a worktree focus its Herdr space?",
+        default: true,
+      });
+    });
+
+    it("should take the stored herdr.focus without prompting when non-interactive", async () => {
+      setNonInteractive(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "herdr.focus") return Promise.resolve("false");
+        return Promise.resolve("");
+      });
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, yes: true, names: "herdr.focus" },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith("herdr.focus", "false");
+    });
+
+    it("should take yes for an unset herdr.focus without exiting 2 when non-interactive", async () => {
+      setNonInteractive(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, yes: true, names: "herdr.focus" },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith("herdr.focus", "true");
     });
 
     it("should set herdr.agent from a prompt run", async () => {

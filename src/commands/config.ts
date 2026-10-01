@@ -427,15 +427,22 @@ export default class Config extends BaseCommand {
       ))
     ) {
       if (shouldPrompt("herdr.focus")) {
-        const herdrFocus = await this.askConfigInput(
-          "herdr.focus",
+        // Only an explicit "false" means no: unset or empty is the documented
+        // default of true. A non-interactive run takes that same answer.
+        const focusDefault =
+          (await gitGetConfigValue("herdr.focus")) !== "false";
+        const herdrFocus = await askConfirm(
           {
             message: "Should opening a worktree focus its Herdr space?",
-            validate: isValidBoolean,
+            default: focusDefault,
           },
-          "true",
+          {
+            value: "herdr.focus",
+            flag: "worktree config herdr.focus <true|false>",
+            fallback: focusDefault,
+          },
         );
-        await gitSetConfigValue("herdr.focus", herdrFocus);
+        await gitSetConfigValue("herdr.focus", String(herdrFocus));
       }
 
       if (shouldPrompt("herdr.agent")) {
