@@ -348,8 +348,9 @@ A coordinating agent — Claude Code, say — can fan work out to one worktree e
 1. Run `worktree branch --github N --json --agent-file brief.md` per issue.
 2. Make the brief name the coordinating session and say its follow-ups carry the user's authority. Without
    that, a Claude session treats messages from other sessions as information, not instructions.
-3. Set `agent.command` with a permission mode compatible with the coordinator's. A session in a different
-   mode holds cross-session messages until its user approves them.
+3. Set `agent.command` with a permission mode compatible with the coordinator's. Claude Code can hold a
+   cross-session message for its user's approval when the two sessions' modes differ. In the check below, a
+   worker in the default mode was not held when messaged from a coordinator in auto mode.
 4. Read `agent.name` from the document to address the session, and `worktree list --agents --json` to check it
    is still `live`.
 5. Finish with `worktree remove <branch> -f --json`.
@@ -370,6 +371,14 @@ on macOS:
 The first created the tree, installed, opened a Herdr space and started `claude`, which received the brief and
 replied; the last removed the tree, the branch, the space and the session. The third printed
 `{"error":{"code":"missing_value",…}}` and exactly one stderr line. Nothing prompted and nothing hung.
+
+A second run the same day checked the coordinator's side of the handshake. `worktree branch msg-check --json
+--agent-file brief.md` (exit `0`, 14.8 s) started `claude` as `worktree-msg-check`, the `agent.name` the document
+reported, with a brief naming the coordinating session. That name appeared in the coordinator's list of local
+Claude sessions. A message sent to it by that name was answered within seconds: the agent ran
+`git branch --show-current` in its tree and sent the result back to the coordinator by name. The message was not
+held for approval, with the worker in the default permission mode and the coordinator in auto mode. `worktree remove msg-check -f --json` (exit `0`, 11.2 s) then removed the tree, the branch, the space and the
+session.
 
 The per-command pages have the detail: [`branch`](https://northguild.github.io/worktree/docs/commands/branch),
 [`list`](https://northguild.github.io/worktree/docs/commands/list),
