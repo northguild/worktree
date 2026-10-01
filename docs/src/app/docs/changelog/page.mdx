@@ -17,9 +17,10 @@ See the version label in the docs footer.
 
 1. Update CLI behavior and tests.
 2. Update relevant docs pages in the same change.
-3. Bump version at the root package.
-4. Build and deploy docs.
+3. Add a release note with `pnpm changeset:add` (bump level plus a description for people installing the package) and commit it with the change.
+4. To release, a maintainer runs `pnpm changeset:prepare-release` in a release pull request. It bumps the root package version, writes the entry into `CHANGELOG.md`, and syncs the version shown in these docs.
+5. Merging the release pull request publishes the package, tags it, and creates the GitHub release from the changelog entry. The docs deploy on their own when `docs/` changes.
 
 ## Historical Changes
 
-For now, historical release notes are tracked in Git history and pull requests. If release volume grows, we can add a dedicated versioned changelog format later.
+From 2.1.0 on, release notes are written to [`CHANGELOG.md`](https://github.com/northguild/worktree/blob/main/CHANGELOG.md) and to the [GitHub releases page](https://github.com/northguild/worktree/releases). Earlier releases are tracked in Git history and pull requests.

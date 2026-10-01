@@ -1,0 +1,72 @@
+name: Release note
+
+# A change to the published package owes a release note: a `.changeset/*.md` file written with
+# `pnpm changeset:add`. This job fails when it is missing. The path filter below is the set of paths that
+# can owe one; docs/** deploys on its own, and context/** and .github/** are not the package.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "bin/**"
+      - "skills/**"
+      - "package.json"
+
+permissions:
+  contents: read
+
+jobs:
+  changeset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # fetch-depth: 0 is required: `changeset status --since=origin/main` resolves the base through
+      # `git merge-base`, and under a depth-1 checkout it exits 1 with "Failed to find where HEAD diverged
+      # from origin/main", which reads like a missing note and is not one.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      # No `cache: pnpm`: on the release pull request the install below is skipped, the store never exists,
+      # and setup-node's post step fails the job with "Path Validation Error" after the check has passed.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The release PR is exempt: `changeset version` consumes the notes and deletes them, so the one PR
+      # that legitimately changes the package has none pending. The exemption is the root version moving,
+      # read from the tree (merge base against HEAD), never from a branch name.
+      - name: Did this pull request move the package version?
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=$(git merge-base origin/main HEAD)
+          before=$(git show "$base:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          after=$(node -p "require('./package.json').version")
+          if [[ "$before" != "$after" ]]; then
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+            echo "This pull request moves the version ($before -> $after), so it is treated as the release pull request and no note is asked for." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install
+        if: steps.version.outputs.moved != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: A changed package needs a release note
+        if: steps.version.outputs.moved != 'true'
+        shell: bash
+        run: |
+          if ! pnpm changeset:status; then
+            {
+              echo "This pull request changes the package but carries no release note."
+              echo "Run 'pnpm changeset:add' and commit the .changeset/*.md file it writes."
+              echo "If the change owes no note (for example a devDependency-only bump), run"
+              echo "'pnpm changeset:add --empty' and commit that instead."
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
