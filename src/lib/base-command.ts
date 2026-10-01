@@ -34,6 +34,7 @@ import {
 } from "./interaction.js";
 import { createSpinner } from "./progress.js";
 import { askConfirm, MissingValueError } from "./prompt.js";
+import { redactSecrets } from "./redact.js";
 import type {
   ConfigName,
   JsonErrorCode,
@@ -71,19 +72,6 @@ const JSON_ERROR_CODES: readonly JsonErrorCode[] = [
 // The timeout messages this CLI writes — github.ts, jira.ts, git.ts, herdr.ts
 // and cli.ts all say "<what> did not answer|finish within <n>s".
 const TIMEOUT_MESSAGE = /did not (?:answer|finish) within \d+s/;
-
-// A secret has no place in any output (security/secrets.md), and some messages
-// come from places that echo what they were given: a remote URL with
-// credentials in it is the realistic one (github.ts quotes the origin it could
-// not parse). Redacted at the point of output, so every route to stdout or
-// stderr is covered by one rule instead of each message being checked.
-const URL_CREDENTIALS = /(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi;
-const TOKEN_SHAPES =
-  /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g;
-
-export function redactSecrets(text: string): string {
-  return text.replace(URL_CREDENTIALS, "$1***@").replace(TOKEN_SHAPES, "***");
-}
 
 function isJsonErrorCode(code: unknown): code is JsonErrorCode {
   return JSON_ERROR_CODES.includes(code as JsonErrorCode);
@@ -141,9 +129,12 @@ function toSpaceLabel(worktreePath: string, worktreesRootPath: string) {
 
 /**
  * The most a brief may be, in bytes (D13). It becomes one argv element of
- * `herdr agent prompt`, so it is bounded where argv is.
+ * `herdr agent prompt`, so it is bounded where argv is: Linux caps a single
+ * argument at `MAX_ARG_STRLEN`, 131,072 bytes *including* the terminating NUL.
+ * The largest string that can be spawned is therefore 131,071 bytes, and a
+ * brief that passes validation must always be one that spawns.
  */
-export const AGENT_BRIEF_MAX_BYTES = 256 * 1024;
+export const AGENT_BRIEF_MAX_BYTES = 128 * 1024 - 1;
 
 export interface AgentBriefSources {
   agent?: string;
@@ -163,7 +154,7 @@ function checkBrief(brief: string, source: string): string {
 
   if (Buffer.byteLength(brief, "utf8") > AGENT_BRIEF_MAX_BYTES) {
     throw new Error(
-      `The agent brief from ${source} is over ${AGENT_BRIEF_MAX_BYTES / 1024} KB.`,
+      `The agent brief from ${source} is over ${AGENT_BRIEF_MAX_BYTES} bytes.`,
     );
   }
 
@@ -186,7 +177,7 @@ async function readBriefFile(path: string): Promise<string> {
   // Size first, so a huge file is refused without being read into memory.
   if (stats.size > AGENT_BRIEF_MAX_BYTES) {
     throw new Error(
-      `The agent brief from --agent-file is over ${AGENT_BRIEF_MAX_BYTES / 1024} KB.`,
+      `The agent brief from --agent-file is over ${AGENT_BRIEF_MAX_BYTES} bytes.`,
     );
   }
 
@@ -211,7 +202,7 @@ async function readBriefStdin(stdin: BriefStdin): Promise<string> {
     // Stops at the cap rather than buffering what will be refused anyway.
     if (bytes > AGENT_BRIEF_MAX_BYTES) {
       throw new Error(
-        `The agent brief from --agent-stdin is over ${AGENT_BRIEF_MAX_BYTES / 1024} KB.`,
+        `The agent brief from --agent-stdin is over ${AGENT_BRIEF_MAX_BYTES} bytes.`,
       );
     }
 
@@ -277,6 +268,13 @@ interface HerdrAgentPlan {
   kind: string;
   args: string[];
   sessionName: string | null;
+}
+
+function missingAgentKind(): MissingValueError {
+  return new MissingValueError(
+    "the agent kind",
+    "`worktree config herdr.agent <kind>`",
+  );
 }
 
 /** The kind that `--name` is known to mean a session name for (D11). */
@@ -443,17 +441,75 @@ export abstract class BaseCommand extends Command {
     }
   }
 
+  /** The opener this run uses: the flag first, then the `opener` key. */
+  private async resolveOpener(open: boolean): Promise<OpenerKind> {
+    const configured = await gitGetConfigValue("opener");
+
+    return !open || configured === "none"
+      ? "none"
+      : configured === "herdr"
+        ? "herdr"
+        : "editor";
+  }
+
+  /**
+   * Fails a brief that Herdr could not be given an agent for, before anything
+   * is created (#75). `openWorktreePath` would throw the same error, but only
+   * after the tree exists and is installed, which under `--json` leaves an
+   * error document with no `path` for a tree that is there.
+   *
+   * It throws in exactly the cases `openHerdrSpace` would have: a brief that
+   * would be handed over, an opener that is Herdr, Herdr installed, and no
+   * kind to start. Herdr not installed is not one of them — that run falls
+   * back to the detached dispatch — and neither is a run without a brief.
+   */
+  protected async assertAgentKindForBrief({
+    open = true,
+    agent = true,
+    brief,
+  }: OpenWorktreeOptions): Promise<void> {
+    if (!agent || brief === undefined) {
+      return;
+    }
+
+    if ((await this.resolveOpener(open)) !== "herdr") {
+      return;
+    }
+
+    if (!(await isHerdrInstalled())) {
+      return;
+    }
+
+    const { kind } = await this.readHerdrAgentKind(brief);
+
+    if (!kind) {
+      throw missingAgentKind();
+    }
+  }
+
+  /**
+   * The kind Herdr starts, and the `agent.command` it may have come from — the
+   * one place the fallback rule lives, for the preflight and the plan both.
+   */
+  private async readHerdrAgentKind(brief: string | undefined) {
+    const [head, ...tail] = splitCommandValue(
+      await gitGetConfigValue("agent.command"),
+    );
+    // The `agent.command` fallback is for a brief only: without one,
+    // `herdr.agent` alone decides, so someone who set `agent.command` for
+    // `--agent` is not given an agent in every plain open they never asked for.
+    const kind =
+      (await gitGetConfigValue("herdr.agent")) ||
+      (brief !== undefined ? basename(head ?? "") : "");
+
+    return { kind, head, tail };
+  }
+
   protected async openWorktreePath(
     path: string,
     { open = true, agent = true, brief }: OpenWorktreeOptions = {},
   ): Promise<OpenOutcome> {
-    const configured = await gitGetConfigValue("opener");
-    const opener: OpenerKind =
-      !open || configured === "none"
-        ? "none"
-        : configured === "herdr"
-          ? "herdr"
-          : "editor";
+    const opener = await this.resolveOpener(open);
     const handoff = agent ? brief : undefined;
 
     if (opener === "herdr") {
@@ -741,22 +797,11 @@ export abstract class BaseCommand extends Command {
     label: string,
     brief: string | undefined,
   ): Promise<HerdrAgentPlan | undefined> {
-    const [head, ...tail] = splitCommandValue(
-      await gitGetConfigValue("agent.command"),
-    );
-    // The `agent.command` fallback is for a brief only: without one,
-    // `herdr.agent` alone decides, so someone who set `agent.command` for
-    // `--agent` is not given an agent in every plain open they never asked for.
-    const kind =
-      (await gitGetConfigValue("herdr.agent")) ||
-      (brief !== undefined ? basename(head ?? "") : "");
+    const { kind, head, tail } = await this.readHerdrAgentKind(brief);
 
     if (!kind) {
       if (brief !== undefined) {
-        throw new MissingValueError(
-          "the agent kind",
-          "`worktree config herdr.agent <kind>`",
-        );
+        throw missingAgentKind();
       }
       return undefined;
     }

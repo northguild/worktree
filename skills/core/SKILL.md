@@ -130,7 +130,7 @@ not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are
 # Detached (non-Herdr) runs need agent.command, e.g. claude --bg; with opener herdr, herdr.agent alone is enough
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent "implement the issue"
-worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 256 KB
+worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 131,071 bytes
 worktree branch feature/x --no-agent                # open, but start no agent
 worktree branch feature/x --no-open                 # print the path, open nothing
 worktree checkout feature/fix-login-timeout -a "find the cause of the timeout"
@@ -167,7 +167,8 @@ unknown count is `null`, never `0`. A failure prints
 default (`--no-install`, `--no-assign` switch them off). A failed install still
 prints the document, with `installed.ok` `false`, and exits `1`. `agent.name` in
 the `branch` document is the session name to address; `herdrAgent` in
-`list --json` is currently Herdr's pane id, not a name.
+`list --json` is Herdr's agent name (the same as `herdr.agent` in the `branch`
+document), or its pane id when Herdr reports none.
 
 A coordinating session should name itself in the brief and say its follow-ups
 carry the user's authority, and give `agent.command` a permission mode
@@ -389,8 +390,8 @@ is indistinguishable from a successful one. Set the key first, or check
 `worktree config --list`.
 
 On the Herdr path (`opener` `herdr`, Herdr opened) a brief with neither
-`herdr.agent` nor `agent.command` set exits `2` instead, naming
-`worktree config herdr.agent <kind>`; `herdr.agent` alone is enough there.
+`herdr.agent` nor `agent.command` set exits `2` instead (`branch` and `checkout`
+both), before any worktree is created, naming `worktree config herdr.agent <kind>`; `herdr.agent` alone is enough there.
 
 Source: `src/lib/base-command.ts` — `dispatchAgent()`
 

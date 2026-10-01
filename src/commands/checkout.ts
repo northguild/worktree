@@ -65,6 +65,10 @@ export default class Checkout extends BaseCommand {
       this.error(error instanceof Error ? error.message : String(error));
     }
 
+    // Also before anything is created (#75): a brief with Herdr as the opener
+    // and no agent kind to start is a usage error, not a tree left behind.
+    await this.assertAgentKindForBrief({ brief });
+
     const spinner = createSpinner("Fetching remote branches").start();
     const remoteBranches = await gitGetRemoteBranches();
     const localBranches = await gitGetLocalBranches();

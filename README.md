@@ -134,7 +134,7 @@ The agent starts with the new worktree as its working directory and the flag's v
 
 There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. Otherwise `agent.command` is launched detached, and without it the worktree is created and opened as usual and only the agent is skipped.
 
-For a long prompt, `--agent-file <path>` or `--agent-stdin` reads it whole (at most 256 KB; the three are mutually exclusive). `--no-agent` opens the worktree without an agent, and `--no-open` creates it and prints its path without opening anything.
+For a long prompt, `--agent-file <path>` or `--agent-stdin` reads it whole (at most 131,071 bytes, the most one argument can carry on Linux; the three are mutually exclusive). `--no-agent` opens the worktree without an agent, and `--no-open` creates it and prints its path without opening anything.
 
 ### See what worktrees already exist
 
@@ -255,7 +255,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 | Flag | On | Does |
 | --- | --- | --- |
 | `--json` | `branch`, `list`, `remove` | one JSON document on stdout; everything for a person goes to stderr |
-| `--agent <text>`, `--agent-file <path>`, `--agent-stdin` | `branch` (`checkout` takes `--agent`) | the brief for the agent, from a value, a file or piped stdin; mutually exclusive with each other and with `--no-agent`, read whole, empty is refused, at most 256 KB |
+| `--agent <text>`, `--agent-file <path>`, `--agent-stdin` | `branch` (`checkout` takes `--agent`) | the brief for the agent, from a value, a file or piped stdin; mutually exclusive with each other and with `--no-agent`, read whole, empty is refused, at most 131,071 bytes |
 | `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
@@ -302,7 +302,7 @@ worktree branch --github 42 --json --agent-file brief.md
 
 `list --json` gives `{"worktrees":[{branch,path,current,pathExists,remote,remoteExists,ahead,behind,mergedInto,uncommittedChanges,safeToRemove}]}`.
 With `--agents`, each entry also has `agent`: `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`.
-`herdrAgent` is currently Herdr's pane id (for example `w4P:p1`), not an agent name.
+`herdrAgent` is the name Herdr gives the agent (for example `wt-42-fix-login`, the same as `branch --json`'s `herdr.agent`), or its pane id (for example `w4P:p1`) when Herdr reports no name.
 
 `remove --json` gives `{"removed":[{branch,path}],"herdrSpacesClosed":[…],"warnings":[]}`. Nothing removed is
 never reported as a success.

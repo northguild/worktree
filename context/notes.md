@@ -135,3 +135,14 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
   cbc5552); `github.autoAssign=true` was set, so the non-interactive assign default was not exercised live
   (the spawn harness covers it). The section repeats `branch/page.mdx` by the plan's design. The `SKILL.md`
   description is ~968 of intent's 1024 characters.
+- **Phase 13.** The `herdr agent prompt` timeout path still sets `cause` to the killed child, whose message
+  carries the full argv including the brief. Nothing prints `cause` today (only `error.message` reaches the
+  warning, and `toErrorDocument` writes `code`/`message`/`details`), so it leaks only if an error chain is ever
+  dumped; the signal path drops `cause` for that reason.
+- **Phase 13.** A disabled spinner's `start()` text is not redacted (today always a fixed label or a
+  branch/config name). The `stopAndPersist?.` guard in `progress.ts` exists only for the `branch.test.ts` ora
+  mocks. The `herdr.test.ts` fixture comment says Herdr omits `name`; live 0.9.0 sends `name: null` (handled).
+  The branch test's `--no-agent` case never reaches the `!agent` check (unreachable from the CLI anyway).
+- **Phase 13.** Bugs found in this branch's own unmerged code are fixed here, not filed: #71/#72/#74/#75/#76
+  were filed from Phases 8–10 and could not be worked from `main`. `/feature-close`: the PR body carries
+  `Closes #71 #72 #74 #75 #76`.

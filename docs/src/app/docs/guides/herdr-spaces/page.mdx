@@ -91,7 +91,7 @@ beside it. Whenever Herdr starts an agent:
 With a brief (`--agent`, `--agent-file` or `--agent-stdin`):
 
 - The kind is `herdr.agent`, or else the program [`agent.command`](/docs/configuration#agent-command)
-  names, so you can leave `herdr.agent` unset. With a brief and neither, the run exits `2` and names the
+  names, so you can leave `herdr.agent` unset. With a brief and neither, `worktree branch` exits `2` before it creates anything and names the
   key to set. Without a brief, only `herdr.agent` starts an agent.
 - The brief is submitted with `herdr agent prompt` once the agent is ready, never as part of
   `herdr agent start`.

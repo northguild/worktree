@@ -408,6 +408,45 @@ describe("getAgentSessions across Herdr and the runtime", () => {
     expect(isSessionWaiting(session as AgentSession)).toBe(true);
   });
 
+  // #74: Herdr reports `name` for an agent it started, and none for one it
+  // only detected; `herdrAgent` is the name, else the pane.
+  it("reports Herdr's agent name as herdrAgent, joined or alone, and the pane when it has none", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(JSON.stringify([runtimeEntry()]));
+    mockHerdrAgents([
+      herdrAgent({
+        name: "wt-139-festival-assistant-on-arc",
+        interactive_ready: true,
+      }),
+      herdrAgent({
+        name: "msg-check",
+        pane_id: "wA:p2",
+        agent_session: undefined,
+        cwd: "/repo/elsewhere",
+      }),
+      herdrAgent({
+        pane_id: "wA:p3",
+        agent_session: undefined,
+        cwd: "/repo/elsewhere",
+      }),
+    ]);
+
+    const sessions = await getAgentSessions();
+
+    expect(sessions.map((session) => session.herdrAgent)).toEqual([
+      "wt-139-festival-assistant-on-arc",
+      "msg-check",
+      "wA:p3",
+    ]);
+    // The display name of a Herdr-only entry stays `<kind>@<pane>`.
+    expect(sessions.map((session) => session.name)).toEqual([
+      "feature-test-1f",
+      "claude@wA:p2",
+      "claude@wA:p3",
+    ]);
+  });
+
   // A live process has been seen reported `done` by the runtime while Herdr
   // still had it in a pane; the join must not let that free the worktree.
   it("does not let a runtime done state through when Herdr lists the session", async () => {

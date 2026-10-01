@@ -137,8 +137,13 @@ export interface HerdrAgentEntry {
   /** The agent kind Herdr reports, e.g. `claude`. */
   kind: string;
   cwd: string;
-  /** The pane the agent runs in — the one handle the entry carries. */
+  /** The pane the agent runs in. */
   paneId?: string;
+  /**
+   * Herdr's name for the agent, which it reports for the ones it started — the
+   * `toHerdrAgentName` handle. Absent for an agent Herdr merely detected.
+   */
+  name?: string;
   /** `idle`, `working`, `blocked`, `done` or `unknown`; passed through as given. */
   status?: string;
   /** The runtime's session id (`agent_session.value`), when Herdr knows it. */
@@ -207,8 +212,26 @@ function readErrorBody(envelope: unknown): HerdrErrorBody | undefined {
   return { code, message };
 }
 
+/**
+ * The command as a message names it. The text of an `agent prompt` is the
+ * brief — up to 128 KiB of whatever the caller wrote — and these descriptions
+ * reach stderr and the `--json` `warnings`, so it is named by its size and
+ * never quoted (#72). Done here rather than at each call so no error path can
+ * forget: everything in this file that prints a command comes through it.
+ */
 function describeCommand(args: string[]): string {
-  return `\`${HERDR_EXECUTABLE} ${args.join(" ")}\``;
+  const [group, verb, target, text] = args;
+  const printed =
+    group === "agent" && verb === "prompt" && text !== undefined
+      ? [
+          group,
+          verb,
+          target,
+          `<brief, ${Buffer.byteLength(text, "utf8")} bytes>`,
+        ]
+      : args;
+
+  return `\`${HERDR_EXECUTABLE} ${printed.join(" ")}\``;
 }
 
 /**
@@ -244,8 +267,11 @@ function toHerdrError(args: string[], stderr: string, exitCode: number): Error {
  * unexplained failure, and an unexplained failure is the signal F-041 says is
  * missing in the first place.
  *
- * Only the kill is reworded. Anything else — a `herdr` that is not on PATH, a
- * maxBuffer overflow — is already specific and is passed through untouched.
+ * A kill is reworded, and so is a death on a signal this process did not send
+ * (an OOM kill, a crash): Node words both `Command failed: <argv>`, which would
+ * quote a brief (#72). Anything else — a `herdr` that is not on PATH, a
+ * maxBuffer overflow — is already specific, carries no argv, and is passed
+ * through untouched.
  */
 function toRunnerError(
   args: string[],
@@ -258,6 +284,14 @@ function toRunnerError(
     isRecord(error) && error.killed === true && error.code === null;
 
   if (!timedOut) {
+    // `code === null` with a signal and no kill of ours. No `cause`: it would
+    // carry Node's argv-bearing message to anything that prints the chain.
+    if (isRecord(error) && error.code === null && error.signal) {
+      return new Error(
+        `Herdr: ${describeCommand(args)} was killed by ${String(error.signal)}.`,
+      );
+    }
+
     return error instanceof Error ? error : new Error(String(error));
   }
 
@@ -594,6 +628,7 @@ function readAgentEntry(entry: unknown): HerdrAgentEntry | undefined {
     kind: readOptionalString(entry, "agent") ?? "agent",
     cwd,
     paneId: readOptionalString(entry, "pane_id"),
+    name: readOptionalString(entry, "name"),
     status: readOptionalString(entry, "agent_status"),
     sessionId:
       isRecord(session) && session.kind === "id"

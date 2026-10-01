@@ -1,8 +1,10 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { select } from "@inquirer/prompts";
+import * as herdr from "../integrations/herdr.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import { MissingValueError } from "../lib/prompt.js";
 import Checkout from "./checkout.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -185,6 +187,23 @@ describe("checkout command", () => {
       ]);
       vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    });
+
+    it("fails a brief with no agent kind before creating a worktree (#75)", async () => {
+      vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "opener" ? "herdr" : ""),
+      );
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: { agent: "review this branch" },
+      });
+
+      await expect(checkout.run()).rejects.toBeInstanceOf(MissingValueError);
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      expect(mockCopyEnvFiles).not.toHaveBeenCalled();
     });
 
     it("hands the prompt to the opener as the brief, after the env files", async () => {

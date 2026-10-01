@@ -895,6 +895,83 @@ describe("promptHerdrAgent", () => {
   });
 });
 
+describe("promptHerdrAgent errors never quote the brief (#72)", () => {
+  const brief = "SECRET-BRIEF-MARKER: rotate the keys\n$(touch x)";
+  const size = Buffer.byteLength(brief, "utf8");
+
+  it("names a timed-out prompt's brief by its size", async () => {
+    mockRunCapturing.mockRejectedValue(
+      Object.assign(
+        new Error(`Command failed: herdr agent prompt pF1 ${brief}`),
+        {
+          killed: true,
+          signal: "SIGTERM",
+          code: null,
+        },
+      ),
+    );
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: brief }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect((error as Error).message).toContain(
+      `herdr agent prompt pF1 <brief, ${size} bytes>`,
+    );
+    expect((error as Error).message).toMatch(/did not answer within 10s\.$/);
+    expect((error as Error).message).not.toContain("SECRET-BRIEF-MARKER");
+  });
+
+  it("names a prompt's brief by its size when Herdr died on a signal we did not send", async () => {
+    mockRunCapturing.mockRejectedValue(
+      Object.assign(
+        new Error(`Command failed: herdr agent prompt pF1 ${brief}\n`),
+        { killed: false, code: null, signal: "SIGKILL" },
+      ),
+    );
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: brief }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect((error as Error).message).toBe(
+      `Herdr: \`herdr agent prompt pF1 <brief, ${size} bytes>\` was killed by SIGKILL.`,
+    );
+    expect((error as Error).cause).toBeUndefined();
+  });
+
+  it("names a failed prompt's brief by its size when Herdr sent no envelope", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: "",
+      stderr: "socket closed",
+      exitCode: 1,
+    });
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: brief }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect((error as Error).message).toBe(
+      `Herdr: \`herdr agent prompt pF1 <brief, ${size} bytes>\` exited with code 1: socket closed`,
+    );
+  });
+
+  it("names a prompt answered without a result by its size", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: JSON.stringify({ id: "cli:agent:prompt" }),
+      stderr: "",
+      exitCode: 0,
+    });
+
+    const error = await promptHerdrAgent({ paneId: "pF1", text: brief }).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect((error as Error).message).toContain(`<brief, ${size} bytes>`);
+    expect((error as Error).message).not.toContain("SECRET-BRIEF-MARKER");
+  });
+});
+
 describe("listHerdrAgents", () => {
   // The entry shape captured from Herdr 0.9.0 on 2026-10-01; fields this
   // feature does not read are kept so the narrowing runs against the real thing.
@@ -946,6 +1023,28 @@ describe("listHerdrAgents", () => {
     expect(mockRunCapturing).toHaveBeenCalledWith("herdr", ["agent", "list"], {
       timeout: expect.any(Number),
     });
+  });
+
+  // Herdr 0.9.0 reports `name` (and `interactive_ready`) for an agent it started
+  // itself, and omits `name` for one it only detected (#74).
+  it("reads Herdr's agent name when it reports one, and leaves it out otherwise", async () => {
+    answer([
+      {
+        ...liveEntry,
+        name: "wt-139-festival-assistant-on-arc",
+        interactive_ready: true,
+      },
+      { ...liveEntry, pane_id: "wA:p2" },
+    ]);
+
+    const [named, unnamed] = await listHerdrAgents();
+
+    expect(named).toMatchObject({
+      name: "wt-139-festival-assistant-on-arc",
+      paneId: "wA:p1",
+    });
+    expect(unnamed?.name).toBeUndefined();
+    expect(unnamed?.paneId).toBe("wA:p2");
   });
 
   it("leaves the session id out of an agent with no session recorded", async () => {

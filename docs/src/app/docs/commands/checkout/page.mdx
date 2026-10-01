@@ -35,4 +35,4 @@ the checked-out worktree is handed to the agent configured as
 as its working directory. The worktree is opened as usual: in Herdr the agent is the one Herdr starts in the
 space and the prompt is submitted to it, otherwise `agent.command` is launched detached. There is one agent
 per worktree either way. `checkout` has no `--agent-file`, `--agent-stdin`, `--no-agent` or `--no-open`; an
-empty or over-256 KB prompt is rejected, as on `branch`.
+empty or over-131,071-byte prompt is rejected, as on `branch`, and so is a prompt with Herdr as the opener and no agent kind to start (see [`branch`](/docs/commands/branch#agent-dispatch)), both before the worktree is created.

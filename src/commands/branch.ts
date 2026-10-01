@@ -397,6 +397,15 @@ export default class Branch extends BaseCommand {
       this.error(error instanceof Error ? error.message : String(error));
     }
 
+    // Also before anything is created (#75): with a brief and Herdr as the
+    // opener, no agent kind is a usage error, and finding that out after the
+    // tree exists would leave `--json` an error document with no `path`.
+    await this.assertAgentKindForBrief({
+      open: !flags["no-open"],
+      agent: !flags["no-agent"],
+      brief,
+    });
+
     const configNames: ConfigName[] = !flags.source
       ? ["defaultSourceBranch"]
       : [];

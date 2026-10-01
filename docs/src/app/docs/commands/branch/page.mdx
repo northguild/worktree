@@ -174,7 +174,7 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent-file brief.md
 ```
 
-An empty brief, or one over **256 KB**, is rejected before anything is created. The brief is delivered
+An empty brief, or one over **131,071 bytes** (the most a single argument can carry on Linux), is rejected before anything is created. The brief is delivered
 verbatim, so quotes, apostrophes, semicolons and newlines in it reach the agent unchanged and no shell
 interprets it.
 
@@ -184,15 +184,15 @@ There is **one agent per worktree**, started one of two ways:
   with `herdr agent start`, and the brief is then submitted to it with `herdr agent prompt`, once, after the
   agent is ready. The brief is never part of the start command.
   - The agent kind is [`herdr.agent`](/docs/guides/herdr-spaces#start-an-agent-with-the-space), or else the program
-    [`agent.command`](/docs/configuration#agent-command) names. With a brief and neither, the run exits `2`
-    with `` worktree: no default for the agent kind; pass `worktree config herdr.agent <kind>` ``.
+    [`agent.command`](/docs/configuration#agent-command) names. With a brief and neither, and Herdr as the opener and installed, the run exits `2` before the worktree is
+    created, with `` worktree: no default for the agent kind; pass `worktree config herdr.agent <kind>` ``.
   - When `agent.command` names the same program, its arguments are passed to the agent, minus `--bg` and
     `--background` (a note says so on stderr): Herdr runs the agent in the pane, so a background flag would
     take it out of sight.
   - For `claude`, `--name <session>` is added. The session name is `<repo>-<branch>`, lowercased, with every
     run of characters outside `a-z`, `0-9` and `-` turned into `-`, and never shortened. It is printed on
     stderr. Herdr's own handle for the agent is separate and capped at 32 characters.
-  - If starting the agent fails, or the brief cannot be delivered, a warning says so and the worktree and
+  - If starting the agent fails, or the brief cannot be delivered, a warning says so (a failed delivery names the brief by its size, never its text) and the worktree and
     space are kept.
 - **Otherwise** (editor opener, `opener` `none`, or Herdr failing to open) `agent.command` is launched
   detached with the brief as its last argument and the new worktree as its working directory. It is started

@@ -139,6 +139,14 @@ async function listHerdrEntries(): Promise<HerdrAgentEntry[]> {
   }
 }
 
+// What `herdrAgent` reports: the name Herdr gave the agent (D12's "Herdr
+// handle"), which `agent list` carries for the agents Herdr started. One it
+// only detected has none, and the pane it runs in is then the only handle there
+// is. Never empty when the entry has a pane.
+function herdrHandle(entry: HerdrAgentEntry): string | undefined {
+  return entry.name ?? entry.paneId;
+}
+
 // Herdr's status is deliberately not turned into `state`. Its `done` means the
 // agent finished a turn and the pane has not been looked at since, not that the
 // process is gone, so reading it as a finished session would call a worktree
@@ -150,7 +158,7 @@ function herdrOnlySession(entry: HerdrAgentEntry): AgentSession {
     name: `${entry.kind}@${entry.paneId ?? "herdr"}`,
     cwd: entry.cwd,
     sessionId: entry.sessionId,
-    herdrAgent: entry.paneId,
+    herdrAgent: herdrHandle(entry),
     status: entry.status,
   };
 }
@@ -183,7 +191,7 @@ function joinSessions(
     return {
       ...session,
       state: session.state === "done" ? undefined : session.state,
-      herdrAgent: entry?.paneId,
+      herdrAgent: entry && herdrHandle(entry),
     };
   });
 

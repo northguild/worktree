@@ -18,12 +18,12 @@ import {
   BaseCommand,
   type OpenWorktreeOptions,
   readAgentBrief,
-  redactSecrets,
 } from "./base-command.js";
 import * as cli from "./cli.js";
 import * as git from "./git.js";
 import { isNonInteractive, setNonInteractive } from "./interaction.js";
 import { MissingValueError } from "./prompt.js";
+import { redactSecrets } from "./redact.js";
 import type { ConfigName } from "./types.js";
 
 // openWorktreePath is the only method covered here that draws a spinner. Mock it
@@ -1446,12 +1446,17 @@ describe("readAgentBrief", () => {
     );
   });
 
-  it("accepts a brief of exactly 256 KB and rejects one byte more", async () => {
+  it("caps the brief where Linux's single-argument limit allows a spawn (#71)", () => {
+    // MAX_ARG_STRLEN is 131,072 bytes including the terminating NUL.
+    expect(AGENT_BRIEF_MAX_BYTES).toBe(131_071);
+  });
+
+  it("accepts a brief of exactly the cap and rejects one byte more", async () => {
     const atCap = "x".repeat(AGENT_BRIEF_MAX_BYTES);
 
     await expect(readAgentBrief({ agent: atCap })).resolves.toBe(atCap);
     await expect(readAgentBrief({ agent: `${atCap}x` })).rejects.toThrow(
-      /over 256 KB/,
+      /over 131071 bytes/,
     );
   });
 
@@ -1463,7 +1468,7 @@ describe("readAgentBrief", () => {
         { agentStdin: true },
         stdinOf([chunk, chunk, chunk, chunk]),
       ),
-    ).rejects.toThrow(/over 256 KB/);
+    ).rejects.toThrow(/over 131071 bytes/);
   });
 });
 

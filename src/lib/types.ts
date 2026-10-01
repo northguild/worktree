@@ -26,7 +26,7 @@ export interface AgentSession {
   cwd: string;
   /** The runtime's id for the session; what Herdr's entry is joined on. */
   sessionId?: string;
-  /** The Herdr pane the session runs in, when Herdr lists it. */
+  /** The Herdr agent name, or the pane id when Herdr names none (#74). */
   herdrAgent?: string;
   kind?: string;
   status?: string;

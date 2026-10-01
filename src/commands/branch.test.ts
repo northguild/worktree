@@ -6,11 +6,13 @@ import { confirm, input } from "@inquirer/prompts";
 import { Config } from "@oclif/core";
 import ora from "ora";
 import * as githubIntegration from "../integrations/github.js";
+import * as herdr from "../integrations/herdr.js";
 import * as jiraIntegration from "../integrations/jira.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { runInstall } from "../lib/install.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import { MissingValueError } from "../lib/prompt.js";
 import * as validators from "../lib/validators.js";
 import { captureOutput } from "../test-setup.js";
 import Branch from "./branch.js";
@@ -1084,17 +1086,17 @@ describe("branch command", () => {
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
-    it("rejects a --agent-file that is empty, missing, a directory, or over 256 KB", async () => {
+    it("rejects a --agent-file that is empty, missing, a directory, or over the 131,071-byte cap", async () => {
       const empty = join(tempDir, "empty.md");
       const big = join(tempDir, "big.md");
       writeFileSync(empty, "");
-      writeFileSync(big, "x".repeat(256 * 1024 + 1));
+      writeFileSync(big, "x".repeat(131_072));
 
       for (const [file, message] of [
         [empty, /empty/],
         [join(tempDir, "missing.md"), /does not exist/],
         [tempDir, /not a regular file/],
-        [big, /over 256 KB/],
+        [big, /over 131071 bytes/],
       ] as const) {
         parsed({ "agent-file": file });
         await expect(branch.run()).rejects.toThrow(message);
@@ -1103,11 +1105,95 @@ describe("branch command", () => {
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
-    it("rejects a --agent over 256 KB measured in bytes, not characters", async () => {
-      // 90,000 three-byte characters are under 256 K characters and over 256 KB.
+    it("rejects a --agent over the cap measured in bytes, not characters", async () => {
+      // 90,000 three-byte characters are under 131,071 characters and over 131,071 bytes.
       parsed({ agent: "€".repeat(90_000) });
 
-      await expect(branch.run()).rejects.toThrow(/over 256 KB/);
+      await expect(branch.run()).rejects.toThrow(/over 131071 bytes/);
+    });
+
+    // #75: with a brief, Herdr as the opener and no kind to start, the run used
+    // to fail only after the tree was created and installed.
+    describe("a brief with no agent kind to hand it to", () => {
+      function configure(values: Record<string, string>) {
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "defaultSourceBranch"
+                ? "origin/main"
+                : (values[key] ?? ""),
+          ),
+        );
+      }
+
+      beforeEach(() => {
+        vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+      });
+
+      it("fails as a missing value before the worktree is created", async () => {
+        configure({ opener: "herdr" });
+        parsed({ agent: "implement the issue" });
+
+        const error = await branch.run().catch((thrown: unknown) => thrown);
+
+        expect(error).toBeInstanceOf(MissingValueError);
+        expect(error).toMatchObject({
+          value: "the agent kind",
+          flag: "`worktree config herdr.agent <kind>`",
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+        expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+        expect(mockRunInstall).not.toHaveBeenCalled();
+        expect(mockOpenWorktreePath).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        [
+          "herdr.agent is set",
+          { opener: "herdr", "herdr.agent": "claude" },
+          {},
+        ],
+        [
+          "agent.command names a program",
+          { opener: "herdr", "agent.command": "claude --bg" },
+          {},
+        ],
+        ["the opener is the editor", { opener: "code" }, {}],
+        ["the opener is none", { opener: "none" }, {}],
+        ["--no-open is given", { opener: "herdr" }, { "no-open": true }],
+        ["--no-agent is given", { opener: "herdr" }, { "no-agent": true }],
+      ])("still creates the worktree when %s", async (_label, values, flags) => {
+        configure(values);
+        parsed({ agent: "implement the issue", ...flags });
+        // --no-agent excludes the brief flags, so it carries none.
+        if ("no-agent" in flags) {
+          parsed({ ...flags });
+        }
+
+        await branch.run();
+
+        expect(git.gitCreateWorktree).toHaveBeenCalled();
+      });
+
+      it("still creates the worktree when Herdr is not installed, for the detached path", async () => {
+        vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(false);
+        configure({ opener: "herdr" });
+        parsed({ agent: "implement the issue" });
+
+        await branch.run();
+
+        expect(git.gitCreateWorktree).toHaveBeenCalled();
+      });
+
+      it("still creates the worktree when there is no brief", async () => {
+        configure({ opener: "herdr" });
+        parsed({});
+
+        await branch.run();
+
+        expect(git.gitCreateWorktree).toHaveBeenCalled();
+      });
     });
 
     it("declares the three brief flags and --no-agent as mutually exclusive", () => {
@@ -1613,6 +1699,27 @@ describe("branch command", () => {
       expect(output.stderr()).toContain(
         "worktree: no default for the branch name; pass <branchName>",
       );
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("gives a brief with no agent kind as missing_value, before a tree exists (#75)", async () => {
+      vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config" || key === "defaultSourceBranch"
+            ? "origin/main"
+            : key === "opener"
+              ? "herdr"
+              : "",
+        ),
+      );
+
+      await runJson({ branchName: "feature/test" }, { agent: "do it" });
+
+      expect(output.document()).toMatchObject({
+        error: { code: "missing_value" },
+      });
+      expect(mockGitCreateWorktreeCalls()).toBe(0);
       expect(process.exitCode).toBe(2);
     });
 

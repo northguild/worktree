@@ -2,6 +2,7 @@
 // through `createSpinner`, so the E2 fix below cannot be missed at a call site.
 import ora, { type Ora } from "ora";
 import { isNonInteractive } from "./interaction.js";
+import { redactSecrets } from "./redact.js";
 
 /** The part of a stream the decision reads. */
 export interface ProgressStream {
@@ -37,6 +38,28 @@ export function isProgressEnabled(
 }
 
 /**
+ * `warn`, `fail` and the rest of the settling methods print their text to
+ * stderr through ora's `stopAndPersist`, disabled spinner or not, and so are a
+ * route to the terminal that `BaseCommand.warn` never sees. Redacting at that
+ * one method covers every call site at once, the same way `createSpinner`
+ * covers the E2 fix — a message that echoes what it was given (a remote URL
+ * with credentials) is masked before it is printed (#76).
+ */
+function redactPersistedText(spinner: Ora) {
+  // Optional only because the suites replace ora with objects that lack it;
+  // the real one always has it.
+  const original = spinner.stopAndPersist?.bind(spinner);
+
+  if (original) {
+    spinner.stopAndPersist = (options = {}) =>
+      original({
+        ...options,
+        text: redactSecrets(options.text ?? spinner.text),
+      });
+  }
+}
+
+/**
  * ora, with animation turned off where `isProgressEnabled` says so. A disabled
  * ora prints plain `- text` lines to stderr instead.
  *
@@ -54,6 +77,8 @@ export function createSpinner(text: string, options: ProgressOptions = {}) {
     // readonly; progress.test.ts pins the behaviour against the real ora.
     Object.assign(spinner, { isEnabled: false });
   }
+
+  redactPersistedText(spinner);
 
   return spinner;
 }

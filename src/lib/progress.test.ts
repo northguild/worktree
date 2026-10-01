@@ -84,3 +84,44 @@ describe("createSpinner against real ora", () => {
     expect(output).toContain("Done");
   });
 });
+
+describe("createSpinner redacts what it prints on warn and fail (#76)", () => {
+  const credentialed =
+    "origin remote https://octocat:ghp_abcdefghijklmnopqrstuvwxyz0123456789@github.com/o/r.git";
+
+  async function printed(settle: "warn" | "fail", text?: string) {
+    const stream = Object.assign(new PassThrough(), {
+      isTTY: false,
+      columns: 80,
+    });
+    let output = "";
+    stream.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+
+    const spinner = createSpinner("Working", {
+      nonInteractive: true,
+      stream,
+    }).start();
+    spinner[settle](text);
+
+    return output;
+  }
+
+  it.each([
+    "warn",
+    "fail",
+  ] as const)("masks credentials in %s", async (settle) => {
+    const output = await printed(settle, credentialed);
+
+    expect(output).toContain("https://***@github.com/o/r.git");
+    expect(output).not.toMatch(/octocat|ghp_/);
+  });
+
+  it.each([
+    "warn",
+    "fail",
+  ] as const)("keeps the label when %s is given no text", async (settle) => {
+    expect(await printed(settle)).toContain("Working");
+  });
+});

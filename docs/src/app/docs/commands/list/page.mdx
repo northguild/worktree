@@ -131,7 +131,7 @@ and any warning go to stderr. It implies a [non-interactive run](/docs/commands/
 | `mergedInto` | the base whose commits already contain all of this branch's changes; `null` when not known to be merged |
 | `uncommittedChanges` | the number of uncommitted changes; `null` when the directory is gone, as there is nothing to count |
 | `safeToRemove` | the verdict [`cleanup`](/docs/commands/cleanup) acts on |
-| `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}` |
+| `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}`. `herdrAgent` is the name Herdr gives the agent, as `branch --json` reports it in `herdr.agent`, or the agent's pane id when Herdr reports no name |
 
 **A count or flag that could not be taken is `null`, never `0` and never left out.** `ahead` and `uncommittedChanges` are
 `null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, and
