@@ -10,7 +10,7 @@ import {
 } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
 import { askConfirm, askInput, askSelect } from "../lib/prompt.js";
-import type { ConfigName } from "../lib/types.js";
+import type { ConfigName, OpenerKind } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
 import {
   isValidAgentKind,
@@ -18,7 +18,6 @@ import {
   isValidCommand,
   isValidCommandLine,
   isValidEmail,
-  isValidOpener,
   validateConfigValue,
 } from "../lib/validators.js";
 
@@ -402,13 +401,23 @@ export default class Config extends BaseCommand {
         flags.names,
       ))
     ) {
-      const opener = await this.askConfigInput(
-        "opener",
+      // Select values are compared with `===`, so anything that is not one of
+      // the three kinds (unset, empty, a hand-edited oddity) is normalised to
+      // "editor" before it becomes the default or the non-interactive fallback.
+      const storedOpener = await gitGetConfigValue("opener");
+      const openerDefault =
+        OPENER_KINDS.find((kind) => kind === storedOpener) ?? "editor";
+      const opener = await askSelect<OpenerKind>(
         {
-          message: `Which opener should new worktrees use? (${conjoin(OPENER_KINDS, "or")})`,
-          validate: isValidOpener,
+          message: "Which opener should new worktrees use?",
+          choices: OPENER_KINDS.map((kind) => ({ name: kind, value: kind })),
+          default: openerDefault,
         },
-        "editor",
+        {
+          value: "opener",
+          flag: "worktree config opener <editor|herdr|none>",
+          fallback: openerDefault,
+        },
       );
       await gitSetConfigValue("opener", opener);
     }
