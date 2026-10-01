@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { confirm } from "@inquirer/prompts";
-import { Config } from "@oclif/core";
 import * as herdr from "../integrations/herdr.js";
 import {
   captureOutput,
   expectCommands,
+  loadConfig,
   mockRun,
   mockRunCapturing,
   mockSpawnDetached,
@@ -1333,8 +1333,7 @@ describe("init — interaction mode", () => {
   const stdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
 
   async function initWith(argv: string[]) {
-    const { Config } = await import("@oclif/core");
-    const command = new TestCommand(argv, await Config.load(process.cwd()));
+    const command = new TestCommand(argv, await loadConfig());
     await command.init();
     return command;
   }
@@ -1555,7 +1554,7 @@ describe("--json output", () => {
     process.exitCode = undefined;
     // Loaded first: oclif warns about the .ts command files it cannot import
     // here, and that is not what these tests are about.
-    command = new JsonTestCommand(["--json"], await Config.load(process.cwd()));
+    command = new JsonTestCommand(["--json"], await loadConfig());
     output = captureOutput();
   });
 
@@ -1575,7 +1574,7 @@ describe("--json output", () => {
 
   it("still logs to stdout when --json was not given", async () => {
     output.restore();
-    const plain = new JsonTestCommand([], await Config.load(process.cwd()));
+    const plain = new JsonTestCommand([], await loadConfig());
     output = captureOutput();
 
     plain.say("hello");

@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { Config } from "@oclif/core";
 import { setNonInteractive } from "./lib/interaction.js";
 
 // Global mock for the subprocess helper, to prevent actual command execution.
@@ -114,10 +117,25 @@ function captureOutput() {
   };
 }
 
+// A real oclif Config, for the suites that go through `init` or `_run`. vitest
+// sets NODE_ENV to "test", which oclif reads as development: it points command
+// discovery at src/commands and imports each .ts natively, where their .js
+// specifiers cannot resolve, so `Config.load(process.cwd())` warned
+// MODULE_NOT_FOUND once per command. No suite needs the command list, so the
+// root plugin is loaded without a `commands` target and discovers none.
+async function loadConfig(): Promise<Config> {
+  const root = process.cwd();
+  const pjson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const oclif = { ...pjson.oclif };
+  delete oclif.commands;
+  return Config.load({ root, pjson: { ...pjson, oclif } });
+}
+
 // Export the mocks and helper for use in tests
 export {
   captureOutput,
   expectCommands,
+  loadConfig,
   mockRun,
   mockRunCapturing,
   mockRunStreaming,
