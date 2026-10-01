@@ -74,8 +74,17 @@ it in passing rather than treating a mismatch as a failure.
 
 - **`pnpm sync-version`** — generation, not verification. It *writes* `docs/src/lib/site-meta.ts`,
   `skills/core/SKILL.md` and `skills/_artifacts/skill_tree.yaml` from `package.json`'s version, so it must
-  never sit in a gate section: Gate 1 does not mutate the working tree. Run it after a version bump and
-  commit the result — `ci.yml` runs it and then hard-fails on drift via `git diff --exit-code`.
+  never sit in a gate section: Gate 1 does not mutate the working tree. `pnpm changeset:prepare-release`
+  runs it after `changeset version`, so the release pull request carries the result; run it by hand only to
+  repair drift. `ci.yml` runs it and then hard-fails on drift via `git diff --exit-code`.
+- **`pnpm changeset:add`** — not a gate: interactive (it prompts for a bump level and a description) and it
+  writes a `.changeset/*.md` file. Run it when a change owes a release note, per [`release.md`](release.md).
+- **`pnpm changeset:status`** — not a gate: it compares against `origin/main`, so it needs that ref and a
+  full-depth clone (`fetch-depth: 0`), and a local result is meaningless without them. It is the
+  `release-note.yml` pull request check; Gate 1 runs per phase while a note is owed once per feature.
+- **`pnpm changeset:prepare-release`** — not a gate: it mutates the tree (bumps `package.json`, writes
+  `CHANGELOG.md`, deletes the consumed notes) and is run once, by a maintainer, to make a release pull
+  request. Never run it to verify anything.
 - **`pnpm docs:build`** — needs the `GEMINI_WORKER_URL` repository variable baked in at build time.
   Deploy concern; `docs-deploy.yml` owns it.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and

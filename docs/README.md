@@ -262,5 +262,11 @@ The docs site deploys automatically on every push to `main` that touches
 The Cloudflare Worker deploys automatically on pushes to `main` that touch
 `docs/worker/**` (see `.github/workflows/worker-deploy.yml`).
 
+The docs site's version label comes from `docs/src/lib/site-meta.ts`, which `pnpm sync-version` writes
+from the root `package.json`. A release runs it as part of `pnpm changeset:prepare-release`, so the new
+version arrives in the release pull request; `pnpm docs:dev` runs it first locally. Changesets ignores the
+`docs` package (it is private and has no npm release), so docs changes need no release note and the site
+deploys on its own, not on a version.
+
 For manual deployment steps, including first-time Cloudflare setup, see
 [docs/worker/README.md](worker/README.md).

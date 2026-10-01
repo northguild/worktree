@@ -407,6 +407,18 @@ The documentation website should be the place for:
 - edge cases and troubleshooting
 - richer examples for different repository layouts
 
+## Contributing
+
+A change to the published package (`src/**`, `bin/**`, `skills/**`, or `package.json` dependencies) needs a release note. Run:
+
+```bash
+pnpm changeset:add
+```
+
+Pick the bump level (`patch`, `minor`, or `major` for a breaking change) and write the description for someone installing the package: it becomes the `CHANGELOG.md` entry and the GitHub release text. Commit the `.changeset/*.md` file it writes with the change. A pull request check (`pnpm changeset:status`) fails when the package changed and no note was added.
+
+Merging a pull request publishes nothing. A release is a deliberate release pull request: a maintainer runs `pnpm changeset:prepare-release`, which bumps the version, writes `CHANGELOG.md` and consumes the notes, then commits and opens the pull request. Merging it tests, builds and publishes to npm, tags `v<version>` and creates the GitHub release.
+
 ## Requirements
 
 - Git installed and available on your `PATH`

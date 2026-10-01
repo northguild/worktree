@@ -25,7 +25,8 @@ bin/                  oclif entry point — bin/run.js, produced by tsc
 src/commands/         one file per CLI command; each default-exports a BaseCommand subclass
 src/lib/              CLI helpers — git integration, validators, env, types, constants, cli
 src/integrations/     GitHub and Jira integrations
-scripts/              version-sync scripts, run by `pnpm sync-version`
+scripts/              version-sync scripts, run by `pnpm sync-version`; `release-notes.mjs`, which publish.yml uses to cut a version's CHANGELOG section
+.changeset/           Changesets config and pending release notes (`.changeset/<name>.md`)
 skills/               shipped inside the npm package (package.json `files`); generated — see below
 docs/                 Next.js 16 + Nextra 4 docs app, React 19, Base UI; own package.json
 docs/src/app/         docs content
@@ -55,8 +56,10 @@ context/              planning-workflow artifacts (this directory)
   `worker:setup-dev-vars` reads it from `docs/.env.local` and writes `docs/worker/.dev.vars`; both are
   gitignored. `ci.yml` runs a secret scan that fails the build if a key value is committed.
 - **Three generated files must be committed in sync with `package.json`'s version:**
-  `docs/src/lib/site-meta.ts`, `skills/core/SKILL.md`, `skills/_artifacts/skill_tree.yaml`. Run
-  `pnpm sync-version` after a version bump; CI hard-fails on drift via `git diff --exit-code`. Use the
+  `docs/src/lib/site-meta.ts`, `skills/core/SKILL.md`, `skills/_artifacts/skill_tree.yaml`. The
+  version bump arrives through `pnpm changeset:prepare-release` in the release pull request, which runs
+  `pnpm sync-version` after `changeset version`; never bump by hand. CI hard-fails on drift via
+  `git diff --exit-code`. Use the
   root `pnpm docs:dev`, not `pnpm --filter docs dev` — the former syncs the version first.
 - **One lockfile, at the root.** There is no `.npmrc` — the one that pinned
   `shared-workspace-lockfile=true` was removed in 260eb2f, and pnpm's default keeps the behaviour. CI
@@ -80,7 +83,7 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
 | `skills/core/SKILL.md`, `skills/_artifacts/` | the `@tanstack/intent` skill consumers; shipped in the npm package | a command or flag change that the skill tree describes — **but see the caveat below** |
-| `docs/src/app/docs/changelog/page.mdx` | users looking for release notes | nothing routine — it states the "single latest-docs" policy rather than listing versions |
+| `docs/src/app/docs/changelog/page.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
 
 **Nothing is published outside this repository.** The GitHub Pages site is built from `docs/` by
 `docs-deploy.yml`, and npm's package page renders the root `README.md`. Both are already in the tree, so
