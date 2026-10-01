@@ -99,17 +99,22 @@ a feature that touches `docs/` deploys the site on merge, bump or no bump.
 
 ### The wires
 
-- **Bump** — by hand, inside the feature's own pull request: the root `package.json` version, then
-  `pnpm sync-version` to regenerate the three files `ci.yml` checks for drift. No script consumes notes.
-- **Tag** — `tag-on-version-change.yml`, on a push to `main` that touches `package.json` and moves its
-  version: an annotated `v<version>` tag by `github-actions[bot]`. **Runs**, green on every recent merge;
-  `v1.8.0` is its latest.
-- **Release** — **by hand**: a person creates the GitHub release from that tag, with GitHub's generated
-  notes. **Nothing enforces that one follows the tag**: `v1.2.8` was tagged and never released, so it was
-  never published — npm has 1.2.7 and then 1.3.0.
-- **Publish** — `publish.yml`, on a release being published: `pnpm test`, `pnpm build`, then `npm publish`
-  (OIDC, the `release` environment), or `npm publish --tag next` for a prerelease, then a Discord post.
-  **Runs**, green for 1.5.0 through 1.8.0.
+- **Bump** — a release pull request made with `pnpm changeset:prepare-release` (`changeset version`, then
+  `pnpm sync-version` to regenerate the three files `ci.yml` checks for drift). It must come from that
+  command: it writes the version's `CHANGELOG.md` section, and a hand-edited version bump has none, so
+  `publish.yml` stops before publishing.
+- **Tag, release, publish** — one workflow, `publish.yml`, on a push to `main` that touches `package.json`
+  and moves its version (a `guard` job reads the previous version from `github.event.before`), or on a
+  manual dispatch, which forces the guard open. The `publish` job, in the `release` environment with OIDC,
+  then runs: `pnpm test`, `pnpm build`; extracts that version's `CHANGELOG.md` section with
+  `scripts/release-notes.mjs` and **fails before publishing if it is missing**; `npm publish` (or
+  `--tag next` for a version containing `-`); an annotated `v<version>` tag by `github-actions[bot]`; the
+  GitHub release from the CHANGELOG section (`--prerelease` for a prerelease); a Discord post. Each step
+  skips itself if its result already exists (version on npm, tag, release), so a failed run is recovered
+  with "Run workflow". It replaces `tag-on-version-change.yml` (deleted) and the old `release: published`
+  trigger, which could not fire once the release is created by a workflow's own token. **Not yet run**: the
+  first real publish under this shape is the maintainer's next release. `v1.2.8` was once tagged and never
+  released, so never published; that gap is closed because tag and release no longer come apart.
 - **Deploy (docs)** — `docs-deploy.yml`, on any push to `main` touching `docs/**`, `package.json`, the
   lockfile, the workspace file or the version-sync script. **Runs**, green. It is not gated on a version.
 - **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`. **Has never
@@ -122,22 +127,21 @@ a feature that touches `docs/` deploys the site on merge, bump or no bump.
 
 | Path | On a merge to `main` | Leaves behind |
 |---|---|---|
-| `@northguild/worktree` (root) | if its version moved: tagged. Published only once a person creates the release | tag (automatic) + release (by hand) |
+| `@northguild/worktree` (root) | if its version moved: tested, built, published to npm, tagged, released | npm version + tag + GitHub release (all automatic) |
 | `docs` | deployed to GitHub Pages if the merge touched `docs/**` or `package.json` — version or not | nothing |
 | `docs/worker` | `worker-deploy.yml` fires and fails | nothing |
 
-**The npm path is gated on its own version, correctly.** The tag keys on the root version moving, and a
-merge that does not bump it tags nothing.
+**The npm path is gated on its own version, correctly.** `publish.yml` keys on the root version moving, and
+a merge that does not bump it publishes, tags and releases nothing.
 
 **The docs deploy is not gated at all**, and that is recorded as what this repository does rather than as
 the gate it could have. It ships whatever `docs/` holds at merge time. Because each feature carries its own
-bump, the window is usually short — but between a merge and the release a person creates, the live docs
+bump, the window is usually short — but between a merge and the release PR that publishes it, the live docs
 can describe a version npm does not have yet, and a docs change merged without a bump describes behaviour
 that is not published at all. A deployed site leaves no tag and no release, so nothing records which commit
 is live.
 
-**The gaps, named and not generated:** a release that follows the tag automatically (or a check that
-notices one that did not), a Worker deploy credential, and — if a note mechanism is ever installed — the
+**The gaps, named and not generated:** a Worker deploy credential, and — if a note mechanism is ever installed — the
 decision whether `docs` is versioned and tagged so its deploy can key on something.
 
 ## The rules that hold either way

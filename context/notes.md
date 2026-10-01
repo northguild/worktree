@@ -20,3 +20,18 @@ nothing in the workflow; `/feature-close` deletes this file.
   2.8.3 to 2.9.1 in the lockfile — inside the existing `yaml` override range; tests green.
 - **Phase 1:** `@changesets/cli@3.0.3` declares `engines.node: ^22.11 || ^24 || >=26`. Nothing in the repo
   states a Node floor for contributors (no `.nvmrc`, no `engines`); worth a line in the contributor docs.
+- **Phase 3:** `context/verify.md`'s Test section says `pnpm test` covers `src/`; it now also runs
+  `scripts/**/*.test.mjs`. `context/stack.md`'s `scripts/` row says version-sync only; it now also holds
+  `release-notes.mjs`. Both are phase 4's files.
+- **Phase 3:** recovering by "Run workflow" (dispatch) tags whatever `main` is at dispatch time, which may be
+  later than the release commit. "Re-run failed jobs" on the original push run keeps the release commit.
+  Worth saying in the contributor docs.
+- **Phase 3:** with `concurrency: publish` and no cancelling, GitHub keeps one pending run, so a third
+  `package.json` push during a release replaces a pending release run, which then needs a dispatch.
+- **Phase 3:** a dispatch re-run re-posts to Discord even when nothing new was published.
+- **Phase 3:** the `release` environment has no protection rules, so nothing pauses a publish for a person.
+  Unchanged by this feature.
+- **Phase 3:** `context/release.md`'s *The wires* intro ("no separate release pull request", "each feature
+  carries its own bump") is in tension with the new Bump bullet (a release PR from
+  `changeset:prepare-release`), and its gaps line still says "if a note mechanism is ever installed".
+  Phase 4's re-fill settles both (D1: a deliberate release PR).

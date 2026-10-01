@@ -1,20 +1,93 @@
+name: Publish
+
+# A release is a push to main that moves the root package version: the release PR that
+# `pnpm changeset:prepare-release` produces. Everything below is gated on that, and every step is safe to
+# run twice, so a failed run is recovered with "Run workflow" (workflow_dispatch), which forces the gate open.
+#
+#   guard      did this push move the version?            (no environment, read-only)
+#   publish    test, build, notes, npm publish, tag, GitHub release, Discord
+#
+# Nothing here holds an npm token: the publish job has `id-token: write` and npm exchanges it for a
+# short-lived credential (trusted publishing), which also attaches the provenance attestation.
+#
+# WARNING: npm trusted publishing is bound to this file's name and to the `release` environment on the
+# publish job (2.0.0's provenance names `.github/workflows/publish.yml`). Do not rename the file, drop the
+# environment, or move `npm publish` into a reusable workflow: every publish would then fail with a 401.
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - package.json
+  workflow_dispatch:
+
+# Two runs must never publish at once; queue rather than cancel a half-finished release.
+concurrency:
+  group: publish
+  cancel-in-progress: false
 
 permissions:
-  id-token: write # Required for OIDC
-  contents: write # Required for creating tags
+  contents: read
 
 jobs:
-  publish:
+  guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+    steps:
+      # fetch-depth: 0 so `github.event.before` is present even when a push carries several commits.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Did this push move the package version?
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          # A manual dispatch is the documented recovery route, so it bypasses the guard.
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Dispatched by hand: guard bypassed for $CURRENT_VERSION." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # No readable previous package.json (a new branch, a force push) reads as a change.
+          PREV_JSON=$(git show "$BEFORE:package.json" 2>/dev/null || true)
+          if [[ -z "$PREV_JSON" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "No previous package.json to compare: treating $CURRENT_VERSION as a release." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          PREV_VERSION=$(printf "%s" "$PREV_JSON" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version || ''")
+          if [[ "$PREV_VERSION" == "$CURRENT_VERSION" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Version is still $CURRENT_VERSION: nothing to publish." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Version moved $PREV_VERSION -> $CURRENT_VERSION." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    needs: guard
+    if: needs.guard.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: release
-    if: github.event.release.draft == false
+    permissions:
+      id-token: write # npm trusted publishing (OIDC)
+      contents: write # push the tag and create the GitHub release
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0 # tags must be present for the "does it exist" check
 
       - uses: actions/setup-node@v4
         with:
@@ -26,13 +99,77 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
-      - name: Publish stable
-        if: github.event.release.prerelease == false
-        run: npm publish
+      - name: Read the version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          # A hyphen means a prerelease (2.1.0-next.0): npm tag `next`, and a GitHub prerelease.
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Publish prerelease
-        if: github.event.release.prerelease == true
-        run: npm publish --tag next
+      # Fails here, before anything is published, if CHANGELOG.md has no section for this version.
+      - name: Extract this version's release notes
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: node scripts/release-notes.mjs "$VERSION" CHANGELOG.md > "$NOTES_FILE"
+
+      - name: Publish to npm
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$(npm view "@northguild/worktree@$VERSION" version 2>/dev/null || true)" ]]; then
+            echo "@northguild/worktree@$VERSION is already on npm: skipping publish." | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$PRERELEASE" == "true" ]]; then
+            npm publish --tag next
+          else
+            npm publish
+          fi
+
+      - name: Tag
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists: skipping tag." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: GitHub release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists: skipping." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            FLAGS=()
+            if [[ "$PRERELEASE" == "true" ]]; then FLAGS+=(--prerelease); fi
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$NOTES_FILE" "${FLAGS[@]}"
+          fi
+          echo "url=$(gh release view "$TAG" --json url --jq .url)" >> "$GITHUB_OUTPUT"
 
       - name: Send Discord Notification
         uses: Ilshidur/action-discord@0.3.2
@@ -40,6 +177,6 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         with:
           args: |
-            🚀 Version ${{ github.event.release.tag_name }} of @northguild/worktree is now live on npm!
+            🚀 Version ${{ steps.version.outputs.tag }} of @northguild/worktree is now live on npm!
             📑 **What's New:**
-            ${{ github.event.release.html_url }}
+            ${{ steps.release.outputs.url }}

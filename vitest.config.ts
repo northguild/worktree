@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
     setupFiles: ["./src/test-setup.ts"],
     disableConsoleIntercept: true, // Required for @oclif/test
     // chalk styles output when it detects colour support, so console assertions
