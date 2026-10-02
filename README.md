@@ -160,7 +160,7 @@ To name the agent session living in each worktree:
 worktree list --agents
 ```
 
-Sessions are found from two places, joined on the directory they run in: `herdr agent list` when `herdr` is installed, and the runtime's own `<program> agents --json`, where the program is `agent.command`'s first word or else `herdr.agent`. A finished session shows `[done]`, unless Herdr still shows it in a pane. With neither source available the list simply shows no sessions.
+Sessions are found from two places, joined on the directory they run in: `herdr agent list` when `herdr` is installed, and the runtime's own `<program> agents --json`, where the program is `agent.command`'s first word or else `herdr.agent`. A finished session shows `[done]`, unless Herdr still shows it in a pane or its process is still running. With neither source available the list simply shows no sessions.
 
 ### Reopen a worktree in your editor
 
@@ -360,8 +360,9 @@ receipt**: check it, not just the exit code, when a brief matters.
 
 They are joined on the directory each session runs in, compared as real paths, and a Herdr entry is named by
 the runtime session with the same session id. A session without a `pid` is kept. `live` is `false` for a
-session the runtime reports as finished (`[done]` in the text list), unless Herdr still shows it in a pane. With
-neither source, the result is no agents and no error. `cleanup` holds a worktree back for any session that is still `live` and not just idle; a finished or idle one does not hold it back. A session counts as idle when the runtime's `status` or Herdr's status is `idle` (or Herdr's `done`) and none of the statuses it has says otherwise. `waiting` is `true` for a live session that is not progressing: idle between turns or blocked on a question, so probably waiting on you. It applies to an interactive session too, such as an agent `worktree branch` started through Herdr.
+session the runtime reports as finished (`[done]` in the text list), unless Herdr still shows it in a pane or the
+process behind it is still running. With
+neither source, the result is no agents and no error. `cleanup` holds a worktree back for any session that is still `live` and not just idle; a finished or idle one does not hold it back. A session counts as idle when the runtime's `status` or Herdr's status is `idle` (or Herdr's `done`) and none of the statuses it has says otherwise. `waiting` is `true` for a live session that is not progressing: idle between turns or blocked on a question, so probably waiting on you. It applies to an interactive session too, such as an agent `worktree branch` started through Herdr, and to one the runtime calls finished while its process still runs, which is weighed like any other live session.
 
 ### A coordinator driving worker agents
 

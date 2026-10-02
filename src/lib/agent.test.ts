@@ -1,7 +1,12 @@
 import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expectCommands, mockRun, mockRunCapturing } from "../test-setup.js";
+import {
+  expectCommands,
+  mockIsProcessRunning,
+  mockRun,
+  mockRunCapturing,
+} from "../test-setup.js";
 import {
   findSessionForPath,
   getAgentSessions,
@@ -670,6 +675,174 @@ describe("getAgentSessions across Herdr and the runtime", () => {
 
       await expect(getAgentSessions()).resolves.toHaveLength(1);
     });
+  });
+});
+
+// #73: the runtime has been seen reporting `done` for a session whose process
+// was still running in the worktree. The probe is the mocked cli helper, so no
+// result here depends on the process table of the machine running the suite.
+describe("a runtime done state with a process behind it", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfig({ "agent.command": "claude --bg" });
+    vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+  });
+
+  async function collect(...entries: Record<string, unknown>[]) {
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(JSON.stringify(entries));
+    return getAgentSessions();
+  }
+
+  const done = (overrides: Record<string, unknown> = {}) =>
+    runtimeEntry({ kind: "background", state: "done", ...overrides });
+
+  it("is live, waiting and not blocking when the pid is running and the status is idle", async () => {
+    mockIsProcessRunning.mockReturnValue(true);
+
+    const [session] = await collect(done({ status: "idle" }));
+
+    expect(mockIsProcessRunning).toHaveBeenCalledWith(9187);
+    expect(isSessionLive(session as AgentSession)).toBe(true);
+    expect(isSessionWaiting(session as AgentSession)).toBe(true);
+    expect(isSessionBlocking(session as AgentSession)).toBe(false);
+  });
+
+  it.each([
+    ["busy", { status: "busy" }],
+    ["working", { status: "working" }],
+    ["unrecognised", { status: "dreaming" }],
+    ["null", { status: null }],
+    ["absent", { status: undefined }],
+  ])("is live and blocking when the pid is running and the status is %s", async (_label, overrides) => {
+    mockIsProcessRunning.mockReturnValue(true);
+
+    const [session] = await collect(done(overrides));
+
+    expect(isSessionLive(session as AgentSession)).toBe(true);
+    expect(isSessionBlocking(session as AgentSession)).toBe(true);
+  });
+
+  // With its `done` dropped the session is weighed by its status alone (#79):
+  // busy or no status is not waiting, blocked is waiting and still blocks.
+  it("is waiting only on an idle or blocked status when the pid is running", async () => {
+    mockIsProcessRunning.mockReturnValue(true);
+
+    const sessions = await collect(
+      done({ status: "busy" }),
+      done({ status: null }),
+      done({ status: "blocked" }),
+    );
+
+    expect(sessions.map(isSessionWaiting)).toEqual([false, false, true]);
+    expect(sessions.map(isSessionBlocking)).toEqual([true, true, true]);
+  });
+
+  it("stays finished when the pid is not running", async () => {
+    mockIsProcessRunning.mockReturnValue(false);
+
+    const [session] = await collect(done({ status: "idle" }));
+
+    expect(mockIsProcessRunning).toHaveBeenCalledWith(9187);
+    expect(isSessionLive(session as AgentSession)).toBe(false);
+    expect(isSessionWaiting(session as AgentSession)).toBe(false);
+    expect(isSessionBlocking(session as AgentSession)).toBe(false);
+  });
+
+  it("stays finished when there is no pid, without probing", async () => {
+    mockIsProcessRunning.mockReturnValue(true);
+    const { pid: _pid, ...withoutPid } = done();
+
+    const [session] = await collect(withoutPid);
+
+    expect(mockIsProcessRunning).not.toHaveBeenCalled();
+    expect(isSessionLive(session as AgentSession)).toBe(false);
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    "9187",
+  ])("treats pid %j as no pid: done stands and nothing is probed", async (pid) => {
+    mockIsProcessRunning.mockReturnValue(true);
+
+    const [session] = await collect(done({ pid }));
+
+    expect(mockIsProcessRunning).not.toHaveBeenCalled();
+    expect(isSessionLive(session as AgentSession)).toBe(false);
+  });
+
+  it("does not probe a session that is not done", async () => {
+    await collect(
+      runtimeEntry({ kind: "background", state: "working" }),
+      runtimeEntry({ kind: "interactive" }),
+    );
+
+    expect(mockIsProcessRunning).not.toHaveBeenCalled();
+  });
+
+  it("blocks the worktree through findSessionForPath, and a working sibling still wins", async () => {
+    mockIsProcessRunning.mockImplementation((pid: number) => pid === 9187);
+
+    const sessions = await collect(
+      done({ pid: 9187, name: "stale-done", status: "busy" }),
+      done({ pid: 4, name: "really-done", status: "idle" }),
+    );
+    const found = findSessionForPath(sessions, worktreePath);
+
+    expect(found?.name).toBe("stale-done");
+    expect(isSessionBlocking(found as AgentSession)).toBe(true);
+
+    const withWorker = await collect(
+      done({ pid: 9187, name: "stale-done", status: "idle" }),
+      runtimeEntry({
+        kind: "background",
+        name: "worker",
+        pid: 5,
+        state: "working",
+      }),
+    );
+    expect(findSessionForPath(withWorker, worktreePath)?.name).toBe("worker");
+  });
+
+  it("leaves a finished session with no running process out of the way of an idle live one", async () => {
+    mockIsProcessRunning.mockImplementation((pid: number) => pid === 9187);
+
+    const sessions = await collect(
+      done({ pid: 4, name: "gone" }),
+      done({ pid: 9187, name: "stale-done", status: "idle" }),
+    );
+
+    expect(findSessionForPath(sessions, worktreePath)?.name).toBe("stale-done");
+  });
+
+  it("still joins to Herdr as before: the done is dropped and both signals are weighed", async () => {
+    mockIsProcessRunning.mockReturnValue(true);
+    mockConfig({ "herdr.agent": "claude" });
+    vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(JSON.stringify([done({ status: "idle" })]));
+    mockHerdrAgents([herdrAgent({ agent_status: "working" })]);
+
+    const [session] = await getAgentSessions();
+
+    expect(session?.herdrAgent).toBe("wA:p1");
+    expect(isSessionLive(session as AgentSession)).toBe(true);
+    expect(isSessionBlocking(session as AgentSession)).toBe(true);
+  });
+
+  it("joined to Herdr, stays live even when the pid is not running", async () => {
+    mockIsProcessRunning.mockReturnValue(false);
+    mockConfig({ "herdr.agent": "claude" });
+    vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(JSON.stringify([done()]));
+    mockHerdrAgents([herdrAgent()]);
+
+    const [session] = await getAgentSessions();
+
+    expect(isSessionLive(session as AgentSession)).toBe(true);
   });
 });
 

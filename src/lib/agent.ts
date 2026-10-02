@@ -5,7 +5,7 @@ import {
   isHerdrInstalled,
   listHerdrAgents,
 } from "../integrations/herdr.js";
-import { run } from "./cli.js";
+import { isProcessRunning, run } from "./cli.js";
 import { gitGetConfigValue } from "./git.js";
 import type { AgentSession } from "./types.js";
 import { splitCommandValue } from "./utils.js";
@@ -40,6 +40,30 @@ function readOptionalString(
 ): string | undefined {
   const value = source[key];
   return typeof value === "string" ? value : undefined;
+}
+
+// A runtime `done` is believed only when no process is behind it (#73). The
+// runtime has been seen reporting `done` for a session whose process was still
+// running with its cwd in the worktree, so a `done` that carries a running pid is
+// dropped, as `joinSessions` drops one Herdr still shows: the contrary evidence
+// wins in the safe direction, and the session is then weighed like any other
+// live one — idle does not hold `cleanup` back, anything else does. The pid is
+// another program's JSON, so only a positive integer is probed; 0 and negatives
+// address process groups, and anything else is no pid. No pid, an unusable one,
+// or one that is gone leaves `done` standing. The probe lives here, where
+// sessions are collected, so the predicates below stay pure.
+function withoutStaleDone(session: AgentSession): AgentSession {
+  const { pid } = session;
+  if (
+    session.state !== "done" ||
+    pid === undefined ||
+    !Number.isSafeInteger(pid) ||
+    pid <= 0 ||
+    !isProcessRunning(pid)
+  ) {
+    return session;
+  }
+  return { ...session, state: undefined };
 }
 
 // Only `cwd` is load-bearing: it is the join key, so an entry without one
@@ -126,7 +150,8 @@ async function listRuntimeSessions(): Promise<AgentSession[]> {
     }
     return parsed
       .map(toAgentSession)
-      .filter((session): session is AgentSession => session !== undefined);
+      .filter((session): session is AgentSession => session !== undefined)
+      .map(withoutStaleDone);
   } catch {
     return [];
   }
@@ -174,7 +199,9 @@ function herdrOnlySession(entry: HerdrAgentEntry): AgentSession {
 // beside the runtime's own so `isSessionBlocking` weighs both, except that a
 // runtime `done` is dropped: Herdr still shows the session in a pane, and a live
 // process has been seen reported `done` by the runtime, so the contrary evidence
-// wins in the safe direction. A Herdr entry nothing matched stands on its own.
+// wins in the safe direction. A `done` whose own pid is still running is already
+// dropped when the runtime listing is read (#73); Herdr covers the one with no
+// pid to probe. A Herdr entry nothing matched stands on its own.
 // Every cwd is already a real path.
 function joinSessions(
   runtime: AgentSession[],
@@ -270,7 +297,8 @@ export function findSessionForPath(
 // Fails safe: an absent or unrecognised state counts as live, so a session whose
 // shape we no longer recognise blocks removal rather than being ignored. That is
 // also what makes an interactive session live, since those carry no state at
-// all. See D6 and §4.1.
+// all. See D6 and §4.1. A runtime `done` reaches here believed only when no
+// process is running behind it, and a Herdr-joined one not at all (#73, #70).
 export function isSessionLive(session: AgentSession): boolean {
   return session.state !== "done";
 }

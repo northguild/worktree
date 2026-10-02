@@ -115,7 +115,7 @@ always did. Sessions are found from two sources joined on the real path of their
 list` when `herdr` is on PATH, and the runtime's `<program> agents --json`, where the program is
 `agent.command`'s head or else `herdr.agent`. So a repository with only `herdr.agent` set is covered, and a
 Herdr entry is named by the runtime session it matches. What comes back per worktree is a session name
-(a pid only where the runtime has one), and markers for live, interactive, waiting and `[done]` (a runtime-finished session that Herdr still shows in a pane stays live). With
+(a pid only where the runtime has one), and markers for live, interactive, waiting and `[done]` (a runtime-finished session stays live when Herdr still shows it in a pane or its process is still running). With
 neither source available the answer is no sessions, not an error — which is "no answer", not "nobody is
 there"; see the next paragraph.
 
