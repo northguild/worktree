@@ -28,9 +28,13 @@ describe("Jira integration", () => {
   });
 
   it("throws for invalid issue ids", async () => {
-    await expect(fetchJiraIssue("invalid")).rejects.toThrow(
-      'Jira: Invalid issue id "invalid".',
-    );
+    const refusal = fetchJiraIssue("invalid");
+
+    await expect(refusal).rejects.toThrow('Jira: Invalid issue id "invalid".');
+    await expect(refusal).rejects.toMatchObject({
+      code: "invalid_value",
+      oclif: { exit: 2 },
+    });
   });
 
   it("fetches issue info using jira.host, jira.email and jira.apiToken", async () => {

@@ -1780,6 +1780,23 @@ describe("branch command", () => {
       expect(mockGitCreateWorktreeCalls()).toBe(0);
     });
 
+    it.each([
+      ["--github abc", { github: "abc" }],
+      ["a malformed --jira key", { jira: "not-a-key" }],
+    ])("gives %s as invalid_value without creating a worktree", async (_label, flags) => {
+      // Earlier tests leave these stubbed; this one needs the real validation.
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockRestore();
+      vi.spyOn(jiraIntegration, "getJiraBranchNameFromIssue").mockRestore();
+
+      await runJson({}, flags);
+
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(mockGitCreateWorktreeCalls()).toBe(0);
+    });
+
     it("gives a missing source branch as not_found", async () => {
       vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue(["origin/main"]);
 
