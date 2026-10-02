@@ -147,14 +147,15 @@ function spawnCli(
 async function createScenario(
   extraEnv: Record<string, string> = {},
   config: Record<string, string> = {},
+  checkoutName = "checkout",
 ): Promise<Scenario> {
   scenarioCount += 1;
   const dir = path.join(workDir, `case-${scenarioCount}`);
   const bare = path.join(dir, "origin.git");
   const seed = path.join(dir, "seed");
-  // Not named like a branch under test: `git worktree remove <name>` matches on
-  // the last path component, and the main checkout is one of the candidates.
-  const repo = path.join(dir, "checkout");
+  // Any name works, including a branch's: a worktree is removed by its path, so
+  // a checkout named like a branch under test is not ambiguous (#77).
+  const repo = path.join(dir, checkoutName);
   const home = path.join(dir, "home");
   const githubLog = path.join(dir, "github.log");
   const herdrLog = path.join(dir, "herdr.log");
@@ -434,6 +435,49 @@ describe("agent mode, spawned", () => {
         removed: [{ branch: "demo", path: scenario.worktreePath("demo") }],
       });
       expect(fs.existsSync(scenario.worktreePath("demo"))).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "remove demo -f --json works when the main checkout directory is also named demo",
+    async () => {
+      // Git matches a bare name against the trailing components of every
+      // worktree, so the checkout and `demo.worktrees/demo` both answered to it.
+      const scenario = await createScenario({}, {}, "demo");
+      const created = await scenario.run(["branch", "demo", "--json"]);
+      expect(created.exitCode).toBe(0);
+
+      const result = await scenario.run(["remove", "demo", "-f", "--json"]);
+
+      expect(result.exitCode).toBe(0);
+      expect(parseDocument(result.stdout)).toMatchObject({
+        removed: [{ branch: "demo", path: scenario.worktreePath("demo") }],
+      });
+      expect(fs.existsSync(scenario.worktreePath("demo"))).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "remove -f --json removes either of branches demo and x/demo checked out side by side",
+    async () => {
+      // Both worktree paths end in `demo`, so a bare name matched both.
+      const scenario = await createScenario();
+      for (const branch of ["demo", "x/demo"]) {
+        const created = await scenario.run(["branch", branch, "--json"]);
+        expect(created.exitCode).toBe(0);
+      }
+
+      for (const branch of ["demo", "x/demo"]) {
+        const result = await scenario.run(["remove", branch, "-f", "--json"]);
+
+        expect(result.exitCode).toBe(0);
+        expect(parseDocument(result.stdout)).toMatchObject({
+          removed: [{ branch, path: scenario.worktreePath(branch) }],
+        });
+        expect(fs.existsSync(scenario.worktreePath(branch))).toBe(false);
+      }
     },
     TEST_TIMEOUT_MS,
   );

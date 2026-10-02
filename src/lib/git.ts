@@ -601,22 +601,27 @@ export async function gitCreateWorktree(
   }
 }
 
+/** The two names a worktree answers to: where it is, and what it is called. */
+type WorktreeTarget = Pick<WorktreeListEntry, "branchName" | "path">;
+
 interface GitNukeWorktreeCmdOptions {
   force?: boolean;
 }
 
 // Sequential awaits stand in for the `&&` chain: a rejection stops the sequence
 // before the next command runs, which is what the shell operator did.
+//
+// `git worktree remove` is given the worktree's path, never its branch name.
+// Git resolves a bare name by matching it against the trailing path components
+// of every worktree, and when two end the same way (a checkout directory named
+// like the branch, or branches `demo` and `x/demo`) the match is ambiguous and
+// git falls back to a path relative to the cwd and fails. Only `git branch -D`
+// takes the branch name.
 export async function gitNukeWorktreeCmd(
-  branchName: string,
+  { branchName, path }: WorktreeTarget,
   { force = false }: GitNukeWorktreeCmdOptions = {},
 ) {
-  await run("git", [
-    "worktree",
-    "remove",
-    branchName,
-    ...(force ? ["--force"] : []),
-  ]);
+  await run("git", ["worktree", "remove", path, ...(force ? ["--force"] : [])]);
   await run("git", ["worktree", "prune"]);
   await run("git", ["branch", "-D", branchName]);
 }
@@ -642,7 +647,9 @@ function toGitReason(error: unknown): string {
 }
 
 /**
- * Removes a worktree, or throws with git's reason for not doing so.
+ * Removes a worktree, or throws with git's reason for not doing so. The
+ * worktree is removed by its path; the branch name only labels the messages and
+ * is what `git branch -D` receives.
  *
  * The reason — a dirty tree, a locked worktree, a branch that will not delete —
  * is the one thing a caller can act on, and under `--json` the error document
@@ -652,12 +659,13 @@ function toGitReason(error: unknown): string {
  * command's own error line is the one that says so.
  */
 export async function gitNukeWorktree(
-  branchName: string,
+  worktree: WorktreeTarget,
   { force = false }: GitNukeWorktreeCmdOptions = {},
 ): Promise<void> {
+  const { branchName } = worktree;
   const spinner = createSpinner(`Removing worktree ${branchName}`).start();
   try {
-    await gitNukeWorktreeCmd(branchName, { force });
+    await gitNukeWorktreeCmd(worktree, { force });
     spinner.succeed(`Worktree ${branchName} was removed.`);
   } catch (error) {
     spinner.stop();
@@ -757,7 +765,7 @@ export async function gitRemoveWorktree(
   }
 
   if (force || (await promptRemoval(worktree))) {
-    await gitNukeWorktree(branchName, {
+    await gitNukeWorktree(worktree, {
       // An uncountable branch is forced too. Not because the removal would
       // otherwise fail — a dirty tree already sets this through
       // `uncommittedChanges`, and `git worktree remove` does not refuse a tree
@@ -820,7 +828,7 @@ export async function gitRemoveWorktreesWithProgress(
 
     i++;
 
-    await gitNukeWorktreeCmd(wt.branchName, { force: true });
+    await gitNukeWorktreeCmd(wt, { force: true });
     removed.push(wt);
 
     process?.update(i * 10, {
