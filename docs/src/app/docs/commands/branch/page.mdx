@@ -276,7 +276,7 @@ describing it goes to stderr as usual:
 | `code` | Means | Exit |
 | --- | --- | --- |
 | `missing_value` | a value with no default was not given; `details` names it and the flag | `2` |
-| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github` or `--jira` issue id | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |
 | `failed` | anything else | `1` |
