@@ -15,7 +15,6 @@
     "check": "biome check",
     "check:fix": "biome check --write",
     "verify": "pnpm check && pnpm typecheck && pnpm test",
-    "skills:scan": "uvx --env-file .env snyk-agent-scan@0.5.17 skills",
     "changeset:add": "changeset add",
     "changeset:status": "changeset status --since=origin/main",
     "changeset:prepare-release": "changeset version && pnpm sync-version",
