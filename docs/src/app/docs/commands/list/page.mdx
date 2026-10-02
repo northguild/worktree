@@ -50,9 +50,11 @@ not list is named `<kind>@<pane>`, for example `claude@w5:p1`.
 - **`[waiting]`** — a background agent that is live but not progressing, so it is
   probably waiting on you.
 - **`[done]`** — a session the runtime reports as finished. It no longer holds anything back, so
-  `cleanup` treats the worktree as ordinary stale work. The exception is a session Herdr still shows in
-  a pane: that one is not marked `[done]`, and it holds the worktree back only while Herdr reports it as
-  anything other than idle or done.
+  `cleanup` treats the worktree as ordinary stale work. The exceptions are a session Herdr still shows in
+  a pane and one whose process is still running, which the runtime has been seen to report as finished:
+  those are not marked `[done]`. A session Herdr shows holds the worktree back only while Herdr reports it
+  as anything other than idle or done; a running one is `[waiting]` when it is idle and otherwise holds
+  the worktree back.
 - **`[interactive]`** — somebody's own terminal session, not an agent this tool
   dispatched. It is listed because `cleanup` will refuse to remove a worktree
   somebody is working in, and this is where you find out which those are. One that is only idle does
