@@ -321,6 +321,16 @@ describe("worktreeListEntryToListName agent details", () => {
     expect(result).toContain("Agent: notes-1f [interactive]");
   });
 
+  it("marks an interactive session that is waiting as both", () => {
+    const result = worktreeListEntryToListName(
+      entry({ name: "notes-1f", interactive: true, waiting: true }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("Agent: notes-1f [interactive, waiting]");
+  });
+
   it("marks a waiting session distinguishably from one that is working", () => {
     const working = worktreeListEntryToListName(
       entry({ name: "feature-test-1f", pid: 9187, waiting: false }),
@@ -358,6 +368,22 @@ describe("worktreeListEntryToListName agent details", () => {
 
     expect(result).toContain("[done]");
     expect(result).not.toContain("[interactive]");
+  });
+
+  it("marks a finished session done even where it was interactive and waiting", () => {
+    const result = worktreeListEntryToListName(
+      entry({
+        name: "notes-1f",
+        live: false,
+        interactive: true,
+        waiting: true,
+      }),
+      "gray",
+      { agents: true },
+    );
+
+    expect(result).toContain("Agent: notes-1f [done]");
+    expect(result).not.toContain("waiting");
   });
 
   it("does not mark a session done when liveness is unknown", () => {

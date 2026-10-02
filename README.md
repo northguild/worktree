@@ -361,7 +361,7 @@ receipt**: check it, not just the exit code, when a brief matters.
 They are joined on the directory each session runs in, compared as real paths, and a Herdr entry is named by
 the runtime session with the same session id. A session without a `pid` is kept. `live` is `false` for a
 session the runtime reports as finished (`[done]` in the text list), unless Herdr still shows it in a pane. With
-neither source, the result is no agents and no error. `cleanup` holds a worktree back for any session that is still `live` and not just idle; a finished or idle one does not hold it back. A session counts as idle when the runtime's `status` or Herdr's status is `idle` (or Herdr's `done`) and none of the statuses it has says otherwise.
+neither source, the result is no agents and no error. `cleanup` holds a worktree back for any session that is still `live` and not just idle; a finished or idle one does not hold it back. A session counts as idle when the runtime's `status` or Herdr's status is `idle` (or Herdr's `done`) and none of the statuses it has says otherwise. `waiting` is `true` for a live session that is not progressing: idle between turns or blocked on a question, so probably waiting on you. It applies to an interactive session too, such as an agent `worktree branch` started through Herdr.
 
 ### A coordinator driving worker agents
 
@@ -374,7 +374,8 @@ A coordinating agent — Claude Code, say — can fan work out to one worktree e
    cross-session message for its user's approval when the two sessions' modes differ. In the check below, a
    worker in the default mode was not held when messaged from a coordinator in auto mode.
 4. Read `agent.name` from the document to address the session, and `worktree list --agents --json` to check it
-   is still `live`.
+   is still `live`. `waiting` turns `true` when the worker finishes its turn or stops on a question, so it is
+   the signal to poll.
 5. Finish with `worktree remove <branch> -f --json`.
 
 ### Checked from a tool call
