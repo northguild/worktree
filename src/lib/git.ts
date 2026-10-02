@@ -5,6 +5,7 @@ import Process from "cli-progress";
 import {
   findSessionForPath,
   getAgentSessions,
+  isSessionBlocking,
   isSessionInteractive,
   isSessionLive,
   isSessionWaiting,
@@ -253,8 +254,12 @@ export async function gitGetWorktrees({
 // records a session without saying whether it finished counts as live, so a
 // hand-built entry and a runtime that renamed its state field both block removal
 // rather than being waved through. See AGENT-MODE-PLAN §3 D5/D6.
+//
+// A session that is only idle does not count (#89): it holds nothing back, and
+// `cleanup` closes the pane with the worktree. `blocks` fails the same way
+// `live` does, so an entry that does not say blocks.
 export function hasLiveAgent(wt: WorktreeListEntry): boolean {
-  return !!wt.agent && wt.agent.live !== false;
+  return !!wt.agent && wt.agent.live !== false && wt.agent.blocks !== false;
 }
 
 // The distinction this whole feature rests on: a count of zero is not the same
@@ -350,6 +355,7 @@ async function toWorktreeAgent(
     sessionId: session.sessionId,
     herdrAgent: session.herdrAgent,
     live: isSessionLive(session),
+    blocks: isSessionBlocking(session),
     interactive: isSessionInteractive(session),
     waiting: isSessionWaiting(session),
   };

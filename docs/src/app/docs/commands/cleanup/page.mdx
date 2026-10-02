@@ -47,7 +47,7 @@ is, the worktree is stale and says which base it landed in. Where it is not — 
 branch that was merged and has picked up a commit since — the commits are real work and hold
 it back exactly as before.
 
-**A live agent session** holds one back as well — see below.
+**An agent session that is working** holds one back as well — see below. One that is only idle does not.
 
 ## What it prints
 
@@ -98,7 +98,7 @@ has. Use [`list`](/docs/commands/list) to see every worktree and what each one i
 
 ## Agent sessions
 
-A worktree that an agent session is living in is never removed. `cleanup` asks the same two
+A worktree that an agent session is working in is never removed. `cleanup` asks the same two
 sources as [`list --agents`](/docs/commands/list) — `herdr agent list` when `herdr` is installed, and the
 runtime in [`agent.command`](/docs/configuration#agent-command) (or the `herdr.agent` kind when that is
 unset) — which sessions are running and where, and holds back any worktree one of them is working in. Where that worktree is one it
@@ -117,7 +117,18 @@ and deleting it out from under either is the failure this check exists to preven
 `cleanup`, rather than discovering them from the report.
 
 A session that has finished does not hold anything back — the worktree goes back to being
-ordinary stale work. A session the runtime calls finished but Herdr still shows in a pane does hold it back.
+ordinary stale work. A session the runtime calls finished but Herdr still shows in a pane is judged by
+what Herdr says about it.
+
+Nor does a session that is only idle, such as an agent pane left open at its prompt in a merged
+worktree. The runtime's `idle` and Herdr's `idle` both count, and so does Herdr's `done`, a finished
+turn in a pane nobody has looked at since. When the runtime and Herdr both describe one session, every
+status they give has to say idle or done. A session that is working, one that is blocked on a prompt,
+one whose status is not recognised, and one that reports no status at all still hold the worktree back.
+Where a worktree holds several sessions, one that is working holds it back whatever the rest are doing.
+An idle session does not excuse anything else: uncommitted changes and unpushed commits hold the
+worktree back as before. With [`opener`](/docs/configuration) set to `herdr`, the idle pane closes
+with the worktree's space.
 
 `--force` does **not** override this. It answers the confirmation prompt, not the safety
 verdict. To sweep a worktree anyway, pass `--ignore-agents`, which skips the session lookup

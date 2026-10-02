@@ -126,7 +126,7 @@ never opened in Herdr.
 **`worktree cleanup --ignore-agents` is sharper than it was.** The flag gathers no agent sessions, so
 a worktree an agent is living in is not held back — and closing its space now takes down the panes
 that agent is working in. That is the cost of "do not look", and it is larger than before spaces
-were closed. Without the flag, a live agent holds its worktree back, and its space with it.
+were closed. Without the flag, an agent that is working holds its worktree back, and its space with it. One that is only idle does not.
 
 ## When Herdr cannot be reached
 

@@ -154,6 +154,38 @@ describe("cleanup command", () => {
     safeToRemove: true,
   };
 
+  // #89: a session that is only idle. The verdict was already computed from
+  // `blocks`, so this one is safe and sits in the sweep like any stale worktree.
+  const idleAgentWorktree = {
+    path: "/path/to/project.worktrees/feature/agent-idle",
+    branchName: "feature/agent-idle",
+    remote: "origin/feature/agent-idle",
+    remoteExists: false,
+    pathExists: true,
+    ahead: 0,
+    uncommittedChanges: 0,
+    agent: {
+      name: "feature-idle-4c",
+      pid: 9190,
+      live: true,
+      blocks: false,
+      interactive: true,
+      waiting: false,
+    },
+    safeToRemove: true,
+  };
+
+  // An idle session does not excuse uncommitted work: this one is held back, and
+  // under the uncommitted heading, because the session is not what holds it.
+  const idleAgentWorktreeWithChanges = {
+    ...idleAgentWorktree,
+    path: "/path/to/project.worktrees/feature/agent-idle-dirty",
+    branchName: "feature/agent-idle-dirty",
+    remote: "origin/feature/agent-idle-dirty",
+    uncommittedChanges: 2,
+    safeToRemove: false,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     const mockConfig = {
@@ -439,6 +471,82 @@ describe("cleanup command", () => {
     expect(logSpy).toHaveBeenCalledWith(
       "- feature/agent-live (Remote removed, Agent: feature-agent-1f)",
     );
+    expect(mockRemove).toHaveBeenCalledWith([safeWorktree]);
+  });
+
+  it("removes a worktree whose agent session is only idle", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([idleAgentWorktree]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockImplementation(async (worktrees) => worktrees);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await cleanup.run();
+
+    expect(
+      logSpy.mock.calls.some((call) => (call[0] ?? "").startsWith("Skipped ")),
+    ).toBe(false);
+    expect(mockRemove).toHaveBeenCalledWith([idleAgentWorktree]);
+  });
+
+  it("names only the blocking session when an idle one is also in the sweep", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+      idleAgentWorktree,
+      agentWorktree,
+    ]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockImplementation(async (worktrees) => worktrees);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await cleanup.run();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      "Skipped 1 worktree branch with a live agent session:",
+    );
+    expect(
+      logSpy.mock.calls.some((call) =>
+        (call[0] ?? "").includes("feature/agent-idle (Remote removed, Agent"),
+      ),
+    ).toBe(false);
+    expect(mockRemove).toHaveBeenCalledWith([idleAgentWorktree]);
+  });
+
+  it("still holds back a dirty worktree with an idle session, under the uncommitted heading", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+      safeWorktree,
+      idleAgentWorktreeWithChanges,
+    ]);
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    const mockRemove = vi
+      .spyOn(git, "gitRemoveWorktreesWithProgress")
+      .mockImplementation(async (worktrees) => worktrees);
+
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+
+    await cleanup.run();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      "Skipped 1 worktree branch that has uncommitted changes:",
+    );
+    expect(
+      logSpy.mock.calls.some((call) =>
+        (call[0] ?? "").includes("with a live agent session"),
+      ),
+    ).toBe(false);
     expect(mockRemove).toHaveBeenCalledWith([safeWorktree]);
   });
 

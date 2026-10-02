@@ -5,6 +5,7 @@ import { expectCommands, mockRun, mockRunCapturing } from "../test-setup.js";
 import {
   findSessionForPath,
   getAgentSessions,
+  isSessionBlocking,
   isSessionInteractive,
   isSessionLive,
   isSessionWaiting,
@@ -478,6 +479,46 @@ describe("getAgentSessions across Herdr and the runtime", () => {
     expect(isSessionLive(session as AgentSession)).toBe(true);
   });
 
+  it("keeps both signals of a joined session, so Herdr working blocks a runtime idle one", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(
+      JSON.stringify([runtimeEntry({ kind: "interactive", status: "idle" })]),
+    );
+    mockHerdrAgents([herdrAgent({ agent_status: "working" })]);
+
+    const [session] = await getAgentSessions();
+
+    expect(isSessionBlocking(session as AgentSession)).toBe(true);
+  });
+
+  it("does not block a joined session when the runtime and Herdr both say idle", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(
+      JSON.stringify([runtimeEntry({ kind: "interactive", status: "idle" })]),
+    );
+    mockHerdrAgents([herdrAgent({ agent_status: "idle" })]);
+
+    const [session] = await getAgentSessions();
+
+    expect(isSessionBlocking(session as AgentSession)).toBe(false);
+  });
+
+  it("does not block on a Herdr-only agent that is idle or done, and does on the rest", async () => {
+    mockConfig({});
+    mockHerdrAgents([
+      herdrAgent({ agent_status: "idle", pane_id: "wA:p1" }),
+      herdrAgent({ agent_status: "done", pane_id: "wA:p2" }),
+      herdrAgent({ agent_status: "working", pane_id: "wA:p3" }),
+      herdrAgent({ agent_status: "unknown", pane_id: "wA:p4" }),
+    ]);
+
+    const sessions = await getAgentSessions();
+
+    expect(sessions.map(isSessionBlocking)).toEqual([false, false, true, true]);
+  });
+
   it("still reads a runtime done state as finished when Herdr does not list it", async () => {
     mockConfig({ "herdr.agent": "claude" });
     expectCommands("claude agents --json");
@@ -659,6 +700,21 @@ describe("findSessionForPath", () => {
     expect(findSessionForPath([finished, live], worktreePath)).toBe(live);
   });
 
+  it("prefers a working session over an idle one, whatever the listing order", () => {
+    const idle = session({ name: "idle", kind: "interactive", status: "idle" });
+    const working = session({ name: "working", status: "busy" });
+
+    expect(findSessionForPath([idle, working], worktreePath)).toBe(working);
+    expect(findSessionForPath([working, idle], worktreePath)).toBe(working);
+  });
+
+  it("returns an idle session over a finished one", () => {
+    const finished = session({ name: "finished", state: "done" });
+    const idle = session({ name: "idle", status: "idle" });
+
+    expect(findSessionForPath([finished, idle], worktreePath)).toBe(idle);
+  });
+
   it("still returns a finished session when it is the only one there", () => {
     const finished = session({ state: "done" });
 
@@ -688,6 +744,67 @@ describe("isSessionLive", () => {
 
   it("counts an unrecognised state as live", () => {
     expect(isSessionLive(session({ state: "hibernating" }))).toBe(true);
+  });
+});
+
+describe("isSessionBlocking", () => {
+  it("does not block on an idle runtime session", () => {
+    expect(
+      isSessionBlocking(session({ kind: "interactive", status: "idle" })),
+    ).toBe(false);
+  });
+
+  it("blocks on a working or busy session", () => {
+    expect(isSessionBlocking(session({ status: "busy" }))).toBe(true);
+    expect(isSessionBlocking(session({ status: "working" }))).toBe(true);
+  });
+
+  it("blocks on a blocked state or status", () => {
+    expect(isSessionBlocking(session({ state: "blocked" }))).toBe(true);
+    expect(isSessionBlocking(session({ status: "blocked" }))).toBe(true);
+  });
+
+  it("blocks on an unrecognised status or state", () => {
+    expect(isSessionBlocking(session({ status: "hibernating" }))).toBe(true);
+    expect(isSessionBlocking(session({ status: "idle", state: "x" }))).toBe(
+      true,
+    );
+    expect(isSessionBlocking(session({ status: "unknown" }))).toBe(true);
+  });
+
+  it("blocks when no status is recognised at all", () => {
+    expect(isSessionBlocking(session())).toBe(true);
+    expect(isSessionBlocking(session({ kind: "interactive" }))).toBe(true);
+  });
+
+  it("does not block on a finished session", () => {
+    expect(isSessionBlocking(session({ state: "done" }))).toBe(false);
+  });
+
+  it("blocks on a runtime done status when no state says finished", () => {
+    expect(isSessionBlocking(session({ status: "done" }))).toBe(true);
+    expect(
+      isSessionBlocking(session({ status: "done", herdrStatus: "idle" })),
+    ).toBe(true);
+  });
+
+  it("treats a Herdr done status like idle", () => {
+    expect(
+      isSessionBlocking(session({ status: "done", herdrOnly: true })),
+    ).toBe(false);
+    expect(isSessionBlocking(session({ herdrStatus: "done" }))).toBe(false);
+  });
+
+  it("blocks when either signal of a joined session is not idle", () => {
+    expect(
+      isSessionBlocking(session({ status: "idle", herdrStatus: "working" })),
+    ).toBe(true);
+    expect(
+      isSessionBlocking(session({ status: "busy", herdrStatus: "idle" })),
+    ).toBe(true);
+    expect(
+      isSessionBlocking(session({ status: "idle", herdrStatus: "idle" })),
+    ).toBe(false);
   });
 });
 
