@@ -846,6 +846,28 @@ describe("isSafeToRemove", () => {
     );
   });
 
+  // #89: a session that is only idle holds nothing back. Absent `blocks` is
+  // blocking, which the liveness-marker test below and liveAgent() both cover.
+  it("is safe when the session living in it is only idle", () => {
+    expect(isSafeToRemove(entry({ agent: liveAgent({ blocks: false }) }))).toBe(
+      true,
+    );
+  });
+
+  it("is not safe when the session living in it is blocking", () => {
+    expect(isSafeToRemove(entry({ agent: liveAgent({ blocks: true }) }))).toBe(
+      false,
+    );
+  });
+
+  it("is still not safe with an idle session and uncommitted work", () => {
+    expect(
+      isSafeToRemove(
+        entry({ agent: liveAgent({ blocks: false }), uncommittedChanges: 3 }),
+      ),
+    ).toBe(false);
+  });
+
   // Fails safe: `live` is optional on WorktreeAgent, so an entry that records a
   // session without saying whether it finished blocks removal rather than being
   // waved through. See AGENT-MODE-PLAN §3 D6.
@@ -1065,6 +1087,7 @@ describe("gitGetWorktreeList agent join", () => {
       name: "feature-one-1f",
       pid: 9187,
       live: true,
+      blocks: true,
       interactive: false,
       waiting: false,
     });
@@ -1082,6 +1105,7 @@ describe("gitGetWorktreeList agent join", () => {
       name: "feature-one-1f",
       pid: 9187,
       live: true,
+      blocks: true,
       interactive: true,
       waiting: false,
     });
@@ -1098,6 +1122,7 @@ describe("gitGetWorktreeList agent join", () => {
       name: "feature-one-1f",
       pid: 9187,
       live: true,
+      blocks: true,
       interactive: false,
       waiting: true,
     });
@@ -1117,6 +1142,7 @@ describe("gitGetWorktreeList agent join", () => {
       name: "feature-one-1f",
       pid: 9187,
       live: false,
+      blocks: false,
       interactive: false,
       waiting: false,
     });
@@ -1143,6 +1169,7 @@ describe("gitGetWorktreeList agent join", () => {
       sessionId: "s-1",
       herdrAgent: "wA:p1",
       live: true,
+      blocks: true,
       interactive: false,
       waiting: true,
     });
@@ -1155,6 +1182,31 @@ describe("gitGetWorktreeList agent join", () => {
     const worktrees = await gitGetWorktreeList({ includeAgents: true });
 
     expect(worktrees.map((wt) => wt.agent)).toEqual([undefined, undefined]);
+  });
+
+  it("does not block on an idle session, and does not mark it done", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+      session({ kind: "interactive", status: "idle" }),
+    ]);
+
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(worktrees[0].agent).toEqual(
+      expect.objectContaining({ live: true, blocks: false }),
+    );
+  });
+
+  it("describes the working session when an idle one shares the worktree", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+      session({ name: "idle-one", kind: "interactive", status: "idle" }),
+      session({ name: "busy-one", kind: "background", status: "busy" }),
+    ]);
+
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(worktrees[0].agent).toEqual(
+      expect.objectContaining({ name: "busy-one", blocks: true }),
+    );
   });
 });
 

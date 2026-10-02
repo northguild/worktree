@@ -1,7 +1,7 @@
 # Worktree Docs Site
 
 Next.js / Nextra documentation site for the Worktree CLI, deployed to GitHub Pages at
-`https://northguild.github.io/worktree/docs`.
+`https://northguild.github.io/worktree`.
 
 ## Quick start
 

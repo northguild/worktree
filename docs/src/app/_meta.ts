@@ -7,7 +7,8 @@ const meta: MetaRecord = {
   },
   docs: {
     title: "Documentation",
-    type: "page",
+    type: "doc",
+    display: "children",
   },
 };
 

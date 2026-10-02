@@ -163,17 +163,19 @@ function herdrOnlySession(entry: HerdrAgentEntry): AgentSession {
     sessionId: entry.sessionId,
     herdrAgent: herdrHandle(entry),
     status: entry.status,
+    herdrOnly: true,
   };
 }
 
 // Joins Herdr's entries onto the runtime's by session id, and only where the
 // working directory agrees as well — a session id alone has outlived a `cd`, and
 // the two sources disagreeing about where it is should not be papered over. A
-// joined entry is the runtime's plus the Herdr handle, except that a runtime
-// `done` is dropped: Herdr still shows the session in a pane, and a live process
-// has been seen reported `done` by the runtime, so the contrary evidence wins in
-// the safe direction. A Herdr entry
-// nothing matched stands on its own. Every cwd is already a real path.
+// joined entry is the runtime's plus the Herdr handle and Herdr's status, kept
+// beside the runtime's own so `isSessionBlocking` weighs both, except that a
+// runtime `done` is dropped: Herdr still shows the session in a pane, and a live
+// process has been seen reported `done` by the runtime, so the contrary evidence
+// wins in the safe direction. A Herdr entry nothing matched stands on its own.
+// Every cwd is already a real path.
 function joinSessions(
   runtime: AgentSession[],
   herdrEntries: HerdrAgentEntry[],
@@ -195,6 +197,7 @@ function joinSessions(
       ...session,
       state: session.state === "done" ? undefined : session.state,
       herdrAgent: entry && herdrHandle(entry),
+      herdrStatus: entry?.status,
     };
   });
 
@@ -244,11 +247,12 @@ function isPathInside(parent: string, child: string): boolean {
 // own terminal is just as likely to sit in a subdirectory of one, and deleting
 // a directory somebody is working in is the failure mode to avoid.
 //
-// A live match wins over a finished one. Two sessions in one worktree is the
-// ordinary case for `--agent`, which dispatches an agent and then opens the
-// editor, and the runtime's listing order is not ours to rely on: handing back a
-// finished session first would tell the caller the worktree is free while
-// somebody is still working in it. D5 blocks on any session, not on the first.
+// A blocking match wins over a live one, and a live one over a finished one. Two
+// sessions in one worktree is the ordinary case for `--agent`, which dispatches
+// an agent and then opens the editor, and the runtime's listing order is not
+// ours to rely on: handing back an idle or finished session first would tell the
+// caller the worktree is free while somebody is still working in it. D5 blocks
+// on any session, not on the first.
 export function findSessionForPath(
   sessions: AgentSession[],
   worktreePath: string,
@@ -257,6 +261,7 @@ export function findSessionForPath(
     isPathInside(worktreePath, session.cwd);
 
   return (
+    sessions.find((session) => isHere(session) && isSessionBlocking(session)) ??
     sessions.find((session) => isHere(session) && isSessionLive(session)) ??
     sessions.find(isHere)
   );
@@ -268,6 +273,39 @@ export function findSessionForPath(
 // all. See D6 and §4.1.
 export function isSessionLive(session: AgentSession): boolean {
   return session.state !== "done";
+}
+
+// What `cleanup` weighs: a live session holds a worktree back unless it is only
+// idle. Fails safe the other way round from what idle suggests: a session is
+// non-blocking only when it is not live, or when it has at least one status and
+// every status it has is one its own source calls idle. The runtime's only idle
+// is `idle`; Herdr's are `idle` and `done`, a finished turn the pane has not been
+// looked at since, which the runtime's vocabulary has no equivalent for. Working,
+// busy, blocked, any unrecognised status, a state other than `done`, and no
+// status at all block — an interactive session carries none, and one we cannot
+// read is not one we can call idle. When the runtime and Herdr both describe a
+// session, either one saying anything but idle blocks it. See #89.
+const RUNTIME_IDLE_STATUSES = new Set(["idle"]);
+const HERDR_IDLE_STATUSES = new Set(["idle", "done"]);
+
+export function isSessionBlocking(session: AgentSession): boolean {
+  if (!isSessionLive(session)) {
+    return false;
+  }
+  if (session.state !== undefined) {
+    return true;
+  }
+  // A Herdr-only session carries Herdr's status in `status`.
+  const runtimeStatus = session.herdrOnly ? undefined : session.status;
+  const herdrStatus = session.herdrOnly ? session.status : session.herdrStatus;
+  if (runtimeStatus === undefined && herdrStatus === undefined) {
+    return true;
+  }
+  return (
+    (runtimeStatus !== undefined &&
+      !RUNTIME_IDLE_STATUSES.has(runtimeStatus)) ||
+    (herdrStatus !== undefined && !HERDR_IDLE_STATUSES.has(herdrStatus))
+  );
 }
 
 // Live but not progressing. Only ever true for a background session: a human's

@@ -303,8 +303,9 @@ the comparison base and names the base it landed in — `(Remote removed, merged
 into origin/main)`. A branch that has gained a commit since it was merged is
 carrying real work again and is held back.
 
-A worktree a live agent session is sitting in is never removed by `cleanup`; it
-is reported as skipped instead. `--force` does not override that — it answers
+A worktree an agent session is working in is never removed by `cleanup`; it
+is reported as skipped instead. A session that is only idle (an agent left at
+its prompt) does not hold anything back. `--force` does not override that — it answers
 the confirmation prompt, not the safety verdict — and `--ignore-agents` does,
 which is why that one has no short alias. The check covers an interactive
 session in your own terminal, an agent this tool dispatched, and one Herdr
