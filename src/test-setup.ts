@@ -11,6 +11,7 @@ const mockRun: ReturnType<typeof vi.fn> = vi.fn();
 const mockRunCapturing: ReturnType<typeof vi.fn> = vi.fn();
 const mockSpawnDetached: ReturnType<typeof vi.fn> = vi.fn();
 const mockRunStreaming: ReturnType<typeof vi.fn> = vi.fn();
+const mockIsProcessRunning: ReturnType<typeof vi.fn> = vi.fn();
 let expectedCommands: string[] = [];
 
 // This factory replaces the whole module, so anything cli.js exports has to be
@@ -21,6 +22,7 @@ vi.mock("./lib/cli.js", () => ({
   commandExists: vi.fn().mockResolvedValue(true),
   runCapturing: mockRunCapturing,
   runStreaming: mockRunStreaming,
+  isProcessRunning: mockIsProcessRunning,
 }));
 
 // A run() call reads as its argv joined, with the cwd appended when one is
@@ -54,6 +56,10 @@ beforeEach(() => {
   // promise, and fails somewhere unrelated to what it is testing.
   mockRunCapturing.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
   mockRunStreaming.mockResolvedValue({ exitCode: 0 });
+  // No pid is running unless a test says so. The fixtures carry arbitrary pids
+  // such as 9187, and whether one is alive on the machine running the suite must
+  // never change a result, so the real process table is never consulted.
+  mockIsProcessRunning.mockReturnValue(false);
   expectedCommands = [];
 });
 
@@ -136,6 +142,7 @@ export {
   captureOutput,
   expectCommands,
   loadConfig,
+  mockIsProcessRunning,
   mockRun,
   mockRunCapturing,
   mockRunStreaming,

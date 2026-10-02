@@ -280,7 +280,7 @@ worktree list --agents
 worktree list -a                              # alias
 # Sessions come from `herdr agent list` (when herdr is on PATH) and from
 # `<agent.command program or herdr.agent> agents --json`, joined on the real
-# path of their directory. A finished session shows [done] (unless Herdr still shows it in a pane); with no source
+# path of their directory. A finished session shows [done] (unless Herdr still shows it in a pane or its process is still running); with no source
 # available there are simply no sessions.
 
 # Reopen a worktree in your editor
