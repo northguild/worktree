@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
 import {
   commandExists,
+  isProcessRunning,
   KILL_GRACE_MS,
   run,
   runCapturing,
@@ -459,5 +460,65 @@ describe("env option", () => {
 
   it("leaves the child on the parent's environment when none is given", async () => {
     await expect(run(node, ["-e", printVar])).resolves.toBe("");
+  });
+});
+
+// #73. process.kill is spied wherever the answer matters, so nothing here
+// depends on which pids exist on the machine, and no signal is ever delivered.
+describe("isProcessRunning", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function killFailsWith(code: string) {
+    return vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error(code), { code });
+    });
+  }
+
+  it("probes with signal 0 and reports a pid that exists as running", () => {
+    const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    expect(isProcessRunning(4242)).toBe(true);
+    expect(kill).toHaveBeenCalledWith(4242, 0);
+  });
+
+  it("reports the current process as running, for real", () => {
+    expect(isProcessRunning(process.pid)).toBe(true);
+  });
+
+  it("reports ESRCH as not running", () => {
+    killFailsWith("ESRCH");
+
+    expect(isProcessRunning(4242)).toBe(false);
+  });
+
+  it("reports EPERM as running: the process exists, under another user", () => {
+    killFailsWith("EPERM");
+
+    expect(isProcessRunning(4242)).toBe(true);
+  });
+
+  it("fails safe, as running, on an error it does not understand", () => {
+    killFailsWith("EINVAL");
+    expect(isProcessRunning(4242)).toBe(true);
+
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw "not an error";
+    });
+    expect(isProcessRunning(4242)).toBe(true);
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])("never signals %s: it addresses a group or is no pid", (pid) => {
+    const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    expect(isProcessRunning(pid)).toBe(false);
+    expect(kill).not.toHaveBeenCalled();
   });
 });

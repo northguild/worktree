@@ -243,3 +243,34 @@ export function spawnDetached(
   child.on("error", (error: Error) => onError?.(error));
   child.unref();
 }
+
+/**
+ * Whether a process with this pid exists, probed with signal 0: the kernel
+ * checks the pid and the permission to signal it, and delivers nothing.
+ *
+ * Only a positive integer is a pid. 0 and negative values address process
+ * groups in `kill(2)`, and a non-integer is not a pid at all, so none of them
+ * is ever passed to it — they are reported as not running, because there is no
+ * process to ask about. The pid usually comes from another program's JSON, so
+ * the check is here rather than left to the caller.
+ *
+ * ESRCH is the one answer that means "no such process". EPERM means it exists
+ * but belongs to another user, which is running. Any other error is not
+ * understood, and a caller that is deciding whether something may be deleted
+ * has to fail in the safe direction, so it counts as running too.
+ */
+export function isProcessRunning(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "ESRCH"
+    );
+  }
+}
