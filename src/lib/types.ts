@@ -52,6 +52,10 @@ export interface AgentSession {
   herdrAgent?: string;
   kind?: string;
   status?: string;
+  /** Herdr's status for a session the runtime also lists; kept apart from `status` so neither signal is lost in the join. */
+  herdrStatus?: string;
+  /** Set on a session only Herdr lists, whose `status` is then Herdr's. */
+  herdrOnly?: boolean;
   state?: string;
 }
 
@@ -62,12 +66,18 @@ export interface AgentSession {
 // optional like the rest, so every reader has to say what an absent one means.
 // `isSafeToRemove` reads it as live — the same direction D6 fails in, and the
 // reason the test there is `!== false` rather than a truthiness check.
+//
+// `blocks` is the same kind of fact, narrower: whether the session holds a
+// worktree back from `cleanup`. A live session that is only idle does not. Absent
+// reads as blocking, for the same reason, and it is internal: `list --json` does
+// not print it (#89).
 export interface WorktreeAgent {
   name: string;
   pid?: number;
   sessionId?: string;
   herdrAgent?: string;
   live?: boolean;
+  blocks?: boolean;
   interactive?: boolean;
   waiting?: boolean;
 }
