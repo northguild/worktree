@@ -85,6 +85,10 @@ it in passing rather than treating a mismatch as a failure.
 - **`pnpm changeset:prepare-release`** — not a gate: it mutates the tree (bumps `package.json`, writes
   `CHANGELOG.md`, deletes the consumed notes) and is run once, by a maintainer, to make a release pull
   request. Never run it to verify anything.
+- **Snyk agent scan** — not a gate: it needs `SNYK_TOKEN` and the network, and its verdict comes from an
+  LLM, so the same file can pass one run and be flagged the next. `skill-scan.yml` runs it on pull requests
+  touching `skills/**` and only reports; it never fails. A maintainer must set the repository secret
+  `SNYK_TOKEN`, or the job skips. Locally: `SNYK_TOKEN=… uvx snyk-agent-scan@0.5.17 skills`.
 - **`pnpm docs:build`** — needs the `GEMINI_WORKER_URL` repository variable baked in at build time.
   Deploy concern; `docs-deploy.yml` owns it.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
