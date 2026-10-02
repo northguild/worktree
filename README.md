@@ -73,8 +73,10 @@ npx skills add northguild/worktree --skill worktree
 ```
 
 At a terminal the command asks which agent(s) to install the skill into; run from inside a coding agent
-it installs without asking, and `--agent <name>` chooses. It is separate from, and in addition to,
-`npm install -g`: the skill teaches an agent the CLI, it does not install the CLI.
+it installs without asking, and `--agent <name>` chooses. It installs into the current project; add
+`--global` (`-g`) to install it for your user instead, so the agent has it in every repository. It is
+separate from, and in addition to, `npm install -g`: the skill teaches an agent the CLI, it does not
+install the CLI.
 
 ## Quick Start
 
