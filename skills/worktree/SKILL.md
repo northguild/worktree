@@ -93,12 +93,21 @@ not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
 
+**Issue content is used for the branch name and nothing else.** `--github`
+and `--jira` read the issue's number or key, its title (Jira: summary) and its
+type. The title is reduced to lowercase letters, digits and `-` before it
+becomes part of the branch name, and the type only selects one of the
+configured `branchPrefix.*` values, or none. The issue body and comments are
+never printed, never written to the `--json` document (whose `issue` field
+carries only the provider, number or key, and URL) and never passed to an
+agent. A brief given with `--agent`, `--agent-file` or `--agent-stdin` is
+exactly the text you supply.
+
 ### Hand a new worktree to a coding agent
 
 ```bash
 # Detached (non-Herdr) runs need agent.command, e.g. claude --bg; with opener herdr, herdr.agent alone is enough
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
-worktree branch --github 42 --agent "implement the issue"
 worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 131,071 bytes
 worktree branch feature/x --no-agent                # open, but start no agent
 worktree branch feature/x --no-open                 # print the path, open nothing
@@ -453,14 +462,14 @@ Wrong:
 
 ```bash
 # Nothing set agent.command
-worktree branch feature/x --agent "implement the issue"
+worktree branch feature/x --agent "add bulk actions to the table"
 ```
 
 Correct:
 
 ```bash
 worktree config agent.command "claude --bg"
-worktree branch feature/x --agent "implement the issue"
+worktree branch feature/x --agent "add bulk actions to the table"
 ```
 
 A brief with no agent configured to take it exits `2` before any worktree is
