@@ -9,6 +9,7 @@ oclif.manifest.json
 .next
 docs/out/
 docs/pnpm-lock.yaml
+**/.env
 **/.env.local
 
 # Cloudflare Worker build outputs (generated, not source)
