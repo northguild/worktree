@@ -85,10 +85,15 @@ it in passing rather than treating a mismatch as a failure.
 - **`pnpm changeset:prepare-release`** — not a gate: it mutates the tree (bumps `package.json`, writes
   `CHANGELOG.md`, deletes the consumed notes) and is run once, by a maintainer, to make a release pull
   request. Never run it to verify anything.
-- **Snyk agent scan** — not a gate: it needs `SNYK_TOKEN` and the network, and its verdict comes from an
-  LLM, so the same file can pass one run and be flagged the next. `skill-scan.yml` runs it on pull requests
-  touching `skills/**` and only reports; it never fails. A maintainer must set the repository secret
-  `SNYK_TOKEN`, or the job skips. Locally: `SNYK_TOKEN=… uvx snyk-agent-scan@0.5.17 skills`.
+- **`pnpm skills:scan`** — Snyk Agent Scan over `skills/`, the scanner behind the Snyk verdict skills.sh
+  shows on the published skill. Not a gate: it needs a Snyk token and the network, and its verdict comes
+  from an LLM, so the same file can pass one run and be flagged the next. Run it by hand before a change
+  to `skills/**` lands, and read what it reports: **exit 0 is not a clean result** — a scan Snyk refused
+  (`X007`, its daily usage limit) exits 0 too. It reads `SNYK_TOKEN` from `.env` in the checkout it runs
+  in (gitignored; `worktree branch` copies the main checkout's into new trees), and the file has to
+  exist — a `SNYK_TOKEN` already exported in the shell wins over the file's value. The token is a Snyk
+  personal access token, which lives at most 90 days; that expiry is why this runs here and not in CI.
+  Pinned at 0.5.17, whose issue codes (W011 and so on) match skills.sh's; moving the pin changes them.
 - **`pnpm docs:build`** — needs the `GEMINI_WORKER_URL` repository variable baked in at build time.
   Deploy concern; `docs-deploy.yml` owns it.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
