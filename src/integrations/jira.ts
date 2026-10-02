@@ -1,4 +1,5 @@
 import { gitGetConfigValue } from "../lib/git.js";
+import { InvalidValueError } from "../lib/prompt.js";
 import { sanitizeBranchName } from "../lib/utils.js";
 
 interface JiraCredentials {
@@ -53,7 +54,7 @@ function getIssueKey(issueId: string): string {
   const normalizedIssueId = issueId.trim().toUpperCase();
 
   if (!/^[A-Z][A-Z0-9]*-\d+$/.test(normalizedIssueId)) {
-    throw new Error(`Jira: Invalid issue id "${issueId}".`);
+    throw new InvalidValueError(`Jira: Invalid issue id "${issueId}".`);
   }
 
   return normalizedIssueId;
