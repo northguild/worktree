@@ -656,12 +656,16 @@ describe("gitCreateWorktree", () => {
 
 describe("gitNukeWorktreeCmd", () => {
   const branchName = "feature/test";
+  // Deliberately unlike the branch name: the remove has to take the path and
+  // the branch delete the name, and a swap of the two must show.
+  const worktreePath = "/repo/project.worktrees/some-dir";
+  const target = { branchName, path: worktreePath };
 
   beforeEach(() => {
     vi.clearAllMocks();
     expectCommands(
-      `git worktree remove ${branchName}`,
-      `git worktree remove ${branchName} --force`,
+      `git worktree remove ${worktreePath}`,
+      `git worktree remove ${worktreePath} --force`,
       "git worktree prune",
       `git branch -D ${branchName}`,
     );
@@ -670,13 +674,13 @@ describe("gitNukeWorktreeCmd", () => {
   it("removes, prunes and deletes the branch in that order", async () => {
     const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
 
-    await gitNukeWorktreeCmd(branchName);
+    await gitNukeWorktreeCmd(target);
 
     expect(runSpy).toHaveBeenCalledTimes(3);
     expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
       "worktree",
       "remove",
-      branchName,
+      worktreePath,
     ]);
     expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["worktree", "prune"]);
     expect(runSpy).toHaveBeenNthCalledWith(3, "git", [
@@ -689,13 +693,13 @@ describe("gitNukeWorktreeCmd", () => {
   it("appends --force to the remove when forced", async () => {
     const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
 
-    await gitNukeWorktreeCmd(branchName, { force: true });
+    await gitNukeWorktreeCmd(target, { force: true });
 
     expect(runSpy).toHaveBeenCalledTimes(3);
     expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
       "worktree",
       "remove",
-      branchName,
+      worktreePath,
       "--force",
     ]);
   });
@@ -707,7 +711,7 @@ describe("gitNukeWorktreeCmd", () => {
       .spyOn(cli, "run")
       .mockRejectedValueOnce(new Error("Command failed: git worktree remove"));
 
-    await expect(gitNukeWorktreeCmd(branchName)).rejects.toThrow(
+    await expect(gitNukeWorktreeCmd(target)).rejects.toThrow(
       "Command failed: git worktree remove",
     );
 
@@ -720,7 +724,7 @@ describe("gitNukeWorktreeCmd", () => {
       .mockResolvedValueOnce("")
       .mockRejectedValueOnce(new Error("Command failed: git worktree prune"));
 
-    await expect(gitNukeWorktreeCmd(branchName)).rejects.toThrow(
+    await expect(gitNukeWorktreeCmd(target)).rejects.toThrow(
       "Command failed: git worktree prune",
     );
 
@@ -1758,8 +1762,8 @@ describe("what the removal helpers report", () => {
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${listedPath})`,
       `git status -s (cwd: ${listedPath})`,
-      `git worktree remove ${branchName}`,
-      `git worktree remove ${branchName} --force`,
+      `git worktree remove ${onePath}`,
+      `git worktree remove ${onePath} --force`,
       "git worktree prune",
       `git branch -D ${branchName}`,
     );
@@ -1786,7 +1790,7 @@ describe("what the removal helpers report", () => {
   describe("gitNukeWorktree", () => {
     beforeEach(() => {
       expectCommands(
-        `git worktree remove ${branchName}`,
+        `git worktree remove ${onePath}`,
         "git worktree prune",
         `git branch -D ${branchName}`,
       );
@@ -1795,7 +1799,9 @@ describe("what the removal helpers report", () => {
     it("resolves when the removal went through", async () => {
       mockRun.mockResolvedValue("");
 
-      await expect(gitNukeWorktree(branchName)).resolves.toBeUndefined();
+      await expect(
+        gitNukeWorktree({ branchName, path: onePath }),
+      ).resolves.toBeUndefined();
       expect(spinnerMocks.succeed).toHaveBeenCalledWith(
         `Worktree ${branchName} was removed.`,
       );
@@ -1811,7 +1817,9 @@ describe("what the removal helpers report", () => {
         }),
       );
 
-      await expect(gitNukeWorktree(branchName)).rejects.toThrow(
+      await expect(
+        gitNukeWorktree({ branchName, path: onePath }),
+      ).rejects.toThrow(
         `Could not remove the worktree ${branchName}: fatal: '/repo.worktrees/x' contains modified or untracked files, use --force to delete it`,
       );
       // One line says so — the command's error — not the spinner as well.
@@ -1822,7 +1830,9 @@ describe("what the removal helpers report", () => {
     it("falls back to Node's message when git printed nothing", async () => {
       mockRun.mockRejectedValue(new Error("spawn git ENOENT"));
 
-      await expect(gitNukeWorktree(branchName)).rejects.toThrow(
+      await expect(
+        gitNukeWorktree({ branchName, path: onePath }),
+      ).rejects.toThrow(
         `Could not remove the worktree ${branchName}: spawn git ENOENT`,
       );
     });
@@ -1865,7 +1875,7 @@ describe("what the removal helpers report", () => {
       expect(mockRun).not.toHaveBeenCalledWith("git", [
         "worktree",
         "remove",
-        branchName,
+        onePath,
       ]);
     });
 
@@ -1895,15 +1905,13 @@ describe("what the removal helpers report", () => {
   });
 
   describe("gitRemoveWorktreesWithProgress", () => {
-    const two = entry({
-      branchName: "feature/two",
-      path: `${rootPath}.worktrees/feature/two`,
-    });
+    const twoPath = `${rootPath}.worktrees/feature/two`;
+    const two = entry({ branchName: "feature/two", path: twoPath });
 
     beforeEach(() => {
       expectCommands(
-        `git worktree remove ${branchName} --force`,
-        "git worktree remove feature/two --force",
+        `git worktree remove ${onePath} --force`,
+        `git worktree remove ${twoPath} --force`,
         "git worktree prune",
         `git branch -D ${branchName}`,
         "git branch -D feature/two",
@@ -1957,7 +1965,7 @@ describe("what the removal helpers report", () => {
       expect(mockRun).toHaveBeenCalledWith("git", [
         "worktree",
         "remove",
-        branchName,
+        onePath,
         "--force",
       ]);
     });
