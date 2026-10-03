@@ -1,6 +1,6 @@
 import { commandExists, run } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
-import { askInput, assertCanPrompt } from "../lib/prompt.js";
+import { askInput, assertCanPrompt, InvalidValueError } from "../lib/prompt.js";
 
 interface GitHubRepository {
   owner: string;
@@ -245,7 +245,7 @@ export async function fetchGitHubIssue(issueId: number | string) {
   const normalizedIssueId = String(issueId).trim();
 
   if (!/^\d+$/.test(normalizedIssueId)) {
-    throw new Error(`GitHub: Invalid issue id "${issueId}".`);
+    throw new InvalidValueError(`GitHub: Invalid issue id "${issueId}".`);
   }
 
   const { owner, name } = await getCurrentGitHubRepository();
@@ -330,7 +330,7 @@ export async function assignGitHubIssue(issueId: number | string) {
   const normalizedIssueId = String(issueId).trim();
 
   if (!/^\d+$/.test(normalizedIssueId)) {
-    throw new Error(`GitHub: Invalid issue id "${issueId}".`);
+    throw new InvalidValueError(`GitHub: Invalid issue id "${issueId}".`);
   }
 
   const { owner, name } = await getCurrentGitHubRepository();

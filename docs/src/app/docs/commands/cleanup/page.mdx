@@ -118,7 +118,9 @@ and deleting it out from under either is the failure this check exists to preven
 
 A session that has finished does not hold anything back — the worktree goes back to being
 ordinary stale work. A session the runtime calls finished but Herdr still shows in a pane is judged by
-what Herdr says about it.
+what Herdr says about it, and one whose process is still running is judged as any live session is, by
+its status below. The runtime has been seen to report a session finished while its process was still
+working in the worktree.
 
 Nor does a session that is only idle, such as an agent pane left open at its prompt in a merged
 worktree. The runtime's `idle` and Herdr's `idle` both count, and so does Herdr's `done`, a finished

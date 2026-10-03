@@ -180,9 +180,13 @@ describe("GitHub integration", () => {
   });
 
   it("throws for invalid issue ids", async () => {
-    await expect(fetchGitHubIssue("abc")).rejects.toThrow(
-      'GitHub: Invalid issue id "abc".',
-    );
+    const refusal = fetchGitHubIssue("abc");
+
+    await expect(refusal).rejects.toThrow('GitHub: Invalid issue id "abc".');
+    await expect(refusal).rejects.toMatchObject({
+      code: "invalid_value",
+      oclif: { exit: 2 },
+    });
   });
 
   it("throws when the GitHub API responds with an error", async () => {
@@ -421,9 +425,13 @@ describe("GitHub integration", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
-    await expect(assignGitHubIssue("abc")).rejects.toThrow(
-      'GitHub: Invalid issue id "abc".',
-    );
+    const refusal = assignGitHubIssue("abc");
+
+    await expect(refusal).rejects.toThrow('GitHub: Invalid issue id "abc".');
+    await expect(refusal).rejects.toMatchObject({
+      code: "invalid_value",
+      oclif: { exit: 2 },
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
