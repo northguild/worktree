@@ -43,22 +43,25 @@ not list is named `<kind>@<pane>`, for example `claude@w5:p1`.
 - feature/one (Agent: feature-one-1f)
 - feature/two (Ahead: 2, Behind: 1, Agent: feature-two-1f [waiting])
 - feature/three (Agent: notes-1f [interactive])
-- feature/four (Agent: feature-four-1f [done])
+- feature/four (Agent: feature-four-1f [interactive, waiting])
+- feature/five (Agent: feature-five-1f [done])
 ```
 
 - **No marker** — a background agent that is getting on with its work.
-- **`[waiting]`** — a background agent that is live but not progressing, so it is
-  probably waiting on you.
+- **`[waiting]`** — a background agent that is live but not progressing: idle between
+  turns or blocked on a question, so it is probably waiting on you.
 - **`[done]`** — a session the runtime reports as finished. It no longer holds anything back, so
   `cleanup` treats the worktree as ordinary stale work. The exceptions are a session Herdr still shows in
   a pane and one whose process is still running, which the runtime has been seen to report as finished:
   those are not marked `[done]`. A session Herdr shows holds the worktree back only while Herdr reports it
-  as anything other than idle or done; a running one is `[waiting]` when it is idle and otherwise holds
-  the worktree back.
-- **`[interactive]`** — somebody's own terminal session, not an agent this tool
-  dispatched. It is listed because `cleanup` will refuse to remove a worktree
-  somebody is working in, and this is where you find out which those are. One that is only idle does
-  not hold the worktree back.
+  as anything other than idle or done. A running one is weighed by its status like any live session: it is
+  `[waiting]` when it is idle or blocked on a question, and it holds the worktree back unless it is only idle.
+- **`[interactive]`** — a session in a terminal rather than a background one: somebody's
+  own, or an agent `worktree branch` started through Herdr. It is listed because `cleanup` will refuse to remove a worktree
+  somebody is working in, and this is where you find out which those are.
+- **`[interactive, waiting]`** — an interactive session that is live but not progressing,
+  on the same terms as `[waiting]`: an agent that has finished its turn or stopped on a question.
+  One that is only idle, rather than blocked on a question, does not hold the worktree back.
 
 A worktree with no `Agent:` detail has no session in it. Where a worktree holds
 more than one — a dispatched agent and your own terminal, say — the entry names
@@ -135,7 +138,7 @@ and any warning go to stderr. It implies a [non-interactive run](/docs/commands/
 | `mergedInto` | the base whose commits already contain all of this branch's changes; `null` when not known to be merged |
 | `uncommittedChanges` | the number of uncommitted changes; `null` when the directory is gone, as there is nothing to count |
 | `safeToRemove` | the verdict [`cleanup`](/docs/commands/cleanup) acts on |
-| `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}`. `herdrAgent` is the name Herdr gives the agent, as `branch --json` reports it in `herdr.agent`, or the agent's pane id when Herdr reports no name |
+| `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}`. `waiting` is `true` for a live session that is idle between turns or blocked on a question, whether or not it is interactive. `herdrAgent` is the name Herdr gives the agent, as `branch --json` reports it in `herdr.agent`, or the agent's pane id when Herdr reports no name |
 
 **A count or flag that could not be taken is `null`, never `0` and never left out.** `ahead` and `uncommittedChanges` are
 `null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, and

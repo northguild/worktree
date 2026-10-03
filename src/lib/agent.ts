@@ -179,8 +179,8 @@ function herdrHandle(entry: HerdrAgentEntry): string | undefined {
 // agent finished a turn and the pane has not been looked at since, not that the
 // process is gone, so reading it as a finished session would call a worktree
 // somebody has open free to delete. Only the runtime says a session finished.
-// The status still reaches `isSessionWaiting`, where idle and blocked are
-// exactly "waiting on somebody".
+// The status still reaches `isSessionWaiting`, where idle, blocked and done
+// are all "waiting on somebody" (#79).
 function herdrOnlySession(entry: HerdrAgentEntry): AgentSession {
   return {
     name: `${entry.kind}@${entry.paneId ?? "herdr"}`,
@@ -310,9 +310,9 @@ export function isSessionLive(session: AgentSession): boolean {
 // is `idle`; Herdr's are `idle` and `done`, a finished turn the pane has not been
 // looked at since, which the runtime's vocabulary has no equivalent for. Working,
 // busy, blocked, any unrecognised status, a state other than `done`, and no
-// status at all block — an interactive session carries none, and one we cannot
-// read is not one we can call idle. When the runtime and Herdr both describe a
-// session, either one saying anything but idle blocks it. See #89.
+// status at all block — one we cannot read is not one we can call idle. When
+// the runtime and Herdr both describe a session, either one saying anything but
+// idle blocks it. See #89.
 const RUNTIME_IDLE_STATUSES = new Set(["idle"]);
 const HERDR_IDLE_STATUSES = new Set(["idle", "done"]);
 
@@ -336,25 +336,44 @@ export function isSessionBlocking(session: AgentSession): boolean {
   );
 }
 
-// Live but not progressing. Only ever true for a background session: a human's
-// own terminal is marked interactive, not waiting. Today an interactive entry
-// carries neither field, so the kind test is redundant — it is here so the
-// invariant holds by construction rather than by coincidence, should a runtime
-// start attaching a status to interactive sessions. An unrecognised vocabulary
-// degrades this to "no marker", which is cosmetic. See §4.1.
+// Live but not progressing: finished its turn or stopped on a question, so
+// probably waiting on somebody. True for an interactive session on the same
+// terms as any other — an agent `worktree branch` starts through Herdr is
+// interactive and goes idle between turns, so `kind` does not take part. See
+// #79. Read the way `isSessionBlocking` reads them, but from the other side:
+// waiting needs at least one status and every status it has must be a waiting
+// one. The runtime's are `idle` and `blocked`; Herdr's add `done`, a finished
+// turn on a pane nobody has looked at since. Working, busy, `unknown`, any
+// unrecognised status and a runtime `done` status are not waiting, so a joined
+// session the runtime calls idle and Herdr calls working is not. An
+// unrecognised vocabulary degrades this to "no marker", which is cosmetic.
+// See §4.1.
+const RUNTIME_WAITING_STATUSES = new Set(["idle", "blocked"]);
+const HERDR_WAITING_STATUSES = new Set(["idle", "blocked", "done"]);
+
 export function isSessionWaiting(session: AgentSession): boolean {
-  if (!isSessionLive(session) || isSessionInteractive(session)) {
+  if (!isSessionLive(session)) {
+    return false;
+  }
+  if (session.state === "blocked") {
+    return true;
+  }
+  // A Herdr-only session carries Herdr's status in `status`.
+  const runtimeStatus = session.herdrOnly ? undefined : session.status;
+  const herdrStatus = session.herdrOnly ? session.status : session.herdrStatus;
+  if (runtimeStatus === undefined && herdrStatus === undefined) {
     return false;
   }
   return (
-    session.state === "blocked" ||
-    session.status === "idle" ||
-    session.status === "blocked"
+    (runtimeStatus === undefined ||
+      RUNTIME_WAITING_STATUSES.has(runtimeStatus)) &&
+    (herdrStatus === undefined || HERDR_WAITING_STATUSES.has(herdrStatus))
   );
 }
 
-// Keeps `kind` inside this module while still letting `list` tell a human's own
-// terminal apart from an agent this CLI dispatched (D5, Q2).
+// Keeps `kind` inside this module while still letting `list` tell a terminal
+// session — a human's own, or an agent `branch` started through Herdr — apart
+// from a background one (D5, Q2, #79).
 export function isSessionInteractive(session: AgentSession): boolean {
   return session.kind === "interactive";
 }

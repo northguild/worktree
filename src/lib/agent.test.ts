@@ -396,6 +396,23 @@ describe("getAgentSessions across Herdr and the runtime", () => {
     expect(sessions.map(isSessionWaiting)).toEqual([true, false]);
   });
 
+  // #79: `worktree branch` starts its agent through Herdr, so it is interactive
+  // in the runtime listing, and it must read as waiting once its turn is done.
+  it("marks an idle interactive session joined to an idle Herdr agent as waiting", async () => {
+    mockConfig({ "herdr.agent": "claude" });
+    expectCommands("claude agents --json");
+    mockRun.mockResolvedValueOnce(
+      JSON.stringify([runtimeEntry({ kind: "interactive", status: "idle" })]),
+    );
+    mockHerdrAgents([herdrAgent({ agent_status: "idle" })]);
+
+    const sessions = await getAgentSessions();
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.herdrStatus).toBe("idle");
+    expect(isSessionWaiting(sessions[0] as AgentSession)).toBe(true);
+  });
+
   it("does not join on a session id when the working directories differ", async () => {
     mockConfig({ "herdr.agent": "claude" });
     expectCommands("claude agents --json");
@@ -706,6 +723,21 @@ describe("a runtime done state with a process behind it", () => {
     expect(isSessionBlocking(session as AgentSession)).toBe(true);
   });
 
+  // With its `done` dropped the session is weighed by its status alone (#79):
+  // busy or no status is not waiting, blocked is waiting and still blocks.
+  it("is waiting only on an idle or blocked status when the pid is running", async () => {
+    mockIsProcessRunning.mockReturnValue(true);
+
+    const sessions = await collect(
+      done({ status: "busy" }),
+      done({ status: null }),
+      done({ status: "blocked" }),
+    );
+
+    expect(sessions.map(isSessionWaiting)).toEqual([false, false, true]);
+    expect(sessions.map(isSessionBlocking)).toEqual([true, true, true]);
+  });
+
   it("stays finished when the pid is not running", async () => {
     mockIsProcessRunning.mockReturnValue(false);
 
@@ -971,6 +1003,20 @@ describe("isSessionWaiting", () => {
     expect(isSessionWaiting(session({ state: "blocked" }))).toBe(true);
   });
 
+  it("marks a session blocked by its runtime or Herdr status as waiting", () => {
+    expect(isSessionWaiting(session({ status: "blocked" }))).toBe(true);
+    expect(isSessionWaiting(session({ herdrStatus: "blocked" }))).toBe(true);
+    expect(
+      isSessionWaiting(
+        session({
+          kind: "interactive",
+          status: "idle",
+          herdrStatus: "blocked",
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("marks an idle session as waiting", () => {
     expect(
       isSessionWaiting(session({ state: "working", status: "idle" })),
@@ -989,13 +1035,57 @@ describe("isSessionWaiting", () => {
     );
   });
 
-  // Passing a status an interactive entry does not carry today, so this pins the
-  // kind test rather than the mere absence of the field. §4.1's invariant is that
-  // waiting is only ever true for a background session.
-  it("does not mark an interactive session as waiting", () => {
+  // #79: an interactive session carries a status, and is waiting on the same
+  // terms as any other.
+  it("marks an idle interactive session as waiting, and a busy one not", () => {
     expect(
       isSessionWaiting(session({ kind: "interactive", status: "idle" })),
+    ).toBe(true);
+    expect(
+      isSessionWaiting(session({ kind: "interactive", status: "busy" })),
     ).toBe(false);
+  });
+
+  it("does not mark a joined session as waiting when Herdr says it is working", () => {
+    expect(
+      isSessionWaiting(
+        session({
+          kind: "interactive",
+          status: "idle",
+          herdrStatus: "working",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isSessionWaiting(session({ status: "busy", herdrStatus: "idle" })),
+    ).toBe(false);
+  });
+
+  it("marks a joined session as waiting on a Herdr idle or done status alone", () => {
+    expect(isSessionWaiting(session({ herdrStatus: "idle" }))).toBe(true);
+    expect(isSessionWaiting(session({ herdrStatus: "done" }))).toBe(true);
+    expect(
+      isSessionWaiting(session({ status: "idle", herdrStatus: "done" })),
+    ).toBe(true);
+  });
+
+  it("reads a Herdr-only status as Herdr's: done and blocked wait, unknown and working do not", () => {
+    const only = (status: string) =>
+      isSessionWaiting(session({ status, herdrOnly: true }));
+
+    expect(only("done")).toBe(true);
+    expect(only("blocked")).toBe(true);
+    expect(only("unknown")).toBe(false);
+    expect(only("working")).toBe(false);
+  });
+
+  it("does not mark a runtime done status as waiting", () => {
+    expect(isSessionWaiting(session({ status: "done" }))).toBe(false);
+  });
+
+  it("does not mark a session with no status as waiting", () => {
+    expect(isSessionWaiting(session())).toBe(false);
+    expect(isSessionWaiting(session({ kind: "interactive" }))).toBe(false);
   });
 });
 

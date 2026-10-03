@@ -222,7 +222,8 @@ could not be taken. `current` and `safeToRemove` are never `null`: they read
 merged. With `--agents`, each entry also has `agent`:
 `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`, whose
 `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` can each be
-`null`. `herdrAgent` is the name Herdr gives the agent (for example
+`null`. `waiting` is `true` for a live session that is idle between turns or
+blocked on a question, interactive or not. `herdrAgent` is the name Herdr gives the agent (for example
 `wt-42-fix-login`, the same as `herdr.agent` in the `branch` document), or its
 pane id (for example `w4P:p1`) when Herdr reports no name. `agent.name` in the
 `branch` document is the session name to address.
@@ -266,7 +267,8 @@ A coordinating agent can fan work out to one worktree each:
    coordinator's. Claude Code can hold a cross-session message for its user's
    approval when the two sessions' modes differ, and the worker then waits.
 4. Read `agent.name` from the document to address the session, and
-   `worktree list --agents --json` to check it is still `live`.
+   `worktree list --agents --json` to check it is still `live`. `waiting` turns
+   `true` when the worker finishes its turn or stops on a question: poll it.
 5. Finish with `worktree remove <branch> -f --json`.
 
 ### Maintain the worktree lifecycle
@@ -280,7 +282,8 @@ worktree list --agents
 worktree list -a                              # alias
 # Sessions come from `herdr agent list` (when herdr is on PATH) and from
 # `<agent.command program or herdr.agent> agents --json`, joined on the real
-# path of their directory. A finished session shows [done] (unless Herdr still shows it in a pane or its process is still running); with no source
+# path of their directory. A finished session shows [done] (unless Herdr still shows it in a pane or its process is still running,
+# when it is weighed like any live session: [waiting] if idle or blocked on a question); with no source
 # available there are simply no sessions.
 
 # Reopen a worktree in your editor

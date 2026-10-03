@@ -1200,6 +1200,18 @@ describe("gitGetWorktreeList agent join", () => {
     );
   });
 
+  it("carries waiting for an idle interactive session", async () => {
+    vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+      session({ kind: "interactive", status: "idle" }),
+    ]);
+
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
+
+    expect(worktrees[0].agent).toEqual(
+      expect.objectContaining({ interactive: true, waiting: true }),
+    );
+  });
+
   it("describes the working session when an idle one shares the worktree", async () => {
     vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
       session({ name: "idle-one", kind: "interactive", status: "idle" }),
