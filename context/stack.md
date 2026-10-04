@@ -33,6 +33,7 @@ docs/src/app/         docs content
 docs/src/             UI, components, chat client, site metadata
 docs/worker/          Cloudflare Worker proxying Gemini for the docs chat
 context/              planning-workflow artifacts (this directory)
+context7.json         what Context7 (context7.com) may index from this repo: the user docs, the usage skill and the README — see Documentation below
 .github/agents/       documentation-only agent manifests — nothing executes them
 ```
 
@@ -83,10 +84,17 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
 | `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |
 | `docs/src/app/docs/changelog/page.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
+| [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/app/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
 
-**Nothing is published outside this repository.** The GitHub Pages site is built from `docs/` by
-`docs-deploy.yml`, and npm's package page renders the root `README.md`. Both are already in the tree, so
-sweeping the tree finds every surface.
+**Every surface above is sourced from this repository.** The GitHub Pages site is built from `docs/` by
+`docs-deploy.yml`, npm's package page renders the root `README.md`, and `context7.json` fixes what Context7
+may index from the tree. All of it is already in the tree, so sweeping the tree finds every surface. Whether
+the repository has been submitted to Context7 is not tracked here.
+
+`context7.json` indexes `docs/src/app/docs/` (minus its `changelog/` page, which is release policy, not usage
+docs), `skills/` and the root `README.md`, and nothing else: `folders` is a whitelist, and Context7 always
+indexes root-level markdown, which is why `AGENTS.md`, `CLAUDE.md` and `CHANGELOG.md` are named in
+`excludeFiles` (specifying `excludeFiles` or `excludeFolders` at all switches off Context7's default exclusions).
 
 ### The two that are not ordinary docs
 
