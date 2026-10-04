@@ -12,5 +12,7 @@
     "Set `agent.command` (or `herdr.agent` when `opener` is `herdr`) before using `--agent`, because a brief with no agent configured to take it exits 2 before any worktree is created.",
     "In scripts, CI or another agent, pass explicit values such as `remove <branch> -f` and `cleanup --force`, because a non-interactive run never prompts and a value with no default fails at once with exit 2.",
     "Use `--json` on `branch`, `list` and `remove` to get one JSON document to parse, and when a brief matters check `agent.prompted` in the `branch` document, not just the exit code."
-  ]
+  ],
+  "url": "https://context7.com/northguild/worktree",
+  "public_key": "pk_hE7QfxqWAEcy3P78OEapo"
 }

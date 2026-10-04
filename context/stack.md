@@ -88,13 +88,18 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 
 **Every surface above is sourced from this repository.** The GitHub Pages site is built from `docs/` by
 `docs-deploy.yml`, npm's package page renders the root `README.md`, and `context7.json` fixes what Context7
-may index from the tree. All of it is already in the tree, so sweeping the tree finds every surface. Whether
-the repository has been submitted to Context7 is not tracked here.
+may index from the tree. All of it is already in the tree, so sweeping the tree finds every surface. Context7
+lists the repository as `/northguild/worktree`; the claim fields are below.
 
 `context7.json` indexes `docs/src/app/docs/` (minus its `changelog/` page, which is release policy, not usage
 docs), `skills/` and the root `README.md`, and nothing else: `folders` is a whitelist, and Context7 always
 indexes root-level markdown, which is why `AGENTS.md`, `CLAUDE.md` and `CHANGELOG.md` are named in
 `excludeFiles` (specifying `excludeFiles` or `excludeFolders` at all switches off Context7's default exclusions).
+
+The same file carries the maintainer's ownership claim, `url` and `public_key`, which Context7 reads from the
+default branch to verify it. Removing or changing either field breaks the claim; replacing the file with the
+claim modal's two-field snippet drops the whitelist above, and the next refresh would index `context/` and
+`.claude/` too.
 
 ### The two that are not ordinary docs
 
