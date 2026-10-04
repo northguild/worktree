@@ -1,0 +1,16 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Worktree CLI (@northguild/worktree)",
+  "description": "CLI for managing git worktrees: branch or check out into a worktree, copy env files, open it in an editor or hand it to a coding agent, then list, remove and clean up. Has a --json agent mode.",
+  "folders": ["docs/src/app/docs", "skills"],
+  "excludeFolders": ["docs/src/app/docs/changelog"],
+  "excludeFiles": ["AGENTS.md", "CLAUDE.md", "CHANGELOG.md"],
+  "rules": [
+    "Create a new branch in its own worktree with `worktree branch`; use `worktree checkout` only for a branch that already exists on the remote, because it fails for one that does not.",
+    "Run `worktree` only inside a git repository, and run `worktree config` once per repository before first use.",
+    "Give `--source` with the `origin/` prefix, such as `origin/main`, because a bare `main` prompts for confirmation and a non-interactive run exits 2 instead of waiting.",
+    "Set `agent.command` (or `herdr.agent` when `opener` is `herdr`) before using `--agent`, because a brief with no agent configured to take it exits 2 before any worktree is created.",
+    "In scripts, CI or another agent, pass explicit values such as `remove <branch> -f` and `cleanup --force`, because a non-interactive run never prompts and a value with no default fails at once with exit 2.",
+    "Use `--json` on `branch`, `list` and `remove` to get one JSON document to parse, and when a brief matters check `agent.prompted` in the `branch` document, not just the exit code."
+  ]
+}
