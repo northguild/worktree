@@ -444,6 +444,81 @@ describe("startHerdrAgent", () => {
     expect(error).toBeInstanceOf(HerdrError);
     expect(error).toMatchObject({ code: "agent_name_in_use" });
   });
+
+  describe("when the pane is busy", () => {
+    const busy = {
+      stdout: "",
+      stderr: makeErrorEnvelope(
+        "agent_pane_busy",
+        "agent target pane w61:p1 is not an available shell",
+      ),
+      exitCode: 1,
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("retries and resolves once the pane accepts the start", async () => {
+      mockRunCapturing
+        .mockResolvedValueOnce(busy)
+        .mockResolvedValueOnce(busy)
+        .mockResolvedValueOnce({
+          stdout: makeAgentStartedEnvelope(),
+          stderr: "",
+          exitCode: 0,
+        });
+
+      const started = startAgent();
+      await vi.runAllTimersAsync();
+
+      await expect(started).resolves.toBeUndefined();
+      expect(mockRunCapturing).toHaveBeenCalledTimes(3);
+    });
+
+    it("rejects with the last HerdrError after exactly the attempt count", async () => {
+      mockRunCapturing.mockResolvedValue(busy);
+
+      const started = startAgent().catch((thrown: unknown) => thrown);
+      await vi.runAllTimersAsync();
+      const error = await started;
+
+      expect(error).toBeInstanceOf(HerdrError);
+      expect(error).toMatchObject({ code: "agent_pane_busy" });
+      expect(mockRunCapturing).toHaveBeenCalledTimes(5);
+    });
+
+    it("waits between attempts rather than retrying at once", async () => {
+      mockRunCapturing.mockResolvedValue(busy);
+
+      const started = startAgent().catch((thrown: unknown) => thrown);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+
+      await vi.runAllTimersAsync();
+      await started;
+    });
+
+    it("does not retry any other error code", async () => {
+      mockRunCapturing.mockResolvedValue({
+        stdout: "",
+        stderr: makeErrorEnvelope("agent_name_in_use", "already running"),
+        exitCode: 1,
+      });
+
+      const started = startAgent().catch((thrown: unknown) => thrown);
+      await vi.runAllTimersAsync();
+      const error = await started;
+
+      expect(error).toMatchObject({ code: "agent_name_in_use" });
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 /**
