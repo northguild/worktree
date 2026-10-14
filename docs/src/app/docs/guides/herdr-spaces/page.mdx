@@ -78,8 +78,11 @@ The agent starts only for a space this command just opened. Re-opening a worktre
 second agent, because the one you left running is still in that pane.
 
 Herdr's name for the agent is derived from the branch and coerced to what Herdr accepts, which includes
-a 32-character cap. If the start fails — most often a name already taken by a live agent from another
-repository — you get a warning, and the space is still open and correct.
+a 32-character cap. A new pane's shell can still be starting when the space opens, and Herdr refuses an
+agent until the shell reaches its prompt (`agent_pane_busy`). That refusal is retried for up to about two
+seconds before it counts as a failure. If the start fails — most often a name already taken by a live
+agent from another repository, or a pane still busy after those retries — you get a warning, and the
+space is still open and correct.
 
 This is **the** agent for the worktree: `worktree branch --agent "<prompt>"` does not start a second one
 beside it. Whenever Herdr starts an agent:
