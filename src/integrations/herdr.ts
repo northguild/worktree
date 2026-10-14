@@ -20,6 +20,22 @@ const AGENT_NAME_MAX_LENGTH = 32;
 const AGENT_START_TIMEOUT_MS = 15_000;
 
 /**
+ * How many times `agent start` is tried while Herdr answers `agent_pane_busy`,
+ * and how long to wait between tries. The worst case is
+ * (AGENT_START_ATTEMPTS - 1) * AGENT_START_RETRY_DELAY_MS = 2 s of waiting,
+ * plus the refusals themselves, which take about 40 ms each.
+ *
+ * The code means the pane's shell is not at a prompt yet. Observed on 0.9.0
+ * (#102): straight after the open the refusal arrives before anything is
+ * launched, so a retry cannot collide on the agent name, and the pane accepts a
+ * start within about 0.3 s. Half a second apart leaves room for a slow rc file
+ * or prompt theme. The call is awaited, so the worst case is kept small; a
+ * pane that never settles ends in the same warning as before.
+ */
+const AGENT_START_ATTEMPTS = 5;
+const AGENT_START_RETRY_DELAY_MS = 500;
+
+/**
  * How long this process waits for `herdr` to answer one request before killing
  * it and reporting the failure.
  *
@@ -454,6 +470,9 @@ export function toHerdrAgentName(branchName: string): string {
  * otherwise — the caller decides how loud that is, and the seam treats it as a
  * warning because the space is already open by then (§5).
  *
+ * An `agent_pane_busy` refusal is retried, up to AGENT_START_ATTEMPTS tries in
+ * all; any other error, and the last attempt's, rejects unchanged.
+ *
  * Nothing is read from the response: `agent_started` answers with the pane's
  * `AgentInfo` and the `argv` it ran, and this feature needs neither.
  */
@@ -463,21 +482,36 @@ export async function startHerdrAgent({
   paneId,
   args = [],
 }: HerdrAgentStartOptions): Promise<void> {
-  await runHerdrRequest(
-    [
-      "agent",
-      "start",
-      name,
-      "--kind",
-      kind,
-      "--pane",
-      paneId,
-      "--timeout",
-      String(AGENT_START_TIMEOUT_MS),
-      ...(args.length > 0 ? ["--", ...args] : []),
-    ],
-    AGENT_START_REQUEST_TIMEOUT_MS,
-  );
+  const startArgs = [
+    "agent",
+    "start",
+    name,
+    "--kind",
+    kind,
+    "--pane",
+    paneId,
+    "--timeout",
+    String(AGENT_START_TIMEOUT_MS),
+    ...(args.length > 0 ? ["--", ...args] : []),
+  ];
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await runHerdrRequest(startArgs, AGENT_START_REQUEST_TIMEOUT_MS);
+      return;
+    } catch (error) {
+      const paneBusy =
+        error instanceof HerdrError && error.code === "agent_pane_busy";
+
+      if (!paneBusy || attempt >= AGENT_START_ATTEMPTS) {
+        throw error;
+      }
+    }
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, AGENT_START_RETRY_DELAY_MS),
+    );
+  }
 }
 
 /**
