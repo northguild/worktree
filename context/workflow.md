@@ -20,7 +20,7 @@ running something else.
 | Tier 1 → a plan | `/feature-plan` |
 | a plan → being worked, then phase by phase | `/feature-implement`, or `/feature-implement --all` |
 | Tier 2 → retired | `/feature-close` |
-| no tier crossed | `/orchestrate` — one ad-hoc gated change; `/feature-status` — read-only; `/prototype` — a throwaway mockup |
+| no tier crossed | `/orchestrate [--pr]` — one ad-hoc gated change; `/release` — cut the accumulated notes into a release pull request; `/feature-status` — read-only; `/prototype` — a throwaway mockup |
 
 **Every command finds its own starting point.** Nothing has to be looked up first, and `/feature-status` is
 never a prerequisite for anything.
@@ -36,8 +36,9 @@ This file holds the rules. Why each rule is what it is, and what was tried inste
 | `/feature-plan` | Tier 1 → a plan document | `plans/<NAME>-PLAN.md`; the `active` marker only with `--activate` |
 | `/feature-implement` | activation, and the phases within a plan | the plan's ledger, the code, and a release note where [`release.md`](release.md) says *per phase* |
 | `/feature-status` | nothing — read-only | — |
-| `/feature-close` | Tier 2 → retired | `history.md`, `archive/`, the reference sweep, a release note where [`release.md`](release.md) says *once per feature*, and the push and pull request where [`git.md`](git.md) says so |
-| `/orchestrate` | one ad-hoc gated change | the code, and a release note where [`release.md`](release.md) says one is owed |
+| `/feature-close` | Tier 2 → retired | `history.md`, `archive/`, the reference sweep, an end for every open question that still needs a person, a release note where [`release.md`](release.md) says *once per feature*, and the push and pull request where [`git.md`](git.md) says so |
+| `/orchestrate` | one ad-hoc gated change | the code, a release note where [`release.md`](release.md) says one is owed, and under `--pr` the branch it pushes and the pull request it opens |
+| `/release` | the one act that consumes notes | nothing of its own — it runs what [`release.md`](release.md)'s *Bump* wire names, on a branch [`executors.md`](executors.md) made, and ends at a pull request |
 | `/prototype` | one throwaway HTML/CSS mockup — no gates, no application code | `prototypes/<NAME>/`, and nothing else |
 | `/onboard` | the project-owned stubs | `verify.md`, `executors.md`, `git.md`, `tracking.md`, `release.md`, `stack.md`, and the pruning of what they replace |
 | `/tracking-migrate` | moving existing state onto the substrate `tracking.md` names | issues, and the tree files they replace — never `history.md` or `archive/` |
@@ -106,14 +107,20 @@ commit-sized unit and anything an existing roadmap entry already covers.
 
 [`git.md`](git.md) answers three more, each independent and each shipping as the most conservative option:
 **where work lands**, **whether the agent pushes and opens a pull request**, and at what **granularity** it
-commits. A push happens once per feature, at `/feature-close` — never at the end of a phase — and nothing
-here merges a pull request, deletes a branch, or removes a worktree under any answer.
+commits. Under those answers a push happens once per feature, at `/feature-close` — never at the end of a
+phase — and the only pushes outside them are the two asked for by name: `/orchestrate --pr`, and
+`/release`. **Nothing merges a pull request, deletes a branch, or removes a worktree under any answer, any
+flag or any command.** The one exception is not a worktree in that sense: `/feature-implement` makes a
+**detached, branchless checkout in `.phase-trees/`** for a phase it runs beside another, and removes it
+when its row reads `done`. Not by the recorded invocation, and no other command makes or removes one.
 
 **Those answers authorise the commands in this workflow, at the point each one names, and nothing else.**
 *The agent commits* is permission for `/feature-implement` to close a phase it just ran, not standing leave
 to commit whatever is in the tree; *a worktree per feature* is permission for a **planned feature's** first
 phase to make one, not for an ad-hoc request to be moved into a tree of its own. Outside those points, an
-operation needs the user to ask for it in this session.
+operation needs the user to ask for it in this session. **A typed flag or a typed command is that ask** —
+`/orchestrate --pr` and `/release` are the two the workflow ships, and each authorises that invocation's
+commit, push and pull request without changing a single answer in [`git.md`](git.md) for the next one.
 
 **Permission is not inferred.** Choosing between approaches does not authorise any of this, even where the
 option text mentions it — and *especially* where you wrote that option text yourself. Neither does "ship
@@ -125,7 +132,9 @@ default branch, and rewriting published history. Each has to be asked for by nam
 
 **A worktree is created only by what [`executors.md`](executors.md) names.** If that file names no
 invocation, there is no fallback — a bare `git worktree add` is the failure this rule exists to stop, not
-the default. The same goes for removing one.
+the default. The same goes for removing one. **`/release` is the one command that may make one for
+something that is not a feature**, because a branch of its own is what that command is for rather than a
+side effect of it — and it still makes it only with the recorded invocation, and still removes nothing.
 
 ### Where this state lives is an answer, not an assumption
 
@@ -156,13 +165,35 @@ a legitimate answer, and it names the surfaces that were checked. Saying nothing
 
 > **Before loading standards, ask what surfaces this change has: something a person operates
 > (accessibility), a hot path or a payload that grows (performance), a trust boundary — input,
-> authentication, a secret, a public endpoint (security). Write the answer down. *None of these* is an
-> answer; saying nothing is not.**
+> authentication, a secret, a public endpoint, a URL the server will fetch (security).
+> Write the answer down. *None of these* is an answer; saying nothing is not.**
 
 **A surface reaches the work the way a documentation row does.** The standards rows it loads become the
 review expectations on the phase that carries it, and whatever proves it goes in that plan's §8
 Verification — for something a person operates, an **end-to-end pass in a real browser**. Which browser
 driver is [`verify.md`](verify.md)'s answer like every other command, and nothing here names one.
+
+### An expected value has a source, and it is never the code under test
+
+> **Where a change has behaviour you can observe at a seam, work test-first in thin slices: decide what
+> each expected value should be — from the requirement, the specification, or a source independent of the
+> implementation — before the code that produces it runs, and write down what decided it. Never read an
+> expectation back out of the code under test. Documentation, configuration and wiring that only passes a
+> value through have no such seam; say which it is rather than leaving the question unasked.**
+
+**A green suite proves that the tests and the implementation agree with each other.** It says nothing about
+whether either agrees with the requirement, so an assertion copied from what the code returned passes both
+gates forever and pins nothing: Gate 1 runs the suite, and Gate 2 walks a checklist that was never asked
+where the number came from. The plan is where the sources are written — a value this feature computes gets
+a row in its §8 Verification naming what decides it, and a value whose source nobody could find is a §9
+open question rather than a number for the implementation to supply.
+
+**Two findings follow, and Gate 2 raises them whatever the suite says:** an expected value with no
+traceable source, and a rule the code implements that no test asserts. Neither is visible to Gate 1 — the
+first passes, and the second is behaviour nothing would fail if it stopped.
+
+Testing behaviour at a seam rather than internals is the standards tree's rule and not this one's; the
+phase's `Standards:` line names the file that carries it.
 
 ### What a change announces is an answer, not an assumption
 
@@ -189,10 +220,18 @@ file does not cover is reported, never guessed at** — name the path and name `
 A skill may **name** it, report that it is pending, and stop — the same way it names `/onboard` for a gap it
 will not fill itself. Asked for directly, in that turn, it is the user's call and theirs to give.
 
-**`/feature-close --release` is what that asking looks like, and it is the only shape of it this workflow
-ships.** A flag typed in the turn it takes effect, which lists every pending note it is about to consume —
-other people's included — before it runs anything. **The gap between writing a note and consuming it is
-where a wrong bump level is still free**, so a command that closes that gap says so while it asks.
+**A command or a flag typed in the turn it takes effect is what that asking looks like, and those are the
+only two shapes of it this workflow ships.** Both list every pending note they are about to consume —
+other people's included — before running anything, and **neither is inferred from prose: a sentence is not
+a command.**
+
+| Shape | The release is | Cut from |
+|---|---|---|
+| `/release` | its own pull request, and the merge of that is the ship event | the default branch, where notes accumulate as features land |
+| `/feature-close --release` | fused into the feature's own merge | that feature's branch — for a repository that releases about as often as it merges |
+
+**The gap between writing a note and consuming it is where a wrong bump level is still free**, so whichever
+of the two closes that gap says so while it asks.
 
 ### Never transcribe a credential
 
@@ -223,7 +262,8 @@ To pick the next phase: take the **lowest-numbered phase that is not `done` and 
 are all `done`.** State which one you picked before starting. If it is already `in progress`, read its Note
 and resume — do not restart it.
 
-**One run is one phase, unless `--all` says otherwise.** That flag repeats the pick above, and stops
+**One run is one round**, and a round is one phase or the independent phases `/feature-implement` runs side
+by side under the cap in [`executors.md`](executors.md). **`--all` repeats the pick above**, and stops
 exactly where a single run would: a phase that ended `blocked` or part-landed, a gate at its loopback cap,
 a ledger that disagrees with the repo. When the last phase goes `done` it stops there and names
 `/feature-close` — **that boundary is still crossed by an explicit command.**
@@ -332,3 +372,22 @@ has already written where the phase stands.
 **`/orchestrate` has no ledger**, so a capped gate there hands the work back: it stays in the working tree,
 the report says what failed, and anything still worth doing becomes an issue. **It writes no `notes.md`** —
 it has no close, so nothing would ever delete one.
+
+## What happens to a question the plan could not settle
+
+A plan's §9 Open questions has two readers after the planner: `/feature-implement` surfaces it at
+activation, and `/feature-close` goes through it at the retirement. **In between it is the phases' to
+answer** — whatever a phase settles is written into the item it settles, by that phase, the same way
+whatever it makes untrue in the documentation is fixed by it.
+
+**What is still open at the retirement is an owner check** — an item no gate can close, because it needs a
+person. **It is not a defect**, and it is not a backlog entry: nothing is known to be wrong, and nobody who
+could say has looked.
+
+> **Every one of them gets an end before `/feature-close` writes anything** — answered, filed or waived,
+> picked by the user item by item. A feature never retires with its open questions archived into a document
+> no command opens again.
+
+**The ends, what each one writes, and where a filed check goes are `/feature-close`'s**, which is the only
+command that reads §9 after activation. The destination for a filed one is the shelf *A bug is not a
+backlog entry* already names, and the kind is not a bug.

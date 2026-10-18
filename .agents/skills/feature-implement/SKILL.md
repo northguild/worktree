@@ -6,8 +6,10 @@ description: "Activate a planned feature and run the next phase of its plan — 
 # /feature-implement
 
 Owns the transition from *has a plan* to *being worked*, **and** the phases within it. One invocation runs
-**one phase**: pick it, do it, gate it, close out its ledger row. `--all` (step 14) runs that same loop
-back to back instead of stopping after the first.
+**one round**: pick a phase, do it, gate it, close out its ledger row — and where phases of this plan are
+independent of each other, up to the cap in [`context/executors.md`](../../../context/executors.md) of them
+side by side, per [`parallel.md`](parallel.md). `--all` (step 14) runs that same loop back to back instead
+of stopping after the first.
 
 Read [`context/workflow.md`](../../../context/workflow.md) for the tier model, the one-active-feature rule
 and the gate contract. This skill cites those rather than restating them.
@@ -76,11 +78,24 @@ entries are all `done`.**
 
 If it is already `in progress`, **read its Note and resume from there — do not restart it.**
 
+**Then see what can run beside it.** Where this phase and another runnable one are both `not started` —
+every `Depends on` `done` — and share **no path** on their **Files:** lines, prose included, the two can
+run at the same time, each with its own coder, up to the cap in
+[`context/executors.md`](../../../context/executors.md). Where that is true, read
+[`parallel.md`](parallel.md) beside this file before step 6: it holds how the round is formed,
+every line that makes it fall back to one phase at a time, and how the work comes back. **No flag asks for
+this and none turns it on** — it is this command's own decision, each round, and a round of one phase is
+the ordinary run the steps below describe.
+
 ## 4. Read the row you are about to work
 
 If the phase you picked reads `blocked`, its Note says what stopped it. **That is the work** — clear it
 before starting anything new, or say plainly why it cannot be cleared and stop. A `blocked` row is the only
 durable record a previous run left, so it is read rather than overwritten.
+
+**If the Note names a tree, this phase's work is already in it** — a round left it there. Read
+[`parallel.md`](parallel.md) and land that tree before briefing anybody; a coder re-run over finished work
+throws it away.
 
 ## 5. Stop on disagreement
 
@@ -97,8 +112,9 @@ cancelled — leaves a working tree with half a phase in it. A row still reading
 run into step 5's disagreement stop, or into redoing work that is already there.
 
 One token and one Note, in the row that is already there — do not move the entry, restructure the table, or
-write a summary anywhere else. If the row is already `in progress` because you are resuming it, leave it
-alone; step 11 rewrites the Note.
+write a summary anywhere else. **One line**, by the same rule step 11 applies: what is underway, so a
+session arriving after an interruption knows where it landed. If the row is already `in progress` because
+you are resuming it, leave it alone; step 11 rewrites the Note.
 
 **This write is not a change of its own.** Leave it in the working tree — it lands with the phase's work
 under either answer in [`context/git.md`](../../../context/git.md). Never commit it on its own.
@@ -112,6 +128,15 @@ paths are on the same **Files:** line as the code. Per the standing rule in
 [`context/workflow.md`](../../../context/workflow.md), whatever this phase makes untrue is fixed by this
 phase. If the work turned out differently from the plan and made something *else* untrue — a README the
 plan never listed — fix that too and say so; the sweep happened before the code existed.
+
+**An open question this phase settles is answered in the plan's §9, by this phase** — in place, in the
+item it settles, riding the same change as the ledger row. Same rule as the documentation rows above and
+the same reason: the answer is cheapest to write while the work that produced it is still in front of you,
+and `/feature-close` goes through that section before the plan is archived and has to give whatever is left
+an end. **Leave the items this phase did not settle alone**, and do not invent an answer to close one — an
+honest open question is what that section is for, and the one no phase could finish is exactly what the
+retirement is there to catch. Settling one is not part of this phase's scope and step 11 does not test for
+it.
 
 **Read [`context/release.md`](../../../context/release.md) and find out whether this phase owes a release
 note.** That file answers per path and at one granularity, and only one of its two granularity answers
@@ -159,11 +184,17 @@ the first answer and implements in-host; that is a fallback, not a failure, and 
 coder produced. A coder that reports its own success has reported nothing — that is what step 11 means by
 refusing `done` on a self-report.
 
-The brief **cites paths, it does not paste files.** Point at the phase's own section in the plan — its
-`Files:`, and its `Standards:` line, which is the plan's one traversal of `context/standards/README.md` and
-what the coder loads instead of the table — and at `context/stack.md`. Anything that can read this
-repository can open them, and a brief that inlines them is a brief that goes stale. A plan written before
-phases carried a `Standards:` line has none; then say to load per that README's conditional table.
+The brief **cites paths, it does not paste files, and it names the phase rather than the plan.** Point at
+the phase's own §6.2 section — its `Files:`, its `Standards:` line, which is the plan's one traversal of
+`context/standards/README.md` and what the coder loads instead of the table, and its `Decisions:` line,
+which is the plan's one traversal of §3 — and at `context/stack.md`. Anything that can read this repository
+can open them, and a brief that inlines them is a brief that goes stale.
+
+**A whole-plan read is the fallback, not the route.** Plans in the field run tens of thousands of
+characters and three readers open one on every phase; the §6.2 section plus the two lines is what a coder
+needs, and a brief that says *read the plan* spends the rest on §1, §5 and the phases that are already
+`done`. A plan written before phases carried these lines has neither: then say to load per that README's
+conditional table, and to read §3 for the decisions that bind this phase.
 
 Describe **what** needs to happen, never **how** to code it. Scope each delegated task to specific files.
 
@@ -185,7 +216,9 @@ Dispatch per [`context/executors.md`](../../../context/executors.md), which hold
 The last is the fallback and the weakest — the session that wrote the code judging whether the code is good
 — so **say which one you ran**, every time. The first is the cheapest real independence available: a
 reader that never saw the implementation being written, only what it produced. Brief it with the phase's
-section — its `Files:`, its review expectations and its `Standards:` line — and the diff. Where the runtime
+§6.2 section — its `Files:`, its review expectations, its `Standards:` line and its `Decisions:` line —
+and the diff. **The section, not the plan**, for the reason step 7 gives; a reviewer judging whether the
+change honoured a decision needs the decisions the phase cites, not all of §3. Where the runtime
 has no such mechanism, fall back to reviewing the diff yourself against the plan's review expectations and
 the standards, and say that is what happened.
 
@@ -242,6 +275,12 @@ The row is part of the same change as the work — never a separate step afterwa
 - **Some landed** → stays `in progress`, Note rewritten to name exactly what remains.
 - **A gate hit its cap, or something external blocks it** → `blocked`, with the blocker in the Note.
 
+**The Note is one line**, per §6.1 of the plan itself: what a later session needs in order to understand
+or resume the Status beside it, and nothing else. **Gate 1's output, the test counts and the measurements
+do not go in it.** They go in the commit message that carries the row, under
+[`context/git.md`](../../../context/git.md)'s answer, or in step 13's report. The ledger is read in a hurry
+by a session that has just arrived, and a Note that has become a phase log is one it cannot skim.
+
 **Never mark `done` on a coder's self-report** — the gate output is the evidence. A blocking item that was
 not fixed means the gate did not pass, and a gate that did not pass means the phase is not `done` — there
 is no second check to run, because `done` already says both gates passed.
@@ -282,6 +321,9 @@ side-effect of the last phase finishing.
 
 Without the flag, this invocation is over at step 13. With it, **go back to step 3 and run the next
 phase**, and keep going until the stop list below says otherwise.
+
+**The unit is step 3's round.** This flag decides whether there is a next one, never how wide one is —
+that is [`parallel.md`](parallel.md)'s, and it is decided again each time step 3 runs.
 
 Phase to phase is not a tier boundary — this command already owns "activation, and the phases within a
 plan" — so the flag crosses nothing. What it removes is the pause where a user reads a phase's report

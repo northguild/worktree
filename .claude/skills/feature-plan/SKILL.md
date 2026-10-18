@@ -81,9 +81,10 @@ upper-cased.
 - **If the entry's **Doc** names a draft in `context/drafts/`**, `git mv` it to that path and build the
   plan on top of its content. Use `git mv`, not `mv`. Do not create a second file and do not leave the
   draft behind — a draft and a plan for the same feature is two documents disagreeing about one thing.
-- **Otherwise** copy `context/plan-template.md` to that path. Copy it verbatim; it is a bare skeleton with
-  nothing to strip. [`context/plan-template.notes.md`](../../../context/plan-template.notes.md) says what
-  goes in each section.
+- **Otherwise** copy [`context/plan-template.md`](../../../context/plan-template.md) to that path. Copy
+  it verbatim; it is a bare skeleton with nothing to strip.
+  [`context/plan-template.notes.md`](../../../context/plan-template.notes.md) says what goes in each
+  section.
 
 **The draft is the most valuable input you have** — material the user gathered deliberately, often from
 somewhere you cannot reach. Carry its specifics forward; do not summarise them away, and do not silently
@@ -108,6 +109,10 @@ planner's own default shape:
 - **A `Standards:` line on every phase** — the files from that table the phase will be reviewed against,
   the always row included and the surface rows below added. The plan is the one traversal of the table:
   whoever implements the phase and whoever reviews it read that line, and neither opens the README again.
+- **A `Decisions:` line on every phase** — the §3 decisions that govern it, by number and in a clause
+  each. Same principle one section over: whoever implements a phase is briefed with that phase's own
+  section, so a constraint living only in §3 either rides a whole-plan read or gets re-decided
+  downstream. A phase genuinely governed by none says `—`.
 - **The surface question, asked out loud** — per the standing rule in
   [`context/workflow.md`](../../../context/workflow.md): does this feature put something in front of a
   person, sit in a hot path, or cross a trust boundary? Each *yes* names the standards rows the phases will
@@ -126,7 +131,39 @@ planner's own default shape:
   **Files:** line naming every path it touches. That line is what makes reconciliation a check rather than
   a judgement call.
 
-### 5. Write the document
+### 5. Measure against the budget, before you write
+
+[`context/tracking.md`](../../../context/tracking.md)'s *How much a plan may hold* gives a **ceiling** and
+a **reserve**. Measure the drafted plan's own size, add the reserve for each phase in it, and compare the
+total to the ceiling.
+
+**Measure the file, not your impression of it.** Nothing can count the characters of a draft it is holding
+in context. Write the draft to a path outside `context/` and run `wc -m` on it — the plan is written from
+there in step 6, or thrown away — and **say the number in the report.**
+
+**Do this before the write, not after one fails** — under the tracker answer the body is a single write and
+a failed one leaves the research with nowhere to go, and in the tree a plan that is already on disk is a
+plan somebody will keep rather than split.
+
+**If that section is not there** — an install from before it shipped — **name the gap, do not invent a
+number.** Say the budget is not recorded, name `/onboard`, and write the plan. Inventing a ceiling
+mid-run would write policy nobody chose, and refusing to plan over a missing answer would be worse: the
+same rule this workflow applies to a path [`context/release.md`](../../../context/release.md) does not
+cover. `check` carries its own fallback and says when it used it, so an oversized plan is still reported in
+that install.
+
+**It is not *does this fit*. It is *does it fit with room for the rows still to be written*.** The ledger
+is edited for the feature's whole life: every row opens to `in progress` and then closes with a sha and
+its Note. That is what the reserve is, and a plan that only just fits has already failed.
+
+**Under the budget** → carry on to step 6. Say the measurement in the report either way; a check nobody
+can see the result of is one nobody trusts.
+
+**Over the budget** → the feature is more than one feature, and the answer is to split it. Read
+[`split.md`](split.md) beside this file — it holds the workarounds that are refused, how the split is
+proposed, and what happens to each chunk. Do not improvise one, and **write no plan until it is settled.**
+
+### 6. Write the document
 
 Fill in the template's shape. Then:
 
@@ -143,10 +180,14 @@ Fill in the template's shape. Then:
   is `context/verify.md`'s answer; **if that file names nothing that drives a browser, say so in §9 rather
   than inventing one** — a standard named in a phase's review expectations and nowhere checkable is a rule
   nobody runs, and `/onboard` is what fills the gap.
-- Fill in **§9 Open questions** honestly. An honest gap is worth more than an invented decision.
+- Fill in **§9 Open questions** honestly. An honest gap is worth more than an invented decision. **Say
+  which of them need a person** — a reading, a judgement, a pass on a device
+  [`context/verify.md`](../../../context/verify.md) names no driver for — because `/feature-close` goes
+  through this section and each one of those has to be answered, filed or waived before the feature
+  retires.
 - Every phase is `not started`.
 
-### 6. Update the roadmap entry
+### 7. Update the roadmap entry
 
 Repoint the entry's **Doc** field at the new `plans/` path. If you `git mv`d a draft, that same edit is
 what fixes the now-dead `drafts/` link, so do it together.
@@ -159,7 +200,7 @@ state for a planned-but-not-started feature.
 plan, skip the activation, and name the feature that holds it.** The plan is valuable and harmless on its
 own; discarding it over a marker would undo the point of the split.
 
-### 7. The plan and its entry travel together
+### 8. The plan and its entry travel together
 
 They are one change: the entry's **Doc** field points at the document, and `check` reports a dead link if
 the entry exists where the plan does not. Never leave one behind.
@@ -174,7 +215,7 @@ This is the one place the ordering is not obvious: everywhere else in this workf
 it describes land together, and here the document has to land *first*, in a different tree from the one that
 will use it.
 
-### 8. Report and stop
+### 9. Report and stop
 
 State the document path, the phase count, the documentation surfaces §7 commits to updating, and the open
 questions. Then say plainly that **what you produced
@@ -187,6 +228,9 @@ once they are satisfied.
 - **Never implement anything.** Not "just the first phase", not "a quick scaffold".
 - **Never mark a phase `done`**, and never mark a phase anything other than `not started`.
 - **Never write outside `context/`.** No source files, no config.
-- **Never shrink a plan to fit where it is kept.** A plan too large for its home says the feature is too
-  large; splitting it is the answer, and trimming the research to fit hides the finding.
+- **Never shrink a plan to fit its budget.** A plan over the line in
+  [`context/tracking.md`](../../../context/tracking.md) says the feature is too large; splitting it is the
+  answer, and trimming the research to fit hides the finding. Step 5 is where that is measured, and it is
+  measured under both tracking answers — a plan document having no hard ceiling is not the same as having
+  no budget.
 - Do not fold the draft's content into `context/roadmap.md`. Tier 1 stays high-level.
