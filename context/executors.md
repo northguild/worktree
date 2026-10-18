@@ -9,7 +9,8 @@ Configured by `/onboard` on 2026-09-05. The **Branch and worktree** section belo
 when [`git.md`](git.md) took the worktree-per-feature answer, under the title *Worktree operations*.
 `/onboard` renamed it on 2026-09-30 under `@baldurpan/create-ai-workflow` 0.22.0, whose
 `/feature-implement` looks the section up by that name, and added the removal command and the
-no-improvising rule.
+no-improvising rule. Re-run on 2026-10-18 under 0.26.0, which added the concurrency cap under *Coder*; no
+answer changed.
 
 What each section takes, and the alternative answers written out, are in
 [`executors.notes.md`](executors.notes.md).
@@ -26,6 +27,15 @@ carrying every file read of every phase. No external coder CLI is dispatched, so
 record and no repository-read test to run — the brief is a file already in this repository.
 
 *Set on 2026-09-30 by the maintainer, replacing the in-host answer recorded on 2026-09-05.*
+
+**At most 3 phases of one plan run at once.** `/feature-implement` forms a round out of phases that depend
+on nothing unfinished and share no file, and dispatches a coder for each; this number is the ceiling on how
+many. **1 turns that off** and every phase runs on its own. It is a fact about this machine and this
+account, so it is kept whichever of the three answers above is this project's — lower it if a round runs
+into a usage limit.
+
+*Confirmed at the shipped 3 by the maintainer on 2026-10-18, under 0.26.0. Nothing forced it lower: the
+`.phase-trees/` probe recorded in [`verify.md`](verify.md) passed once that directory was gitignored.*
 
 ## Reviewer
 
@@ -147,6 +157,10 @@ nor `npx … @latest` can run, stop and say so.
 
 Removal is the same: a tree goes through `worktree remove`, not `git worktree remove`, so its Herdr space
 is closed with it.
+
+**The scratch checkouts `/feature-implement` makes under `.phase-trees/` are not these.** They have no
+branch, nobody looks at them, and that command makes and discards them itself — neither `worktree branch`
+nor `worktree remove` is involved, and nothing in this section applies to them.
 
 *Until 2026-09-30 this file offered `git worktree add` as a by-hand fallback. It was dropped by `/onboard`
 on that date, on the maintainer's answer, when 0.22.0's stub named it as the one command never to

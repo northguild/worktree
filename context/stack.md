@@ -8,7 +8,8 @@ a small Cloudflare Worker proxying Gemini for its chat feature.
 One piece of history explains a lot of the current shape: the project moved from the `@burglekitt` org to
 `@northguild` in 35fc08f (2026-08-26). Package names, the biome plugin and the docs' shared library all
 changed scope in that commit, so anything installed or generated before it is stale in a way that produces
-confusing errors rather than obvious ones — see the prerequisites in [`verify.md`](verify.md).
+confusing errors rather than obvious ones — see the prerequisites and *Prepare a fresh tree* in
+[`verify.md`](verify.md).
 
 | Concern | Target |
 |---|---|

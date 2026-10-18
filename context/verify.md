@@ -8,18 +8,21 @@ in `context/`, that copy is the one that is wrong.
 
 Keep it in step with CI. If a command here fails while CI is green, this file is the one that is wrong.
 
-**Every command below was run from the repo root on 2026-09-30 and exited 0** (re-verified by `/onboard` after a fresh `pnpm install --frozen-lockfile`; first verified 2026-09-06). Anything that did not is
-recorded as such rather than written into a section.
+**Every command below was run from the repo root on 2026-10-18 and exited 0** (re-verified by `/onboard`
+under `@baldurpan/create-ai-workflow` 0.26.0, in this worktree and in a fresh clone; first verified
+2026-09-06). Anything that did not is recorded as such rather than written into a section.
 
 ## Prerequisites
 
 - **Node 24** (`.github/workflows/ci.yml` pins `node-version: 24`) and **pnpm 10.32.1** (the
   `packageManager` field in `package.json`).
-- **`pnpm install --frozen-lockfile` already run.** A stale `node_modules` is the first thing to suspect
-  when lint or the docs tests fail on a clean checkout: this repo moved from the `@burglekitt` org to
-  `@northguild` in 35fc08f, and an install predating that leaves `@northguild/gmt-biome` and
-  `@northguild/gmt` absent while the lockfile already names them. The symptoms are a biome
-  `Cannot read file` plugin error and `Failed to resolve import "@northguild/gmt"` in the docs suite.
+- **The tree is prepared** — see *Prepare a fresh tree* below. A worktree made by `worktree branch` starts
+  with no `node_modules`, and every section here then fails with `command not found`. A *stale*
+  `node_modules` is the next thing to suspect when lint or the docs tests fail: this repo moved from the
+  `@burglekitt` org to `@northguild` in 35fc08f, and an install predating that leaves
+  `@northguild/gmt-biome` and `@northguild/gmt` absent while the lockfile already names them. The symptoms
+  are a biome `Cannot read file` plugin error and `Failed to resolve import "@northguild/gmt"` in the docs
+  suite.
 
 ## Lint
 
@@ -39,6 +42,12 @@ filename exists in the tree. The standards bundle ships a Biome starter template
 `biome-example.json` here, and that rename is permanent: `context/standards/` is project-owned (see
 [`stack.md`](stack.md)), so `update` no longer writes to it. Keep it that way — never let a file named
 `biome.json` or `biome.jsonc` back into the tree.
+
+**The one exclusion that does work is `.gitignore`**, through `vcs.useIgnoreFile`. Every phase tree under
+`.phase-trees/` is a full checkout carrying its own `biome.json`, and `/onboard` showed on 2026-10-18 that
+without the `.phase-trees/` entry in `.gitignore` this command dies with *Found a nested root
+configuration*; with it, a planted lint error, type error and failing tests there were invisible to every
+section of this file. Keep that entry.
 
 ## Typecheck
 
@@ -66,9 +75,27 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-10-02 that is 1000 and 68 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-10-18 that is 1006 and 68 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
+
+## Test markers
+
+```bash
+! git grep --untracked -nE '(^|[^A-Za-z0-9_.])(it|test|describe|suite)(\.[A-Za-z]+)*\.(only|skip|todo|fails|skipIf|runIf)([^A-Za-z0-9_]|$)' -- '*.test.ts' '*.test.tsx' '*.test.mjs'
+```
+
+Fails when any test file — tracked or new — holds a focused, skipped, todo or expected-to-fail test,
+including chained forms such as `it.concurrent.skip` and conditional ones such as `describe.skipIf(…)`.
+Vitest reports a skipped test as a pass and a focused one silences every test beside it, so *Test* above
+can exit 0 while asserting almost nothing. **Biome does not cover this:** `noFocusedTests` reports `it.only`
+but `pnpm check` still exits 0, and nothing in the recommended set sees `.skip`, `.todo` or `.fails`.
+
+`--untracked` is what makes it see a test a phase has just written, and it still honours `.gitignore`, so
+`node_modules` and `.phase-trees/` stay out. The portable character classes are deliberate: `git grep -E`
+on macOS does not honour `\b`, and a version of this command using it matched nothing at all. A property
+access such as `expect(x.only)` inside a test does not trip it. Adopted by `/onboard` on 2026-10-18; a
+test that genuinely has to be skipped is a conversation, not an edit to this pattern.
 
 ## Not run by Gate 1
 
@@ -89,6 +116,23 @@ it in passing rather than treating a mismatch as a failure.
   Deploy concern; `docs-deploy.yml` owns it.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID`. Never run against production from a workstation; `worker-deploy.yml` owns it.
+
+## Prepare a fresh tree
+
+```bash
+pnpm install --frozen-lockfile
+```
+
+What makes a clean checkout of this repository runnable — and here it is the whole of it. **Gate 1 does
+not run it**, which is why it sits below that line: an ordinary phase works in a tree that is already
+prepared. `/feature-implement` runs it in each fresh checkout it makes for a round of phases.
+
+Verified by `/onboard` on 2026-10-18 in a `git clone --no-hardlinks` of this repository: after this one
+command every gate section above exited 0, and `git status --porcelain` printed nothing. Nothing else is
+needed — `pnpm build` is not a prerequisite of the tests, and the Worker's generated `docs-context.ts` is
+aliased to a committed stub in `docs/vitest.config.ts`. `--frozen-lockfile` is the form that reads the
+lockfile instead of rewriting it, the same one CI uses; plain `pnpm install` could dirty the tree and cost
+the round.
 
 ## Rules
 
