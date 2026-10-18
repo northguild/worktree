@@ -17,6 +17,9 @@ phase finished — and so is everything about pushing.
 | `git mv` the plan to `archive/` | nothing moves; the issue keeps its body and its whole thread |
 | rewrite the document header | nothing — a closed issue does not claim to be open |
 | the reference sweep | **nothing to sweep.** No path changed, so no link broke |
+| the plan's §9, read out of the document | **unchanged** — §9 is a section of the body, and the body is the plan |
+| answered or waived, written into the item | a body edit like any other |
+| the why names the filed issue | the closing comment names it, by number — both issues are in one tracker, so it is a reference rather than a path |
 | delete `context/notes.md` | **unchanged** — it is a file in a working tree under either answer, and it is deleted the same way |
 
 **The archive is the closed issue**, and it is more than the file it replaces: the plan, the discussion
@@ -41,6 +44,11 @@ records what `history.md`'s Outcome column used to.
 This is the only place `git.md`'s answer changes what this command does, and it is why
 [`context/tracking.md`](../../../context/tracking.md) recommends pairing this substrate with the push
 answer rather than requiring it.
+
+**A filed owner check is an issue here like anywhere else, and it stays outside the one bit.** No backlog
+label, no planned label, and **no `blocked by` relationship** — that primitive is between features, and an
+owner check is not one. It carries this project's own labels and whatever assignee the person who will do
+the check has, and nothing in the workflow reads it again.
 
 **The release note is unchanged.** It is an artifact of the change rather than workflow state, so it is a
 file in this repository under both of [`context/tracking.md`](../../../context/tracking.md)'s answers —

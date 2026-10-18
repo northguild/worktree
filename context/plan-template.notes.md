@@ -30,6 +30,14 @@ acceptable response; silence is not.
 `Depends on` value (`—` for none): the phase-selection rule *is* "lowest-numbered phase that is not `done`
 and whose `Depends on` are all `done`", so a missing column silently degrades it.
 
+**The Note is one line, and it is the one column with no visible bound.** Everything else in the row is a
+number, a word from a fixed set or a short list; the Note is prose in a table cell that nothing wraps, so
+it grows until a reader cannot find the Status beside it. Keep it to what a later session needs in order
+to understand or resume that Status — what is underway, what remains, what is blocking, the sha where the
+phase is `done`. The measurements, the test counts, the gate output and the account of how the phase went
+belong in the commit message that carries the row or in the run's report, both of which are read by
+someone who went looking for them.
+
 **§6.2 The phases** — one sub-section per ledger row. **The `Files:` line is required, not advisory.** It
 is what turns `/feature-status`'s reconciliation from a judgement call into a check: without it, "does the
 repo match the ledger" has no answer. A phase is a **commit-sized unit of work with a checkable outcome**,
@@ -44,6 +52,12 @@ always row, the rows for the code the phase touches, and the rows the surface qu
 [`workflow.md`](workflow.md) added — accessibility, performance, security — which are the ones a table read
 misses. A reviewer that finds the change drifted past the line opens the table; that is the fallback, not
 the route.
+
+**The `Decisions:` line is the same move applied to §3.** A phase's constraints are in §3 and its work is
+in §6.2, and a brief that carries only the second leaves the coder to either read the whole plan or
+re-decide what §3 already settled. The line names the decisions that govern the phase, by number and in a
+clause each, so the brief is the phase's own section and nothing more. Where a phase is genuinely governed
+by no decision, say `—`; the empty line and the unfilled one read alike otherwise.
 
 **§7 Documentation** — every place this project explains itself that the feature makes wrong, out of date
 or incomplete. The surfaces come from [`stack.md`](stack.md)'s Documentation index, and from a sweep of the
@@ -62,7 +76,20 @@ something a person operates, an **end-to-end pass in a real browser** for a user
 to compare for a hot path. Which driver runs it is [`verify.md`](verify.md)'s answer and never this
 section's; a feature whose project has no such driver says that in §9 rather than naming one.
 
-**§9 Open questions** — what the plan could not settle. Do not paper over them.
+**It is also where each value the feature computes gets a source**, one row each: the requirement, the
+specification, the published reference or the outside source that says what the value should be. The coder
+works test-first from that row — *An expected value has a source, and it is never the code under test* in
+[`workflow.md`](workflow.md) — so a row left unwritten is an expectation somebody derives mid-phase, in the
+one place it is cheapest to derive it from the code that was just written. Research is what finds these,
+which is why they are planned rather than left to the phase. A feature that computes nothing of its own
+says so; a value whose source the research could not find is a §9 open question, because the alternative is
+a number the implementation gets to choose.
+
+**§9 Open questions** — what the plan could not settle. Do not paper over them. **Say which items need a
+person**, because this section has two readers after you: `/feature-implement` surfaces it at activation,
+and `/feature-close` goes through it before the plan is archived and gives every item that still needs a
+person an end — answered, filed where this project files bugs, or waived by the user in that turn. An item
+a phase settles is answered in place, by that phase. Nothing here is archived unread.
 
 ## Standing rules
 
@@ -76,3 +103,7 @@ section's; a feature whose project has no such driver says that in §9 rather th
   first edit, and a §-number survives the move into `archive/`.
 - **Never mark a phase `done` in a plan that has not been executed.** Every phase in a new plan is
   `not started`.
+- **A plan has a size budget**, in *How much a plan may hold* in [`tracking.md`](tracking.md). It is
+  measured before the plan is written, with room held back for the ledger rows still to come. A plan over
+  the line is split along phase boundaries, never trimmed to fit: trimming discards the research the plan
+  exists to hold, and a trimmed plan reads exactly like one that was small enough.

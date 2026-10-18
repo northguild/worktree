@@ -19,69 +19,42 @@ research, write, report — and only where the plan lands changes.
 | `git mv` a draft into `plans/` | nothing moves — **the plan replaces the body of the same issue** |
 | copy `plan-template.md` to a new path | write the template's sections into that issue's body |
 | the phase ledger, Status column and all | **unchanged** — the same table, written into the body |
-| step 6, repoint **Doc** | nothing — a plan is the observation that the body holds a ledger, plus the planned label, which is a rendering of it and is read by nothing |
+| step 7, repoint **Doc** | nothing — a plan is the observation that the body holds a ledger, plus the planned label, which is a rendering of it and is read by nothing |
 | step 2's *already planned* check | the body already holds a phase ledger |
-| nothing — a plan document has no size limit | **the body does**, and a plan that overflows it is split rather than trimmed |
+| step 5's budget, which nothing in the tree enforces | **the body enforces it** — the same number, and a write that overruns it simply fails |
 
 **The ledger does not change shape.** `#`, `Phase`, `Depends on`, `Status`, `Note` — the table a plan
 document carries, written into the body with every row `not started`. There is no second object to create,
 nothing to reconcile it against, and **no window in which a plan is half-written: the body is one write.**
 
-### A plan that will not fit is a plan for too much
+### A plan that will not fit — the same check, with a harder consequence
 
-That one write has a ceiling. [`context/tracking.md`](../../../context/tracking.md) says how large a body
-may be; **measure the plan against it before writing, not after a write fails.**
+Step 5 measures the plan against *How much a plan may hold* in
+[`context/tracking.md`](../../../context/tracking.md) and sends an over-budget plan to
+[`split.md`](split.md). **Both hold here unchanged**, and the number is the same number. What differs is
+what the ceiling is and what the chunks are made of.
 
-The plan must fit with **room to spare**, because the same body is edited for the feature's whole life:
-each phase row moves to `in progress` and then to `done`, gaining a commit sha and a note as it closes. A
-plan that only just fits has already failed — the last phase would not land.
+**The ceiling is the substrate's, not a budget.** The body holds exactly that many characters and the
+write is refused at one more, so overflow is not a report — it is a failed write with the research done
+and nowhere to put it. **The body is one write**, so the measurement is the only thing standing between a
+finished draft and a lost one. That is also why `/tracking-migrate` refuses an oversized plan rather than
+carrying it: the split happens in the tree first.
 
-**Overflow is a scope signal, and the only honest response is to split the feature.** A filled plan is a
-few thousand characters. One that reaches the ceiling is the design, the phases and the risks of more than
-one piece of work written into a single document, and the substrate is the first thing that has said so.
+**`split.md`'s chunks are issues here.** Each new one carries the backlog label, `pending`, the one or two
+lines of why, a `Size:` and a `Priority:`. **The issue being planned keeps its id** — the thread, the
+reporter and everyone subscribed are the same reason adoption does not open a second issue about one
+thing.
 
-**Three ways out are refused, and naming them matters because each looks reasonable at the moment it is
-reached:**
+**The order between chunks is a relationship, not a sentence.** One write per edge, visible from both
+ends, as [`context/tracking.md`](../../../context/tracking.md) says. Writing it into a body instead would
+leave the backlog's next reader to notice it by eye.
 
-- **Trimming the plan until it fits.** That discards exactly the research the plan was written to hold, to
-  satisfy a limit that was telling you something true.
-- **Continuing the plan into comments.** The plan would then have no single home, and a reader could not
-  tell which half is current — the thing putting the ledger back in the body settled.
-- **Linking out to a document or a paste.** Same failure, plus a second place to keep in step.
+**Cross-link anything the relationship does not carry**, so the split is visible from any one of them. Two
+chunks that share a subject without either waiting on the other get a mention in each body and **no
+relationship** — recording one there would hide runnable work behind nothing.
 
-#### How to split
-
-**Propose, then ask.** The phase list is already the seam — phases are commit-sized units with real
-`Depends on` values, so a cut across a dependency boundary is a cut the research has already justified.
-Offer the split as a numbered list, each chunk with the phases it carries and what it depends on, and
-**write nothing until the user answers.** Splitting a feature in two is a scope decision, and this command
-asks before it commits far less than that.
-
-Once they agree:
-
-- **The issue being planned keeps the first chunk**, and its plan is written into the body as normal. Keep
-  the id: the thread, the reporter and everyone subscribed are the same reason adoption does not open a
-  second issue about one thing.
-- **Every other chunk becomes a new backlog issue** — carrying the backlog label, `pending`, with the one
-  or two lines of why, a `Size:` and a `Priority:`. No plan and no ledger: they are Tier-1 entries, and each
-  gets its own `/feature-plan` run when its turn comes.
-- **The order between the chunks is a relationship, not a sentence.** A cut along a dependency boundary has
-  just established which chunk waits on which, so record it the way
-  [`context/tracking.md`](../../../context/tracking.md) says — one write per edge, visible from both ends.
-  This is the strongest dependency the workflow ever knows about, and writing it into a body instead would
-  leave the backlog's next reader to notice it by eye.
-- **Cross-link anything the relationship does not carry**, so the split is visible from any one of them.
-  Two chunks that share a subject without either waiting on the other get a mention in each body and **no
-  relationship** — recording one there would hide runnable work behind nothing.
-- **No parent issue, and no issue whose phases are separate objects.** The ledger lives in a body; a
-  hierarchy laid over that is a second home for the same ordering.
-
-Then plan the first chunk only, and **report the split first** — what was cut where, which issues were
-opened, and which one this plan covers. That is the most consequential thing the run did.
-
-**If the user declines the split**, say plainly that the plan cannot be written into this substrate as one
-feature, and stop. Do not write a shortened version as a compromise: a plan trimmed to fit reads exactly
-like a plan that was small enough, and nothing downstream can tell the two apart.
+**The planned label goes on the chunk that was planned and on nothing else.** The others are Tier-1
+entries with no plan.
 
 ### What it waits on — read before the ranking, set after the research
 
@@ -160,12 +133,12 @@ it and say so once — it is metadata, not a gate.
 **`--activate` assigns the issue** rather than editing a marker, subject to the same one-active-feature
 rule and the same outcome when the slot is held: write the plan, skip the activation, name the holder.
 
-**Step 7's ordering problem disappears, and that is worth knowing.** Under the working-tree answer the plan
+**Step 8's ordering problem disappears, and that is worth knowing.** Under the working-tree answer the plan
 has to be committed and pushed *before* a worktree exists, because a tree carries only what its source ref
 holds. An issue is in no ref: it is visible from every tree the moment it exists. Plan, then create the
 tree, in whatever order suits — nothing here has to land first.
 
-**Step 5's `**Status:**` rule applies to the issue body verbatim, and only to the feature.** The body holds
+**Step 6's `**Status:**` rule applies to the issue body verbatim, and only to the feature.** The body holds
 the plan and never a line claiming where the *feature* stands; that fact is the assignee. The ledger's
 Status column answers a different question at a different scope, and it belongs in the body exactly as it
 belongs in a plan document.

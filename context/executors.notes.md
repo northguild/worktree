@@ -24,6 +24,11 @@ Record alongside an external one whether it was actually observed reading this r
 when. `/onboard` tests it; the standing rule in the stub says why the answer changes how briefs are
 written.
 
+**The concurrency number is separate from the three answers and survives changing them.** It is how many
+coders this machine and this account can carry at once, not how one is dispatched — so a project that hits
+a usage limit with three running lowers it, and `1` stops `/feature-implement` forming a round at all.
+Nothing but that command reads it.
+
 ### The three answers, copy-ready
 
 **Not configured — implement in-host.**

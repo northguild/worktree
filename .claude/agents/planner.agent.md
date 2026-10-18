@@ -35,6 +35,17 @@ The default shape below applies only when the brief names none.
    `Standards:` line naming the files it will be reviewed against — the rows the table gave you for that
    phase's work, the always row included, and the rows the surface question in step 5 adds. The coder and
    the reviewer load that line, not the table.
+
+   **Every phase also carries a `Decisions:` line** — the §3 decisions that govern it, by number and in a
+   clause each. Same reason: the coder and the reviewer are briefed with the phase's own section, so a
+   constraint that lives only in §3 either rides a whole-plan read or gets re-decided downstream. A phase
+   genuinely governed by none says `—`.
+
+   **Keep the plan within its budget.** *How much a plan may hold* in `context/tracking.md` gives a
+   ceiling and a per-phase reserve, and the caller measures your draft against them before writing it. A
+   draft that overruns the ceiling is not trimmed — it is a feature that is more than one feature, and the
+   caller will come back asking for a split along your phase boundaries. Write the research the plan needs
+   and say in your report if you think it is carrying more than one feature's worth.
 2. **Read the project.** `context/stack.md` for what this repo is; `context/verify.md` for how it proves
    itself. Search the codebase and find the patterns that already exist.
 3. **Find the documentation.** `context/stack.md`'s Documentation section says where this project explains
@@ -59,7 +70,10 @@ testable acceptance criteria, and the review checklist items (naming the specifi
 
 **Edge cases** — the cross-cutting ones not tied to a single step.
 
-**Open questions** — anything you could not resolve. Mark them clearly.
+**Open questions** — anything you could not resolve. Mark them clearly, and **say which ones need a
+person** rather than more research: a reading, a judgement by eye, a pass on a device nothing here drives.
+Those are the ones `/feature-close` has to find and give an end to, and it finds them by reading what you
+wrote.
 
 ## Rules
 
@@ -73,5 +87,12 @@ testable acceptance criteria, and the review checklist items (naming the specifi
   Verification says how that is checked — the keyboard pass, the contrast check, an end-to-end pass in a
   real browser. Name no driver for it: `context/verify.md` is the only file in this project that names a
   command, and if it names nothing that drives a browser that is an open question, not an invention.
+- **Name what decides every value the feature computes.** §8 Verification carries them, one row each: the
+  requirement, the specification, the published reference or the outside source that says what the value
+  should be. The coder decides its expected values from those rows and never from the code it is writing —
+  *An expected value has a source, and it is never the code under test* in `context/workflow.md` — and
+  finding the source is research, which is yours. A value whose source you could not find is an **open
+  question**, not a number for the implementation to pick; a feature that computes nothing of its own says
+  that instead of leaving the table empty.
 - **Name no verification command.** `context/verify.md` is the only file in this project that does. Point
   at it.

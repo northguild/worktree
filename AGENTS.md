@@ -25,7 +25,8 @@ the standing rules, and every command cites it rather than restating it.
 | `/feature-implement` | activates a planned feature and runs its phases, through both gates |
 | `/feature-status` | read-only "where do things stand". **Never a prerequisite** for anything |
 | `/feature-close` | retires a finished or abandoned feature into `context/archive/` |
-| `/orchestrate` | one ad-hoc, gated, commit-sized change — no roadmap entry, no ledger |
+| `/orchestrate` | one ad-hoc, gated, commit-sized change — no roadmap entry, no ledger. `--pr` ends it at a pull request |
+| `/release` | consumes the notes waiting on the default branch into a release pull request — the one command that bumps, and only when typed |
 | `/prototype` | a throwaway HTML/CSS mockup under `prototypes/` — no gates, no ledger, no application code |
 | `/onboard` | fills in this project's own stubs — `verify.md`, `executors.md`, `git.md`, `tracking.md`, `release.md`, `stack.md` — adopting what an existing `AGENTS.md` already said |
 | `/tracking-migrate` | moves existing entries, drafts and plans onto the substrate `tracking.md` names — after `/onboard` sets it, never instead |
@@ -42,8 +43,9 @@ the standing rules, and every command cites it rather than restating it.
 that is not `done` and whose `Depends on` are all `done`; state which you picked before starting; update
 the row as part of the same change as the work. **If the ledger disagrees with the repo, stop and say so.**
 
-**Never stage, commit, branch, create a worktree, push or open a pull request on your own initiative.** Do
-it where [`context/git.md`](context/git.md) says so, or where the user asked in this session — nowhere else.
+**Never stage, commit, branch, worktree, push, open a pull request, or run what bumps, tags, publishes or
+deploys, on your own initiative.** Only where [`context/git.md`](context/git.md) or
+[`context/workflow.md`](context/workflow.md) says so, or the user typed it.
 
 **A phase is `done` only when its scope landed and both gates passed** — never on a self-report.
 

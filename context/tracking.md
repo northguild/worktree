@@ -13,6 +13,9 @@ kept because plan bodies written under 0.8.0 still describe the old shape.
 features, the body's size ceiling, and the closing rules. The answer did not change. The `workflow:planned`
 label was created that day.
 
+**Re-run by `/onboard` on 2026-10-18 under 0.26.0**, which split the plan budget out into *How much a plan
+may hold*. The answer did not change; both labels were confirmed present, and no phase was `in progress`.
+
 **This file holds an answer, not a procedure.** How a phase is claimed, when a heartbeat is written, and in
 what order a plan and its phases are created live in the skills, so a defect in one can be fixed by an
 update. What each section takes is in [`tracking.notes.md`](tracking.notes.md).
@@ -50,7 +53,7 @@ them and every tree can reach it.
 | what a retired feature's outcome was | the closed issue — *completed* for shipped, *not planned* for dropped |
 | what kind of work it is | the issue's type — set by the workflow, read by nothing in it |
 | which features have to land before this one | the issue's **blocked by** relationships |
-| how much a plan may hold | the issue body's size limit — **65,536 characters** |
+| how much a plan may hold | *How much a plan may hold* below — here that ceiling is the body's own hard limit |
 | how a change closes one | `Closes #<n>`, in the pull request body where there is one and in the commit message otherwise |
 
 ## The plan and its ledger both live in the issue body
@@ -210,24 +213,60 @@ unblocked by something nobody is going to build, and only the close reason says 
 **Best-effort, like the type.** It needs triage permission. Where the write is refused, say so once and
 carry on — the relationship is how the backlog is read, not a gate anything passes.
 
-## The body has a ceiling, and it measures scope
+## The body has a ceiling, and here it is enforced
 
-**An issue body holds 65,536 characters.** That is the one hard limit in this substrate, and this is the
-only place the number belongs.
+**The ceiling in *How much a plan may hold* below is this substrate's own limit**, not a budget this
+project picked — an issue body holds exactly that many characters and the API refuses the write at
+65,537. Everything that section says about measuring first, holding the reserve back and splitting rather
+than trimming applies here unchanged; what is different is the consequence of ignoring it.
 
-**A plan that does not fit is a feature that is several features**, not a formatting problem. The plan
-also needs room left over: every phase row gains a status, a commit sha and a note over the feature's life,
-in the same body, so a plan that only just fits has already failed.
+**The body is one write, so a failed one is the worst possible moment to learn the plan was too big** —
+the research is done and there is nowhere to put it. `/feature-plan` measures before writing.
+`/tracking-migrate` refuses a plan that will not fit rather than guessing at a split, names it with the
+margin, and leaves the split to happen in the tree first. `/feature-implement` shortens its own Note and
+writes the row anyway: the Status column is the phase's only home, and a row that never landed is state
+that is simply gone, while a note can be re-derived from the commit it names.
 
 For scale, the four archived plans under `archive/` run from 33KB (`CLEANUP-DATA-LOSS-PLAN.md`) to 63KB
 (`AGENT-MODE-PLAN.md`), measured 2026-09-30 in bytes. The largest would sit at this ceiling as an issue
 body before its first phase row moved, and the smallest would already have spent half of it. That is the
 measure this section exists to apply, not a reason to relax it.
 
-**Three workarounds are refused:** trimming the plan until it fits, moving sections into comments, and
-linking out to a gist or a file. **The answer is to split the feature into separate issues**, each with its
-own plan and ledger — `/feature-plan` proposes the split along phase boundaries and asks, and
-`/tracking-migrate` refuses rather than guessing at one.
+## How much a plan may hold
+
+**Plan size ceiling:** 65,536 characters
+**Ledger reserve:** 500 characters per phase row
+
+A plan is measured against the ceiling **before it is written**, with the reserve held back — the plan's
+own size plus the reserve times its phase count has to come in under the line. Both numbers are this
+project's to change; everything that reads them reads them here. *Written by `/onboard` on 2026-10-18,
+under 0.26.0, with the shipped numbers.* Raising the ceiling here would mean plans the issue body cannot
+hold, so under this answer it is not really a dial.
+
+**The reserve is what makes this a check and not a formality.** The ledger is written into for the
+feature's whole life: every row opens to `in progress` and then closes, gaining a commit sha and its Note.
+A plan that only just fits has already failed, because by the last phase it would not — so the question is
+never *does this plan fit*, it is *does it fit with room for the rows still to be written*.
+
+**Which is why a row that has closed holds no reserve.** It has already been written, and its characters
+are in the measurement; counting it again would charge the plan twice and report it for making progress.
+At planning time every row is still to be written, so the two readings agree — the difference only shows
+once phases start landing, and then the thing still growing is the Notes, not the plan.
+
+**Overflow is a scope signal and the answer is to split the feature**, which is `/feature-plan`'s to
+propose along phase boundaries and the user's to accept. A plan that reaches this line holds the design,
+the phases and the risks of more than one piece of work.
+**Three ways out are refused** — trimming the plan until it fits, continuing it into comments or
+a second document, and linking out to a gist or a paste. The first throws away the research the plan
+exists to hold, to satisfy a number that was telling the truth; the other two give one plan two homes.
+
+**The number is the same under both answers, and that is deliberate.** Under this project's tracker answer
+it is the issue body's hard limit, so a plan that overruns it cannot be written at all. In the working tree
+nothing enforces it, which is not an advantage: a plan document over the same line is over the same line.
+Holding one number also means a plan is portable.
+
+`check` reports a plan over the line as a **note** and nothing more. It never proposes the split, and a
+note does not fail the check: an oversized plan is a scope finding, not structural breakage.
 
 ## What the workflow will not touch
 

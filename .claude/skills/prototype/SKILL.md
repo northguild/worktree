@@ -42,8 +42,9 @@ Say which question the mockup exists to answer, in one line, before writing anyt
 **Borrow before inventing.** This repository exists already, so most of the look is decided — and a mockup
 built from values the project does not have is a picture of an app nobody is going to build.
 
-Read `context/stack.md`, then find the real thing: the stylesheet or token file, the design system or
-component library, and two or three existing screens close to what is being mocked. Copy the actual token
+Read [`context/stack.md`](../../../context/stack.md), then find the real thing: the stylesheet or token
+file, the design system or component library, and two or three existing screens close to what is being
+mocked. Copy the actual token
 names, spacing scale, radii and type stack out of them.
 
 Invent only where there is genuinely nothing to borrow — a new surface, or a project with no styling of its

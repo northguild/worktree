@@ -296,6 +296,23 @@ Three outcomes, and only the first writes the answer alone:
 **Never write the tracker answer and delete the tree files in the same run.** Removal is what makes the
 migration irreversible, and this command has no way to show a remote write as a diff first.
 
+### How much a plan may hold — leave it alone, and say it is there
+
+That section of [`context/tracking.md`](../../../context/tracking.md) ships with both its numbers filled
+in and **holds under either answer above**, so there is nothing to ask. Two things are still yours:
+
+- **Say the budget exists and what it is**, in one line, for the same reason this step reports at all. It
+  is the one answer in this file a user is most likely to want to change and least likely to discover.
+- **If the section is absent** — an install from before it shipped, which `update` reports and cannot fix,
+  since this file is the project's — **write it from
+  [`context/tracking.notes.md`](../../../context/tracking.notes.md) with the shipped numbers** and say you
+  did. Until it is there `/feature-plan` names the gap and plans anyway, so this is the thing that closes
+  it.
+
+**Do not change the numbers unless the user asks.** The ceiling is the issue body's hard limit under the
+tracker answer and the working-tree answer takes the same number on purpose, so raising it here is a
+choice to write plans a tracker would not accept. If they ask, say that before editing.
+
 ### Under the tracker answer
 
 Write the tracker answer's paragraph from
@@ -388,7 +405,9 @@ in [`context/verify.notes.md`](../../../context/verify.notes.md).
    request, because Gate 1 runs per phase and would flag every docs-only change.
 2. **Show the candidates and ask** which belong in Lint, Typecheck, Build and Test, and whether anything is
    missing. Ask about prerequisites too — a package manager version, an install step, a service that must
-   be up.
+   be up. **Whatever has to be *run* to make a clean checkout pass goes in *Prepare a fresh tree***, not
+   into the preamble: `/feature-implement` runs that section when it prepares a tree for a phase, and
+   without it runs one phase at a time.
 3. **Ask what else this project runs to prove a change is good.** The four headings are the ones every
    project has, not the whole of what one checks — an end-to-end run, an accessibility suite, a size
    budget, a coverage floor, a visual snapshot, a dependency audit. **Ask specifically about the end-to-end
@@ -405,6 +424,15 @@ in [`context/verify.notes.md`](../../../context/verify.notes.md).
    when an advisory is published against a lockfile nobody touched, and a phase gate cannot tell that from
    a defect the phase introduced. Ask before sorting one there — a project that holds the check clean as a
    standing invariant has decided the opposite, and for that project a red one is this change's problem.
+   **Then offer one candidate of your own, and only this one: a check that no test in the suite is
+   skipped, focused or expected to fail.** A runner reports a skipped test as a pass and a focused one
+   silences every test beside it, so the Test section can exit 0 while the suite asserts almost nothing,
+   and nothing else you write here would notice. It is cheap and the change is what makes it fail, so it
+   belongs above *Not run by Gate 1* — inside Test where this project's runner or its lint rules can
+   assert it, otherwise under a heading of its own. **Offer it; do not assume it.** A project that marks
+   work in progress with a skip has chosen something this check forbids, and declining is an answer. If it
+   is taken, the command is whatever this project already has or a short one written for it, and like every
+   other it is run in step 4 before it is written down.
 4. **Run every candidate bound for a gate section.** Actually run it, from the repo root. One sorted
    under *Not run by Gate 1* is not run here — this command has no Docker, no deploy target and no
    reason to spend minutes driving a browser — and step 6 says what is recorded in its place.
@@ -417,6 +445,36 @@ in [`context/verify.notes.md`](../../../context/verify.notes.md).
    does run each one** — the pipeline, the deploy, a person before a release. That section is the record of
    a check this project has and this gate does not run; without the name it reads as a check nobody runs,
    which is a different and much worse fact.
+
+7. **Verify *Prepare a fresh tree* in a tree that is actually fresh.** Step 4 does not run it — it is below
+   the Gate 1 line, and it is an answer about a checkout nobody has lived in, which this one is not. Clone
+   the repository into a temporary directory instead: `git clone --no-hardlinks . <tmp>`. **That is not a
+   worktree**, and it is not the invocation [`context/executors.md`](../../../context/executors.md) names;
+   nothing here makes one of those. Run the candidates there, in order, and then **check the tree is still
+   clean** — `git -C <tmp> status --porcelain` must print nothing. **A dirty tree is a wrong answer, not
+   something to work around:** name what it changed and fix the answer — the install form that reads the
+   lockfile instead of rewriting it, or a `.gitignore` entry for a file a step generates. Remove the
+   directory afterwards. Where this repository has no commit yet there is nothing to clone, so say the
+   section was written unverified and name what you would have run.
+
+8. **Then put the phase trees out of Gate 1's way, and prove they are.** `/feature-implement` runs a round
+   of phases in detached checkouts under `.phase-trees/` **inside this working tree**, so every command
+   above has to pass over that directory — or phase *k*'s gate lints the other phases' half-written work,
+   runs their copies of the suite, and in at least one real configuration *writes* to them.
+   - **Write `.phase-trees/` into this project's `.gitignore`** at the repository root. Not
+     `.git/info/exclude`: that is per-clone rather than shared, and some hosts refuse to write inside the
+     git directory at all. The entry is where most tools take their ignore list from, and it is also what
+     keeps these checkouts out of `git status` and out of `git add -A`.
+   - **Then prove it, because honouring that file is a per-tool setting and not every tool does.** Plant
+     two files under `.phase-trees/probe/`: one the lint command must reject, and one test that must fail.
+     Run every command bound for a gate section. **None of them may see either file.**
+   - **Where one does, fix that tool's own configuration** — whichever it has: a setting that reads the
+     ignore file, a file list, a test exclude — then run it again. **Say which tool and which setting**;
+     that edit is this project's, not this workflow's.
+   - **Where it cannot be fixed, set the cap to 1** in *Coder* in
+     [`context/executors.md`](../../../context/executors.md), with the reason beside it. That is the
+     recorded way to say one phase at a time, and it is an answer rather than a gap.
+   - **Remove the planted files**, and report what the proof found either way.
 
 Explain what you are doing: this turns `verify.md` from someone's guess into something verified at install
 time, which is the one moment it is cheap to catch.
@@ -584,8 +642,10 @@ leaving it implied.
   the unit.
 - **What a release ships, and on what event** — fill in what bumps a version, what tags, what cuts a
   release, what publishes and what deploys, one line each, and write "nothing yet" where that is the truth.
-  **Nothing in this workflow does any of the five**, and this section is what stops the answer being read as
-  "releases happen automatically".
+  **Nothing in this workflow does any of the five on its own initiative** — `/release` runs the *Bump* wire
+  in the turn somebody types that command, and nothing at all runs the other four — and this section is what
+  stops the answer being read as "releases happen automatically". **Say who runs the Bump wire while writing
+  it**: a wire nobody is recorded as running is the one most likely to be read as firing by itself.
 
   Then, from the sweep's fourth line, **the event and what it ships per path**. There is **one event, not
   one per artifact kind**: the merge of the pull request where the notes were consumed and the versions

@@ -38,6 +38,9 @@ branch merges. So enumerate them.
 1. `git worktree list` — every working tree, its path and its branch. **That is the state.** Nothing
    records which features are in flight; a worktree existing is the claim, and removing it withdraws the
    claim. Do not write a file to track this, and do not read one if you find it.
+   **Skip the ones with no branch.** A detached tree under `.phase-trees/` is a phase's scratch checkout,
+   made by `/feature-implement`, and a tree with no branch is nobody's claim. One left behind belongs to a
+   phase that did not land — name its path in the report, read nothing out of it, and remove nothing.
 2. For each tree other than this one, read `<path>/context/roadmap.md` for its `active` entry and that
    entry's ledger at `<path>/context/plans/<NAME>-PLAN.md`. Two numbers per tree — phases `done` out of
    phases total — and its lowest not-`done` phase.

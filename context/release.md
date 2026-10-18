@@ -22,7 +22,13 @@ in a repository where nothing records one, and a false answer here is the same d
 **Files:** do not exist.
 
 **A note is not a release, and a merge is not a deploy.** Nothing in this workflow bumps a version, tags,
-publishes, releases or deploys. What does, in this repository, is the last answer in this file.
+publishes, releases or deploys **on its own initiative** — only `/release`, or `/feature-close --release`,
+in the turn somebody types it, and each of those runs what this file names rather than anything it knows.
+What ships the change, in this repository, is the last answer in this file.
+
+**Re-checked by `/onboard` on 2026-10-18 under 0.26.0**, which added `/release`. The answers did not
+change; the run history under *The wires* was brought up to date from the workflow runs, tags, releases and
+the npm registry that day.
 
 What each section takes, and the alternative answers written out, are in
 [`release.notes.md`](release.notes.md). `/onboard` reads that file when it fills this one.
@@ -116,8 +122,9 @@ before a handover.
 
 ## What a release ships, and on what event
 
-**Nothing in this workflow bumps a version, creates a tag, publishes an artifact, or deploys anything.**
-What does is below. **A feature's merge ships nothing to npm**: it lands a note on `main` and waits. The
+**Nothing in this workflow bumps a version, creates a tag, publishes an artifact, or deploys anything on
+its own initiative.** `/release` runs the *Bump* wire below when somebody types it; nothing in the workflow
+runs any of the others. What does is below. **A feature's merge ships nothing to npm**: it lands a note on `main` and waits. The
 event is the merge of the release pull request, the one made with `pnpm changeset:prepare-release`, which
 moves the version. The one exception is the docs site, which deploys on any merge touching `docs/**`, bump
 or no bump.
@@ -127,7 +134,12 @@ or no bump.
 - **Bump** — a release pull request made with `pnpm changeset:prepare-release` (`changeset version`, then
   `pnpm sync-version` to regenerate `docs/src/lib/site-meta.ts`, the one file `ci.yml` checks for drift). It must come from that
   command: it writes the version's `CHANGELOG.md` section, and a hand-edited version bump has none, so
-  `publish.yml` stops before publishing.
+  `publish.yml` stops before publishing. **Who runs it:** `/release`, in the turn a maintainer types that
+  command, on a branch of its own and after Gate 1 — or a maintainer running `pnpm
+  changeset:prepare-release` by hand. Both are real answers; nothing runs it on a merge or a schedule.
+  It cannot be run twice over the same notes, and since `publish.yml` watches the version, it is the button
+  that ships. v2.1.1 was a release pull request of its own (#101); v2.1.2's bump and `CHANGELOG.md`
+  section rode the fix pull request itself (#103), which `publish.yml` handled the same way.
 - **Tag, release, publish** — one workflow, `publish.yml`, on a push to `main` that touches `package.json`
   and moves its version (a `guard` job reads the previous version from `github.event.before`), or on a
   manual dispatch, which forces the guard open. The `publish` job, in the `release` environment with OIDC,
@@ -137,16 +149,17 @@ or no bump.
   GitHub release from the CHANGELOG section (`--prerelease` for a prerelease); a Discord post. Each step
   skips itself if its result already exists (version on npm, tag, release), so a failed run is recovered
   with "Run workflow". It replaces `tag-on-version-change.yml` (deleted) and the old `release: published`
-  trigger, which could not fire once the release is created by a workflow's own token. **Not yet run**: the
-  first real publish under this shape is the maintainer's next release. `v1.2.8` was once tagged and never
-  released, so never published; that gap is closed because tag and release no longer come apart.
+  trigger, which could not fire once the release is created by a workflow's own token. **Runs, green**: it
+  published, tagged and released v2.1.0 (2026-10-01), v2.1.1 (2026-10-04) and v2.1.2 (2026-10-14), and npm
+  serves 2.1.2. `v1.2.8` was once tagged and never released, so never published; that gap is closed
+  because tag and release no longer come apart.
 - **Deploy (docs)** — `docs-deploy.yml`, on any push to `main` touching `docs/**`, `package.json`, the
   lockfile, the workspace file or the version-sync script. **Runs**, green. It is not gated on a version.
-- **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`. **Has never
-  succeeded**: all five runs, the latest on 2026-09-11, failed at *Deploy to Cloudflare* because the
-  `CLOUDFLARE_API_TOKEN` secret is empty in this repository. The file loads and its test and build steps
-  pass; only the credential is missing. So nothing recorded here deploys the Worker — whatever is live was
-  put there some other way.
+- **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`, or a manual
+  dispatch. **Has succeeded once**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
+  repository secrets on 2026-10-03, and a manual dispatch that day succeeded. Every earlier run, the last
+  push-triggered one on 2026-10-01, failed at *Deploy to Cloudflare* for want of that credential. No push
+  has touched `docs/worker/**` since, so the push trigger has not yet been seen to succeed.
 
 ### What each path gets on a merge
 
@@ -154,7 +167,7 @@ or no bump.
 |---|---|---|
 | `@northguild/worktree` (root) | if its version moved: tested, built, published to npm, tagged, released | npm version + tag + GitHub release (all automatic) |
 | `docs` | deployed to GitHub Pages if the merge touched `docs/**` or `package.json` — version or not | nothing |
-| `docs/worker` | `worker-deploy.yml` fires and fails | nothing |
+| `docs/worker` | deployed to Cloudflare if the merge touched `docs/worker/**` — version or not | nothing |
 
 **The npm path is gated on its own version, correctly.** `publish.yml` keys on the root version moving, and
 a merge that does not bump it publishes, tags and releases nothing.
@@ -166,8 +179,9 @@ docs can describe behaviour npm does not have yet, and a docs change merged with
 behaviour that is not published at all. A deployed site leaves no tag and no release, so nothing records which commit
 is live.
 
-**The gaps, named and not generated:** a Worker deploy credential, and the docs deploy, which keys on no
-version by decision (`docs` is ignored by Changesets) and so leaves no tag and no release.
+**The gap, named and not generated:** the docs site and the Worker deploy on no version, by decision
+(`docs` is ignored by Changesets), and so leave no tag and no release. The Worker's missing credential,
+named here until 2026-10-18, is closed.
 
 ## The rules that hold either way
 

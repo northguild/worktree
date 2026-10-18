@@ -52,9 +52,11 @@ be editing at the same time — refining the plan while you flip a status — an
 loses their edit with no trace. This hazard does not exist under the working-tree answer, where the plan
 sits in a tree only you are working in.
 
-**The body has a size limit, and the row outranks everything else in it.**
-[`context/tracking.md`](../../../context/tracking.md) says what it is. `/feature-plan` leaves room for the
-rows this command writes, so reaching the limit here means the body grew after the plan landed. If a write
+**The body has a size limit, and the row outranks everything else in it.** *How much a plan may hold* in
+[`context/tracking.md`](../../../context/tracking.md) says what it is. `/feature-plan` held a reserve back
+for the rows this command writes, and step 11's one-line Note is what that reserve was sized against — so
+reaching the limit here means either the body grew after the plan landed or a Note stopped being one
+line. If a write
 would overflow, **shorten your own Note until the row fits and say the body is at its limit** — the Status
 column is the phase's only home and a row that never lands is state that is simply gone. Never drop a row,
 never delete someone else's text to make space, and never move a row or a note out of the body.
@@ -107,6 +109,22 @@ that is never written is worse than one whose evidence is still owed, and this i
 `done` from every machine while its code exists on exactly one.
 
 **Never edit a row to get past a refusal**, exactly as no phase is marked `done` to get past one.
+
+### A round of phases, in steps 6 and 11
+
+[`parallel.md`](parallel.md) holds the round itself. Three things change under this answer:
+
+- **The round's rows open in one body write.** Fewer windows against a person editing the body, which is
+  this answer's one hazard the tree answer lacks — and the opening write is the one that can be batched,
+  because no phase has landed yet.
+- **They close one write per phase, as it lands.** The tree answer's row travels inside the commit; here it
+  does not, so a run that dies two phases into a round would leave two commits recorded nowhere but git,
+  and the sha is the row's only evidence. One extra window is worth less than that.
+- **The sha in a closing row is the commit on the feature branch**, never the one in the phase's scratch
+  tree: that one has no branch and stops existing when the tree is removed. A row naming a sha nothing can
+  resolve is worse than a row naming none.
+- **The heartbeat names every phase in the round**, at the boundary it opens and the one it closes. An
+  assignee is a lock with no expiry, and a run that dies mid-round leaves three open rows instead of one.
 
 **A blocking defect is unchanged too**, because it was never a separate object: it is fixed, or it is the
 `blocked` status in the row this section already describes, or it is an issue. Under this answer the third

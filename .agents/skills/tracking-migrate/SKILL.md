@@ -60,10 +60,13 @@ list exists to prevent.
   `/feature-status` is where that gets resolved.
 - **A plan in `plans/` with no roadmap entry, or an entry whose **Doc** points at nothing.** The entry and
   its document travel together, and a migration is the wrong moment to decide which of the two is right.
-- **A plan too large for an issue body.** [`context/tracking.md`](../../../context/tracking.md) says how
-  large a body may be; measure every plan against it, leaving room for the ledger rows that will be written
-  into the body later. Name each feature that overflows and the margin by which it does, and stop. **A plan
-  that does not fit is a feature that is several features**, and splitting one in two is a scope decision —
+- **A plan too large for an issue body.** *How much a plan may hold* in
+  [`context/tracking.md`](../../../context/tracking.md) gives the ceiling and the per-phase reserve;
+  measure every plan against both. **A repository that has been measuring never reaches this refusal** —
+  the number is the same under both answers, so a plan `/feature-plan` passed in the tree fits a body.
+  Reaching it means these plans predate the budget, or somebody raised it here. Name each feature that
+  overflows and the margin by which it does, and stop. **A plan that does not fit is a feature that is
+  several features**, and splitting one in two is a scope decision —
   the same reason the row above refuses. Split it in the tree first, into an entry and a plan apiece, then
   re-run. Never trim a plan to fit, and never spill one into comments or a linked paste: this command moves
   data, and a plan that arrives shorter than it left has not been moved.

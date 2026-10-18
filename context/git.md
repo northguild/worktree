@@ -72,8 +72,9 @@ between them.
 - **Env files do not travel.** A new worktree starts without the `.env` files the tool copies for a human;
   `copyEnvFilesFromRootPath` handles that at creation time. A tree made by any other means may need them
   copied before `pnpm docs:dev` or the Worker scripts will run.
-- **`pnpm install` per tree.** `node_modules` is not shared between worktrees, and the prerequisites in
-  [`verify.md`](verify.md) apply in each one before Gate 1 means anything.
+- **`pnpm install` per tree.** `node_modules` is not shared between worktrees, so run
+  [`verify.md`](verify.md)'s *Prepare a fresh tree* in each one before Gate 1 means anything — without it
+  every gate fails with `command not found`.
 
 ## What this file does not decide
 

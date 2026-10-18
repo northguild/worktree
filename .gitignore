@@ -21,3 +21,7 @@ docs/worker/docs-context.ts
 # Wrangler local dev secrets (populated by worker:setup-dev-vars from .env.local)
 docs/worker/.dev.vars
 
+
+# /feature-implement runs a round of phases in detached checkouts here. Each carries its own biome.json,
+# and Biome only skips a nested config through this file (vcs.useIgnoreFile), not through files.includes.
+.phase-trees/

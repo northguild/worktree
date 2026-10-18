@@ -42,8 +42,20 @@ only when the scope landed and both gates passed, and whoever finishes a phase u
 the same change as the work — who commits that change is [`../git.md`](../git.md)'s answer, not this
 table's.
 
+**The Note is one line: what a later session needs in order to understand or resume the Status beside it.**
+What is underway while a row is `in progress`, what remains where some of the phase landed, what is
+blocking a `blocked` row, the commit sha where one is `done`. Nothing else — measurements, test counts,
+gate output and the account of how the phase went go in the commit message that carries the row, under
+[`../git.md`](../git.md)'s answer, or in the run's own report. A Note that grows into a phase log makes the
+ledger unreadable at exactly the moment it is being read in a hurry, and it is the one column in this
+document with no length anyone can see coming.
+
 **Exactly one table in this document has these columns.** Do not add a second phase table — a
 differently-shaped one nearby is a decoy that gets read by mistake.
+
+**A plan has a size budget**, and *How much a plan may hold* in [`../tracking.md`](../tracking.md) says what
+it is. A plan over it is not trimmed to fit — it is a feature that is more than one feature, and
+`/feature-plan` proposes the split.
 
 ### 6.2 The phases
 
@@ -52,6 +64,8 @@ differently-shaped one nearby is a decoy that gets read by mistake.
 **Files:** <every path this phase creates or modifies>
 
 **Standards:** <the files under `../standards/` this phase is reviewed against — its rows of that README's conditional table, the always row included>
+
+**Decisions:** <the §3 decisions that govern this phase, by number and in one clause each — what the coder may not re-litigate>
 
 **Scope:** <what it does>
 
@@ -62,6 +76,8 @@ differently-shaped one nearby is a decoy that gets read by mistake.
 **Files:** <every path this phase creates or modifies>
 
 **Standards:** <the files under `../standards/` this phase is reviewed against — its rows of that README's conditional table, the always row included>
+
+**Decisions:** <the §3 decisions that govern this phase, by number and in one clause each — what the coder may not re-litigate>
 
 **Scope:** <what it does>
 
@@ -83,6 +99,18 @@ reads as "not checked", and nothing downstream can tell those apart.>
 
 <How to prove the feature works, beyond `context/verify.md` passing.>
 
+**What decides each value this feature computes.** One row per value, so the expected value in a test has a
+source that is not the implementation.
+
+| Value | What decides it |
+|---|---|
+| <a number, string or structure this feature produces> | <the requirement, specification, published reference or outside source that says what it should be — never the code that computes it> |
+
+<If the feature computes no values of its own — wiring, configuration, documentation — say that. A value
+whose source could not be found belongs in §9, not in this table.>
+
 ## 9. Open questions
 
-- <Anything the plan could not settle. An honest gap is worth more than an invented decision.>
+- <Anything the plan could not settle. An honest gap is worth more than an invented decision. Say which
+  items need a person — a reading, a judgement, a pass on a device nothing here drives — because
+  `/feature-close` goes through this section and gives each of those an end before the plan is archived.>
