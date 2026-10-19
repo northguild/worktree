@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { vi } from "vitest";
+import logo from "../assets/logo.svg";
 import { Navbar } from "./Navbar";
 
 type MockNavbarProps = {
@@ -9,8 +10,8 @@ type MockNavbarProps = {
 };
 
 vi.mock("next/image", () => ({
-  default: ({ alt }: { alt?: string }) => (
-    <span data-testid="avatar" data-alt={alt} />
+  default: ({ alt, src }: { alt?: string; src?: string }) => (
+    <span data-testid="logo" data-alt={alt} data-src={src} />
   ),
 }));
 
@@ -59,11 +60,22 @@ describe("Navbar", () => {
     expect(home).toHaveTextContent("Worktree");
   });
 
-  it("does not nest a link inside the logo and treats the avatar as decorative", () => {
+  it("does not nest a link inside the home link and treats the logo image as decorative", () => {
     render(<Navbar />);
 
     const home = screen.getByRole("link", { name: "Worktree home page" });
     expect(home.querySelectorAll("a")).toHaveLength(0);
-    expect(screen.getByTestId("avatar")).toHaveAttribute("data-alt", "");
+    expect(screen.getByTestId("logo")).toHaveAttribute("data-alt", "");
+  });
+
+  it("renders the repository logo asset, not the organisation avatar", () => {
+    render(<Navbar />);
+
+    // Vitest inlines the SVG as a data URI where Next would give a hashed path;
+    // either way it must be an SVG, which rules out the avatar and a stringified
+    // StaticImageData object that would make the equality below vacuous.
+    const src = screen.getByTestId("logo").getAttribute("data-src");
+    expect(src).toMatch(/^data:image\/svg\+xml,|\.svg$/);
+    expect(src).toBe(String(logo));
   });
 });
