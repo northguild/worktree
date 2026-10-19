@@ -71,9 +71,11 @@ describe("Navbar", () => {
   it("renders the repository logo asset, not the organisation avatar", () => {
     render(<Navbar />);
 
-    expect(screen.getByTestId("logo")).toHaveAttribute(
-      "data-src",
-      String(logo),
-    );
+    // Vitest inlines the SVG as a data URI where Next would give a hashed path;
+    // either way it must be an SVG, which rules out the avatar and a stringified
+    // StaticImageData object that would make the equality below vacuous.
+    const src = screen.getByTestId("logo").getAttribute("data-src");
+    expect(src).toMatch(/^data:image\/svg\+xml,|\.svg$/);
+    expect(src).toBe(String(logo));
   });
 });

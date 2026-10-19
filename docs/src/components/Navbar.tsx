@@ -26,12 +26,7 @@ export function Navbar() {
             gap: "0.5rem",
           }}
         >
-          <Image
-            src={logo}
-            alt=""
-            height={32}
-            style={{ height: "2rem", width: "auto" }}
-          />
+          <Image src={logo} alt="" height={32} />
           {projectName}
         </Link>
       }
