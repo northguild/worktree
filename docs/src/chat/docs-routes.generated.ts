@@ -22,5 +22,6 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/docs/guides/github-issue-integration",
   "/docs/guides/herdr-spaces",
   "/docs/guides/jira-integration",
+  "/docs/guides/linear-integration",
   "/docs/guides/team-conventions",
 ]);

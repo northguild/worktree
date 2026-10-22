@@ -1,0 +1,92 @@
+---
+title: Linear Issue Integration
+---
+
+# Linear Issue Integration
+
+`worktree` can derive branch names directly from Linear issues in your Linear workspace.
+
+## Basic Usage
+
+```bash
+worktree branch --linear ENG-123
+worktree branch --linear eng-123
+worktree branch -l ENG-123
+```
+
+Pass the issue identifier, the team key and number Linear shows on the issue (`ENG-123`). It is accepted in any
+case. A pasted issue URL is not accepted.
+
+The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
+
+`--linear` cannot be combined with `--github` or `--jira`. `--assign` does not work with `--linear`: assigning a
+Linear issue is not supported yet, so the flag warns `Assignment is not supported for Linear issues yet.` and the
+worktree is still created.
+
+## How Branch Names Are Built
+
+1. Read the issue's identifier, title and labels from the Linear API.
+2. Sanitize the title into a branch-safe slug.
+3. Prepend a configured prefix chosen from the issue's labels.
+
+The name is the prefix, the identifier and the slug, for example `fix/ENG-123-fix-login-redirect`. Keeping the
+identifier in the name is what lets Linear's GitHub integration link the branch to the issue.
+
+Linear has no issue type, so the prefix comes from the issue's labels. Labels are compared by exact name,
+ignoring case:
+
+- a `bug` label -> `branchPrefix.bugfix`
+- otherwise a `chore` or `maintenance` label -> `branchPrefix.chore`
+- otherwise (a `Feature` or `Improvement` label, any other label, or none) -> `branchPrefix.feature`
+
+When an issue carries several of these labels, `bug` wins. A label such as `bugfix` or `Bug fix` is not `bug`,
+so it does not match.
+
+If a prefix key is not configured, no prefix is applied.
+
+## What Is Read From the Issue
+
+**Issue content is used for the branch name and nothing else.** `worktree` reads the issue's identifier, its title
+and the names of its labels. The title is reduced to lowercase letters, digits and `-` before it becomes part of
+the branch name, and the labels only select one of the configured `branchPrefix.*` values, or none. The issue
+description and comments are never requested, never printed, never written to the `--json` document (whose `issue`
+field carries only the provider, the identifier and the URL) and never passed to an agent.
+
+With `--json`, `issue` is `{"provider":"linear","key":"ENG-123","url":"https://linear.app/..."}`. The `url` is the
+one Linear returns, and is `null` only if Linear sent none.
+
+Requests to Linear are cut off after 15 seconds.
+
+## Authentication Resolution
+
+Authentication uses one config key, `linear.apiKey`, read from local git config. In a terminal, `branch --linear`
+offers to run `worktree config` when it is missing. Without a key after that, and in any non-interactive run, the
+command exits with code `2` and `missing_value`, naming `worktree config linear.apiKey <key>`, before a worktree
+is created.
+
+## Suggested Setup
+
+```bash
+worktree config linear.apiKey <api-key>
+worktree config branchPrefix.feature feature/
+worktree config branchPrefix.bugfix fix/
+worktree config branchPrefix.chore chore/
+```
+
+You can also run `worktree config` and answer yes to the Linear group, or configure only missing values:
+
+```bash
+worktree config --missing --names linear.apiKey,branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
+```
+
+An empty answer to the key prompt keeps the key already stored rather than clearing it.
+
+## Getting a Linear API Key
+
+1. In Linear, open Settings -> Security & access -> Personal API keys
+2. Click "New API key" and give it a label
+3. Copy the key and use it with `worktree config linear.apiKey`
+
+The key is stored locally in git config and never sent anywhere except to Linear. `worktree` never prints it:
+any `lin_api_` key that would reach the output is replaced first. The key is checked the first time `--linear`
+uses it; `worktree config` does not validate it.

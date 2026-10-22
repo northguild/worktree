@@ -25,3 +25,9 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   `invalid_value`, because the key check runs before the id is validated.
 - **Phase 3:** the reworded exclusivity and `--assign` messages are pinned only against the code; no plan
   text decides their wording.
+- **Phase 4:** plan §8 says `pnpm docs:test` checks the new page through the route list; no docs test reads
+  it. The route list is generated from disk, but nothing checks that each `DOCS_ROUTE_MAP` entry in
+  `MarkdownContent.tsx` is a valid route. That gap predates this feature. Opening the page in
+  `pnpm docs:dev` is still a person's pass.
+- **Phase 4:** some added doc lines break the surrounding hard wrap (SKILL.md, branch page, README).
+  Cosmetic once rendered.

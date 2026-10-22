@@ -20,6 +20,7 @@ title: Configuration
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
+- `linear.apiKey` (Linear personal API key, example: `lin_api_...`)
 - `branchPrefix.feature` (example: `feature/`)
 - `branchPrefix.bugfix` (example: `fix/`)
 - `branchPrefix.chore` (example: `chore/`)
@@ -166,6 +167,7 @@ worktree config github.token <token>
 worktree config jira.host https://company.atlassian.net
 worktree config jira.email your-email@example.com
 worktree config jira.apiToken <api-token>
+worktree config linear.apiKey <api-key>
 worktree config branchPrefix.feature feature/
 worktree config branchPrefix.bugfix fix/
 worktree config branchPrefix.chore chore/
@@ -212,9 +214,18 @@ worktree config github.autoAssign true
 - Branch prefix keys are optional. If missing, `worktree` uses no prefix.
 - Issue IDs are case-insensitive (both `dev-123` and `DEV-123` work).
 
+## Linear Integration Notes
+
+- `worktree branch --linear <issue-id>` reads issues from the Linear workspace your key belongs to.
+- `linear.apiKey` is the only Linear config key, and it is required.
+- Linear has no issue type, so the branch prefix comes from the issue's labels: `bug` uses `branchPrefix.bugfix`,
+  `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`.
+- Issue identifiers are case-insensitive (both `eng-123` and `ENG-123` work).
+
 ## Recommended Team Baseline
 
 1. Agree on one source branch (`origin/main` for most teams).
 2. Standardize branch naming conventions.
 3. Keep editor command consistent across local setups.
 4. For Jira integration, share workspace URL and branch prefix conventions.
+5. For Linear integration, share which labels map to bug and chore work, since the label decides the prefix.
