@@ -10,7 +10,7 @@
 // `progress.ts`; living in either would make the other a cycle.
 const URL_CREDENTIALS = /(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi;
 const TOKEN_SHAPES =
-  /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g;
+  /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|lin_api_[A-Za-z0-9]{20,})/g;
 
 export function redactSecrets(text: string): string {
   return text.replace(URL_CREDENTIALS, "$1***@").replace(TOKEN_SHAPES, "***");
