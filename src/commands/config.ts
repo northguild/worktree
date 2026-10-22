@@ -201,6 +201,10 @@ export default class Config extends BaseCommand {
       name.startsWith("github."),
     );
 
+    const hasLinearPrompt = configNames.some((name) =>
+      name.startsWith("linear."),
+    );
+
     // First check if there is anything to prompt
     if (configNames.length === 0) {
       this.log("No missing config found.");
@@ -336,6 +340,46 @@ export default class Config extends BaseCommand {
           },
         );
         await gitSetConfigValue("github.autoAssign", githubAutoAssign);
+      }
+    }
+
+    // One key, so the group is one confirm and one prompt (D2). Like the Jira
+    // group, nothing is validated against Linear here: the key is checked when
+    // `branch --linear` first uses it.
+    if (
+      hasLinearPrompt &&
+      (await this.confirmGroup(
+        "Do you want to configure Linear integration?",
+        "Linear",
+        flags.names,
+      ))
+    ) {
+      if (shouldPrompt("linear.apiKey")) {
+        const linearKeyInstructions = [
+          "To find or create your key, follow these steps:",
+          " - Go to Linear -> Settings -> Security & access -> Personal API keys",
+          " - Click 'New API key' and give it a label",
+          " - Copy your new key",
+        ];
+
+        this.log(linearKeyInstructions.join(EOL) + EOL);
+        // No default and no prefill, exactly as `jira.apiToken` is asked: a
+        // key is not echoed back as a prompt default.
+        const linearApiKey = await askInput(
+          { message: "Linear API key" },
+          {
+            value: "linear.apiKey",
+            flag: "worktree config linear.apiKey <key>",
+            // The stored key if there is one, never an empty one.
+            fallback: (await gitGetConfigValue("linear.apiKey")) || undefined,
+          },
+        );
+        // Only a real answer is written, as with `github.token`: a bare
+        // `worktree config` prompts every key whatever it already holds, so an
+        // empty answer keeps the stored key instead of clearing it.
+        if (linearApiKey.trim()) {
+          await gitSetConfigValue("linear.apiKey", linearApiKey.trim());
+        }
       }
     }
 

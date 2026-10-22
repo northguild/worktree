@@ -1079,6 +1079,161 @@ describe("config command", () => {
     });
   });
 
+  describe("Linear prompts", () => {
+    const linearRun = (flags: Record<string, unknown>) => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, ...flags },
+      });
+    };
+
+    it("asks one confirm for the group, then the key with instructions", async () => {
+      mockConfirm.mockImplementation(
+        async ({ message }) =>
+          message === "Do you want to configure Linear integration?",
+      );
+      mockInput.mockResolvedValue("lin_api_prompted");
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      linearRun({});
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Do you want to configure Linear integration?",
+      });
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Settings -> Security & access -> Personal API keys",
+        ),
+      );
+      expect(mockSet).toHaveBeenCalledWith("linear.apiKey", "lin_api_prompted");
+    });
+
+    it("skips the key prompt when the group is declined", async () => {
+      mockConfirm.mockResolvedValue(false);
+      linearRun({});
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message: "Do you want to configure Linear integration?",
+      });
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Linear API key" }),
+      );
+    });
+
+    it("answers the group yes without asking for --names linear.apiKey", async () => {
+      mockInput.mockResolvedValue("lin_api_named");
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      linearRun({ names: "linear.apiKey" });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockSet).toHaveBeenCalledWith("linear.apiKey", "lin_api_named");
+    });
+
+    it("never offers the stored key as a default or prefill", async () => {
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config"
+            ? "true"
+            : key === "linear.apiKey"
+              ? "lin_api_stored"
+              : "",
+        ),
+      );
+      mockInput.mockResolvedValue("lin_api_new");
+      linearRun({ names: "linear.apiKey" });
+
+      await config.run();
+
+      const options = mockInput.mock.calls.at(0)?.[0] as {
+        default?: string;
+        prefill?: string;
+      };
+      expect(options.default).toBeUndefined();
+      expect(options.prefill).toBeUndefined();
+    });
+
+    // A bare `worktree config` prompts every key whatever it holds, so Enter
+    // has to leave a stored key alone, as it does for `github.token`.
+    it.each([
+      "",
+      "   ",
+    ])("writes nothing for an empty answer (%j)", async (answer) => {
+      mockInput.mockResolvedValue(answer);
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      linearRun({ names: "linear.apiKey" });
+
+      await config.run();
+
+      expect(mockSet).not.toHaveBeenCalledWith(
+        "linear.apiKey",
+        expect.anything(),
+      );
+    });
+
+    it("stores a pasted key without surrounding whitespace", async () => {
+      mockInput.mockResolvedValue("  lin_api_pasted \n");
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      linearRun({ names: "linear.apiKey" });
+
+      await config.run();
+
+      expect(mockSet).toHaveBeenCalledWith("linear.apiKey", "lin_api_pasted");
+    });
+
+    it("lists the key under --missing when unset, and not when set", async () => {
+      linearRun({ list: true, missing: true });
+      await config.run();
+      expect(mockConsoleLog).toHaveBeenCalledWith("linear.apiKey");
+
+      mockConsoleLog.mockClear();
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config"
+            ? "true"
+            : key === "linear.apiKey"
+              ? "lin_api_stored"
+              : "",
+        ),
+      );
+      await config.run();
+      expect(mockConsoleLog).not.toHaveBeenCalledWith("linear.apiKey");
+      expect(mockConsoleLog).not.toHaveBeenCalledWith(
+        "linear.apiKey=lin_api_stored",
+      );
+    });
+
+    it("prompts for the key under a bare --missing run", async () => {
+      mockConfirm.mockImplementation(
+        async ({ message }) =>
+          message === "Do you want to configure Linear integration?",
+      );
+      mockInput.mockResolvedValue("lin_api_missing");
+      linearRun({ missing: true, names: undefined });
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Linear API key" }),
+      );
+    });
+
+    it("fails naming linear.apiKey when a non-interactive run has no key", async () => {
+      setNonInteractive(true);
+      linearRun({ names: "linear.apiKey" });
+
+      await expect(config.run()).rejects.toMatchObject({
+        message:
+          "no default for linear.apiKey; pass worktree config linear.apiKey <key>",
+      });
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+  });
+
   // `github.token` was in CONFIG_NAMES with no prompt block, so `--missing`
   // listed it as missing and then asked nothing. These pin that both GitHub
   // keys are actually answerable — the dead-key shape is what they guard.
