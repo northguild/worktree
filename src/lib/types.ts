@@ -138,7 +138,8 @@ export interface JsonErrorDocument {
 /** The issue a branch was derived from; `url` is `null` when not known. */
 export type BranchIssue =
   | { provider: "github"; number: number; url: string | null }
-  | { provider: "jira"; key: string; url: string | null };
+  | { provider: "jira"; key: string; url: string | null }
+  | { provider: "linear"; key: string; url: string | null };
 
 export interface BranchDocument {
   path: string;

@@ -1,6 +1,10 @@
 import { Args, Flags } from "@oclif/core";
 import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
 import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
+import {
+  fetchLinearIssue,
+  getLinearBranchNameFromIssue,
+} from "../integrations/linear.js";
 import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
@@ -13,7 +17,7 @@ import {
 import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
-import { askConfirm, askInput } from "../lib/prompt.js";
+import { askConfirm, askInput, MissingValueError } from "../lib/prompt.js";
 import type {
   BranchDocument,
   BranchIssue,
@@ -35,7 +39,7 @@ export default class Branch extends BaseCommand {
 path, branch, source, issue, assigned, envFilesCopied, installed, herdr,
 agent, warnings
 issue: {provider:"github", number, url|null}, {provider:"jira", key,
-url|null} or null
+url|null}, {provider:"linear", key, url|null} or null
 assigned: boolean, or null if no assignment was attempted
 installed: {ran:true, command, inferred, ok, reason?} or {ran:false, reason}
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
@@ -57,6 +61,7 @@ was not delivered
     "<%= config.bin %> <%= command.id %> --github 42",
     "<%= config.bin %> <%= command.id %> --github 42 --assign",
     "<%= config.bin %> <%= command.id %> --jira DEV-123",
+    "<%= config.bin %> <%= command.id %> --linear ENG-123",
     '<%= config.bin %> <%= command.id %> --github 42 --agent "implement the issue"',
     "<%= config.bin %> <%= command.id %> --github 42 --agent-file brief.md",
     "<%= config.bin %> <%= command.id %> --github 42 --no-agent",
@@ -76,6 +81,10 @@ was not delivered
     jira: Flags.string({
       char: "j",
       description: "Create a branch from a Jira issue (issue ID)",
+    }),
+    linear: Flags.string({
+      char: "l",
+      description: "Create a branch from a Linear issue (issue identifier)",
     }),
     // The three brief sources are one choice (D13), and `--no-agent` says there
     // is no brief to deliver, so it excludes all of them.
@@ -106,7 +115,7 @@ was not delivered
     assign: Flags.boolean({
       allowNo: true,
       description:
-        "Assign the issue to you when creating a branch from --github",
+        "Assign the issue to you when creating a branch from --github (not supported for --jira or --linear yet)",
     }),
     // Unset is meaningful: it defers to postCreate and the run's mode (D9), so
     // there is no `default`. `--no-install` is the one switch that wins over both.
@@ -265,6 +274,27 @@ was not delivered
     }
   }
 
+  private async getLinearIssueBranchName(issueIdFlag: string): Promise<{
+    branchName: string;
+    issue: BranchIssue;
+  }> {
+    const key = issueIdFlag.trim().toUpperCase();
+    const spinner = createSpinner(`Fetching Linear issue ${key}`).start();
+    try {
+      // One fetch gives both the name and the url the API reports (D9).
+      const issue = await fetchLinearIssue(issueIdFlag);
+      const branchName = await getLinearBranchNameFromIssue(issue);
+      spinner.succeed();
+      return {
+        branchName,
+        issue: { provider: "linear", key: issue.identifier, url: issue.url },
+      };
+    } catch (error) {
+      spinner.fail();
+      throw error;
+    }
+  }
+
   /**
    * Flag, then config, then true when non-interactive, then prompt (D4, D8). The key is tri-state through unset
    * (D3): `true` always assigns, `false` never does, and unset means ask.
@@ -357,11 +387,12 @@ was not delivered
 
   private async getBranchName(
     branchNameArg?: string,
-    flags?: { github?: string; jira?: string },
+    flags?: { github?: string; jira?: string; linear?: string },
   ): Promise<{ branchName: string; issue: BranchIssue | null }> {
     if (
       !flags?.github &&
       !flags?.jira &&
+      !flags?.linear &&
       branchNameArg &&
       this.validateBranchName(branchNameArg)
     ) {
@@ -372,7 +403,9 @@ was not delivered
       ? await this.getGithubIssueBranchName(flags.github)
       : flags?.jira
         ? await this.getJiraIssueBranchName(flags.jira)
-        : undefined;
+        : flags?.linear
+          ? await this.getLinearIssueBranchName(flags.linear)
+          : undefined;
     const defaultValue = derived?.branchName ?? "";
 
     const branchName = await askInput(
@@ -395,15 +428,24 @@ was not delivered
 
   public async run(): Promise<BranchDocument> {
     const { args, flags } = await this.parse(Branch);
-    if (flags.github && flags.jira) {
-      this.error("Please provide either --github or --jira, not both.");
+    if ([flags.github, flags.jira, flags.linear].filter(Boolean).length > 1) {
+      this.error(
+        "Please provide only one of --github, --jira or --linear, not several.",
+      );
     }
 
     // There is no issue to assign without one of them. Checked here rather than
     // beside the assignment itself so a malformed command line fails before the
     // issue fetch and the branch-name prompt, in the shape of the check above.
-    if (flags.assign !== undefined && !flags.github && !flags.jira) {
-      this.error("--assign/--no-assign requires either --github or --jira.");
+    if (
+      flags.assign !== undefined &&
+      !flags.github &&
+      !flags.jira &&
+      !flags.linear
+    ) {
+      this.error(
+        "--assign/--no-assign requires one of --github, --jira or --linear.",
+      );
     }
 
     // Read before anything is created: an empty or oversized brief is a usage
@@ -436,8 +478,21 @@ was not delivered
       configNames.push("jira.host", "jira.email", "jira.apiToken");
     }
 
+    if (flags.linear) {
+      configNames.push("linear.apiKey");
+    }
+
     // If there is no source flag provided, make sure defaultSourceBranch is configured
     await this.verifyConfig(configNames);
+
+    // The key has no default and the fetch needs it, so a run still without one
+    // after the offer is a missing value, and it ends before a tree exists.
+    if (flags.linear && !(await gitGetConfigValue("linear.apiKey"))) {
+      throw new MissingValueError(
+        "the Linear API key",
+        "`worktree config linear.apiKey <key>`",
+      );
+    }
     const { branchName, issue } = await this.getBranchName(
       args.branchName,
       flags,
@@ -452,6 +507,8 @@ was not delivered
     let assigned: boolean | null = null;
     if (flags.jira && flags.assign) {
       this.warn("Assignment is not supported for Jira issues yet.");
+    } else if (flags.linear && flags.assign) {
+      this.warn("Assignment is not supported for Linear issues yet.");
     } else if (flags.github) {
       if (await this.shouldAssignGithubIssue(flags.assign)) {
         assigned = await this.assignGithubIssue(flags.github);

@@ -16,3 +16,12 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   run and only fails later, at `branch --linear`.
 - **Phase 2:** the test "asks one confirm for the group…" does not assert that only one confirm ran, and the
   empty-answer tests do not assert that the Linear prompt was reached.
+- **Phase 3:** `branch.ts` checks for a missing `linear.apiKey` itself, to get `missing_value` / exit 2,
+  because `resolveLinearApiKey` throws a plain `Error`. That function's empty-key check is now unreachable
+  from `branch`; having `resolveLinearApiKey` throw `MissingValueError` would let the branch check go.
+- **Phase 3:** a missing Linear key exits 2 (`missing_value`), and a missing Jira credential still exits 1
+  (`failed`). Intended by the plan for Linear only.
+- **Phase 3:** with no key *and* a malformed id, `branch --linear foo` reports `missing_value` before D5's
+  `invalid_value`, because the key check runs before the id is validated.
+- **Phase 3:** the reworded exclusivity and `--assign` messages are pinned only against the code; no plan
+  text decides their wording.
