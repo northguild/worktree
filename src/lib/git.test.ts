@@ -8,6 +8,7 @@ import {
   gitCreateWorktree,
   gitFetch,
   gitGetAbsoluteWorktreesPath,
+  gitGetChurn,
   gitGetCommitsAheadCount,
   gitGetCommitsBehindCount,
   gitGetComparisonBase,
@@ -1556,6 +1557,298 @@ describe("gitGetWorktreeList ahead counting", () => {
 // remove` on a never-pushed branch asked a generic "Are you sure?" rather than
 // naming the commits at risk, because `promptRemoval` reads `worktree.ahead`.
 // Nothing covered this prompt before Phase 3, which is how it stayed disarmed.
+// Every expected figure below is a line of `git diff --shortstat` output, and
+// what decides it is git itself, not this parser: a file going from `a,b,c` to
+// `a,X,c,d,e` removes b and adds X, d, e, which git prints as `1 file changed,
+// 3 insertions(+), 1 deletion(-)` (confirmed against git on 2026-10-23, #39 §1
+// and §8). git omits a clause whose count is zero, and prints nothing for an
+// empty diff.
+describe("gitGetChurn", () => {
+  const worktreePath = "/repo/project.worktrees/feature/one";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    expectCommands(
+      `git diff --shortstat --end-of-options origin/main...HEAD (cwd: ${worktreePath})`,
+      `git diff --shortstat --end-of-options --stat...HEAD (cwd: ${worktreePath})`,
+      `git diff --shortstat --end-of-options origin/gone...HEAD (cwd: ${worktreePath})`,
+    );
+  });
+
+  it("reads files, insertions and deletions from git's shortstat line", async () => {
+    mockRun.mockResolvedValueOnce(
+      " 1 file changed, 3 insertions(+), 1 deletion(-)",
+    );
+
+    expect(await gitGetChurn(worktreePath, "origin/main")).toEqual({
+      files: 1,
+      insertions: 3,
+      deletions: 1,
+    });
+  });
+
+  it("reads plural clauses", async () => {
+    mockRun.mockResolvedValueOnce(
+      " 2 files changed, 12 insertions(+), 4 deletions(-)",
+    );
+
+    expect(await gitGetChurn(worktreePath, "origin/main")).toEqual({
+      files: 2,
+      insertions: 12,
+      deletions: 4,
+    });
+  });
+
+  // git's documented shortstat omits a zero clause, so absent is a taken zero.
+  it("reads an omitted deletions clause as zero", async () => {
+    mockRun.mockResolvedValueOnce(" 1 file changed, 1 insertion(+)");
+
+    expect(await gitGetChurn(worktreePath, "origin/main")).toEqual({
+      files: 1,
+      insertions: 1,
+      deletions: 0,
+    });
+  });
+
+  it("reads an omitted insertions clause as zero", async () => {
+    mockRun.mockResolvedValueOnce(" 1 file changed, 2 deletions(-)");
+
+    expect(await gitGetChurn(worktreePath, "origin/main")).toEqual({
+      files: 1,
+      insertions: 0,
+      deletions: 2,
+    });
+  });
+
+  // git prints nothing, exit 0, for an empty diff: a taken zero.
+  it("reads empty output as an empty diff", async () => {
+    mockRun.mockResolvedValueOnce("");
+
+    expect(await gitGetChurn(worktreePath, "origin/main")).toEqual({
+      files: 0,
+      insertions: 0,
+      deletions: 0,
+    });
+  });
+
+  // Confirmed against git on 2026-10-23 (#39 §8): a binary-only change counts
+  // the file and no lines, and that is reported as git gives it.
+  it("reports a binary-only change as files with no lines", async () => {
+    mockRun.mockResolvedValueOnce(
+      " 1 file changed, 0 insertions(+), 0 deletions(-)",
+    );
+
+    expect(await gitGetChurn(worktreePath, "origin/main")).toEqual({
+      files: 1,
+      insertions: 0,
+      deletions: 0,
+    });
+  });
+
+  // R2: the base can be user config, so it must not be read as a flag. R3/D9:
+  // the diff runs in the worktree under the probe's timeout.
+  it("diffs three-dot in the worktree behind --end-of-options with a timeout", async () => {
+    mockRun.mockResolvedValueOnce("");
+
+    await gitGetChurn(worktreePath, "--stat");
+
+    expect(mockRun).toHaveBeenCalledTimes(1);
+    expect(mockRun).toHaveBeenCalledWith(
+      "git",
+      ["diff", "--shortstat", "--end-of-options", "--stat...HEAD"],
+      { cwd: worktreePath, timeout: 10_000 },
+    );
+  });
+
+  // git exits 128 for a base that does not resolve (#39 §1): the figure was
+  // not taken, which is not zero.
+  it("is undefined when git fails", async () => {
+    mockRun.mockRejectedValueOnce(new Error("exit 128"));
+
+    expect(await gitGetChurn(worktreePath, "origin/gone")).toBeUndefined();
+  });
+});
+
+describe("gitGetWorktreeList churn", () => {
+  const rootPath = "/repo/project";
+  const onePath = `${rootPath}.worktrees/feature/one`;
+  const SHORTSTAT = " 1 file changed, 3 insertions(+), 1 deletion(-)";
+  const diffCommand = (cwd: string, base = "origin/main") =>
+    `git diff --shortstat --end-of-options ${base}...HEAD (cwd: ${cwd})`;
+
+  function mockRunPreamble(tracking = "feature/one <-", remoteBranches = "") {
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce(remoteBranches)
+      .mockResolvedValueOnce(tracking)
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(`${onePath}  abc1234 [feature/one]`);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    // The shared prefix of every run below; each test adds its own tail.
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git config northguild.worktree.defaultSourceBranch",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+      diffCommand(onePath),
+    );
+  });
+
+  // The count is the contract: the diff is one extra call per worktree that
+  // has a directory and a base (#39 §8), and none without the option.
+  it("makes exactly one more call per worktree with the option, none without", async () => {
+    // preamble 6, comparison base 1, rev-list 1, status 1
+    mockRunPreamble();
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("");
+    await gitGetWorktreeList();
+    expect(mockRun).toHaveBeenCalledTimes(9);
+
+    vi.clearAllMocks();
+    mockRunPreamble();
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("");
+    await gitGetWorktreeList({ includeChurn: true });
+    expect(mockRun).toHaveBeenCalledTimes(10);
+  });
+
+  it("leaves churn undefined without the option", async () => {
+    mockRunPreamble();
+    mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("1");
+    mockMergedProbe(false);
+    mockRun.mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree.churn).toBeUndefined();
+  });
+
+  it("takes churn for a worktree with commits ahead, against the base ahead used", async () => {
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
+      ...mergedProbeCommands(onePath),
+      `git status -s (cwd: ${onePath})`,
+      diffCommand(onePath),
+    );
+    mockRunPreamble();
+    mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("1");
+    mockMergedProbe(false);
+    mockRun.mockResolvedValueOnce("").mockResolvedValueOnce(SHORTSTAT);
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    expect(worktree.churn).toEqual({ files: 1, insertions: 3, deletions: 1 });
+  });
+
+  // D3: a branch tracking a live remote is counted against @{u}, so its churn
+  // is taken against @{u} too — the same commits the count describes.
+  it("diffs against the upstream where ahead was counted against it", async () => {
+    expectCommands(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count @{u}..HEAD (cwd: ${onePath})`,
+      `git rev-list --count HEAD..@{u} (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+      diffCommand(onePath, "@{u}"),
+    );
+    mockRunPreamble(
+      "feature/one <- origin/feature/one",
+      "  origin/feature/one",
+    );
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("1")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce(SHORTSTAT);
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    expect(worktree.churn).toEqual({ files: 1, insertions: 3, deletions: 1 });
+    expect(mockRun).toHaveBeenLastCalledWith(
+      "git",
+      ["diff", "--shortstat", "--end-of-options", "@{u}...HEAD"],
+      { cwd: onePath, timeout: 10_000 },
+    );
+  });
+
+  // D4: not skipped where ahead is 0, so a probed empty worktree is {0,0,0}
+  // and a never-probed one stays undefined.
+  it("takes churn where ahead is zero", async () => {
+    mockRunPreamble();
+    mockRun
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    expect(worktree.ahead).toBe(0);
+    expect(worktree.churn).toEqual({ files: 0, insertions: 0, deletions: 0 });
+  });
+
+  // D4: no base resolved, so there is nothing to diff against.
+  it("takes no churn when no comparison base resolved", async () => {
+    mockRunPreamble();
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("");
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    expect(worktree.aheadUnknownReason).toContain("no comparison base");
+    expect(worktree.churn).toBeUndefined();
+    expect(mockRun).toHaveBeenCalledTimes(9);
+  });
+
+  // D4: no directory to run in.
+  it("takes no churn for a worktree whose directory is gone", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    mockRunPreamble();
+    mockRun.mockResolvedValueOnce("origin/main");
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    expect(worktree.pathExists).toBe(false);
+    expect(worktree.churn).toBeUndefined();
+    expect(mockRun).toHaveBeenCalledTimes(7);
+  });
+
+  // R3: a failed diff is not zero, and it does not touch what describes ahead.
+  it("leaves churn undefined when the diff fails, without touching ahead", async () => {
+    mockRunPreamble();
+    mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("1");
+    mockMergedProbe(false);
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockRejectedValueOnce(new Error("exit 128"));
+
+    const [worktree] = await gitGetWorktreeList({ includeChurn: true });
+
+    expect(worktree.churn).toBeUndefined();
+    expect(worktree.ahead).toBe(1);
+    expect(worktree.aheadUnknownReason).toBeUndefined();
+  });
+});
+
 describe("gitRemoveWorktree prompt", () => {
   const rootPath = "/repo/project";
   const targetPath = `${rootPath}.worktrees/feature/one`;
