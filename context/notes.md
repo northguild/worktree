@@ -14,3 +14,14 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   function-declaration rule.
 - Plan §8's first value row says a file going `a,b,c` → `a,X,c,d,e` is "2 added, 1 removed"; it is 3
   insertions, 1 deletion (confirmed against git 2.56.0 by the reviewer). The tests use 3/1.
+
+## Phase 2 — `list --churn`: flag, line, JSON and docs
+
+- D1's "no short alias, off by default" is not test-pinned: `list.test.ts` mocks `parse`, so a `char: "c"` or
+  `default: true` on the `churn` flag would pass. A static check of `List.flags.churn` beside the `--help`
+  test would pin it.
+- The singular `1 file` is not in D7, which only shows `5 files`; it follows the renderer's existing
+  `1 uncommitted change` rule, recorded in the `utils.test.ts` comment.
+- `toEntryDocument` now takes two positional booleans (`withAgents`, `withChurn`); a third would want an
+  options object.
+- The new JSON test uses `as` on `output.document()`, copying the existing `agent` test's pattern.

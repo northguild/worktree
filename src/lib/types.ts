@@ -193,6 +193,8 @@ export interface WorktreeListEntryDocument {
   safeToRemove: boolean;
   /** Present only with `--agents`; `null` when no session lives there. */
   agent?: WorktreeListAgentDocument | null;
+  /** Present only with `--churn`; `null` when the figure could not be taken. */
+  churn?: WorktreeChurn | null;
 }
 
 export interface WorktreeListDocument {

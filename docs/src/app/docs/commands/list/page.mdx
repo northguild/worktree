@@ -11,8 +11,10 @@ List known worktrees managed for the current repository.
 ```bash
 worktree list
 worktree list --agents
+worktree list --churn
 worktree list --json
 worktree list --agents --json
+worktree list --churn --json
 ```
 
 Use this before `open`, `remove`, or cleanup decisions.
@@ -22,6 +24,7 @@ Use this before `open`, `remove`, or cleanup decisions.
 | Flag | Alias | Description |
 | --- | --- | --- |
 | `--agents` | `-a` | Show the agent session living in each worktree |
+| `--churn` | | Show how much each worktree has changed: files, insertions and deletions |
 | `--json` | | Print one JSON document on stdout instead of the list, and run [non-interactively](/docs/commands/branch#non-interactive-runs) |
 
 ## Showing agent sessions
@@ -71,6 +74,30 @@ Without `--agents`, `list` asks neither source anything and its output is
 unchanged. If neither is available — `herdr` is not installed and neither `agent.command` nor
 `herdr.agent` is set, or the runtime reports nothing usable — `--agents` simply lists no sessions
 rather than failing.
+
+## Showing churn
+
+`Ahead:` says how many commits a worktree carries, not how big they are. `--churn` adds the size, so a
+one-line fix can be told from a rewrite without entering the directory:
+
+```text
+- feature/one (Ahead: 3, Churn: +120 -8, 5 files)
+- feature/two (Ahead: 1, Churn: +3 -1, 1 file, Behind: 2)
+```
+
+The figure is the lines added, the lines removed and the files touched by the committed work, the same
+numbers `git diff --shortstat <base>...HEAD` prints. The base is the one
+[`Ahead:` was counted against](#ahead-and-behind-counts), so the two describe the same commits. Uncommitted
+edits are not part of it; they are counted separately as `N uncommitted changes`.
+
+- **It sits beside `Ahead:` and is shown only where `Ahead:` is.** A worktree with nothing ahead, and one
+  whose branch is already merged, show no `Churn:` detail. The [JSON](#json-output) still carries what was
+  taken for a merged branch.
+- **It is left out where it could not be taken** — no comparison base resolved, the directory is gone, or
+  the diff failed or did not answer within 10 seconds — rather than printed as `+0 -0`.
+- **It costs one more git call per worktree**, which is why it is opt-in. Without `--churn`, `list` runs
+  exactly what it ran before, and [`remove`](/docs/commands/remove) and [`cleanup`](/docs/commands/cleanup)
+  never show it.
 
 ## Ahead and behind counts
 
@@ -138,10 +165,11 @@ and any warning go to stderr. It implies a [non-interactive run](/docs/commands/
 | `mergedInto` | the base whose commits already contain all of this branch's changes; `null` when not known to be merged |
 | `uncommittedChanges` | the number of uncommitted changes; `null` when the directory is gone, as there is nothing to count |
 | `safeToRemove` | the verdict [`cleanup`](/docs/commands/cleanup) acts on |
+| `churn` | only with `--churn`: `{files, insertions, deletions}` for the committed work, [as above](#showing-churn), or `null` when it could not be taken. All zeros means the diff was taken and was empty |
 | `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}`. `waiting` is `true` for a live session that is idle between turns or blocked on a question, whether or not it is interactive. `herdrAgent` is the name Herdr gives the agent, as `branch --json` reports it in `herdr.agent`, or the agent's pane id when Herdr reports no name |
 
 **A count or flag that could not be taken is `null`, never `0` and never left out.** `ahead` and `uncommittedChanges` are
-`null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, and
+`null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, `churn` is `null` when no figure was taken for the worktree, and
 inside `agent` any of `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` is `null` when the
 source did not say. A `0` always means the count was taken and is zero.
 

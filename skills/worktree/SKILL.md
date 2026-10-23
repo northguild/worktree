@@ -235,7 +235,9 @@ document:
 `pathExists`, `remoteExists` and `uncommittedChanges` are `null` when they
 could not be taken. `current` and `safeToRemove` are never `null`: they read
 `false` when unknown. `mergedInto` is `null` when the branch is not known to be
-merged. With `--agents`, each entry also has `agent`:
+merged. With `--churn`, each entry also has `churn`:
+`{files,insertions,deletions}` for its committed work, or `null` (never `0`) when
+it could not be taken. With `--agents`, each entry also has `agent`:
 `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`, whose
 `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` can each be
 `null`. `waiting` is `true` for a live session that is idle between turns or
@@ -301,6 +303,12 @@ worktree list -a                              # alias
 # path of their directory. A finished session shows [done] (unless Herdr still shows it in a pane or its process is still running,
 # when it is weighed like any live session: [waiting] if idle or blocked on a question); with no source
 # available there are simply no sessions.
+
+# See how much each worktree has changed (committed work only)
+worktree list --churn
+# Adds `Churn: +120 -8, 5 files` beside `Ahead:`: lines added, lines removed,
+# files touched, against the same base `Ahead:` counts from. One more git call
+# per worktree, so off by default; left out where it could not be taken.
 
 # Reopen a worktree in your editor
 worktree open feature/add-bulk-actions

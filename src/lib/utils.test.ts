@@ -508,3 +508,98 @@ describe("slugifyBranchTitle", () => {
     expect(isValidBranchName(`42-${slug}`)).toBe(true);
   });
 });
+
+// The expected strings are plan #39 D7's wording, written down before the code
+// (there is no outside reference for it). `1 file` follows the singular rule
+// `uncommitted change(s)` already uses in this renderer.
+describe("worktreeListEntryToListName churn detail", () => {
+  function entry(overrides: Partial<WorktreeListEntry>): WorktreeListEntry {
+    return {
+      path: "/path/to/worktree",
+      branchName: "feature/test",
+      remote: "origin/feature/test",
+      pathExists: true,
+      remoteExists: true,
+      ...overrides,
+    };
+  }
+
+  it("prints the churn directly after Ahead with the option on", () => {
+    const result = worktreeListEntryToListName(
+      entry({
+        ahead: 3,
+        behind: 2,
+        churn: { files: 5, insertions: 120, deletions: 8 },
+      }),
+      "gray",
+      { churn: true },
+    );
+
+    expect(result).toContain("(Ahead: 3, Churn: +120 -8, 5 files, Behind: 2)");
+  });
+
+  it("says `1 file` for a single file", () => {
+    const result = worktreeListEntryToListName(
+      entry({ ahead: 1, churn: { files: 1, insertions: 3, deletions: 1 } }),
+      "gray",
+      { churn: true },
+    );
+
+    expect(result).toContain("Churn: +3 -1, 1 file)");
+  });
+
+  it("prints a taken zero as zero", () => {
+    const result = worktreeListEntryToListName(
+      entry({ ahead: 2, churn: { files: 0, insertions: 0, deletions: 0 } }),
+      "gray",
+      { churn: true },
+    );
+
+    expect(result).toContain("Churn: +0 -0, 0 files");
+  });
+
+  it("prints nothing without the option, so cleanup and remove are unchanged", () => {
+    const result = worktreeListEntryToListName(
+      entry({ ahead: 3, churn: { files: 5, insertions: 120, deletions: 8 } }),
+    );
+
+    expect(result).not.toContain("Churn");
+    expect(result).toContain("(Ahead: 3)");
+  });
+
+  it("prints nothing where the entry has no churn", () => {
+    const result = worktreeListEntryToListName(entry({ ahead: 3 }), "gray", {
+      churn: true,
+    });
+
+    expect(result).not.toContain("Churn");
+  });
+
+  it("prints nothing where Merged into replaced Ahead", () => {
+    const result = worktreeListEntryToListName(
+      entry({
+        ahead: 7,
+        mergedInto: "origin/main",
+        churn: { files: 5, insertions: 120, deletions: 8 },
+      }),
+      "gray",
+      { churn: true },
+    );
+
+    expect(result).toContain("Merged into origin/main");
+    expect(result).not.toContain("Churn");
+  });
+
+  it("prints nothing where Ahead is not printed", () => {
+    const result = worktreeListEntryToListName(
+      entry({
+        ahead: 0,
+        churn: { files: 0, insertions: 0, deletions: 0 },
+      }),
+      "gray",
+      { churn: true },
+    );
+
+    expect(result).not.toContain("Churn");
+  });
+});
