@@ -282,6 +282,21 @@ describe("splitCommandValue", () => {
     ${'code ""'}                            | ${["code", ""]}
     ${'open -a "Sublime Text'}              | ${["open", "-a", "Sublime Text"]}
     ${"herdr worktree open --focus --path"} | ${["herdr", "worktree", "open", "--focus", "--path"]}
+    ${"--flag='a b'"}                       | ${["--flag=a b"]}
+    ${`"/Users/o'brien/bin/ed"`}            | ${["/Users/o'brien/bin/ed"]}
+    ${`'/Users/o'"'"'brien/bin/ed'`}        | ${["/Users/o'brien/bin/ed"]}
+    ${"'"}                                  | ${[""]}
+    ${"code '"}                             | ${["code", ""]}
+    ${"x'"}                                 | ${["x"]}
+    ${"'x"}                                 | ${["x"]}
+    ${"o' brien"}                           | ${["o brien"]}
+    ${"/Users/o'brien/bin/ed"}              | ${["/Users/o'brien/bin/ed"]}
+    ${"/Users/o'brien/bin/ed --wait"}       | ${["/Users/o'brien/bin/ed", "--wait"]}
+    ${"ed it's"}                            | ${["ed", "it's"]}
+    ${"ed o'brien 'x y'"}                   | ${["ed", "o'brien", "x y"]}
+    ${"l'éditeur"}                          | ${["l'éditeur"]}
+    ${"rock'n'roll"}                        | ${["rock'n'roll"]}
+    ${"a'b c'd"}                            | ${["a'b", "c'd"]}
   `("splits $value", ({ value, expected }) => {
     expect(splitCommandValue(value)).toEqual(expected);
   });

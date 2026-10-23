@@ -44,13 +44,17 @@ character rather than an escape — quote `an argument like this` instead of wri
 `an\ argument\ like\ this`. Use an absolute path, or a wrapper script on your `PATH`, instead of
 relying on expansion.
 
-Quote characters group wherever they appear, as a shell's do, so a path containing an apostrophe has to
-be quoted to survive:
+Quote characters group wherever they appear, as a shell's do, with one exception: an apostrophe
+between two letters or digits, such as the one in `/Users/o'brien/bin/ed`, is an ordinary
+character and stays in the value. Your own shell still parses what you type, so wrap the value in
+double quotes (or single quotes with the apostrophe spelled `'"'"'`) to get it to `worktree` intact:
 
 ```bash
-worktree config codeEditor "/Users/o'brien/bin/ed"     # correct
-worktree config codeEditor /Users/o'brien/bin/ed       # the apostrophe is consumed
+worktree config codeEditor "/Users/o'brien/bin/ed"
+worktree config codeEditor "/Users/o'brien/bin/ed --wait"
 ```
+
+An apostrophe anywhere else, such as at the start or end of a word, still opens a quote.
 
 ## Opening somewhere other than an editor
 

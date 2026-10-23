@@ -155,8 +155,11 @@ export function slugifyBranchTitle(title: string) {
  * arguments with the quote characters still attached, so `open` launched and
  * then failed on an application name it could not resolve (F-039).
  *
- * Quotes group and are not themselves part of the token. Nothing else is
- * interpreted: with no shell involved there is nothing to expand `~` or
+ * Quotes group and are not themselves part of the token, with one exception:
+ * outside quotes, an apostrophe with a letter or digit on both sides is an
+ * ordinary character, so the unquoted path `/Users/o'brien/bin/ed` stays one
+ * token with its apostrophe (F-042). Every other quote behaves as above. Nothing
+ * else is interpreted: with no shell involved there is nothing to expand `~` or
  * `$EDITOR`, and an unterminated quote simply runs to the end of the value
  * rather than throwing — the opener runs after the worktree already exists, so
  * a bad value is worth a failed launch, never a failed command.
@@ -166,8 +169,11 @@ export function splitCommandValue(value: string): string[] {
   let token = "";
   let hasToken = false;
   let openQuote: '"' | "'" | undefined;
+  const characters = [...value];
+  const isWordCharacter = (character: string | undefined) =>
+    character !== undefined && /[\p{L}\p{N}]/u.test(character);
 
-  for (const character of value) {
+  for (const [index, character] of characters.entries()) {
     if (openQuote) {
       if (character === openQuote) {
         openQuote = undefined;
@@ -177,7 +183,12 @@ export function splitCommandValue(value: string): string[] {
       continue;
     }
 
-    if (character === '"' || character === "'") {
+    const isWordInternalApostrophe =
+      character === "'" &&
+      isWordCharacter(characters[index - 1]) &&
+      isWordCharacter(characters[index + 1]);
+
+    if (!isWordInternalApostrophe && (character === '"' || character === "'")) {
       openQuote = character;
       // A quote opens a token even when what it encloses is empty, so an
       // explicit `""` argument survives as one.
