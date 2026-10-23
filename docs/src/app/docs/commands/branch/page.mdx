@@ -15,6 +15,7 @@ worktree branch --github <issue-number>
 worktree branch --github <issue-number> --assign
 worktree branch --github <issue-number> --no-assign
 worktree branch --jira <issue-id>
+worktree branch --linear <issue-id>
 worktree branch <name> --agent "<prompt>"
 worktree branch <name> --agent-file <path>
 worktree branch <name> --agent-stdin
@@ -36,6 +37,8 @@ worktree branch --github 42 --assign
 worktree branch --github 42 --no-assign
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
+worktree branch --linear ENG-123
+worktree branch --linear eng-123
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent "implement the issue"
 worktree branch --github 42 --agent-file brief.md
@@ -106,8 +109,9 @@ worktree config github.autoAssign true    # always assign, stop asking
 - The assignment happens before the worktree is created, so the question is never buried behind creation
   output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees — so
   retrying after a failed creation is harmless.
-- `--assign` and `--no-assign` both require `--github` or `--jira`; on their own there is no issue to act
-  on. `--assign --jira` warns that Jira assignment is not supported yet and carries on.
+- `--assign` and `--no-assign` both require `--github`, `--jira` or `--linear`; on their own there is no issue to act
+  on. `--assign --jira` and `--assign --linear` warn that assignment is not supported for that provider yet
+  and carry on.
 
 ## Installing dependencies
 
@@ -157,6 +161,23 @@ Jira authentication requires three configuration keys:
 1. `northguild.worktree.jira.host` - Your Jira workspace URL (e.g., `https://company.atlassian.net`)
 2. `northguild.worktree.jira.email` - Your Jira email address
 3. `northguild.worktree.jira.apiToken` - Your Jira API token
+
+## Linear Issue Branching
+
+Use the `--linear` flag (short: `-l`) to create a suggested branch name from an issue in your Linear workspace. It
+cannot be combined with `--github` or `--jira`. See the [Linear guide](/docs/guides/linear-integration).
+
+- The issue identifier can be passed in any case (`eng-123`, `ENG-123`, etc.).
+- The generated name is pre-filled in the prompt and still editable.
+- Linear has no issue type, so the issue's labels pick the optional prefix, by exact name and ignoring case:
+	- `branchPrefix.bugfix` for a `bug` label
+	- `branchPrefix.chore` for a `chore` or `maintenance` label, when there is no `bug` label
+	- `branchPrefix.feature` for anything else, including no label
+
+If no prefix is configured, `worktree` falls back to an empty prefix and still generates a valid branch name.
+
+Linear authentication requires one configuration key, `northguild.worktree.linear.apiKey`, your Linear personal
+API key. Without it the command offers to run `worktree config`, and when there is still no key (or the run is non-interactive) exits `2` with `missing_value`. Assigning the issue is not supported yet.
 
 ## Agent Dispatch
 
@@ -253,7 +274,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | Key | Value |
 | --- | --- |
 | `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
-| `issue` | `{provider:"github", number, url}` or `{provider:"jira", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
+| `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}` or `{provider:"linear", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
 | `assigned` | `true` or `false` once an assignment was attempted; `null` when none was (no issue, `--no-assign`, or a configured `false`) |
 | `envFilesCopied` | the env files copied, relative to the repository root; `[]` when there were none |
 | `installed` | `{ran:true, command, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped |
@@ -276,7 +297,7 @@ describing it goes to stderr as usual:
 | `code` | Means | Exit |
 | --- | --- | --- |
 | `missing_value` | a value with no default was not given; `details` names it and the flag | `2` |
-| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github` or `--jira` issue id | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira` or `--linear` issue id | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |
 | `failed` | anything else | `1` |

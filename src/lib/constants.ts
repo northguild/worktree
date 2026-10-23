@@ -5,6 +5,7 @@ export const CONFIG_NAMES = [
   "jira.host",
   "jira.email",
   "jira.apiToken",
+  "linear.apiKey",
   "github.token",
   "github.autoAssign",
   "branchPrefix.feature",

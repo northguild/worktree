@@ -284,7 +284,7 @@ line, `worktree: no default for <value>; pass <flag>`.
   the worktree, starts nothing and exits `1`.
 - **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
-- **Bounded calls:** GitHub and Jira requests 15 s, `git fetch` 60 s, `gh auth token` and the session listing
+- **Bounded calls:** GitHub, Jira and Linear requests 15 s, `git fetch` 60 s, `gh auth token` and the session listing
   10 s, the install 10 min. A command still running at its bound is sent SIGTERM, then SIGKILL 2 s later, so
   one that ignores SIGTERM cannot hold the run open.
 
@@ -307,7 +307,7 @@ worktree branch --github 42 --json --agent-file brief.md
  "warnings":[]}
 ```
 
-- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, or `null`.
+- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, or `null`.
 - `assigned` is `null` when no assignment was attempted. `herdr` and `agent` are `null` when skipped, and
   `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
 - `installed` is `{ran:false,reason}` when skipped. A failed install still prints the whole document, with
@@ -459,4 +459,5 @@ MIT
 - [x] Add `cleanup` command to cleanup stale worktrees
 - [x] Integrate with GitHub for automated branch naming
 - [x] Integrate with JIRA for automated branch naming
+- [x] Integrate with Linear for automated branch naming
 - [ ] Integrate with ClickUp for automated branch naming

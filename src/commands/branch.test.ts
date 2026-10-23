@@ -7,6 +7,7 @@ import ora from "ora";
 import * as githubIntegration from "../integrations/github.js";
 import * as herdr from "../integrations/herdr.js";
 import * as jiraIntegration from "../integrations/jira.js";
+import * as linearIntegration from "../integrations/linear.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { runInstall } from "../lib/install.js";
@@ -614,7 +615,250 @@ describe("branch command", () => {
     });
   });
 
+  describe("--linear flag", () => {
+    const linearIssue = {
+      identifier: "ENG-123",
+      title: "Add dark mode",
+      url: "https://linear.app/acme/issue/ENG-123/add-dark-mode",
+      labels: [] as string[],
+    };
+
+    function stubConfig(apiKey = "lin_api_test") {
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "defaultSourceBranch")
+          return Promise.resolve("origin/main");
+        if (key === "linear.apiKey") return Promise.resolve(apiKey);
+        if (key === "branchPrefix.feature") return Promise.resolve("feature/");
+        if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
+        return Promise.resolve("");
+      });
+    }
+
+    it("pre-fills the derived name, with the prefix for the labels", async () => {
+      stubConfig();
+      const fetchSpy = vi
+        .spyOn(linearIntegration, "fetchLinearIssue")
+        .mockResolvedValue({ ...linearIssue, labels: ["Bug"] });
+      mockInput.mockResolvedValue("fix/ENG-123-add-dark-mode");
+      const mockGitCreateWorktree = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { linear: "eng-123" },
+      });
+
+      await branch.run();
+
+      // One fetch feeds both the name and `issue.url` (D9); Linear rate-limits
+      // per key, so a second request is a regression.
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith("eng-123");
+      expect(mockInput).toHaveBeenCalledWith({
+        message: "Branch name",
+        default: "fix/ENG-123-add-dark-mode",
+        prefill: "editable",
+        validate: validators.isValidBranchName,
+      });
+      expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+        "fix/ENG-123-add-dark-mode",
+        "origin/main",
+      );
+    });
+
+    it("uses the feature prefix when no label decides otherwise", async () => {
+      stubConfig();
+      vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue(
+        linearIssue,
+      );
+      mockInput.mockImplementation(async (config: any) => config.default);
+      const mockGitCreateWorktree = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { linear: "ENG-123" },
+      });
+
+      await branch.run();
+
+      expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+        "feature/ENG-123-add-dark-mode",
+        "origin/main",
+      );
+    });
+
+    it("reports the issue with the url the API returned", async () => {
+      stubConfig();
+      vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue(
+        linearIssue,
+      );
+      mockInput.mockImplementation(async (config: any) => config.default);
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { linear: "ENG-123" },
+      });
+
+      const document = await branch.run();
+
+      expect(document.issue).toEqual({
+        provider: "linear",
+        key: "ENG-123",
+        url: "https://linear.app/acme/issue/ENG-123/add-dark-mode",
+      });
+      expect(document.assigned).toBeNull();
+    });
+
+    it("includes linear.apiKey in the config it verifies", async () => {
+      stubConfig();
+      vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue(
+        linearIssue,
+      );
+      mockInput.mockImplementation(async (config: any) => config.default);
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      const verify = vi.spyOn(branch as any, "verifyConfig");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { linear: "ENG-123" },
+      });
+
+      await branch.run();
+
+      expect(verify).toHaveBeenCalledWith([
+        "defaultSourceBranch",
+        "linear.apiKey",
+      ]);
+    });
+
+    it("warns and carries on for --assign", async () => {
+      stubConfig();
+      vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue(
+        linearIssue,
+      );
+      const mockAssign = vi.spyOn(githubIntegration, "assignGitHubIssue");
+      const mockWarn = vi
+        .spyOn(branch, "warn")
+        .mockImplementation((input: any) => input);
+      mockInput.mockImplementation(async (config: any) => config.default);
+      const mockGitCreateWorktree = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { linear: "ENG-123", assign: true },
+      });
+
+      await branch.run();
+
+      expect(mockWarn).toHaveBeenCalledWith(
+        "Assignment is not supported for Linear issues yet.",
+      );
+      expect(mockAssign).not.toHaveBeenCalled();
+      expect(mockGitCreateWorktree).toHaveBeenCalled();
+    });
+
+    describe("with --json", () => {
+      let output: ReturnType<typeof captureOutput>;
+      const originalExitCode = process.exitCode;
+
+      beforeEach(() => {
+        output = captureOutput();
+        process.exitCode = undefined;
+      });
+
+      afterEach(() => {
+        output.restore();
+        process.exitCode = originalExitCode;
+      });
+
+      async function runJson(flags: Record<string, unknown>) {
+        const command = new Branch(["--json"], await loadConfig());
+        (command as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
+        (command as any).parsed = true;
+        vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+          opener: "none",
+        });
+        return (command as any)._run();
+      }
+
+      it("carries {provider, key, url} in the document", async () => {
+        stubConfig();
+        vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue(
+          linearIssue,
+        );
+        vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+          "/path/to/worktree",
+        );
+
+        await runJson({ linear: "ENG-123" });
+
+        expect(output.document()).toMatchObject({
+          branch: "feature/ENG-123-add-dark-mode",
+          issue: {
+            provider: "linear",
+            key: "ENG-123",
+            url: "https://linear.app/acme/issue/ENG-123/add-dark-mode",
+          },
+          assigned: null,
+        });
+      });
+
+      it("gives a missing key as missing_value with exit 2 and no worktree", async () => {
+        stubConfig("");
+        const fetchSpy = vi.spyOn(linearIntegration, "fetchLinearIssue");
+        const create = vi.spyOn(git, "gitCreateWorktree");
+
+        await runJson({ linear: "ENG-123" });
+
+        expect(output.document()).toMatchObject({
+          error: { code: "missing_value" },
+        });
+        expect(process.exitCode).toBe(2);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(create).not.toHaveBeenCalled();
+      });
+
+      it("gives a failed fetch as failed with exit 1 and no worktree", async () => {
+        stubConfig();
+        vi.spyOn(linearIntegration, "fetchLinearIssue").mockRejectedValue(
+          new Error("Linear: Unable to find issue ENG-123."),
+        );
+        const create = vi.spyOn(git, "gitCreateWorktree");
+
+        await runJson({ linear: "ENG-123" });
+
+        expect(output.document()).toMatchObject({
+          error: { code: "failed" },
+        });
+        expect(process.exitCode).toBe(1);
+        expect(create).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   describe("flag validation", () => {
+    it.each([
+      ["--github", { github: "42", linear: "ENG-1" }],
+      ["--jira", { jira: "DEV-42", linear: "ENG-1" }],
+    ])("refuses --linear with %s", async (_label, flags) => {
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "has-called-config" ? "true" : ""),
+      );
+      const fetchSpy = vi.spyOn(linearIntegration, "fetchLinearIssue");
+      (branch as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
+      const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
+        throw new Error("refused");
+      });
+
+      await expect(branch.run()).rejects.toThrow("refused");
+      expect(mockError).toHaveBeenCalledWith(
+        "Please provide only one of --github, --jira or --linear, not several.",
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it("should error when both --github and --jira are provided", async () => {
       vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
         if (key === "has-called-config") return Promise.resolve("true");
@@ -627,14 +871,16 @@ describe("branch command", () => {
       });
 
       const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
-        throw new Error("Please provide either --github or --jira, not both.");
+        throw new Error(
+          "Please provide only one of --github, --jira or --linear, not several.",
+        );
       });
 
       await expect(branch.run()).rejects.toThrow(
-        "Please provide either --github or --jira, not both.",
+        "Please provide only one of --github, --jira or --linear, not several.",
       );
       expect(mockError).toHaveBeenCalledWith(
-        "Please provide either --github or --jira, not both.",
+        "Please provide only one of --github, --jira or --linear, not several.",
       );
     });
   });
@@ -941,14 +1187,14 @@ describe("branch command", () => {
       it.each([
         [true],
         [false],
-      ])("errors when the assign flag is %s with neither --github nor --jira", async (assign) => {
+      ])("errors when the assign flag is %s with none of --github, --jira or --linear", async (assign) => {
         vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
           if (key === "has-called-config") return Promise.resolve("true");
           return Promise.resolve("");
         });
         const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
           throw new Error(
-            "--assign/--no-assign requires either --github or --jira.",
+            "--assign/--no-assign requires one of --github, --jira or --linear.",
           );
         });
 
@@ -960,10 +1206,10 @@ describe("branch command", () => {
         // Both spellings are one flag under `allowNo`, and neither has an
         // issue to act on here.
         await expect(branch.run()).rejects.toThrow(
-          "--assign/--no-assign requires either --github or --jira.",
+          "--assign/--no-assign requires one of --github, --jira or --linear.",
         );
         expect(mockError).toHaveBeenCalledWith(
-          "--assign/--no-assign requires either --github or --jira.",
+          "--assign/--no-assign requires one of --github, --jira or --linear.",
         );
       });
 
@@ -1873,5 +2119,11 @@ describe("branch command — --help", () => {
     expect(help).toContain("0 success");
     expect(help).toContain("1 failure");
     expect(help).toContain("2 usage");
+    expect(help).toContain('{provider:"linear", key, url|null}');
+  });
+
+  // D1: `--linear` is `-l`, beside `-g` and `-j`.
+  it("gives --linear the short flag -l", () => {
+    expect(Branch.flags.linear.char).toBe("l");
   });
 });

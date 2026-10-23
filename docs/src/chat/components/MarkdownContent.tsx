@@ -76,6 +76,8 @@ const DOCS_ROUTE_MAP: Record<string, string> = {
   "github issue integration": "/docs/guides/github-issue-integration",
   "jira issue integration": "/docs/guides/jira-integration",
   "jira integration": "/docs/guides/jira-integration",
+  "linear issue integration": "/docs/guides/linear-integration",
+  "linear integration": "/docs/guides/linear-integration",
   "context switching": "/docs/guides/context-switching",
   "team conventions": "/docs/guides/team-conventions",
   "environment files": "/docs/guides/env-files",

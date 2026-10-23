@@ -3,7 +3,7 @@ name: worktree
 description: >
   Use when creating, listing, opening, removing or cleaning up git worktrees
   with the `worktree` CLI (@northguild/worktree), including starting a
-  worktree from a GitHub or Jira issue, handing a new worktree to a coding
+  worktree from a GitHub, Jira or Linear issue, handing a new worktree to a coding
   agent, opening worktrees as Herdr spaces, and driving worktrees from a
   script, CI or another coding agent with `--json`.
 ---
@@ -62,7 +62,7 @@ worktree checkout origin/feature/fix-login-timeout
 Use `checkout` only for branches that already exist on the remote.
 Use `branch` to create something new.
 
-### Derive a branch name from a GitHub or Jira issue
+### Derive a branch name from a GitHub, Jira or Linear issue
 
 ```bash
 # GitHub — requires github.token in config (or gh CLI authenticated)
@@ -77,7 +77,16 @@ worktree branch --github 42 --no-assign
 # Jira — requires jira.host, jira.email, jira.apiToken in config
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
+
+# Linear — requires linear.apiKey in config
+worktree branch --linear ENG-123
+worktree branch --linear eng-123
 ```
+
+`--github`, `--jira` and `--linear` are mutually exclusive. `--assign` and
+`--no-assign` need one of the three; `--assign --linear` (as `--assign --jira`)
+skips the assignment with a warning, because Linear assignment is not
+supported yet. `--linear` alone warns nothing.
 
 With neither flag, `github.autoAssign` decides whether the issue is
 assigned: `true` always, `false` never, and unset means you are asked once
@@ -93,9 +102,16 @@ not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
 
-**Issue content is used for the branch name and nothing else.** `--github`
-and `--jira` read the issue's number or key, its title (Jira: summary) and its
-type. The title is reduced to lowercase letters, digits and `-` before it
+Linear has no issue type, so its labels decide, compared case-insensitively
+and by exact name: a `bug` label → `branchPrefix.bugfix`; else a `chore` or
+`maintenance` label → `branchPrefix.chore`; otherwise (`Feature`,
+`Improvement`, no label) `branchPrefix.feature`. A bug label wins over the
+others. The name is the prefix, the upper-cased identifier and the slugged
+title, such as `fix/ENG-123-fix-login`.
+
+**Issue content is used for the branch name and nothing else.** `--github`,
+`--jira` and `--linear` read the issue's number or key, its title (Jira:
+summary) and its type (Linear: its labels). The title is reduced to lowercase letters, digits and `-` before it
 becomes part of the branch name, and the type only selects one of the
 configured `branchPrefix.*` values, or none. The issue body and comments are
 never printed, never written to the `--json` document (whose `issue` field
@@ -171,7 +187,7 @@ Defaults when non-interactive:
   and exits `1`.
 - **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
-- **Bounded calls:** GitHub and Jira requests 15 s, `git fetch` 60 s,
+- **Bounded calls:** GitHub, Jira and Linear requests 15 s, `git fetch` 60 s,
   `gh auth token` and the session listing 10 s, the install 10 min. A command
   still running at its bound is sent SIGTERM, then SIGKILL 2 s later.
 
@@ -191,7 +207,7 @@ document:
  "warnings":[]}
 ```
 
-- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, or
+- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, or
   `null`; `url` can itself be `null`.
 - `assigned` is `null` when no assignment was attempted.
 - `herdr` and `agent` are `null` when skipped. `agent.command` leaves the brief
@@ -347,9 +363,10 @@ under `northguild.worktree.*`.
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
-| `branchPrefix.feature` | `feature/` | auto-prefix on Feature issues |
-| `branchPrefix.bugfix` | `fix/` | auto-prefix on Bug issues |
-| `branchPrefix.chore` | `chore/` | auto-prefix on Task issues |
+| `linear.apiKey` | `lin_api_...` | `--linear` flag |
+| `branchPrefix.feature` | `feature/` | auto-prefix on Feature issues, and on Linear issues with no bug, chore or maintenance label |
+| `branchPrefix.bugfix` | `fix/` | auto-prefix on Bug issues, and on Linear issues labelled `bug` |
+| `branchPrefix.chore` | `chore/` | auto-prefix on Task issues, and on Linear issues labelled `chore` or `maintenance` |
 
 ```bash
 # Configure only missing keys
@@ -460,6 +477,29 @@ All three Jira keys are required. Missing any one causes an authentication
 error when the CLI calls the Jira API.
 
 Source: `docs/guides/jira-integration`, `src/integrations/jira.ts`
+
+---
+
+### HIGH `--linear` flag used without a Linear API key
+
+Wrong:
+
+```bash
+worktree branch --linear ENG-123
+```
+
+Correct:
+
+```bash
+worktree config linear.apiKey lin_api_...
+worktree branch --linear ENG-123
+```
+
+`linear.apiKey` is the only Linear key. Without it `branch --linear` exits `2`
+(`missing_value`) before any worktree is created, and a non-interactive run
+never prompts for it.
+
+Source: `docs/guides/linear-integration`, `src/integrations/linear.ts`
 
 ---
 
