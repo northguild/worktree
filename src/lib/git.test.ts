@@ -1701,7 +1701,7 @@ describe("gitGetWorktreeList churn", () => {
       .mockResolvedValueOnce(tracking)
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce(rootPath)
-      .mockResolvedValueOnce(`${onePath}  abc1234 [feature/one]`);
+      .mockResolvedValueOnce(porcelainRecord(onePath, "feature/one"));
   }
 
   beforeEach(() => {
@@ -1714,7 +1714,7 @@ describe("gitGetWorktreeList churn", () => {
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
       "git branch --show-current",
       "git rev-parse --show-toplevel",
-      "git worktree list",
+      "git worktree list --porcelain",
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       "git config northguild.worktree.defaultSourceBranch",
       `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
