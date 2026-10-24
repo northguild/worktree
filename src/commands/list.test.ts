@@ -125,6 +125,40 @@ describe("list command", () => {
     });
   });
 
+  it("takes the churn figure and renders it with --churn", async () => {
+    withFlags({ agents: false, churn: true });
+
+    const worktrees: WorktreeListEntry[] = [
+      {
+        path: "/tmp/project.worktrees/feature/one",
+        branchName: "feature/one",
+        remote: "origin/feature/one",
+        pathExists: true,
+        remoteExists: true,
+        ahead: 3,
+        churn: { files: 5, insertions: 120, deletions: 8 },
+      },
+    ];
+
+    const mockGetWorktreeList = vi
+      .spyOn(git, "gitGetWorktreeList")
+      .mockResolvedValue(worktrees);
+    // Earlier tests leave the renderer stubbed; this one wants the real line.
+    vi.spyOn(utils, "worktreeListEntryToListName").mockRestore();
+    const logSpy = vi.spyOn(list, "log").mockImplementation(() => {});
+
+    await list.run();
+
+    expect(mockGetWorktreeList).toHaveBeenCalledWith({
+      includeCurrent: true,
+      includeAgents: false,
+      includeChurn: true,
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      "- feature/one (Ahead: 3, Churn: +120 -8, 5 files)",
+    );
+  });
+
   it("performs the session lookup and renders agent details with --agents", async () => {
     withFlags({ agents: true });
 
@@ -321,6 +355,55 @@ describe("list command", () => {
       expect(without.worktrees[0]).not.toHaveProperty("agent");
     });
 
+    it("has a churn key only with --churn, null or the figure", async () => {
+      const worktrees: WorktreeListEntry[] = [
+        {
+          path: "/tmp/p.worktrees/a",
+          branchName: "a",
+          remote: "",
+          churn: { files: 5, insertions: 120, deletions: 8 },
+        },
+        {
+          path: "/tmp/p.worktrees/b",
+          branchName: "b",
+          remote: "",
+        },
+        {
+          path: "/tmp/p.worktrees/c",
+          branchName: "c",
+          remote: "",
+          churn: { files: 0, insertions: 0, deletions: 0 },
+        },
+      ];
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue(worktrees);
+
+      await runJson({ agents: false, churn: true });
+
+      const { worktrees: entries } = output.document() as {
+        worktrees: Record<string, unknown>[];
+      };
+      expect(entries[0].churn).toEqual({
+        files: 5,
+        insertions: 120,
+        deletions: 8,
+      });
+      // Not taken is null, never a zero; a taken empty diff stays a zero.
+      expect(entries[1]).toHaveProperty("churn", null);
+      expect(entries[2].churn).toEqual({
+        files: 0,
+        insertions: 0,
+        deletions: 0,
+      });
+
+      output.restore();
+      output = captureOutput();
+      await runJson({ agents: false });
+      const without = output.document() as {
+        worktrees: Record<string, unknown>[];
+      };
+      expect(without.worktrees[0]).not.toHaveProperty("churn");
+    });
+
     it("is non-interactive, so the spinner never animates and prints go to stderr", async () => {
       vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([]);
 
@@ -369,6 +452,7 @@ describe("list command — --help", () => {
       "uncommittedChanges",
       "sessionId",
       "herdrAgent",
+      "churn",
     ]) {
       expect(help).toContain(key);
     }

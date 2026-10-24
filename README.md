@@ -162,6 +162,14 @@ worktree list --agents
 
 Sessions are found from two places, joined on the directory they run in: `herdr agent list` when `herdr` is installed, and the runtime's own `<program> agents --json`, where the program is `agent.command`'s first word or else `herdr.agent`. A finished session shows `[done]`, unless Herdr still shows it in a pane or its process is still running. With neither source available the list simply shows no sessions.
 
+To see how much each worktree has changed, not just how many commits it is ahead:
+
+```bash
+worktree list --churn
+```
+
+Each worktree with commits ahead gets `Churn: +120 -8, 5 files` beside `Ahead:` (not one whose branch is already merged): the lines added, the lines removed and the files touched, as `git diff --shortstat` counts them against the same base. Only committed work counts, and the figure is left out where it could not be taken. It costs one more git call per worktree, so it is off by default.
+
 ### Reopen a worktree in your editor
 
 ```bash
@@ -318,6 +326,7 @@ worktree branch --github 42 --json --agent-file brief.md
 `list --json` gives `{"worktrees":[{branch,path,current,pathExists,remote,remoteExists,ahead,behind,mergedInto,uncommittedChanges,safeToRemove}]}`.
 With `--agents`, each entry also has `agent`: `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`.
 `herdrAgent` is the name Herdr gives the agent (for example `wt-42-fix-login`, the same as `branch --json`'s `herdr.agent`), or its pane id (for example `w4P:p1`) when Herdr reports no name.
+With `--churn`, each entry also has `churn`: `{files,insertions,deletions}` for its committed work, or `null` when it could not be taken.
 
 `remove --json` gives `{"removed":[{branch,path}],"herdrSpacesClosed":[…],"warnings":[]}`. Nothing removed is
 never reported as a success.

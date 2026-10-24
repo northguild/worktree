@@ -82,6 +82,14 @@ export interface WorktreeAgent {
   waiting?: boolean;
 }
 
+// What a worktree's commits changed against the base its `ahead` was counted
+// against, as `git diff --shortstat` reports it.
+export interface WorktreeChurn {
+  files: number;
+  insertions: number;
+  deletions: number;
+}
+
 export interface WorktreeListEntry extends WorktreeListBaseEntry {
   remote: string;
   // Commits this worktree carries that its comparison base does not — `@{u}`
@@ -108,6 +116,10 @@ export interface WorktreeListEntry extends WorktreeListBaseEntry {
   // never run or could not answer; unknown is never safe, exactly as `ahead`
   // treats its own hole. See STALE-WORKTREE-DETECTION.
   mergedInto?: string;
+  // Undefined means the figure was not taken — no flag, no base, no directory,
+  // or the diff failed — which is not the same as `{0, 0, 0}`, a diff that was
+  // taken and was empty.
+  churn?: WorktreeChurn;
   remoteExists?: boolean;
   uncommittedChanges?: number;
   safeToRemove?: boolean;
@@ -181,6 +193,8 @@ export interface WorktreeListEntryDocument {
   safeToRemove: boolean;
   /** Present only with `--agents`; `null` when no session lives there. */
   agent?: WorktreeListAgentDocument | null;
+  /** Present only with `--churn`; `null` when the figure could not be taken. */
+  churn?: WorktreeChurn | null;
 }
 
 export interface WorktreeListDocument {

@@ -19,6 +19,7 @@ import type {
   AgentSession,
   ConfigName,
   WorktreeAgent,
+  WorktreeChurn,
   WorktreeListBaseEntry,
   WorktreeListEntry,
 } from "./types.js";
@@ -356,6 +357,7 @@ export function isSafeToRemove(wt: WorktreeListEntry): boolean {
 
 interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
   includeAgents?: boolean;
+  includeChurn?: boolean;
 }
 
 // The session's own name and pid, plus the liveness `cleanup` weighs and the two
@@ -396,6 +398,10 @@ async function toWorktreeAgent(
 interface AheadCount {
   ahead?: number;
   aheadUnknownReason?: string;
+  // The base `ahead` was counted against, set only when the count was taken.
+  // Churn reads it so its figure describes the same commits. See
+  // WORKTREE-CHURN-STATS #39 D3.
+  base?: string;
 }
 
 // The one count that can legitimately fail to take, so every exit says which
@@ -429,7 +435,7 @@ async function countAhead(
   }
 
   try {
-    return { ahead: await gitGetCommitsAheadCount(worktreePath, base) };
+    return { ahead: await gitGetCommitsAheadCount(worktreePath, base), base };
   } catch {
     // D5: failing closed loses nothing, but failing closed *silently* makes a
     // cleanup that cannot classify anything look like a cleanup with nothing
@@ -499,9 +505,53 @@ async function findMergedBase(
   }
 }
 
+// `git diff --shortstat` prints `2 files changed, 3 insertions(+), 1
+// deletion(-)`, and omits a clause whose count is zero, so an absent clause is
+// a taken zero. Empty output is an empty diff, also zero. The files clause is
+// never omitted, so output without one is a format this does not know, and
+// that is undefined rather than a zero. See #39 D4, D6.
+function parseShortstat(output: string): WorktreeChurn | undefined {
+  if (output === "") {
+    return { files: 0, insertions: 0, deletions: 0 };
+  }
+  const files = /(\d+) files? changed/.exec(output);
+  if (!files) {
+    return undefined;
+  }
+  const count = (pattern: RegExp) => Number(pattern.exec(output)?.[1] ?? 0);
+  return {
+    files: Number(files[1]),
+    insertions: count(/(\d+) insertions?\(\+\)/),
+    deletions: count(/(\d+) deletions?\(-\)/),
+  };
+}
+
+// What the branch's commits changed against `base`: one three-dot diff, so git
+// finds the merge base itself. Committed work only — uncommitted edits are
+// already counted beside it. `--end-of-options` because `base` can come from
+// user config (`defaultSourceBranch`) and must not be read as a flag. Every
+// failure is undefined, never a zero: the figure was not taken. Bounded for the
+// same reason the merged probe is. See #39 D2, D9, §5 R2-R3.
+export async function gitGetChurn(
+  worktreePath: string,
+  base: string,
+): Promise<WorktreeChurn | undefined> {
+  try {
+    const output = await run(
+      "git",
+      ["diff", "--shortstat", "--end-of-options", `${base}...HEAD`],
+      { cwd: worktreePath, timeout: MERGED_PROBE_TIMEOUT_MS },
+    );
+    return parseShortstat(output);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function gitGetWorktreeList({
   includeCurrent = false,
   includeAgents = false,
+  includeChurn = false,
 }: GitGetWorktreeListOptions = {}) {
   const remoteBranches = await gitGetRemoteBranches();
   const tracking = await gitGetLocalBranchesTracking();
@@ -528,7 +578,7 @@ export async function gitGetWorktreeList({
     // error-dodge — `@{u}` does not resolve without an upstream and run()
     // rejects — and leaving the count untaken is what let a branch carrying
     // unpushed commits read as empty.
-    const { ahead, aheadUnknownReason } = await countAhead(
+    const { ahead, aheadUnknownReason, base } = await countAhead(
       path,
       pathExists,
       remoteExists,
@@ -559,6 +609,12 @@ export async function gitGetWorktreeList({
     const uncommittedChanges = pathExists
       ? await gitGetUncommittedChangesCount(path)
       : 0;
+    // Taken wherever a base was used, including where `ahead` is 0: a worktree
+    // never probed and a probed empty one must stay distinguishable (#39 D4).
+    const churn =
+      includeChurn && pathExists && base
+        ? await gitGetChurn(path, base)
+        : undefined;
 
     const worktreeListEntry: WorktreeListEntry = {
       path,
@@ -572,6 +628,7 @@ export async function gitGetWorktreeList({
       pathExists,
       uncommittedChanges,
       isCurrent,
+      churn,
       // Empty without includeAgents, so this is undefined for every caller that
       // did not ask — no separate branch needed to keep the field off.
       agent: await toWorktreeAgent(sessions, path),

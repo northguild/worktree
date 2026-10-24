@@ -31,6 +31,9 @@ interface WorktreeListNameOptions {
   // the field happened to be populated would rewrite that output the moment
   // cleanup starts joining sessions of its own. See AGENT-MODE-PLAN §3 D8.
   agents?: boolean;
+  // Off by default for the same reason: the figure is only taken under
+  // `list --churn`, and `cleanup` and `remove` must not start printing it.
+  churn?: boolean;
 }
 
 // `[done]` comes first because a finished session is neither of the others,
@@ -58,7 +61,7 @@ function agentDetail(agent: WorktreeAgent): string {
 export function worktreeListEntryToListName(
   wt: WorktreeListEntry,
   color: ColorName = "gray",
-  { agents = false }: WorktreeListNameOptions = {},
+  { agents = false, churn = false }: WorktreeListNameOptions = {},
 ): string {
   const details = [];
   if (!wt.pathExists) {
@@ -86,6 +89,14 @@ export function worktreeListEntryToListName(
     details.push(`Merged into ${wt.mergedInto}`);
   } else if (wt.ahead) {
     details.push(`Ahead: ${wt.ahead}`);
+    // Beside the count it describes, and only where that count is printed: a
+    // merged branch's size would mislead as much as its `Ahead:` does.
+    if (churn && wt.churn) {
+      const { files, insertions, deletions } = wt.churn;
+      details.push(
+        `Churn: +${insertions} -${deletions}, ${files} ${files === 1 ? "file" : "files"}`,
+      );
+    }
   }
   if (wt.behind) {
     details.push(`Behind: ${wt.behind}`);

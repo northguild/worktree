@@ -14,11 +14,14 @@ import { worktreeListEntryToListName } from "../lib/utils.js";
  * `null`, never omitted and never 0 (D6): `ahead` and `behind` are undefined
  * for a worktree whose count was never taken, and 0 would claim it was.
  * `agent` is left out entirely without `--agents`, because the lookup was
- * never made — `null` there means "looked, and none lives here".
+ * never made — `null` there means "looked, and none lives here". `churn` is
+ * left out without `--churn` for the same reason; with it, `null` means the
+ * figure could not be taken and a genuine empty diff is all zeros.
  */
 function toEntryDocument(
   entry: WorktreeListEntry,
   withAgents: boolean,
+  withChurn: boolean,
 ): WorktreeListEntryDocument {
   const document: WorktreeListEntryDocument = {
     branch: entry.branchName,
@@ -51,6 +54,16 @@ function toEntryDocument(
       : null;
   }
 
+  if (withChurn) {
+    document.churn = entry.churn
+      ? {
+          files: entry.churn.files,
+          insertions: entry.churn.insertions,
+          deletions: entry.churn.deletions,
+        }
+      : null;
+  }
+
   return document;
 }
 
@@ -69,6 +82,8 @@ never 0, when they could not be counted. current and safeToRemove are never
 null: false when unknown.
 With --agents each entry also has agent: null, or {name, sessionId,
 herdrAgent, live, interactive, waiting}, where all but name can be null.
+With --churn each entry also has churn: null, or {files, insertions,
+deletions}. null, never 0, when it could not be taken; committed work only.
 On failure: {error:{code, message, details?}} on stdout.
 
 Exit codes:
@@ -80,6 +95,7 @@ Exit codes:
   static override examples = [
     "<%= config.bin %> <%= command.id %>",
     "<%= config.bin %> <%= command.id %> --agents",
+    "<%= config.bin %> <%= command.id %> --churn",
     "<%= config.bin %> <%= command.id %> --json",
   ];
 
@@ -87,6 +103,10 @@ Exit codes:
     agents: Flags.boolean({
       char: "a",
       description: "Show the agent session living in each worktree",
+    }),
+    churn: Flags.boolean({
+      description:
+        "Show how much each worktree has changed: files, insertions and deletions",
     }),
   };
 
@@ -99,6 +119,7 @@ Exit codes:
     const worktrees = await gitGetWorktreeList({
       includeCurrent: true,
       includeAgents: flags.agents,
+      includeChurn: flags.churn,
     });
     spinner.stop();
 
@@ -108,13 +129,15 @@ Exit codes:
     if (!this.jsonEnabled()) {
       worktrees.forEach((wt) => {
         this.log(
-          `- ${worktreeListEntryToListName(wt, "gray", { agents: flags.agents })}`,
+          `- ${worktreeListEntryToListName(wt, "gray", { agents: flags.agents, churn: flags.churn })}`,
         );
       });
     }
 
     return {
-      worktrees: worktrees.map((wt) => toEntryDocument(wt, flags.agents)),
+      worktrees: worktrees.map((wt) =>
+        toEntryDocument(wt, flags.agents, flags.churn),
+      ),
     };
   }
 }
