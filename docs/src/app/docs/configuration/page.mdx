@@ -87,7 +87,7 @@ space opens correctly.
 worktree config codeEditor 'open -a "Sublime Text"'   # runs: open -a "Sublime Text" <worktree-path>
 ```
 
-Quote characters are removed by the split and never reach the program. Nothing else is interpreted: no
+Quote characters are removed by the split and never reach the program, except an apostrophe between two letters or digits (as in `/Users/o'brien/bin/ed`), which is kept. Nothing else is interpreted: no
 shell parses this value, so `~` and `$EDITOR` are passed through literally rather than expanded, and a
 backslash is an ordinary character rather than an escape. Quote `an argument like this` instead of writing
 `an\ argument\ like\ this`, and use an absolute path or a wrapper script on your `PATH` rather than
