@@ -1645,6 +1645,17 @@ describe("gitGetChurn", () => {
     });
   });
 
+  // Every non-empty shortstat line carries the files clause, so output without
+  // one is a format this parser does not know — not taken, never a zero (D4).
+  // The line is the localised one raised in review of #133.
+  it("is undefined when non-empty output carries no files clause", async () => {
+    mockRun.mockResolvedValueOnce(
+      " 1 Datei geändert, 3 Zeilen hinzugefügt(+), 1 Zeile entfernt(-)",
+    );
+
+    expect(await gitGetChurn(worktreePath, "origin/main")).toBeUndefined();
+  });
+
   // R2: the base can be user config, so it must not be read as a flag. R3/D9:
   // the diff runs in the worktree under the probe's timeout.
   it("diffs three-dot in the worktree behind --end-of-options with a timeout", async () => {

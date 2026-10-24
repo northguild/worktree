@@ -477,11 +477,20 @@ async function findMergedBase(
 
 // `git diff --shortstat` prints `2 files changed, 3 insertions(+), 1
 // deletion(-)`, and omits a clause whose count is zero, so an absent clause is
-// a taken zero. Empty output is an empty diff, also zero. See #39 D6.
-function parseShortstat(output: string): WorktreeChurn {
+// a taken zero. Empty output is an empty diff, also zero. The files clause is
+// never omitted, so output without one is a format this does not know, and
+// that is undefined rather than a zero. See #39 D4, D6.
+function parseShortstat(output: string): WorktreeChurn | undefined {
+  if (output === "") {
+    return { files: 0, insertions: 0, deletions: 0 };
+  }
+  const files = /(\d+) files? changed/.exec(output);
+  if (!files) {
+    return undefined;
+  }
   const count = (pattern: RegExp) => Number(pattern.exec(output)?.[1] ?? 0);
   return {
-    files: count(/(\d+) files? changed/),
+    files: Number(files[1]),
     insertions: count(/(\d+) insertions?\(\+\)/),
     deletions: count(/(\d+) deletions?\(-\)/),
   };

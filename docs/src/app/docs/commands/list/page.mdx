@@ -94,7 +94,7 @@ edits are not part of it; they are counted separately as `N uncommitted changes`
   whose branch is already merged, show no `Churn:` detail. The [JSON](#json-output) still carries what was
   taken for a merged branch.
 - **It is left out where it could not be taken** — no comparison base resolved, the directory is gone, or
-  the diff failed or did not answer within 10 seconds — rather than printed as `+0 -0`.
+  the diff failed, did not answer within 10 seconds or printed something unrecognised — rather than printed as `+0 -0`.
 - **It costs one more git call per worktree**, which is why it is opt-in. Without `--churn`, `list` runs
   exactly what it ran before, and [`remove`](/docs/commands/remove) and [`cleanup`](/docs/commands/cleanup)
   never show it.
