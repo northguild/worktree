@@ -907,7 +907,8 @@ export abstract class BaseCommand extends Command {
     // contract commandExists already validates by — it looks up the head alone
     // (cli.ts) — so validation and execution now agree. No shell parses this
     // value; quotes group an argument that contains spaces and are not passed
-    // through, so `~` and `$VAR` still reach the program unexpanded.
+    // through (except an apostrophe between two letters or digits, which is
+    // kept), so `~` and `$VAR` still reach the program unexpanded.
     const [editor, ...editorArgs] = splitCommandValue(codeEditor);
 
     // Unset, whitespace-only and quote-only are the same fact: nothing to

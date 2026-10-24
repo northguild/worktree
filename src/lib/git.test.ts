@@ -19,6 +19,7 @@ import {
   gitGetRootPath,
   gitGetUncommittedChangesCount,
   gitGetWorktreeList,
+  gitGetWorktrees,
   gitNukeWorktree,
   gitNukeWorktreeCmd,
   gitRemoveWorktree,
@@ -32,6 +33,12 @@ import type {
   WorktreeAgent,
   WorktreeListEntry,
 } from "./types.js";
+
+// One record of `git worktree list --porcelain`, as git-worktree(1) "Porcelain
+// Format" lays it out: label and value on a line, a blank line after the record.
+function porcelainRecord(path: string, branch: string): string {
+  return `worktree ${path}\nHEAD abc1234abc1234abc1234abc1234abc1234abc1234\nbranch refs/heads/${branch}\n`;
+}
 
 // gitCreateWorktree is the only function under test here that draws a spinner.
 // Mock it so the suite neither writes to the terminal nor depends on a TTY.
@@ -1032,7 +1039,7 @@ describe("gitGetWorktreeList agent join", () => {
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
       "git branch --show-current",
       "git rev-parse --show-toplevel",
-      "git worktree list",
+      "git worktree list --porcelain",
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
       // feature/one is ahead of the base, so it is asked whether what it
@@ -1051,9 +1058,9 @@ describe("gitGetWorktreeList agent join", () => {
       .mockResolvedValueOnce(rootPath)
       .mockResolvedValueOnce(
         [
-          `${onePath}  abc1234 [feature/one]`,
-          `${twoPath}  def5678 [feature/two]`,
-        ].join(EOL),
+          porcelainRecord(onePath, "feature/one"),
+          porcelainRecord(twoPath, "feature/two"),
+        ].join("\n"),
       )
       .mockResolvedValueOnce("origin/main")
       .mockResolvedValueOnce("1");
@@ -1244,7 +1251,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       .mockResolvedValueOnce(tracking)
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce(rootPath)
-      .mockResolvedValueOnce(`${onePath}  abc1234 [feature/one]`);
+      .mockResolvedValueOnce(porcelainRecord(onePath, "feature/one"));
   }
 
   function expectPreamble() {
@@ -1254,7 +1261,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
       "git branch --show-current",
       "git rev-parse --show-toplevel",
-      "git worktree list",
+      "git worktree list --porcelain",
     );
   }
 
@@ -1530,9 +1537,9 @@ describe("gitGetWorktreeList ahead counting", () => {
       .mockResolvedValueOnce(rootPath)
       .mockResolvedValueOnce(
         [
-          `${onePath}  abc1234 [feature/one]`,
-          `${twoPath}  def5678 [feature/two]`,
-        ].join(EOL),
+          porcelainRecord(onePath, "feature/one"),
+          porcelainRecord(twoPath, "feature/two"),
+        ].join("\n"),
       )
       .mockResolvedValueOnce("origin/main")
       .mockResolvedValueOnce("1");
@@ -1877,7 +1884,7 @@ describe("gitRemoveWorktree prompt", () => {
       "git --no-pager branch -r",
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
       "git rev-parse --show-toplevel",
-      "git worktree list",
+      "git worktree list --porcelain",
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${targetPath})`,
       "git config northguild.worktree.defaultSourceBranch",
@@ -1892,7 +1899,7 @@ describe("gitRemoveWorktree prompt", () => {
       .mockResolvedValueOnce("feature/one <-")
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce(rootPath)
-      .mockResolvedValueOnce(`${targetPath}  abc1234 [feature/one]`);
+      .mockResolvedValueOnce(porcelainRecord(targetPath, "feature/one"));
 
     if (aheadOrReason === "reject") {
       // No base resolves at all, so the count is never taken.
@@ -2062,7 +2069,7 @@ describe("what the removal helpers report", () => {
       "git --no-pager branch -r",
       'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
       "git rev-parse --show-toplevel",
-      "git worktree list",
+      "git worktree list --porcelain",
       "git symbolic-ref --short refs/remotes/origin/HEAD",
       `git rev-list --count origin/main..HEAD (cwd: ${listedPath})`,
       `git status -s (cwd: ${listedPath})`,
@@ -2079,7 +2086,7 @@ describe("what the removal helpers report", () => {
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce(rootPath)
-      .mockResolvedValueOnce(`${listedPath}  abc1234 [${listedBranch}]`)
+      .mockResolvedValueOnce(porcelainRecord(listedPath, listedBranch))
       .mockResolvedValueOnce("origin/main")
       .mockResolvedValueOnce("0")
       .mockResolvedValueOnce("");
@@ -2321,5 +2328,210 @@ describe("git fetch bounds", () => {
     await expect(gitFetch()).rejects.toThrow(
       "Command failed: git fetch --prune",
     );
+  });
+});
+
+// Fixture bytes are `git worktree list --porcelain` output (git 2.56.0) from a
+// scratch repository at ".../space demo/proj" with linked worktrees created by
+// `git worktree add`; only the leading directory is shortened. The expected
+// paths are the paths that were passed to `git worktree add`, and the expected
+// branch names are the ones passed to `-b`. The record layout is the one in
+// git-worktree(1) "Porcelain Format".
+describe("gitGetWorktrees", () => {
+  const rootPath = "/home/dev/space demo/proj";
+  const treesPath = `${rootPath}.worktrees`;
+  const hash = "eb6c1c8b1fb56781b1947be18b3627f06f2d6bde";
+
+  // Records are separated by a blank line, as git prints them.
+  function porcelain(...records: string[][]): string {
+    return `${records.map((lines) => lines.join("\n")).join("\n\n")}\n`;
+  }
+
+  const mainRecord = [
+    `worktree ${rootPath}`,
+    `HEAD ${hash}`,
+    "branch refs/heads/main",
+  ];
+
+  function linked(path: string, branch: string, ...extra: string[]): string[] {
+    return [
+      `worktree ${path}`,
+      `HEAD ${hash}`,
+      `branch refs/heads/${branch}`,
+      ...extra,
+    ];
+  }
+
+  function mockList(stdout: string, currentBranch = "main") {
+    mockRun
+      .mockResolvedValueOnce(currentBranch)
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(stdout);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    expectCommands(
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list --porcelain",
+    );
+  });
+
+  it("asks git for the porcelain format", async () => {
+    mockList(porcelain(mainRecord));
+
+    await gitGetWorktrees();
+
+    expect(mockRun).toHaveBeenCalledWith("git", [
+      "worktree",
+      "list",
+      "--porcelain",
+    ]);
+  });
+
+  it("lists a worktree of a repository whose own path contains a space", async () => {
+    mockList(
+      porcelain(
+        mainRecord,
+        linked(`${treesPath}/feature/test`, "feature/test"),
+      ),
+    );
+
+    expect(await gitGetWorktrees()).toEqual([
+      {
+        path: `${treesPath}/feature/test`,
+        branchName: "feature/test",
+        pathExists: true,
+        isCurrent: false,
+      },
+    ]);
+  });
+
+  it("keeps a worktree directory that contains a space", async () => {
+    mockList(porcelain(mainRecord, linked(`${treesPath}/has space`, "spaced")));
+
+    expect(await gitGetWorktrees()).toMatchObject([
+      { path: `${treesPath}/has space`, branchName: "spaced" },
+    ]);
+  });
+
+  it("keeps an apostrophe in the path", async () => {
+    mockList(porcelain(mainRecord, linked(`${treesPath}/o'brien`, "obrien")));
+
+    expect(await gitGetWorktrees()).toMatchObject([
+      { path: `${treesPath}/o'brien`, branchName: "obrien" },
+    ]);
+  });
+
+  it("keeps a non-ASCII path as git prints it", async () => {
+    mockList(porcelain(mainRecord, linked(`${treesPath}/ünï`, "uni")));
+
+    expect(await gitGetWorktrees()).toMatchObject([
+      { path: `${treesPath}/ünï`, branchName: "uni" },
+    ]);
+  });
+
+  it("does not trim leading or trailing spaces from a path", async () => {
+    mockList(
+      porcelain(
+        mainRecord,
+        [`worktree ${treesPath}/ lead trail `, `HEAD ${hash}`, "detached"],
+        linked(`${treesPath}/after`, "after"),
+      ),
+    );
+
+    expect((await gitGetWorktrees()).map(({ path }) => path)).toEqual([
+      `${treesPath}/ lead trail `,
+      `${treesPath}/after`,
+    ]);
+  });
+
+  it("lists a locked worktree, with or without a reason", async () => {
+    mockList(
+      porcelain(
+        mainRecord,
+        linked(`${treesPath}/lockd`, "lockd", "locked on usb"),
+        linked(`${treesPath}/lockednr`, "lockednr", "locked"),
+      ),
+    );
+
+    expect(await gitGetWorktrees()).toMatchObject([
+      { path: `${treesPath}/lockd`, branchName: "lockd" },
+      { path: `${treesPath}/lockednr`, branchName: "lockednr" },
+    ]);
+  });
+
+  it("lists a prunable worktree", async () => {
+    mockList(
+      porcelain(
+        mainRecord,
+        linked(
+          `${treesPath}/prun`,
+          "prun",
+          "prunable gitdir file points to non-existent location",
+        ),
+      ),
+    );
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+
+    expect(await gitGetWorktrees()).toEqual([
+      {
+        path: `${treesPath}/prun`,
+        branchName: "prun",
+        pathExists: false,
+        isCurrent: false,
+      },
+    ]);
+  });
+
+  it("labels a detached worktree with git's own words", async () => {
+    mockList(
+      porcelain(mainRecord, [
+        `worktree ${treesPath}/det`,
+        `HEAD ${hash}`,
+        "detached",
+      ]),
+    );
+
+    expect(await gitGetWorktrees()).toMatchObject([
+      { path: `${treesPath}/det`, branchName: "(detached HEAD)" },
+    ]);
+  });
+
+  it("drops a bare record without throwing", async () => {
+    mockList(
+      porcelain(
+        [`worktree ${treesPath}.git`, "bare"],
+        linked(`${treesPath}/x`, "bx"),
+      ),
+    );
+
+    expect(await gitGetWorktrees()).toMatchObject([
+      { path: `${treesPath}/x`, branchName: "bx" },
+    ]);
+  });
+
+  it("skips the current branch unless includeCurrent is set", async () => {
+    const stdout = porcelain(
+      mainRecord,
+      linked(`${treesPath}/one`, "one"),
+      linked(`${treesPath}/two`, "two"),
+    );
+
+    mockList(stdout, "one");
+    expect(
+      (await gitGetWorktrees()).map(({ branchName }) => branchName),
+    ).toEqual(["two"]);
+
+    mockList(stdout, "one");
+    const all = await gitGetWorktrees({ includeCurrent: true });
+    expect(
+      all.map(({ branchName, isCurrent }) => [branchName, isCurrent]),
+    ).toEqual([
+      ["one", true],
+      ["two", false],
+    ]);
   });
 });

@@ -225,23 +225,53 @@ interface GitGetWorktreesOptions {
   includeCurrent?: boolean;
 }
 
+// Reads the records of `git worktree list --porcelain` (git-worktree(1)
+// "Porcelain Format"): one `label value` line per attribute, a blank line after
+// each record. A path is everything after the first space of its line, so lines
+// are never trimmed. A record on neither a branch nor a detached HEAD, such as
+// the `bare` one, has no branch to report and is dropped.
+function parseWorktreeRecords(
+  porcelain: string,
+): Array<{ path: string; branchName: string }> {
+  const entries: Array<{ path: string; branchName: string }> = [];
+
+  for (const record of porcelain.split("\n\n")) {
+    let path: string | undefined;
+    let branchName: string | undefined;
+
+    for (const line of record.split("\n")) {
+      if (line.startsWith("worktree ")) {
+        path = line.slice("worktree ".length);
+      } else if (line.startsWith("branch ")) {
+        branchName = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+      } else if (line === "detached") {
+        branchName = "(detached HEAD)";
+      }
+    }
+
+    if (path !== undefined && branchName !== undefined) {
+      entries.push({ path, branchName });
+    }
+  }
+
+  return entries;
+}
+
 export async function gitGetWorktrees({
   includeCurrent = false,
 }: GitGetWorktreesOptions = {}): Promise<WorktreeListBaseEntry[]> {
   const currentBranch = await getCurrentBranchName();
   const worktreesRootPath = await gitGetAbsoluteWorktreesPath();
-  const result = await run("git", ["worktree", "list"]);
+  const result = await run("git", ["worktree", "list", "--porcelain"]);
 
   return (
-    result
-      .split(EOL)
-      .map((line) => {
-        const [path, _, branchStr] = line.replace(/\s\s+/g, " ").split(" ");
-        const branchName = branchStr.slice(1, -1);
-        const isCurrent = branchName === currentBranch;
-        const pathExists = fs.existsSync(path);
-        return { path, branchName, pathExists, isCurrent };
-      })
+    parseWorktreeRecords(result)
+      .map(({ path, branchName }) => ({
+        path,
+        branchName,
+        pathExists: fs.existsSync(path),
+        isCurrent: branchName === currentBranch,
+      }))
       // Filter out any branches that are not worktree branches, and also skip the current branch
       .filter(
         ({ path, isCurrent }) =>

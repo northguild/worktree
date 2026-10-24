@@ -52,15 +52,16 @@ describe("isValidCommand", () => {
   });
 
   it.each`
-    command                       | commandExists | expected                                      | lookedUp             | description
-    ${"git"}                      | ${true}       | ${true}                                       | ${"git"}             | ${"existing command"}
-    ${"node"}                     | ${true}       | ${true}                                       | ${"node"}            | ${"another existing command"}
-    ${"git status"}               | ${true}       | ${true}                                       | ${"git"}             | ${"command with arguments"}
-    ${`open -a "Sublime Text"`}   | ${true}       | ${true}                                       | ${"open"}            | ${"command with a quoted argument"}
-    ${`"/opt/my apps/ed" --wait`} | ${true}       | ${true}                                       | ${"/opt/my apps/ed"} | ${"quoted program path containing a space"}
-    ${"nonexistent"}              | ${false}      | ${"Command not found: nonexistent"}           | ${"nonexistent"}     | ${"non-existing command"}
-    ${"fake-cmd"}                 | ${false}      | ${"Command not found: fake-cmd"}              | ${"fake-cmd"}        | ${"another non-existing command"}
-    ${"bad command with args"}    | ${false}      | ${"Command not found: bad command with args"} | ${"bad"}             | ${"non-existing command with args"}
+    command                       | commandExists | expected                                      | lookedUp                   | description
+    ${"git"}                      | ${true}       | ${true}                                       | ${"git"}                   | ${"existing command"}
+    ${"node"}                     | ${true}       | ${true}                                       | ${"node"}                  | ${"another existing command"}
+    ${"git status"}               | ${true}       | ${true}                                       | ${"git"}                   | ${"command with arguments"}
+    ${`open -a "Sublime Text"`}   | ${true}       | ${true}                                       | ${"open"}                  | ${"command with a quoted argument"}
+    ${`"/opt/my apps/ed" --wait`} | ${true}       | ${true}                                       | ${"/opt/my apps/ed"}       | ${"quoted program path containing a space"}
+    ${"/Users/o'brien/bin/ed"}    | ${true}       | ${true}                                       | ${"/Users/o'brien/bin/ed"} | ${"unquoted path with a word-internal apostrophe"}
+    ${"nonexistent"}              | ${false}      | ${"Command not found: nonexistent"}           | ${"nonexistent"}           | ${"non-existing command"}
+    ${"fake-cmd"}                 | ${false}      | ${"Command not found: fake-cmd"}              | ${"fake-cmd"}              | ${"another non-existing command"}
+    ${"bad command with args"}    | ${false}      | ${"Command not found: bad command with args"} | ${"bad"}                   | ${"non-existing command with args"}
   `(
     'should return $expected for "$command" when commandExists returns $commandExists ($description)',
     async ({ command, commandExists, expected, lookedUp }) => {
