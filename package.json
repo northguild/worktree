@@ -57,7 +57,14 @@
   ],
   "homepage": "https://github.com/northguild/worktree",
   "license": "MIT",
-  "packageManager": "pnpm@10.32.1+sha512.a706938f0e89ac1456b6563eab4edf1d1faf3368d1191fc5c59790e96dc918e4456ab2e67d613de1043d2e8c81f87303e6b40d4ffeca9df15ef1ad567348f2be",
+  "packageManager": "pnpm@12.15.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.12.1",
+      "onFail": "download"
+    }
+  },
   "bin": {
     "worktree": "bin/run.js",
     "@northguild/worktree": "bin/run.js"
@@ -80,25 +87,25 @@
     }
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.3.2",
-    "@oclif/core": "^4.10.3",
-    "@oclif/plugin-help": "^6.2.41",
-    "@oclif/plugin-not-found": "^3.2.78",
-    "@oclif/plugin-warn-if-update-available": "^3.1.58",
+    "@inquirer/prompts": "^8.7.4",
+    "@oclif/core": "^4.14.0",
+    "@oclif/plugin-help": "^6.3.0",
+    "@oclif/plugin-not-found": "^3.3.0",
+    "@oclif/plugin-warn-if-update-available": "^3.2.0",
     "chalk": "^5.6.2",
     "cli-progress": "^3.12.0",
-    "ora": "^9.3.0"
+    "ora": "^9.4.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.11",
     "@changesets/cli": "^3.0.3",
-    "@northguild/gmt-biome": "^1.0.3",
-    "@oclif/test": "^4.1.17",
+    "@northguild/gmt-biome": "^1.1.1",
+    "@oclif/test": "^4.2.0",
     "@types/cli-progress": "^3.11.6",
     "@types/node": "^18.19.130",
     "shx": "^0.4.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.12"
   }
 }
