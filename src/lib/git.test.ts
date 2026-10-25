@@ -2409,6 +2409,20 @@ describe("gitGetWorktrees", () => {
     ]);
   });
 
+  it("leaves out a worktree under a sibling directory that shares the root prefix", async () => {
+    mockList(
+      porcelain(
+        mainRecord,
+        linked(`${treesPath}-old/stale`, "stale"),
+        linked(`${treesPath}/fresh`, "fresh"),
+      ),
+    );
+
+    expect(await gitGetWorktrees()).toMatchObject([
+      { path: `${treesPath}/fresh`, branchName: "fresh" },
+    ]);
+  });
+
   it("keeps a worktree directory that contains a space", async () => {
     mockList(porcelain(mainRecord, linked(`${treesPath}/has space`, "spaced")));
 
