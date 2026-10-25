@@ -1,9 +1,11 @@
 import fs from "node:fs";
-import { EOL } from "node:os";
+import os, { EOL } from "node:os";
+import path from "node:path";
 import { expectCommands, mockRun } from "../test-setup.js";
 import * as agent from "./agent.js";
 import * as cli from "./cli.js";
 import {
+  findWorktreeByTarget,
   getCurrentBranchName,
   gitCreateWorktree,
   gitFetch,
@@ -737,6 +739,74 @@ describe("gitNukeWorktreeCmd", () => {
     );
 
     expect(runSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("gitNukeWorktreeCmd for a detached worktree", () => {
+  it("removes and prunes but runs no git branch -D, since no branch exists", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitNukeWorktreeCmd(
+      { branchName: "(detached HEAD)", path: "/repo/project.worktrees/d1" },
+      { force: true },
+    );
+
+    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
+      "worktree",
+      "remove",
+      "/repo/project.worktrees/d1",
+      "--force",
+    ]);
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["worktree", "prune"]);
+  });
+});
+
+describe("findWorktreeByTarget", () => {
+  const first = { branchName: "(detached HEAD)", path: "/r.worktrees/a" };
+  const second = { branchName: "(detached HEAD)", path: "/r.worktrees/b" };
+  const named = { branchName: "feature/x", path: "/r.worktrees/x" };
+  const all = [first, second, named];
+
+  it("reaches the second of two detached worktrees by its path", () => {
+    expect(findWorktreeByTarget(all, "/r.worktrees/b")).toBe(second);
+  });
+
+  it("reaches a detached worktree by a relative path", () => {
+    const entry = { branchName: "(detached HEAD)", path: path.resolve("d") };
+    expect(findWorktreeByTarget([first, entry], "./d")).toBe(entry);
+  });
+
+  // A bare name is never resolved as a path: from inside `.worktrees/feature`,
+  // `x` would otherwise land on `feature/x` and remove the wrong worktree.
+  it("reads a bare name as a branch even where it resolves to another's path", () => {
+    const nested = { branchName: "feature/x", path: path.resolve("x") };
+    const bare = { branchName: "x", path: "/r.worktrees/x" };
+    expect(findWorktreeByTarget([nested, bare], "x")).toBe(bare);
+  });
+
+  it("still finds a branch by name, and the first detached one by label", () => {
+    expect(findWorktreeByTarget(all, "feature/x")).toBe(named);
+    expect(findWorktreeByTarget(all, "(detached HEAD)")).toBe(first);
+  });
+
+  it("matches a path given through a symlink to the real one git lists", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wt-target-"));
+    const link = `${dir}-link`;
+    fs.symlinkSync(dir, link);
+    const real = fs.realpathSync(dir);
+    const entry = { branchName: "(detached HEAD)", path: real };
+
+    try {
+      expect(findWorktreeByTarget([first, entry], link)).toBe(entry);
+    } finally {
+      fs.rmSync(link);
+      fs.rmdirSync(dir);
+    }
+  });
+
+  it("finds nothing for a name and a path that match no worktree", () => {
+    expect(findWorktreeByTarget(all, "/r.worktrees/nope")).toBeUndefined();
   });
 });
 
@@ -2235,6 +2305,27 @@ describe("what the removal helpers report", () => {
       await expect(
         gitRemoveWorktreesWithProgress([entry(), two]),
       ).resolves.toEqual([entry(), two]);
+    });
+
+    // The #144 batch: a detached worktree has no branch to delete, so it must
+    // not throw and end the loop before the stale branch worktree behind it.
+    it("gets through a detached worktree and on to the next", async () => {
+      const detachedPath = `${rootPath}.worktrees/scratch`;
+      const detached = entry({
+        branchName: "(detached HEAD)",
+        path: detachedPath,
+      });
+      expectCommands(`git worktree remove ${detachedPath} --force`);
+      mockRun.mockResolvedValue("");
+
+      await expect(
+        gitRemoveWorktreesWithProgress([detached, two]),
+      ).resolves.toEqual([detached, two]);
+      expect(mockRun).not.toHaveBeenCalledWith("git", [
+        "branch",
+        "-D",
+        "(detached HEAD)",
+      ]);
     });
 
     it("answers with an empty list for an empty selection", async () => {

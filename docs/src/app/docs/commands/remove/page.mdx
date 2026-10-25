@@ -65,6 +65,20 @@ to delete and branches that are still active. Each entry carries the same detail
 [`list`](/docs/commands/list) shows, so unpushed commits are visible before you select
 anything.
 
+## Detached worktrees
+
+A worktree on a detached HEAD is listed as `(detached HEAD)`, and every one carries that same label, so a
+name cannot tell them apart. Name the worktree by its path instead:
+
+```bash
+worktree remove /abs/repo.worktrees/scratch --force
+```
+
+An argument is read as a path only when it is written as one — absolute, or starting with `./` or `../` — and
+as a branch name otherwise; `remove "(detached HEAD)"` reaches only the first. A detached worktree
+has no branch, so `remove` and [`cleanup`](/docs/commands/cleanup) delete its directory and prune it without
+running `git branch -D`.
+
 ## Herdr spaces
 
 With [`opener`](/docs/configuration) set to `herdr`, removing a worktree also closes the Herdr space

@@ -225,6 +225,11 @@ interface GitGetWorktreesOptions {
   includeCurrent?: boolean;
 }
 
+// What a detached worktree is listed as. Every one carries the same label, so
+// it names a kind of worktree rather than one worktree. Git forbids a space in
+// a ref name, so it can never collide with a real branch.
+export const DETACHED_LABEL = "(detached HEAD)";
+
 // Reads the records of `git worktree list --porcelain` (git-worktree(1)
 // "Porcelain Format"): one `label value` line per attribute, a blank line after
 // each record. A path is everything after the first space of its line, so lines
@@ -245,7 +250,7 @@ function parseWorktreeRecords(
       } else if (line.startsWith("branch ")) {
         branchName = line.slice("branch ".length).replace(/^refs\/heads\//, "");
       } else if (line === "detached") {
-        branchName = "(detached HEAD)";
+        branchName = DETACHED_LABEL;
       }
     }
 
@@ -705,14 +710,54 @@ interface GitNukeWorktreeCmdOptions {
 // of every worktree, and when two end the same way (a checkout directory named
 // like the branch, or branches `demo` and `x/demo`) the match is ambiguous and
 // git falls back to a path relative to the cwd and fails. Only `git branch -D`
-// takes the branch name.
+// takes the branch name, and a detached worktree has none to delete.
 export async function gitNukeWorktreeCmd(
   { branchName, path }: WorktreeTarget,
   { force = false }: GitNukeWorktreeCmdOptions = {},
 ) {
   await run("git", ["worktree", "remove", path, ...(force ? ["--force"] : [])]);
   await run("git", ["worktree", "prune"]);
-  await run("git", ["branch", "-D", branchName]);
+  if (branchName !== DETACHED_LABEL) {
+    await run("git", ["branch", "-D", branchName]);
+  }
+}
+
+/**
+ * Finds the worktree a `remove` argument names: by path when the argument is
+ * written as one, by branch name otherwise. A path is the only thing that tells
+ * detached worktrees apart — they all share one label, so a name alone can only
+ * ever reach the first.
+ *
+ * Only path syntax is read as a path. A bare `x` resolved against the cwd could
+ * land on another branch's worktree (`feature/x`, from inside `.worktrees/feature`)
+ * and remove that one instead. Git refuses a branch name that starts with `/` or
+ * `.`, so the two forms never overlap.
+ */
+export function findWorktreeByTarget<T extends WorktreeTarget>(
+  worktrees: T[],
+  target: string,
+): T | undefined {
+  const isPath =
+    path.isAbsolute(target) ||
+    target === "." ||
+    target === ".." ||
+    /^\.\.?[\\/]/.test(target);
+  if (!isPath) {
+    return worktrees.find((entry) => entry.branchName === target);
+  }
+
+  const resolved = path.resolve(target);
+  // Git lists a worktree by its real path, so a target given through a symlink
+  // (`/var` on macOS is `/private/var`) is compared by that one as well.
+  let real = resolved;
+  try {
+    real = fs.realpathSync(resolved);
+  } catch {
+    // A path that is gone is compared as written.
+  }
+  return worktrees.find(
+    (entry) => entry.path === resolved || entry.path === real,
+  );
 }
 
 /**
@@ -789,9 +834,7 @@ export async function gitRemoveWorktree(
     `Gathering worktree info for ${branchName}`,
   ).start();
   const worktreeList = await gitGetWorktreeList();
-  const worktree = worktreeList.find(
-    (entry) => entry.branchName === branchName,
-  );
+  const worktree = findWorktreeByTarget(worktreeList, branchName);
   if (!worktree) {
     spinner.fail(`Worktree ${branchName} not found.`);
     return undefined;
@@ -860,7 +903,7 @@ export async function gitRemoveWorktree(
       // `uncommittedChanges`, and `git worktree remove` does not refuse a tree
       // `git status -s` reports as clean. `force` governs only whether that
       // command tolerates state git status cannot see, and it costs nothing
-      // here: gitNukeWorktreeCmd runs `git branch -D` unconditionally either
+      // here: gitNukeWorktreeCmd runs `git branch -D` for any branch either
       // way. The user has been told what they might be losing and said yes.
       force:
         force ||

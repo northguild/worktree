@@ -125,6 +125,32 @@ describe("remove command", () => {
       expect(git.gitRemoveWorktree).not.toHaveBeenCalled();
     });
 
+    // Detached worktrees all share one label, so a path is the only argument
+    // that reaches the second (#144).
+    it("should find a detached worktree named by its path", async () => {
+      const first = {
+        ...safeWorktree,
+        branchName: "(detached HEAD)",
+        path: "/path/to/project.worktrees/d1",
+      };
+      const second = { ...first, path: "/path/to/project.worktrees/d2" };
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([first, second]);
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktree")
+        .mockResolvedValue(second);
+      const mockError = vi.spyOn(remove as any, "error");
+
+      (remove as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: second.path },
+        flags: { force: true },
+      });
+
+      await remove.run();
+
+      expect(mockError).not.toHaveBeenCalled();
+      expect(mockRemove).toHaveBeenCalledWith(second.path, { force: true });
+    });
+
     it("should pass the force flag through to gitRemoveWorktree", async () => {
       vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([unsafeWorktree]);
       const mockRemove = vi
