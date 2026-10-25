@@ -1,6 +1,6 @@
 import { gitGetConfigValue } from "../lib/git.js";
 import { InvalidValueError } from "../lib/prompt.js";
-import { sanitizeBranchName } from "../lib/utils.js";
+import { slugifyBranchTitle } from "../lib/utils.js";
 
 export interface LinearIssue {
   identifier: string;
@@ -226,7 +226,7 @@ export async function getLinearBranchNameFromIssue(
         : "branchPrefix.feature",
   );
 
-  return `${prefix}${issue.identifier}-${sanitizeBranchName(issue.title) || "issue"}`;
+  return `${prefix}${issue.identifier}-${slugifyBranchTitle(issue.title)}`;
 }
 
 export async function validateLinearCredentials(): Promise<boolean> {

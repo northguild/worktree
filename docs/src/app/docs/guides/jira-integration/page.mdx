@@ -18,8 +18,11 @@ The generated branch name is shown as the default in the prompt, so you can acce
 ## How Branch Names Are Built
 
 1. Read issue type and summary from the Jira API.
-2. Sanitize the summary into a branch-safe slug.
+2. Sanitize the summary into a branch-safe slug, cut to at most 48 characters at the last dash so it ends on a whole word. A single word longer than 48 characters is cut at 48.
 3. Optionally prepend a configured prefix based on issue type.
+
+For example, a bug DEV-123 titled "Login redirect loops forever when the session cookie expires during checkout"
+becomes `fix/DEV-123-login-redirect-loops-forever-when-the-session` with `branchPrefix.bugfix` set to `fix/`.
 
 Supported issue-type prefix mapping:
 
