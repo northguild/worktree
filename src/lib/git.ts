@@ -89,8 +89,13 @@ export async function gitGetRootPath() {
       return topLevelPath;
     }
     const gitPathResult = await gitCmdGitPath();
-    const gitPath = gitPathResult.split("/.git")[0];
-    return gitPath;
+    // The linked worktree's git dir is `<root>/.git/worktrees/<name>`. Cut at
+    // the last `/.git/`, since a parent directory such as `.github` or `.git`
+    // can sit earlier in the path.
+    const gitDirIndex = gitPathResult.lastIndexOf("/.git/");
+    return gitDirIndex === -1
+      ? gitPathResult
+      : gitPathResult.slice(0, gitDirIndex);
   } catch {
     throw new Error(
       `Git: Unable find the root path. Are you in a git repository?`,
