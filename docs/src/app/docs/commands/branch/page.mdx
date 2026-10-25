@@ -55,6 +55,12 @@ worktree branch --github 42 --json --agent-file brief.md
 Use the `--github` flag to create a suggested branch name from an issue in the current repository.
 
 - The issue number can be passed as `42` or `"#42"`.
+- A pull request number is refused as a usage error, since the pull request already has a branch. The message names
+  `worktree checkout <head-branch>` when that branch is on this repository; for a fork it says to run
+  `worktree checkout` and pick one.
+- A closed issue gets a warning. An interactive run asks before continuing, and answering no ends the run with exit
+  `1` and no worktree; a [non-interactive run](#non-interactive-runs) carries on, and `--json` reports the warning
+  in `warnings`.
 - The generated name is pre-filled in the prompt and still editable. A [non-interactive run](#non-interactive-runs)
   takes it as it is.
 - If issue types are configured in the repository, these optional prefixes are applied:
@@ -280,7 +286,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | `installed` | `{ran:true, command, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |
 | `agent` | `{name, kind, command, prompted}` for the agent that was started; `null` when none was. `command` leaves out the brief. `name` is the session name, `null` where `worktree` named nothing (a detached start) |
-| `warnings` | what went wrong without stopping the run: a failed assignment, a Herdr or agent failure, missing config |
+| `warnings` | what went wrong without stopping the run: a failed assignment, a Herdr or agent failure, missing config, a closed `--github` issue |
 
 A failed install still prints the document, with `installed.ok` `false` and the message in `warnings`, and
 exits `1`: the worktree exists, so its path is reported rather than left out of an error. A brief that was
@@ -297,7 +303,7 @@ describing it goes to stderr as usual:
 | `code` | Means | Exit |
 | --- | --- | --- |
 | `missing_value` | a value with no default was not given; `details` names it and the flag | `2` |
-| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira` or `--linear` issue id | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira` or `--linear` issue id, a `--github` number that is a pull request | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |
 | `failed` | anything else | `1` |
