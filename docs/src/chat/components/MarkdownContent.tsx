@@ -78,6 +78,8 @@ const DOCS_ROUTE_MAP: Record<string, string> = {
   "jira integration": "/docs/guides/jira-integration",
   "linear issue integration": "/docs/guides/linear-integration",
   "linear integration": "/docs/guides/linear-integration",
+  "clickup task integration": "/docs/guides/clickup-integration",
+  "clickup integration": "/docs/guides/clickup-integration",
   "context switching": "/docs/guides/context-switching",
   "team conventions": "/docs/guides/team-conventions",
   "environment files": "/docs/guides/env-files",

@@ -26,3 +26,11 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   would make a real request before failing; `.mockRejectedValue(...)` would keep it offline.
 - **Phase 3:** no `branch`-level test for an invalid id (exit 2, `invalid_value`) or for
   `--no-assign --clickup`; the first is pinned in `clickup.test.ts`, the second matches Linear.
+- **Phase 4:** the guide's "without the `CU-` that ClickUp shows in the UI" and the branch page's "URL and
+  ID field" describe ClickUp's UI without a source; the guide does not say where to find the workspace id.
+- **Phase 4:** `CU-` plus an all-digit id (`CU-123`) parses as a custom id, not a refusal; worth checking
+  in the live run.
+- **Phase 4:** the guide says "any `pk_` token" is redacted, but the shape needs 20+ characters after
+  `pk_`; the configuration page's "the Workspace your token belongs to" is unverified (a token can reach
+  several).
+- **Phase 4:** `src/lib/utils.ts:143` still names only `--jira` and `--linear` as cutting the slug.

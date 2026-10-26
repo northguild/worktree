@@ -25,7 +25,7 @@ confusing errors rather than obvious ones — see the prerequisites and *Prepare
 bin/                  oclif entry point — bin/run.js, produced by tsc
 src/commands/         one file per CLI command; each default-exports a BaseCommand subclass
 src/lib/              CLI helpers — git integration, validators, env, types, constants, cli
-src/integrations/     GitHub, Jira and Linear integrations
+src/integrations/     GitHub, Jira, Linear and ClickUp integrations
 scripts/              version-sync script, run by `pnpm sync-version`; `release-notes.mjs`, which publish.yml uses to cut a version's CHANGELOG section
 .changeset/           Changesets config and pending release notes (`.changeset/<name>.md`)
 patches/              pnpm patches applied through `patchedDependencies` in `pnpm-workspace.yaml`; `nextra-theme-docs@4.6.1` makes its layout's `children` optional, which zod >=4.4 otherwise rejects at prerender. Drop it once nextra ships a fix
@@ -81,7 +81,7 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | Surface | Who reads it | What has to reach it |
 |---|---|---|
 | [`README.md`](../README.md) | someone deciding whether to install; npm renders it as the package page | the fast path — a new command, a renamed flag, a change to what the tool is for |
-| `docs/src/app/docs/` | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration/`, `getting-started/`, `faq/`, and `guides/` (8) |
+| `docs/src/app/docs/` | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration/`, `getting-started/`, `faq/`, and `guides/` (9) |
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
 | `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |
