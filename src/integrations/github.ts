@@ -49,6 +49,12 @@ export interface GitHubIssue {
   authorAssociation: string;
   htmlUrl: string;
   type: GitHubIssueType | null;
+  /**
+   * Set when the number is a pull request, which GitHub's issues endpoint
+   * answers for too. `headBranch` is the branch the pull request is from, or
+   * null when it could not be read.
+   */
+  pullRequest: { headBranch: string | null } | null;
   user: {
     login: string;
     htmlUrl: string;
@@ -83,6 +89,8 @@ export interface GitHubIssueApiResponse {
   closed_at: string | null;
   author_association: string;
   type: GitHubIssueTypeApiResponse | null;
+  // Present only when the number is a pull request.
+  pull_request?: { url: string };
   html_url: string;
   user: {
     login: string;
@@ -271,6 +279,16 @@ export async function fetchGitHubIssue(issueId: number | string) {
   }
 
   const issue = (await response.json()) as GitHubIssueApiResponse;
+  const pullRequest = issue.pull_request
+    ? {
+        headBranch: await fetchGitHubPullRequestHeadBranch(
+          owner,
+          name,
+          issue.number,
+          token,
+        ),
+      }
+    : null;
 
   return {
     url: issue.url,
@@ -303,11 +321,42 @@ export async function fetchGitHubIssue(issueId: number | string) {
           isEnabled: issue.type.is_enabled,
         }
       : null,
+    pullRequest,
     user: {
       login: issue.user.login,
       htmlUrl: issue.user.html_url,
     },
   } satisfies GitHubIssue;
+}
+
+// The head branch only improves the message that refuses a pull request, so a
+// failed lookup is a null and never a second reason to fail. A fork's branch is
+// not on origin, and its name is anyone's to choose, so it is never suggested.
+async function fetchGitHubPullRequestHeadBranch(
+  owner: string,
+  name: string,
+  number: number,
+  token?: string,
+): Promise<string | null> {
+  try {
+    const response = await fetchGitHub(
+      `/repos/${owner}/${name}/pulls/${number}`,
+      token,
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const pull = (await response.json()) as {
+      head?: { ref?: string; repo?: { full_name?: string } | null };
+    };
+    const headRepository = pull.head?.repo?.full_name?.toLowerCase();
+    if (headRepository !== `${owner}/${name}`.toLowerCase()) {
+      return null;
+    }
+    return pull.head?.ref ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchGitHubLogin(token?: string): Promise<string> {
