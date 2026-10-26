@@ -2022,7 +2022,7 @@ describe("gitRemoveWorktree prompt", () => {
   // through run() elsewhere.
   function mockUpToPrompt(
     aheadOrReason: string | "reject",
-    { merged = false }: { merged?: boolean } = {},
+    { merged = false, status = "" }: { merged?: boolean; status?: string } = {},
   ) {
     expectCommands(
       "git branch --show-current",
@@ -2063,7 +2063,7 @@ describe("gitRemoveWorktree prompt", () => {
       }
     }
 
-    mockRun.mockResolvedValueOnce("");
+    mockRun.mockResolvedValueOnce(status);
   }
 
   beforeEach(() => {
@@ -2139,6 +2139,54 @@ describe("gitRemoveWorktree prompt", () => {
         message: "Are you sure you want to remove this worktree?",
       }),
     );
+  });
+
+  // #56, D4: a session the caller found leads whichever prompt applies, and the
+  // prompt that applied before follows it unchanged. Expected strings are the
+  // plan's D4 sentence followed by the prompts asserted above, character for
+  // character. The session is handed in because the caller gathered it once for
+  // its run (D5); this function must not look sessions up itself.
+  describe("when the caller found a live agent session", () => {
+    const busy: WorktreeAgent = { name: "busy-session", live: true };
+    const notice =
+      "An agent session (busy-session) is working in this worktree. ";
+
+    it.each([
+      [
+        "a branch that is ahead",
+        "1",
+        {},
+        "This branch is 1 commit ahead so you might lose some work. Are you sure you want to remove this worktree?",
+      ],
+      [
+        "a count that could not be taken",
+        "reject",
+        {},
+        "Unpushed commits could not be counted for this branch (no comparison base; set defaultSourceBranch or run git remote set-head origin --auto), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?",
+      ],
+      [
+        "uncommitted changes",
+        "0",
+        { status: " M a.ts" },
+        "This branch has 1 uncommitted change so you might lose some work. Are you sure you want to remove this worktree?",
+      ],
+      [
+        "nothing to weigh",
+        "0",
+        {},
+        "Are you sure you want to remove this worktree?",
+      ],
+    ])("leads the prompt for %s", async (_name, ahead, options, previous) => {
+      mockUpToPrompt(ahead, options);
+      const sessionsSpy = vi.spyOn(agent, "getAgentSessions");
+
+      await gitRemoveWorktree("feature/one", { agent: busy });
+
+      expect(mockConfirm.mock.calls[0]?.[0]?.message).toBe(
+        `${notice}${previous}`,
+      );
+      expect(sessionsSpy).not.toHaveBeenCalled();
+    });
   });
 
   it("fails naming -f, with no prompt, when non-interactive and not forced", async () => {

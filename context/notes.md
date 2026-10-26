@@ -18,3 +18,9 @@ Branch-local observations from the gates of #56. Read by nobody; `/feature-close
   throw `ERR_INVALID_ARG_VALUE`, whose message quotes the argument, so the brief text reaches the warning
   (it reached the uncaught throw before this phase; `checkBrief` does not reject NUL bytes). Gate 2,
   non-blocking.
+- **Phase 2** — `src/commands/remove.ts:134`, `:173`: nothing pins the `flags.force` gate on the D4 warning;
+  dropping it would repeat the warning after a confirmed prompt and no test would fail (`expect(stderr).not
+  .toContain("was working in it")` on the prompting test would pin it). `context/executors.md`'s *Remove a
+  worktree* list of what the confirmation names omits the agent session now (still true, not complete). The
+  remove page's `warnings` row could name the agent warning, and its example pairs session `feature-one-1f`
+  with branch `feature/add-bulk-actions`. Gate 2, non-blocking.

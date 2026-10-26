@@ -1,11 +1,18 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
+import fs from "node:fs";
 import { checkbox, confirm } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
+import * as agent from "../lib/agent.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import { MissingValueError } from "../lib/prompt.js";
-import type { ConfigName } from "../lib/types.js";
-import { captureOutput, loadConfig, mockRunCapturing } from "../test-setup.js";
+import type { AgentSession, ConfigName } from "../lib/types.js";
+import {
+  captureOutput,
+  loadConfig,
+  mockRun,
+  mockRunCapturing,
+} from "../test-setup.js";
 import Remove from "./remove.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -919,5 +926,243 @@ describe("remove command — --help", () => {
     expect(help).toContain("0 success");
     expect(help).toContain("1 failure");
     expect(help).toContain("2 usage");
+  });
+});
+
+/**
+ * `remove` and a worktree an agent session is working in (#56, F-032).
+ *
+ * Driven through the real `gitGetWorktreeList` and `gitRemoveWorktree`, with
+ * only the subprocess seam (`run`) and the session lookup stubbed, because the
+ * claims are about how the two compose: one lookup per run, and the safety
+ * verdict coming from `isSafeToRemove` rather than from a second rule here.
+ *
+ * Expected values come from the plan (D3, D4), cleanup's documented rule that a
+ * session working in a worktree holds it back and one that is only idle does
+ * not (#89), and `agentDetail`'s rendering of the `Agent:` detail.
+ */
+describe("remove command — agent sessions", () => {
+  const originalExitCode = process.exitCode;
+  const rootPath = "/repo/project";
+  const busyPath = `${rootPath}.worktrees/feature/busy`;
+  const idlePath = `${rootPath}.worktrees/feature/idle`;
+  const prefix = "An agent session (busy-session) is working in this worktree.";
+  const warning =
+    "Removed feature/busy while an agent session (busy-session) was working in it.";
+
+  // Working: a runtime `state` other than `done` blocks (agent.ts
+  // isSessionBlocking). Idle: a runtime status of `idle` and nothing else.
+  const busy: AgentSession = {
+    name: "busy-session",
+    cwd: busyPath,
+    kind: "background",
+    state: "running",
+  };
+  const idle: AgentSession = {
+    name: "idle-session",
+    cwd: idlePath,
+    kind: "background",
+    status: "idle",
+  };
+
+  let output: ReturnType<typeof captureOutput>;
+  let sessionsSpy: ReturnType<typeof vi.spyOn>;
+  let removedPaths: string[];
+
+  // oclif's `warn` wraps at the terminal width and prefixes every line with ›.
+  function unwrapped(text: string) {
+    return text.replace(/\s*›\s*/g, " ").replace(/\s+/g, " ");
+  }
+
+  function porcelain(path: string, branch: string) {
+    return `worktree ${path}\nHEAD abc1234abc1234abc1234abc1234abc1234abc1234\nbranch refs/heads/${branch}\n`;
+  }
+
+  // Both worktrees are clean and level with the base, so nothing but a session
+  // can move either of them out of the safe group.
+  function stubGit(sessions: AgentSession[]) {
+    sessionsSpy = vi
+      .spyOn(agent, "getAgentSessions")
+      .mockResolvedValue(sessions);
+    mockRun.mockImplementation(async (_file: string, args: string[] = []) => {
+      const [first, second] = args;
+      if (first === "branch" && second === "--show-current") {
+        return "main";
+      }
+      if (first === "rev-parse") {
+        return rootPath;
+      }
+      if (first === "worktree" && second === "list") {
+        return [
+          porcelain(busyPath, "feature/busy"),
+          porcelain(idlePath, "feature/idle"),
+        ].join("\n");
+      }
+      if (first === "symbolic-ref") {
+        return "origin/main";
+      }
+      if (first === "rev-list") {
+        return "0";
+      }
+      if (first === "worktree" && second === "remove") {
+        removedPaths.push(args[2]);
+      }
+      return "";
+    });
+  }
+
+  async function runRemove(
+    args: Record<string, unknown>,
+    flags: Record<string, unknown>,
+    argv: string[] = [],
+  ) {
+    const command = new Remove(argv, await loadConfig());
+    (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
+    (command as any).parsed = true;
+    vi.spyOn(command as any, "resolveSpaceCloser").mockResolvedValue(
+      async () => [],
+    );
+    // `_run` resolves the run as non-interactive (stdin is not a TTY here) and
+    // would skip every prompt; only `--json` is meant to, so the human path
+    // calls `run` directly.
+    if (argv.includes("--json")) {
+      await (command as any)._run();
+    } else {
+      await command.run();
+    }
+  }
+
+  beforeEach(() => {
+    // The blocks above leave their spies on `git` in place; this one runs the
+    // real git.ts and must not inherit a stubbed list.
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    removedPaths = [];
+    output = captureOutput();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(confirm).mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    output.restore();
+    mockRun.mockReset();
+    process.exitCode = originalExitCode;
+  });
+
+  describe("the picker", () => {
+    it("lists a worktree a session is working in under Active branches, with its Agent detail, and an idle-only one under the safe group", async () => {
+      stubGit([busy, idle]);
+      vi.mocked(checkbox).mockResolvedValue([]);
+
+      await runRemove({}, { force: false });
+
+      const choices = vi.mocked(checkbox).mock.calls[0][0].choices as any[];
+      expect(choices.map((choice) => choice.separator ?? choice.name)).toEqual([
+        "─ Inactive branches (Safe to delete)",
+        "feature/idle (Agent: idle-session [waiting])",
+        "─ Active branches",
+        "feature/busy (Agent: busy-session)",
+      ]);
+      expect(sessionsSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("a named branch", () => {
+    it("opens the prompt with the agent sentence, then the prompt that applied before", async () => {
+      stubGit([busy, idle]);
+
+      await runRemove({ branchName: "feature/busy" }, { force: false });
+
+      expect(vi.mocked(confirm)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(confirm).mock.calls[0][0].message).toBe(
+        `${prefix} Are you sure you want to remove this worktree?`,
+      );
+      expect(removedPaths).toEqual([busyPath]);
+    });
+
+    it("prints today's prompt, unprefixed, for a worktree whose session is only idle", async () => {
+      stubGit([busy, idle]);
+
+      await runRemove({ branchName: "feature/idle" }, { force: false });
+
+      expect(vi.mocked(confirm).mock.calls[0][0].message).toBe(
+        "Are you sure you want to remove this worktree?",
+      );
+    });
+
+    it("hands gitRemoveWorktree exactly today's options when no session blocks", async () => {
+      stubGit([idle]);
+      const mockRemove = vi.spyOn(git, "gitRemoveWorktree");
+
+      await runRemove({ branchName: "feature/idle" }, { force: false });
+
+      expect(mockRemove).toHaveBeenCalledWith("feature/idle", { force: false });
+    });
+
+    it("looks sessions up once whether or not it asks", async () => {
+      stubGit([busy, idle]);
+
+      await runRemove({ branchName: "feature/busy" }, { force: false });
+      expect(sessionsSpy).toHaveBeenCalledTimes(1);
+
+      sessionsSpy.mockClear();
+      await runRemove({ branchName: "feature/busy" }, { force: true });
+      expect(sessionsSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("--force", () => {
+    it("asks nothing, removes the worktree, and says so in the document and on stderr", async () => {
+      stubGit([busy, idle]);
+
+      await runRemove({ branchName: "feature/busy" }, { force: true }, [
+        "--json",
+      ]);
+
+      expect(vi.mocked(confirm)).not.toHaveBeenCalled();
+      expect(removedPaths).toEqual([busyPath]);
+      expect(output.document()).toEqual({
+        removed: [{ branch: "feature/busy", path: busyPath }],
+        herdrSpacesClosed: [],
+        warnings: [warning],
+      });
+      expect(output.stderr()).toContain(warning);
+    });
+
+    it("prints the warning on stderr outside --json too", async () => {
+      stubGit([busy, idle]);
+
+      await runRemove({ branchName: "feature/busy" }, { force: true });
+
+      expect(unwrapped(output.stderr())).toContain(warning);
+    });
+
+    it("says nothing about a session that is only idle", async () => {
+      stubGit([busy, idle]);
+
+      await runRemove({ branchName: "feature/idle" }, { force: true }, [
+        "--json",
+      ]);
+
+      expect(output.document()).toMatchObject({ warnings: [] });
+      expect(output.stderr()).not.toContain("agent session");
+    });
+
+    // `--json` never reaches the picker, so this is the human path: nothing is
+    // asked, and the warning is still said.
+    it("warns on the picker path too, for the worktree it removed", async () => {
+      stubGit([busy, idle]);
+      const worktrees = await git.gitGetWorktreeList({ includeAgents: true });
+      vi.mocked(checkbox).mockResolvedValue(worktrees);
+      sessionsSpy.mockClear();
+
+      await runRemove({}, { force: true });
+
+      expect(vi.mocked(confirm)).not.toHaveBeenCalled();
+      expect(unwrapped(output.stderr())).toContain(warning);
+      expect(output.stderr()).not.toContain("idle-session");
+      expect(sessionsSpy).toHaveBeenCalledTimes(1);
+    });
   });
 });

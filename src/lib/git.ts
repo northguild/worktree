@@ -830,6 +830,15 @@ export async function gitNukeWorktree(
   }
 }
 
+interface GitRemoveWorktreeOptions extends GitNukeWorktreeCmdOptions {
+  /**
+   * The live session the caller found in this worktree. The caller gathered
+   * sessions already, once for its whole run, so this function reads the
+   * session from it rather than looking them up again (#56, D5).
+   */
+  agent?: WorktreeAgent;
+}
+
 /**
  * Removes one worktree by branch name, answering with the entry it removed.
  *
@@ -842,7 +851,7 @@ export async function gitNukeWorktree(
  */
 export async function gitRemoveWorktree(
   branchName: string,
-  { force = false }: GitNukeWorktreeCmdOptions = {},
+  { force = false, agent }: GitRemoveWorktreeOptions = {},
 ): Promise<WorktreeListEntry | undefined> {
   const currentBranch = await getCurrentBranchName();
   if (branchName === currentBranch) {
@@ -868,6 +877,12 @@ export async function gitRemoveWorktree(
     flag: "-f",
   };
 
+  // A live session is a fact about the worktree the person is about to lose,
+  // so it leads whichever prompt applies and the facts below are still said.
+  const agentNotice = agent
+    ? `An agent session (${agent.name}) is working in this worktree. `
+    : "";
+
   async function promptRemoval(worktree: WorktreeListEntry) {
     // A merged branch is ahead of its base by every sha it was squashed or
     // rebased out of, and warning that those commits are work at risk is the
@@ -878,7 +893,7 @@ export async function gitRemoveWorktree(
     if (worktree.ahead && !worktree.mergedInto) {
       return await askConfirm(
         {
-          message: `This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
+          message: `${agentNotice}This branch is ${worktree.ahead} commit${worktree.ahead > 1 ? "s" : ""} ahead so you might lose some work. Are you sure you want to remove this worktree?`,
           default: false,
         },
         removalSite,
@@ -892,7 +907,7 @@ export async function gitRemoveWorktree(
     if (worktree.aheadUnknownReason) {
       return await askConfirm(
         {
-          message: `Unpushed commits could not be counted for this branch (${worktree.aheadUnknownReason}), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?`,
+          message: `${agentNotice}Unpushed commits could not be counted for this branch (${worktree.aheadUnknownReason}), so it may carry work that exists nowhere else. Are you sure you want to remove this worktree?`,
           default: false,
         },
         removalSite,
@@ -901,7 +916,7 @@ export async function gitRemoveWorktree(
     if (worktree.uncommittedChanges) {
       return await askConfirm(
         {
-          message: `This branch has ${worktree.uncommittedChanges} uncommitted change${worktree.uncommittedChanges > 1 ? "s" : ""} so you might lose some work. Are you sure you want to remove this worktree?`,
+          message: `${agentNotice}This branch has ${worktree.uncommittedChanges} uncommitted change${worktree.uncommittedChanges > 1 ? "s" : ""} so you might lose some work. Are you sure you want to remove this worktree?`,
           default: false,
         },
         removalSite,
@@ -909,7 +924,7 @@ export async function gitRemoveWorktree(
     }
     return await askConfirm(
       {
-        message: "Are you sure you want to remove this worktree?",
+        message: `${agentNotice}Are you sure you want to remove this worktree?`,
         default: false,
       },
       removalSite,
