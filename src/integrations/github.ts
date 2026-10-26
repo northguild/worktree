@@ -169,11 +169,23 @@ async function getGitHubTokenFromGhCli(): Promise<string> {
   }
 }
 
-async function resolveGitHubToken(): Promise<string> {
+// Where a token came from, which decides what a 401 tells you to do. A token
+// in git config wins over `gh`, so `gh auth login` cannot fix it; that
+// includes one typed at the prompt, which is saved there. `gh` is a token read
+// from `gh auth token` this run and never saved.
+type GitHubTokenSource = "stored" | "gh";
+
+interface ResolvedGitHubToken {
+  token: string;
+  source: GitHubTokenSource;
+}
+
+async function resolveGitHubToken(): Promise<ResolvedGitHubToken> {
   const ghToken = await getGitHubTokenFromGhCli();
+  // Never stored: `gh` owns this token and refreshes it, and a copy in git
+  // config would outlive it, win over `gh` from then on, and sit in clear.
   if (ghToken) {
-    await gitSetConfigValue("github.token", ghToken);
-    return ghToken;
+    return { token: ghToken, source: "gh" };
   }
 
   // A token has no default, and the instructions below are for a human. The
@@ -191,7 +203,30 @@ async function resolveGitHubToken(): Promise<string> {
     throw new Error("GitHub token not provided.");
   }
   await gitSetConfigValue("github.token", token);
-  return token;
+  return { token, source: "stored" };
+}
+
+// A 401 on a request that carried a token means GitHub refused that token, so
+// the message says so and names what replaces it. Any other status, and a 401
+// with no token sent, keeps the plain message. Neither ever includes the token.
+async function githubFailure(
+  prefix: string,
+  response: Response,
+  tokenSource?: GitHubTokenSource,
+): Promise<Error> {
+  const errorMessage = await response.text();
+  const message = `${prefix} ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
+  if (response.status === 401 && tokenSource === "stored") {
+    return new Error(
+      `${message}\nThe stored github.token was refused. Replace it with \`worktree config github.token <token>\`, or remove it with \`git config --unset northguild.worktree.github.token\` so \`gh auth token\` is used.`,
+    );
+  }
+  if (response.status === 401 && tokenSource === "gh") {
+    return new Error(
+      `${message}\nGitHub refused the token. Run \`gh auth login\`, or set a valid one with \`worktree config github.token <token>\`.`,
+    );
+  }
+  return new Error(message);
 }
 
 interface GitHubRequestOptions {
@@ -240,10 +275,10 @@ async function fetchGitHub(
 // its unauthenticated probe and never needs one. A write always needs one, so
 // this is the eager counterpart: the configured token, or a freshly resolved
 // one, which may prompt for a PAT.
-async function requireGitHubToken(): Promise<string> {
+async function requireGitHubToken(): Promise<ResolvedGitHubToken> {
   const configuredToken = await gitGetConfigValue("github.token");
   if (configuredToken) {
-    return configuredToken;
+    return { token: configuredToken, source: "stored" };
   }
 
   return resolveGitHubToken();
@@ -258,11 +293,12 @@ export async function fetchGitHubIssue(issueId: number | string) {
 
   const { owner, name } = await getCurrentGitHubRepository();
   let token = await gitGetConfigValue("github.token");
+  let tokenSource: GitHubTokenSource | undefined = token ? "stored" : undefined;
 
   if (!token) {
     const infoResponse = await fetchGitHub(`/repos/${owner}/${name}`);
     if (!infoResponse.ok) {
-      token = await resolveGitHubToken();
+      ({ token, source: tokenSource } = await resolveGitHubToken());
     }
   }
 
@@ -272,9 +308,10 @@ export async function fetchGitHubIssue(issueId: number | string) {
   );
 
   if (!response.ok) {
-    const errorMessage = await response.text();
-    throw new Error(
-      `GitHub: Failed to fetch issue ${normalizedIssueId} from ${owner}/${name}. ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`,
+    throw await githubFailure(
+      `GitHub: Failed to fetch issue ${normalizedIssueId} from ${owner}/${name}.`,
+      response,
+      tokenSource,
     );
   }
 
@@ -359,14 +396,19 @@ async function fetchGitHubPullRequestHeadBranch(
   }
 }
 
-export async function fetchGitHubLogin(token?: string): Promise<string> {
-  const resolvedToken = token ?? (await requireGitHubToken());
-  const response = await fetchGitHub("/user", resolvedToken);
+// A caller that already holds a token passes its source with it, so a 401
+// names the remedy for where that token actually came from.
+export async function fetchGitHubLogin(
+  resolved?: ResolvedGitHubToken,
+): Promise<string> {
+  const { token, source } = resolved ?? (await requireGitHubToken());
+  const response = await fetchGitHub("/user", token);
 
   if (!response.ok) {
-    const errorMessage = await response.text();
-    throw new Error(
-      `GitHub: Failed to resolve the authenticated user. ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`,
+    throw await githubFailure(
+      "GitHub: Failed to resolve the authenticated user.",
+      response,
+      source,
     );
   }
 
@@ -383,10 +425,10 @@ export async function assignGitHubIssue(issueId: number | string) {
   }
 
   const { owner, name } = await getCurrentGitHubRepository();
-  // Resolved once and passed on, so a run that has to prompt for a PAT prompts
-  // exactly once even if the write to git config does not stick.
-  const token = await requireGitHubToken();
-  const login = await fetchGitHubLogin(token);
+  // Resolved once and passed on, so a run that reads the token from `gh` or has
+  // to prompt for a PAT does so exactly once.
+  const { token, source } = await requireGitHubToken();
+  const login = await fetchGitHubLogin({ token, source });
 
   const response = await fetchGitHub(
     `/repos/${owner}/${name}/issues/${normalizedIssueId}/assignees`,
@@ -395,9 +437,10 @@ export async function assignGitHubIssue(issueId: number | string) {
   );
 
   if (!response.ok) {
-    const errorMessage = await response.text();
-    throw new Error(
-      `GitHub: Failed to assign issue ${normalizedIssueId} in ${owner}/${name}. ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`,
+    throw await githubFailure(
+      `GitHub: Failed to assign issue ${normalizedIssueId} in ${owner}/${name}.`,
+      response,
+      source,
     );
   }
 
