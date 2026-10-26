@@ -23,7 +23,8 @@ const violations = (rootNode, dependencies) =>
     node && !semver.subset(rootNode, node)
       ? [
           `${name} requires node "${node}", which does not contain the root engines.node "${rootNode}". ` +
-            `Widen or narrow engines.node in package.json and context/stack.md to match.`,
+            `Widen or narrow engines.node in package.json to match, and the copies of the range in ` +
+            `context/stack.md, README.md and docs/src/app/docs/getting-started/page.mdx.`,
         ]
       : [],
   );
@@ -49,7 +50,14 @@ describe("engines.node", () => {
     expect(message).toContain("dep-x");
     expect(message).toContain(">=24");
     expect(message).toContain("^20.17.0");
-    expect(message).toContain("package.json and context/stack.md");
+    for (const file of [
+      "package.json",
+      "context/stack.md",
+      "README.md",
+      "docs/src/app/docs/getting-started/page.mdx",
+    ]) {
+      expect(message).toContain(file);
+    }
   });
 
   it("skips a dependency that declares no engines.node", () => {
