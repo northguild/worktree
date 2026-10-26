@@ -70,7 +70,8 @@ worktree branch --github 42
 worktree branch --github "#42"
 
 # Assign the issue to yourself while creating the branch.
-# Needs a token with push access; --no-assign skips it for one run.
+# Needs push access, and Issues: Read and write on a fine-grained token;
+# --no-assign skips it for one run.
 worktree branch --github 42 --assign
 worktree branch --github 42 --no-assign
 
