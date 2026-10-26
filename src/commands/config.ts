@@ -264,7 +264,13 @@ export default class Config extends BaseCommand {
             fallback: (await gitGetConfigValue("jira.apiToken")) || undefined,
           },
         );
-        await gitSetConfigValue("jira.apiToken", jiraApiToken);
+        // Only a real answer is written, as with `github.token`: a bare
+        // `worktree config` prompts every key whatever it already holds, so an
+        // empty (or whitespace-only) answer keeps the stored token instead of
+        // clearing it.
+        if (jiraApiToken.trim()) {
+          await gitSetConfigValue("jira.apiToken", jiraApiToken.trim());
+        }
       }
     }
 
@@ -305,9 +311,11 @@ export default class Config extends BaseCommand {
         // empty one — it is how you say "use `gh auth token` instead" — and an
         // unconditional write would make taking that invitation clear a stored
         // PAT, on a bare `worktree config` that prompts every key whatever it
-        // already holds.
-        if (githubToken) {
-          await gitSetConfigValue("github.token", githubToken);
+        // already holds. An answer of only spaces is that same answer: the
+        // prompt does not trim, and a stored whitespace token reads back as
+        // unset, so it is judged and written trimmed.
+        if (githubToken.trim()) {
+          await gitSetConfigValue("github.token", githubToken.trim());
         }
       }
 
