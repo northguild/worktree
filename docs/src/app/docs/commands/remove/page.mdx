@@ -74,8 +74,10 @@ name cannot tell them apart. Name the worktree by its path instead:
 worktree remove /abs/repo.worktrees/scratch --force
 ```
 
-An argument is read as a path only when it is written as one — absolute, or starting with `./` or `../` — and
-as a branch name otherwise; `remove "(detached HEAD)"` reaches only the first. A detached worktree
+An argument is read as a path only when it is written as one — absolute, `.`, `..`, or starting with `./` or
+`../` — and as a branch name otherwise; `remove "(detached HEAD)"` reaches only the first. A path that names no
+worktree exits `2` with `No worktree to remove at "<path>".`, and so does the worktree you are standing in:
+the current worktree is never removed, detached or not. A detached worktree
 has no branch, so `remove` and [`cleanup`](/docs/commands/cleanup) delete its directory and prune it without
 running `git branch -D`.
 

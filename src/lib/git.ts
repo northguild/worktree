@@ -268,6 +268,10 @@ export async function gitGetWorktrees({
   const currentBranch = await getCurrentBranchName();
   const worktreesRootPath = await gitGetAbsoluteWorktreesPath();
   const result = await run("git", ["worktree", "list", "--porcelain"]);
+  // A detached HEAD has no branch to match, so `--show-current` prints nothing
+  // and the current worktree is told by its path instead. Without this, the
+  // worktree you are standing in is offered for removal like any other.
+  const currentPath = currentBranch ? undefined : await gitCmdShowTopLevel();
 
   return (
     parseWorktreeRecords(result)
@@ -275,7 +279,9 @@ export async function gitGetWorktrees({
         path,
         branchName,
         pathExists: fs.existsSync(path),
-        isCurrent: branchName === currentBranch,
+        isCurrent: currentBranch
+          ? branchName === currentBranch
+          : path === currentPath,
       }))
       // Filter out any branches that are not worktree branches, and also skip the current branch
       .filter(
@@ -733,16 +739,20 @@ export async function gitNukeWorktreeCmd(
  * and remove that one instead. Git refuses a branch name that starts with `/` or
  * `.`, so the two forms never overlap.
  */
+export function isPathTarget(target: string): boolean {
+  return (
+    path.isAbsolute(target) ||
+    target === "." ||
+    target === ".." ||
+    /^\.\.?[\\/]/.test(target)
+  );
+}
+
 export function findWorktreeByTarget<T extends WorktreeTarget>(
   worktrees: T[],
   target: string,
 ): T | undefined {
-  const isPath =
-    path.isAbsolute(target) ||
-    target === "." ||
-    target === ".." ||
-    /^\.\.?[\\/]/.test(target);
-  if (!isPath) {
+  if (!isPathTarget(target)) {
     return worktrees.find((entry) => entry.branchName === target);
   }
 

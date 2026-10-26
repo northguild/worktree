@@ -6,6 +6,7 @@ import {
   gitGetWorktreeList,
   gitRemoveWorktree,
   gitRemoveWorktreesWithProgress,
+  isPathTarget,
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
 import { askCheckbox, askConfirm, Separator } from "../lib/prompt.js";
@@ -85,9 +86,14 @@ Exit codes:
       const wt = findWorktreeByTarget(worktrees, args.branchName);
 
       if (!wt) {
-        this.error(`Branch "${args.branchName}" not found.`, {
-          code: "not_found",
-        });
+        // The current worktree is never listed, so from inside one `remove .`
+        // lands here too.
+        this.error(
+          isPathTarget(args.branchName)
+            ? `No worktree to remove at "${args.branchName}".`
+            : `Branch "${args.branchName}" not found.`,
+          { code: "not_found" },
+        );
       }
 
       // Resolved before the removal, never after: `git worktree remove` and

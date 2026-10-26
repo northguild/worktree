@@ -2500,6 +2500,44 @@ describe("gitGetWorktrees", () => {
     ]);
   });
 
+  // Standing in a detached worktree, `--show-current` prints nothing, so the
+  // current one is told by its path. The reviewer of #148 showed git removes
+  // the cwd without complaint, so listing it would let `remove .` delete it.
+  it("holds back the detached worktree you are standing in, by its path", async () => {
+    const here = `${treesPath}/d1`;
+    const detached = (path: string) => [
+      `worktree ${path}`,
+      `HEAD ${hash}`,
+      "detached",
+    ];
+    function mockFromHere() {
+      mockRun
+        .mockResolvedValueOnce("")
+        .mockResolvedValueOnce(here)
+        .mockResolvedValueOnce(`${rootPath}/.git/worktrees/d1`)
+        .mockResolvedValueOnce(
+          porcelain(mainRecord, detached(here), detached(`${treesPath}/d2`)),
+        )
+        .mockResolvedValueOnce(here);
+    }
+    expectCommands("git rev-parse --absolute-git-dir");
+
+    mockFromHere();
+    expect(await gitGetWorktrees()).toEqual([
+      {
+        path: `${treesPath}/d2`,
+        branchName: "(detached HEAD)",
+        pathExists: true,
+        isCurrent: false,
+      },
+    ]);
+    mockFromHere();
+    expect(await gitGetWorktrees({ includeCurrent: true })).toMatchObject([
+      { path: here, isCurrent: true },
+      { path: `${treesPath}/d2`, isCurrent: false },
+    ]);
+  });
+
   it("keeps a worktree directory that contains a space", async () => {
     mockList(porcelain(mainRecord, linked(`${treesPath}/has space`, "spaced")));
 

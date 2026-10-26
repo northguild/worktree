@@ -151,6 +151,28 @@ describe("remove command", () => {
       expect(mockRemove).toHaveBeenCalledWith(second.path, { force: true });
     });
 
+    // From inside a detached worktree `remove .` names the current one, which
+    // is never listed, so it must be refused rather than reach a removal.
+    it("should report a path that names no listed worktree as a path", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([safeWorktree]);
+      const mockError = vi
+        .spyOn(remove as any, "error")
+        .mockImplementation(() => {
+          throw new Error('No worktree to remove at ".".');
+        });
+
+      (remove as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "." },
+        flags: { force: true },
+      });
+
+      await expect(remove.run()).rejects.toThrow("No worktree to remove at");
+      expect(mockError).toHaveBeenCalledWith('No worktree to remove at ".".', {
+        code: "not_found",
+      });
+      expect(git.gitRemoveWorktree).not.toHaveBeenCalled();
+    });
+
     it("should pass the force flag through to gitRemoveWorktree", async () => {
       vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([unsafeWorktree]);
       const mockRemove = vi
