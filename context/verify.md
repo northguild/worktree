@@ -14,8 +14,11 @@ under `@baldurpan/create-ai-workflow` 0.26.0, in this worktree and in a fresh cl
 
 ## Prerequisites
 
-- **Node 24** (`.github/workflows/ci.yml` pins `node-version: 24`) and **pnpm 10.32.1** (the
-  `packageManager` field in `package.json`).
+- **Node 26.12.1** (`devEngines.runtime` in `package.json`; every workflow reads it through
+  `node-version-file: package.json`, and pnpm downloads it for a local install) and **pnpm 12.15.0** (the
+  `packageManager` field in `package.json`; an older pnpm that manages package-manager versions switches to
+  it on its own). **npm does not download it**: any `npm` command run in the repo on another Node exits with
+  `EBADDEVENGINES`, so use pnpm, or switch the shell to 26.12.1 first.
 - **The tree is prepared** — see *Prepare a fresh tree* below. A worktree made by `worktree branch` starts
   with no `node_modules`, and every section here then fails with `command not found`. A *stale*
   `node_modules` is the next thing to suspect when lint or the docs tests fail: this repo moved from the

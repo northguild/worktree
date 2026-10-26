@@ -13,8 +13,8 @@ confusing errors rather than obvious ones — see the prerequisites and *Prepare
 
 | Concern | Target |
 |---|---|
-| Runtime | Node 24 (CI pins it; `@types/node` is still on 18) |
-| Package manager | pnpm 10.32.1, workspace of the root and `docs` (the root is listed as `"."` so Changesets can see it; `pnpm -r` still skips it) |
+| Runtime | Node 26.12.1, pinned once in `devEngines.runtime` in `package.json` (every CI job reads it with `node-version-file: package.json`; pnpm downloads it locally; `@types/node` is still on 18) |
+| Package manager | pnpm 12.15.0 (`packageManager` in both `package.json` files; pnpm settings such as `overrides` and `allowBuilds` live in `pnpm-workspace.yaml`, since pnpm 11+ no longer reads the `pnpm` field of `package.json`), workspace of the root and `docs` (the root is listed as `"."` so Changesets can see it; `pnpm -r` still skips it) |
 | Database | none |
 | Storage | none |
 | Hosting | CLI → npm; docs → GitHub Pages; chat proxy → Cloudflare Workers |
@@ -28,6 +28,7 @@ src/lib/              CLI helpers — git integration, validators, env, types, c
 src/integrations/     GitHub, Jira and Linear integrations
 scripts/              version-sync script, run by `pnpm sync-version`; `release-notes.mjs`, which publish.yml uses to cut a version's CHANGELOG section
 .changeset/           Changesets config and pending release notes (`.changeset/<name>.md`)
+patches/              pnpm patches applied through `patchedDependencies` in `pnpm-workspace.yaml`; `nextra-theme-docs@4.6.1` makes its layout's `children` optional, which zod >=4.4 otherwise rejects at prerender. Drop it once nextra ships a fix
 skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`. Nothing on npm discovers it since TanStack Intent went (`skills add` reads GitHub); it stays in `files` so an `npm i -g` install has a copy matching its own version on disk
 docs/                 Next.js 16 + Nextra 4 docs app, React 19, Base UI; own package.json
 docs/src/app/         docs content

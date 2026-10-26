@@ -58,6 +58,13 @@ function getClientId(request: Request): string {
   return "unknown";
 }
 
+// getUnixNow() returns null only if the clock itself fails (it cannot for a call without options).
+// The project bans Date.now(), so a failed clock reads as 0: no bucket ever expires, which fails
+// closed (the limiter keeps counting) instead of letting every request through.
+function nowMs(): number {
+  return getUnixNow() ?? 0;
+}
+
 function checkRateLimit(request: Request, env: Record<string, string>) {
   const max = parsePositiveInt(
     env.WORKER_RATE_LIMIT_MAX,
@@ -69,7 +76,7 @@ function checkRateLimit(request: Request, env: Record<string, string>) {
   );
   const windowMs = windowSeconds * 1000;
 
-  const now = getUnixNow();
+  const now = nowMs();
   const clientId = getClientId(request);
   const bucket = rateLimitBuckets.get(clientId);
 
@@ -150,7 +157,7 @@ export default {
             "Content-Type": "application/json",
             "Retry-After": Math.max(
               1,
-              Math.ceil((rateLimit.resetAtMs - getUnixNow()) / 1000),
+              Math.ceil((rateLimit.resetAtMs - nowMs()) / 1000),
             ).toString(),
             ...cors,
           },
