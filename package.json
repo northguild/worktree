@@ -58,6 +58,9 @@
   "homepage": "https://github.com/northguild/worktree",
   "license": "MIT",
   "packageManager": "pnpm@12.15.0",
+  "engines": {
+    "node": ">=23.5.0 || ^22.13.0 || ^20.17.0"
+  },
   "devEngines": {
     "runtime": {
       "name": "node",
