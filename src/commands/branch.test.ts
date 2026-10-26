@@ -402,6 +402,138 @@ describe("branch command", () => {
       );
     });
 
+    it("refuses a pull request and names its checkout", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 105,
+        title: "Update ai-workflow",
+        type: null,
+        state: "open",
+        pullRequest: { headBranch: "chore/update-ai-workflow" },
+      } as any);
+      const mockGitCreateWorktree = vi.spyOn(git, "gitCreateWorktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "105" },
+      });
+
+      const refusal = branch.run();
+      await expect(refusal).rejects.toThrow(
+        "worktree checkout chore/update-ai-workflow",
+      );
+      await expect(refusal).rejects.toMatchObject({
+        code: "invalid_value",
+        oclif: { exit: 2 },
+      });
+      expect(mockGitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["is unknown", null],
+      ["would not paste as one shell word", "a;curl$IFS`x`|sh"],
+    ])("refuses a pull request whose branch %s without naming it", async (_case, headBranch) => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 106,
+        title: "From a fork",
+        type: null,
+        state: "open",
+        pullRequest: { headBranch },
+      } as any);
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "106" },
+      });
+
+      await expect(branch.run()).rejects.toThrow(
+        "To work on its branch, run `worktree checkout` and pick it.",
+      );
+    });
+
+    describe("a closed issue", () => {
+      beforeEach(() => {
+        vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+          number: 7,
+          title: "Old bug",
+          type: null,
+          state: "closed",
+          stateReason: "not_planned",
+          pullRequest: null,
+        } as any);
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          return Promise.resolve("");
+        });
+        mockInput.mockResolvedValue("7-old-bug");
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { github: "7", assign: false },
+        });
+      });
+
+      it("asks before continuing, and stops when declined", async () => {
+        mockConfirm.mockResolvedValue(false);
+        const mockGitCreateWorktree = vi.spyOn(git, "gitCreateWorktree");
+
+        await expect(branch.run()).rejects.toMatchObject({
+          message: "Not creating a branch for closed issue #7.",
+          oclif: { exit: 1 },
+        });
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Issue #7 is closed as not planned. Create a branch for it anyway?",
+        });
+        expect(mockGitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it("continues when confirmed", async () => {
+        mockConfirm.mockResolvedValue(true);
+        const mockGitCreateWorktree = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockResolvedValue("/path/to/worktree");
+
+        await branch.run();
+
+        expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+          "7-old-bug",
+          "origin/main",
+        );
+      });
+
+      it("warns instead of asking when non-interactive", async () => {
+        setNonInteractive(true);
+        vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+          "/path/to/worktree",
+        );
+
+        await branch.run();
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect((branch as any).warnings).toContain(
+          "Issue #7 is closed as not planned.",
+        );
+      });
+
+      it("neither asks nor warns when the issue is open", async () => {
+        vi.mocked(githubIntegration.fetchGitHubIssue).mockResolvedValue({
+          number: 7,
+          title: "Old bug",
+          type: null,
+          state: "open",
+          stateReason: null,
+          pullRequest: null,
+        } as any);
+        vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+          "/path/to/worktree",
+        );
+
+        await branch.run();
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect((branch as any).warnings).toEqual([]);
+      });
+    });
+
     it("should strip # prefix from issue number flag", async () => {
       const mockFetchGitHubIssue = vi
         .spyOn(githubIntegration, "fetchGitHubIssue")

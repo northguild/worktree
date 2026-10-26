@@ -172,11 +172,82 @@ describe("GitHub integration", () => {
         updatedAt: "2026-02-28T11:23:18Z",
         isEnabled: true,
       },
+      pullRequest: null,
       user: {
         login: "baldurpan",
         htmlUrl: "https://github.com/baldurpan",
       },
     });
+  });
+
+  it("reads the head branch of a pull request answered as an issue", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeOkJsonResponse(
+          makeIssueApiResponse({
+            number: 105,
+            pull_request: {
+              url: "https://api.github.com/repos/northguild/worktree/pulls/105",
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        makeOkJsonResponse({
+          head: {
+            ref: "chore/update-ai-workflow",
+            repo: { full_name: "northguild/worktree" },
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const issue = await fetchGitHubIssue(105);
+
+    expect(fetchSpy.mock.calls[1]?.[0]).toBe(
+      "https://api.github.com/repos/northguild/worktree/pulls/105",
+    );
+    expect(issue.pullRequest).toEqual({
+      headBranch: "chore/update-ai-workflow",
+    });
+  });
+
+  it.each([
+    [
+      "from a fork",
+      makeOkJsonResponse({
+        head: { ref: "main", repo: { full_name: "someone/worktree" } },
+      }),
+    ],
+    ["whose lookup fails", new Response("", { status: 404 })],
+  ])("reports no head branch for a pull request %s", async (_case, pullResponse) => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          makeOkJsonResponse(
+            makeIssueApiResponse({
+              number: 106,
+              pull_request: {
+                url: "https://api.github.com/repos/northguild/worktree/pulls/106",
+              },
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(pullResponse),
+    );
+
+    const issue = await fetchGitHubIssue(106);
+
+    expect(issue.pullRequest).toEqual({ headBranch: null });
   });
 
   it("throws for invalid issue ids", async () => {
