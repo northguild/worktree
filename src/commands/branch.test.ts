@@ -1195,7 +1195,12 @@ describe("branch command", () => {
         // assignment's; without this, swapping `warn` for `fail` or `succeed`
         // is invisible to the whole suite.
         const spinner = vi.mocked(ora).mock.results.at(-1)?.value;
-        expect(spinner.warn).toHaveBeenCalled();
+        // The silent-ignore case GitHub documents for an account without push
+        // access (not observed, #162). The fine-grained permission is named on
+        // the 403 instead, which is what a token missing it gets.
+        expect(spinner.warn).toHaveBeenCalledWith(
+          "Issue #42 was not assigned to octocat. Assigning needs a token whose account has push access to the repository.",
+        );
         expect(spinner.fail).not.toHaveBeenCalled();
         expect(spinner.succeed).not.toHaveBeenCalled();
       });
