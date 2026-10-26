@@ -427,13 +427,16 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).not.toHaveBeenCalled();
     });
 
-    it("refuses a pull request whose branch is unknown without naming one", async () => {
+    it.each([
+      ["is unknown", null],
+      ["would not paste as one shell word", "a;curl$IFS`x`|sh"],
+    ])("refuses a pull request whose branch %s without naming it", async (_case, headBranch) => {
       vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
         number: 106,
         title: "From a fork",
         type: null,
         state: "open",
-        pullRequest: { headBranch: null },
+        pullRequest: { headBranch },
       } as any);
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -509,6 +512,25 @@ describe("branch command", () => {
         expect((branch as any).warnings).toContain(
           "Issue #7 is closed as not planned.",
         );
+      });
+
+      it("neither asks nor warns when the issue is open", async () => {
+        vi.mocked(githubIntegration.fetchGitHubIssue).mockResolvedValue({
+          number: 7,
+          title: "Old bug",
+          type: null,
+          state: "open",
+          stateReason: null,
+          pullRequest: null,
+        } as any);
+        vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+          "/path/to/worktree",
+        );
+
+        await branch.run();
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect((branch as any).warnings).toEqual([]);
       });
     });
 

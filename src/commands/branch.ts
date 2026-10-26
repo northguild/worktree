@@ -242,10 +242,13 @@ was not delivered
       if (issue.pullRequest) {
         // A pull request already has a branch; a new one named after its title
         // is never what was meant.
+        // A ref name may hold `;`, `$` or a backtick, so only a name that
+        // pastes as one shell word is put into the suggested command.
         const { headBranch } = issue.pullRequest;
+        const suggestable = headBranch && /^[\w./-]+$/.test(headBranch);
         throw new InvalidValueError(
           `GitHub: #${issue.number} is a pull request, not an issue. ${
-            headBranch
+            suggestable
               ? `To work on its branch, run \`worktree checkout ${headBranch}\`.`
               : "To work on its branch, run `worktree checkout` and pick it."
           }`,

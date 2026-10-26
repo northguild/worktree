@@ -56,8 +56,8 @@ Use the `--github` flag to create a suggested branch name from an issue in the c
 
 - The issue number can be passed as `42` or `"#42"`.
 - A pull request number is refused as a usage error, since the pull request already has a branch. The message names
-  `worktree checkout <head-branch>` when that branch is on this repository; for a fork it says to run
-  `worktree checkout` and pick one.
+  `worktree checkout <head-branch>` when that branch is on this repository and its name is only letters, digits,
+  `_`, `.`, `/` and `-`; otherwise, a fork included, it says to run `worktree checkout` and pick one.
 - A closed issue gets a warning. An interactive run asks before continuing, and answering no ends the run with exit
   `1` and no worktree; a [non-interactive run](#non-interactive-runs) carries on, and `--json` reports the warning
   in `warnings`.

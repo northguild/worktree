@@ -114,7 +114,7 @@ title, such as `fix/ENG-123-fix-login`.
 summary) and its type (Linear: its labels); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
 refused, naming `worktree checkout <branch>` when its branch is on this
-repository, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
+repository and its name is only letters, digits, `_`, `.`, `/` and `-`, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
 becomes part of the branch name, and the type only selects one of the
 configured `branchPrefix.*` values, or none. The issue body and comments are
 never printed, never written to the `--json` document (whose `issue` field
