@@ -80,8 +80,9 @@ regardless, so a machine can be configured before Herdr is installed.
 `github.token` and `github.autoAssign` are asked together behind one confirm, so declining costs a single
 yes/no. The `github.autoAssign` prompt has three choices: "Yes, always", "No, never" and "Ask me each
 time". The last leaves the key unset, clearing any stored answer, which is the "ask me" state — so
-`--missing` goes on offering the prompt until you settle it either way. Leaving the `github.token` prompt
-empty keeps any token you already have, rather than clearing it.
+`--missing` goes on offering the prompt until you settle it either way. Leaving the `github.token`,
+`jira.apiToken` or `linear.apiKey` prompt empty, or answering with only spaces, keeps any token you already have,
+rather than clearing it. A pasted value is stored without surrounding whitespace.
 
 ## Agent Key
 
