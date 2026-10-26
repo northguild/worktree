@@ -374,7 +374,7 @@ describe("git status and tracking helpers", () => {
       `git rev-list --count HEAD..origin/main (cwd: ${worktreePath})`,
       `git status -s (cwd: ${worktreePath})`,
       `git status -s (cwd: ${spacedWorktreePath})`,
-      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
     );
   });
 
@@ -513,7 +513,7 @@ describe("git status and tracking helpers", () => {
     const runSpy = vi
       .spyOn(cli, "run")
       .mockResolvedValueOnce(
-        "main <- origin/main\nfeature/test <- origin/feature/test\nlocal-only <-",
+        "main origin/main\nfeature/test origin/feature/test\nlocal-only \nfix<-thing origin/fix<-thing\nodd<-name ",
       );
 
     const tracking = await gitGetLocalBranchesTracking();
@@ -522,7 +522,7 @@ describe("git status and tracking helpers", () => {
     // the shell form carried are gone rather than being passed on to git.
     expect(runSpy).toHaveBeenCalledWith("git", [
       "for-each-ref",
-      "--format=%(refname:short) <- %(upstream:short)",
+      "--format=%(refname:short) %(upstream:short)",
       "refs/heads",
     ]);
 
@@ -530,6 +530,9 @@ describe("git status and tracking helpers", () => {
       { local: "main", remote: "origin/main" },
       { local: "feature/test", remote: "origin/feature/test" },
       { local: "local-only", remote: "" },
+      // A ref may contain "<", which the old "<-" separator split on.
+      { local: "fix<-thing", remote: "origin/fix<-thing" },
+      { local: "odd<-name", remote: "" },
     ]);
   });
 });
@@ -1036,7 +1039,7 @@ describe("gitGetWorktreeList agent join", () => {
     expectCommands(
       "git fetch --prune",
       "git --no-pager branch -r",
-      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
       "git branch --show-current",
       "git rev-parse --show-toplevel",
       "git worktree list --porcelain",
@@ -1258,7 +1261,7 @@ describe("gitGetWorktreeList ahead counting", () => {
     expectCommands(
       "git fetch --prune",
       "git --no-pager branch -r",
-      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
       "git branch --show-current",
       "git rev-parse --show-toplevel",
       "git worktree list --porcelain",
@@ -1280,7 +1283,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       ...mergedProbeCommands(onePath),
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble("feature/one <-");
+    mockRunPreamble("feature/one ");
     mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("1");
     mockMergedProbe(false);
     mockRun.mockResolvedValueOnce("");
@@ -1305,7 +1308,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       ...mergedProbeCommands(onePath),
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble("feature/one <-");
+    mockRunPreamble("feature/one ");
     mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("2");
     mockMergedProbe(false);
     mockRun.mockResolvedValueOnce("");
@@ -1326,10 +1329,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       `git rev-list --count HEAD..@{u} (cwd: ${onePath})`,
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble(
-      "feature/one <- origin/feature/one",
-      "  origin/feature/one",
-    );
+    mockRunPreamble("feature/one origin/feature/one", "  origin/feature/one");
     mockRun
       .mockResolvedValueOnce("origin/main")
       .mockResolvedValueOnce("3")
@@ -1353,7 +1353,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       "git config northguild.worktree.defaultSourceBranch",
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble("feature/one <-");
+    mockRunPreamble("feature/one ");
     mockRun
       .mockRejectedValueOnce(new Error("no origin/HEAD"))
       .mockRejectedValueOnce(new Error("key unset"))
@@ -1383,7 +1383,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       `git rev-list --count origin/gone..HEAD (cwd: ${onePath})`,
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble("feature/one <-");
+    mockRunPreamble("feature/one ");
     mockRun
       .mockResolvedValueOnce("origin/gone")
       .mockRejectedValueOnce(new Error("unknown revision origin/gone"))
@@ -1406,7 +1406,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       ...mergedProbeCommands(onePath),
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble("feature/one <- origin/feature/one");
+    mockRunPreamble("feature/one origin/feature/one");
     mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("7");
     mockMergedProbe(true);
     mockRun.mockResolvedValueOnce("");
@@ -1428,7 +1428,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       ...mergedProbeCommands(onePath),
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble("feature/one <-");
+    mockRunPreamble("feature/one ");
     mockRun.mockResolvedValueOnce("origin/main").mockResolvedValueOnce("1");
     mockMergedProbe(false);
     mockRun.mockResolvedValueOnce("");
@@ -1450,7 +1450,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       `git merge-base origin/main HEAD (cwd: ${onePath})`,
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble("feature/one <-");
+    mockRunPreamble("feature/one ");
     mockRun
       .mockResolvedValueOnce("origin/main")
       .mockResolvedValueOnce("3")
@@ -1475,10 +1475,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       `git rev-list --count HEAD..@{u} (cwd: ${onePath})`,
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble(
-      "feature/one <- origin/feature/one",
-      "  origin/feature/one",
-    );
+    mockRunPreamble("feature/one origin/feature/one", "  origin/feature/one");
     mockRun
       .mockResolvedValueOnce("origin/main")
       .mockResolvedValueOnce("3")
@@ -1502,7 +1499,7 @@ describe("gitGetWorktreeList ahead counting", () => {
       `git rev-list --count origin/main..HEAD (cwd: ${onePath})`,
       `git status -s (cwd: ${onePath})`,
     );
-    mockRunPreamble("feature/one <-");
+    mockRunPreamble("feature/one ");
     mockRun
       .mockResolvedValueOnce("origin/main")
       .mockResolvedValueOnce("0")
@@ -1532,7 +1529,7 @@ describe("gitGetWorktreeList ahead counting", () => {
     mockRun
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("")
-      .mockResolvedValueOnce(`feature/one <-${EOL}feature/two <-`)
+      .mockResolvedValueOnce(`feature/one ${EOL}feature/two `)
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce(rootPath)
       .mockResolvedValueOnce(
@@ -1694,7 +1691,7 @@ describe("gitGetWorktreeList churn", () => {
   const diffCommand = (cwd: string, base = "origin/main") =>
     `git diff --shortstat --end-of-options ${base}...HEAD (cwd: ${cwd})`;
 
-  function mockRunPreamble(tracking = "feature/one <-", remoteBranches = "") {
+  function mockRunPreamble(tracking = "feature/one ", remoteBranches = "") {
     mockRun
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce(remoteBranches)
@@ -1711,7 +1708,7 @@ describe("gitGetWorktreeList churn", () => {
     expectCommands(
       "git fetch --prune",
       "git --no-pager branch -r",
-      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
       "git branch --show-current",
       "git rev-parse --show-toplevel",
       "git worktree list --porcelain",
@@ -1785,10 +1782,7 @@ describe("gitGetWorktreeList churn", () => {
       `git status -s (cwd: ${onePath})`,
       diffCommand(onePath, "@{u}"),
     );
-    mockRunPreamble(
-      "feature/one <- origin/feature/one",
-      "  origin/feature/one",
-    );
+    mockRunPreamble("feature/one origin/feature/one", "  origin/feature/one");
     mockRun
       .mockResolvedValueOnce("origin/main")
       .mockResolvedValueOnce("1")
@@ -1882,7 +1876,7 @@ describe("gitRemoveWorktree prompt", () => {
       "git branch --show-current",
       "git fetch --prune",
       "git --no-pager branch -r",
-      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
       "git rev-parse --show-toplevel",
       "git worktree list --porcelain",
       "git symbolic-ref --short refs/remotes/origin/HEAD",
@@ -1896,7 +1890,7 @@ describe("gitRemoveWorktree prompt", () => {
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("")
-      .mockResolvedValueOnce("feature/one <-")
+      .mockResolvedValueOnce("feature/one ")
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce(rootPath)
       .mockResolvedValueOnce(porcelainRecord(targetPath, "feature/one"));
@@ -2067,7 +2061,7 @@ describe("what the removal helpers report", () => {
       "git branch --show-current",
       "git fetch --prune",
       "git --no-pager branch -r",
-      'git for-each-ref "--format=%(refname:short) <- %(upstream:short)" refs/heads',
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
       "git rev-parse --show-toplevel",
       "git worktree list --porcelain",
       "git symbolic-ref --short refs/remotes/origin/HEAD",
