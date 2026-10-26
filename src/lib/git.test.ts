@@ -1326,6 +1326,67 @@ describe("gitGetWorktreeList agent join", () => {
       expect.objectContaining({ name: "busy-one", blocks: true }),
     );
   });
+
+  // F-022 / AGENT-MODE R5: `git worktree list` reports a worktree under the
+  // path it was added with, which may be a symlink, while a session's cwd is a
+  // real path. The join only holds if the worktree side is resolved too.
+  // Expected values: a session standing in the real directory of a worktree is
+  // working in that worktree (the requirement, issue #56), so the entry must
+  // carry it; blocks is true because a session with no kind/state/status
+  // counts as working (same as the cases above), and a blocking agent makes
+  // the worktree unsafe to remove. Real paths, not mocks: the symlink is the
+  // whole point, and nothing but the filesystem can say where it leads.
+  it("joins a session standing in the real directory of a symlinked worktree", async () => {
+    // gitGetWorktrees keeps only paths under `<root>.worktrees/`, so the link
+    // lives there and points at a directory outside it.
+    const base = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "worktree-agent-join-")),
+    );
+    const root = path.join(base, "repo");
+    const realDir = path.join(base, "elsewhere");
+    const linkPath = path.join(`${root}.worktrees`, "feature-one");
+    fs.mkdirSync(realDir);
+    fs.mkdirSync(`${root}.worktrees`);
+    fs.symlinkSync(realDir, linkPath);
+
+    try {
+      // One worktree, reported by git under the symlink; no ahead commits.
+      mockRun.mockReset();
+      expectCommands(
+        "git fetch --prune",
+        "git --no-pager branch -r",
+        'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
+        "git branch --show-current",
+        "git rev-parse --show-toplevel",
+        "git worktree list --porcelain",
+        "git symbolic-ref --short refs/remotes/origin/HEAD",
+        `git rev-list --count origin/main..HEAD (cwd: ${linkPath})`,
+        `git status -s (cwd: ${linkPath})`,
+      );
+      mockRun
+        .mockResolvedValueOnce("")
+        .mockResolvedValueOnce("")
+        .mockResolvedValueOnce("")
+        .mockResolvedValueOnce("main")
+        .mockResolvedValueOnce(root)
+        .mockResolvedValueOnce(porcelainRecord(linkPath, "feature/one"))
+        .mockResolvedValueOnce("origin/main")
+        .mockResolvedValueOnce("0")
+        .mockResolvedValueOnce("");
+      vi.spyOn(agent, "getAgentSessions").mockResolvedValue([
+        session({ cwd: realDir }),
+      ]);
+
+      const [worktree] = await gitGetWorktreeList({ includeAgents: true });
+
+      expect(worktree.agent).toEqual(
+        expect.objectContaining({ name: "feature-one-1f", blocks: true }),
+      );
+      expect(worktree.safeToRemove).toBe(false);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 // What Phase 2 of UNPUSHED-COMMIT-GUARD-PLAN (issue #63) is for: the ahead
