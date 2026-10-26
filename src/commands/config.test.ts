@@ -82,6 +82,7 @@ describe("config command", () => {
       const secrets: Record<string, string> = {
         "jira.apiToken": "jira-secret-value",
         "linear.apiKey": "linear-secret-value",
+        "clickup.apiToken": "clickup-secret-value",
         "github.token": "github-secret-value",
       };
       vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
@@ -218,6 +219,7 @@ describe("config command", () => {
       "github.token",
       "jira.apiToken",
       "linear.apiKey",
+      "clickup.apiToken",
     ])("should refuse a whitespace-only %s and store nothing", async (name) => {
       vi.spyOn(validators, "validateConfigValue").mockRestore();
       const mockSetConfigValue = vi
@@ -1398,6 +1400,217 @@ describe("config command", () => {
           "no default for linear.apiKey; pass worktree config linear.apiKey <key>",
       });
       expect(mockInput).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("ClickUp prompts", () => {
+    const clickUpRun = (flags: Record<string, unknown>) => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, ...flags },
+      });
+    };
+    const groupMessage = "Do you want to configure ClickUp integration?";
+
+    it("asks one confirm, then the token with instructions, then the workspace id", async () => {
+      mockConfirm.mockImplementation(
+        async ({ message }) => message === groupMessage,
+      );
+      mockInput.mockImplementation(async ({ message }) =>
+        message === "ClickUp API token" ? "pk_prompted" : "12345",
+      );
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      clickUpRun({});
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({ message: groupMessage });
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        expect.stringContaining("avatar -> Settings -> Apps -> API Token"),
+      );
+      expect(mockSet).toHaveBeenCalledWith("clickup.apiToken", "pk_prompted");
+      expect(mockSet).toHaveBeenCalledWith("clickup.workspaceId", "12345");
+    });
+
+    it("skips both prompts when the group is declined", async () => {
+      mockConfirm.mockResolvedValue(false);
+      clickUpRun({});
+
+      await config.run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({ message: groupMessage });
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({ message: "ClickUp API token" }),
+      );
+      expect(mockInput).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("ClickUp workspace id"),
+        }),
+      );
+    });
+
+    it("answers the group yes without asking for --names clickup.apiToken, and asks only the token", async () => {
+      mockInput.mockResolvedValue("pk_named");
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      clickUpRun({ names: "clickup.apiToken" });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).toHaveBeenCalledTimes(1);
+      expect(mockSet).toHaveBeenCalledWith("clickup.apiToken", "pk_named");
+    });
+
+    it("never offers the stored token as a default or prefill", async () => {
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config"
+            ? "true"
+            : key === "clickup.apiToken"
+              ? "pk_stored"
+              : "",
+        ),
+      );
+      mockInput.mockResolvedValue("pk_new");
+      clickUpRun({ names: "clickup.apiToken" });
+
+      await config.run();
+
+      const options = mockInput.mock.calls.at(0)?.[0] as {
+        default?: string;
+        prefill?: string;
+      };
+      expect(options.default).toBeUndefined();
+      expect(options.prefill).toBeUndefined();
+    });
+
+    it.each([
+      "",
+      "   ",
+    ])("keeps the stored token for an empty answer (%j)", async (answer) => {
+      mockInput.mockResolvedValue(answer);
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      clickUpRun({ names: "clickup.apiToken" });
+
+      await config.run();
+
+      expect(mockSet).not.toHaveBeenCalledWith(
+        "clickup.apiToken",
+        expect.anything(),
+      );
+    });
+
+    it("stores a pasted token without surrounding whitespace", async () => {
+      mockInput.mockResolvedValue("  pk_pasted \n");
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      clickUpRun({ names: "clickup.apiToken" });
+
+      await config.run();
+
+      expect(mockSet).toHaveBeenCalledWith("clickup.apiToken", "pk_pasted");
+    });
+
+    it.each([
+      "",
+      "   ",
+    ])("skips the workspace id for an empty answer (%j)", async (answer) => {
+      mockInput.mockResolvedValue(answer);
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      clickUpRun({ names: "clickup.workspaceId" });
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledTimes(1);
+      expect(mockSet).not.toHaveBeenCalledWith(
+        "clickup.workspaceId",
+        expect.anything(),
+      );
+    });
+
+    it("stores a trimmed workspace id and validates it as digits", async () => {
+      mockInput.mockResolvedValue(" 9001 ");
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      clickUpRun({ names: "clickup.workspaceId" });
+
+      await config.run();
+
+      expect(mockSet).toHaveBeenCalledWith("clickup.workspaceId", "9001");
+      const options = mockInput.mock.calls.at(0)?.[0] as {
+        validate: (value: string) => true | string | Promise<true | string>;
+      };
+      expect(await options.validate("")).toBe(true);
+      expect(await options.validate("abc")).not.toBe(true);
+    });
+
+    it("lists the keys under --missing when unset, and not when set", async () => {
+      clickUpRun({ list: true, missing: true });
+      await config.run();
+      expect(mockConsoleLog).toHaveBeenCalledWith("clickup.apiToken");
+      expect(mockConsoleLog).toHaveBeenCalledWith("clickup.workspaceId");
+
+      mockConsoleLog.mockClear();
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config"
+            ? "true"
+            : key === "clickup.apiToken"
+              ? "pk_stored"
+              : "",
+        ),
+      );
+      await config.run();
+      expect(mockConsoleLog).not.toHaveBeenCalledWith("clickup.apiToken");
+      expect(mockConsoleLog).not.toHaveBeenCalledWith(
+        "clickup.apiToken=pk_stored",
+      );
+    });
+
+    it("prompts for the token under a bare --missing run", async () => {
+      mockConfirm.mockImplementation(
+        async ({ message }) => message === groupMessage,
+      );
+      mockInput.mockResolvedValue("pk_missing");
+      clickUpRun({ missing: true, names: undefined });
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "ClickUp API token" }),
+      );
+    });
+
+    it("fails naming clickup.apiToken when a non-interactive run has no token", async () => {
+      setNonInteractive(true);
+      clickUpRun({ names: "clickup.apiToken" });
+
+      await expect(config.run()).rejects.toMatchObject({
+        message:
+          "no default for clickup.apiToken; pass worktree config clickup.apiToken <token>",
+      });
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it("takes an empty workspace id without failing in a non-interactive run", async () => {
+      setNonInteractive(true);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config"
+            ? "true"
+            : key === "clickup.apiToken"
+              ? "pk_stored"
+              : "",
+        ),
+      );
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      clickUpRun({ names: "clickup.apiToken,clickup.workspaceId" });
+
+      await config.run();
+
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockSet).not.toHaveBeenCalledWith(
+        "clickup.workspaceId",
+        expect.anything(),
+      );
     });
   });
 

@@ -19,6 +19,7 @@ import {
   isValidCommand,
   isValidCommandLine,
   isValidEmail,
+  isValidWorkspaceId,
   validateConfigValue,
 } from "../lib/validators.js";
 
@@ -211,6 +212,10 @@ export default class Config extends BaseCommand {
       name.startsWith("linear."),
     );
 
+    const hasClickUpPrompt = configNames.some((name) =>
+      name.startsWith("clickup."),
+    );
+
     // First check if there is anything to prompt
     if (configNames.length === 0) {
       this.log("No missing config found.");
@@ -392,6 +397,67 @@ export default class Config extends BaseCommand {
         // empty answer keeps the stored key instead of clearing it.
         if (linearApiKey.trim()) {
           await gitSetConfigValue("linear.apiKey", linearApiKey.trim());
+        }
+      }
+    }
+
+    // Two keys, one confirm. The token is required and secret, so it is asked
+    // like `linear.apiKey`; the workspace id matters only to a custom task id
+    // and most Workspaces have those off, so an empty answer skips it (as
+    // `herdr.agent` and `postCreate` accept empty) and a non-interactive run
+    // takes that empty default instead of failing. Nothing is validated against
+    // ClickUp here: the token is checked when `branch --clickup` first uses it.
+    if (
+      hasClickUpPrompt &&
+      (await this.confirmGroup(
+        "Do you want to configure ClickUp integration?",
+        "ClickUp",
+        flags.names,
+      ))
+    ) {
+      if (shouldPrompt("clickup.apiToken")) {
+        const clickUpTokenInstructions = [
+          "To find your personal API token, follow these steps:",
+          " - Go to ClickUp -> your avatar -> Settings -> Apps -> API Token",
+          " - Click 'Generate' (or 'Regenerate') and copy the token",
+        ];
+
+        this.log(clickUpTokenInstructions.join(EOL) + EOL);
+        // No default and no prefill, exactly as `jira.apiToken` is asked: a
+        // token is not echoed back as a prompt default.
+        const clickUpApiToken = await askInput(
+          { message: "ClickUp API token" },
+          {
+            value: "clickup.apiToken",
+            flag: "worktree config clickup.apiToken <token>",
+            // The stored token if there is one, never an empty one.
+            fallback:
+              (await gitGetConfigValue("clickup.apiToken")) || undefined,
+          },
+        );
+        // Only a real answer is written: an empty answer keeps the stored
+        // token instead of clearing it.
+        if (clickUpApiToken.trim()) {
+          await gitSetConfigValue("clickup.apiToken", clickUpApiToken.trim());
+        }
+      }
+
+      if (shouldPrompt("clickup.workspaceId")) {
+        const clickUpWorkspaceId = await this.askConfigInput(
+          "clickup.workspaceId",
+          {
+            message:
+              "ClickUp workspace id (only for custom task ids like DEV-123; empty to skip)",
+            validate: (value: string) =>
+              value.trim() === "" || isValidWorkspaceId(value.trim()),
+          },
+        );
+        // Empty skips the key rather than writing an empty value.
+        if (clickUpWorkspaceId.trim()) {
+          await gitSetConfigValue(
+            "clickup.workspaceId",
+            clickUpWorkspaceId.trim(),
+          );
         }
       }
     }

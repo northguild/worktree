@@ -12,3 +12,11 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
 - **Phase 1:** the `AbortSignal.timeout` spy in `clickup.test.ts` is never restored (same as
   `linear.test.ts`); harmless while `stubFetch` ignores the signal.
 - **Phase 1:** `pk_[A-Za-z0-9_]{20,}` can mask a long non-secret `pk_…` identifier; D10 accepted that.
+- **Phase 2:** the token instructions' "Click 'Generate' (or 'Regenerate')" wording is unchecked against
+  ClickUp's docs.
+- **Phase 2:** `clickup.workspaceId` is optional but `--missing` lists it while unset, so a ClickUp user
+  without custom ids sees that prompt on every interactive `--missing` run (Enter skips it), as with
+  `herdr.agent` and `postCreate`.
+- **Phase 2:** the "keeps the stored token for an empty answer" test does not assert the prompt was asked;
+  the Jira twin's `expect(mockInput).toHaveBeenCalled()` would pin it. Two other test titles (prompt order,
+  workspace id still listed) promise more than they assert.
