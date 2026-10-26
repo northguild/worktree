@@ -405,9 +405,9 @@ was not delivered
     // for, on a run they may well have answered "no" to.
     try {
       await gitSetConfigValue("github.autoAssign", String(answer));
-    } catch {
+    } catch (error) {
       this.warn(
-        "Could not save github.autoAssign, so you will be asked again next time.",
+        `Could not save github.autoAssign, so you will be asked again next time. ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
