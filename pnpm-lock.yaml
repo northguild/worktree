@@ -220,6 +220,9 @@ importers:
       node:
         specifier: runtime:26.12.1
         version: runtime:26.12.1
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       shx:
         specifier: ^0.4.0
         version: 0.4.0

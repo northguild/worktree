@@ -13,7 +13,7 @@ confusing errors rather than obvious ones — see the prerequisites and *Prepare
 
 | Concern | Target |
 |---|---|
-| Runtime | Node 26.12.1, pinned once in `devEngines.runtime` in `package.json` (every CI job reads it with `node-version-file: package.json`; pnpm downloads it locally; `@types/node` is still on 18). The range installers see is `engines.node` (`>=23.5.0 || ^22.13.0 || ^20.17.0`), copied from `@inquirer/prompts`, the strictest runtime dependency — widen it only when that dependency does |
+| Runtime | Node 26.12.1, pinned once in `devEngines.runtime` in `package.json` (every CI job reads it with `node-version-file: package.json`; pnpm downloads it locally; `@types/node` is still on 18). The range installers see is `engines.node` (`>=23.5.0 || ^22.13.0 || ^20.17.0`), copied from `@inquirer/prompts`, the strictest runtime dependency — widen it only when that dependency does; `scripts/engines.test.mjs` fails when any runtime dependency's own `engines.node` no longer contains it |
 | Package manager | pnpm 12.15.0 (`packageManager` in both `package.json` files; pnpm settings such as `overrides` and `allowBuilds` live in `pnpm-workspace.yaml`, since pnpm 11+ no longer reads the `pnpm` field of `package.json`), workspace of the root and `docs` (the root is listed as `"."` so Changesets can see it; `pnpm -r` still skips it) |
 | Database | none |
 | Storage | none |
