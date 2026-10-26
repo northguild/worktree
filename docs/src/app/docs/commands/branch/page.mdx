@@ -77,8 +77,8 @@ same whether or not you are asked, so one issue never gives two different branch
 GitHub authentication is resolved in this order:
 
 1. `northguild.worktree.github.token` from local git config.
-2. `gh auth token` if GitHub CLI is installed and authenticated.
-3. Interactive token prompt, which is then saved in local git config.
+2. `gh auth token` if GitHub CLI is installed and authenticated. It is read on each run and not saved.
+3. Interactive token prompt, which is then saved in local git config. Only a typed or `worktree config`-set token is stored.
 
 A non-interactive run has no token prompt. It exits `2` with one line on stderr, which never includes a token:
 
