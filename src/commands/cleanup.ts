@@ -153,6 +153,22 @@ export default class Cleanup extends BaseCommand {
     });
   }
 
+  // The removed worktrees the override swept past a live session. Rendered with
+  // the agent detail, from the original entries, because the classified copies
+  // carry no agent. Printed in both paths: the confirming path's list shows only
+  // `removalReason`, which never names a session. See AGENT-SESSION-JOIN D6.
+  private logRemovingDespiteAgents(carried: WorktreeListEntry[]) {
+    const count = carried.length;
+    this.log(
+      `Removing ${chalk.bold(count)} worktree ${count === 1 ? "branch" : "branches"} despite a live agent session:`,
+    );
+    carried.forEach((wt) => {
+      this.log(
+        `- ${worktreeListEntryToListName(wt, "yellow", { agents: true })}`,
+      );
+    });
+  }
+
   // Each section is guarded here rather than at the call sites, which carry one
   // kind of hold-back far more often than all three at once. An unguarded
   // heading would read "Skipped 0 worktree branches …".
@@ -175,13 +191,18 @@ export default class Cleanup extends BaseCommand {
   public async run(): Promise<void> {
     const { flags } = await this.parse(Cleanup);
     const spinner = createSpinner("Gathering worktree branches").start();
-    // The override is "do not look", not "look and then ignore": with no
-    // sessions gathered there is no agent for isSafeToRemove to weigh, and the
-    // run costs exactly what it did before this flag existed. See
-    // AGENT-MODE-PLAN §4.
-    const allWorktrees = await gitGetWorktreeList({
-      includeAgents: !flags["ignore-agents"],
-    });
+    // The override overrules the verdict, not the lookup (D6): sessions are
+    // always gathered so that what it sweeps past can be named. The sweep itself
+    // is classified on copies with the agent stripped and the verdict re-derived,
+    // so the removed set and the three hold-back headings are what they were
+    // before agents existed. `gathered` keeps the originals for the naming.
+    const gathered = await gitGetWorktreeList({ includeAgents: true });
+    const allWorktrees = flags["ignore-agents"]
+      ? gathered.map((wt) => {
+          const bare = { ...wt, agent: undefined };
+          return { ...bare, safeToRemove: isSafeToRemove(bare) };
+        })
+      : gathered;
     const worktrees = allWorktrees.filter((wt) => wt.safeToRemove === true);
     const skipped = allWorktrees.filter(isSkippedForUncommittedChanges);
     const agentSkipped = allWorktrees.filter(isSkippedForLiveAgent);
@@ -232,6 +253,20 @@ export default class Cleanup extends BaseCommand {
     // Reported in both paths: --force means "do not ask me", not "do not tell
     // me". See CLEANUP-DATA-LOSS-PLAN §4.2.
     this.logHeldBack(skipped, agentSkipped, uncountable);
+
+    // Only what the override swept past: removed here, but held back by the
+    // agent-aware verdict. Without the flag that set is empty by construction,
+    // and a worktree whose directory is gone is safe either way (`isSafeToRemove`
+    // answers `pathExists` before it asks about a session), so neither is named.
+    const carried = gathered.filter(
+      (wt, i) =>
+        worktrees.includes(allWorktrees[i]) &&
+        wt.safeToRemove !== true &&
+        hasLiveAgent(wt),
+    );
+    if (carried.length > 0) {
+      this.logRemovingDespiteAgents(carried);
+    }
 
     if (!flags.force) {
       const message = `Are you sure you want to delete ${count === 1 ? "it" : "them"}?`;
