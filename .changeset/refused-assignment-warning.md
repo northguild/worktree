@@ -2,4 +2,4 @@
 "@northguild/worktree": patch
 ---
 
-`worktree branch --github <n> --assign` now explains a refused assignment more precisely: the token's account needs push access, and a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.
+When GitHub refuses `worktree branch --github <n> --assign` with a 403, the warning now says what the token needs: an account with push access to the repository and, for a fine-grained token, the Issues (or Pull requests) permission set to Read and write.

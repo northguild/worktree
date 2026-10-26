@@ -107,7 +107,7 @@ worktree config github.autoAssign true    # always assign, stop asking
 - **Assigning needs a token whose account has push access to the repository; a fine-grained token also
   needs the Issues (or Pull requests) permission set to Read and write.** Without that permission GitHub
   refuses the call (`403 Resource not accessible by personal access token`) and `worktree` warns with
-  GitHub's message. Reading an issue needs neither, so a public repository that `--github` has always worked
+  GitHub's message followed by the sentence above. Reading an issue needs neither, so a public repository that `--github` has always worked
   against without a token may ask for one the first time you assign — the resolution order above still
   applies, so an authenticated `gh` supplies it silently.
 - Success is confirmed against the API response rather than assumed. If the issue comes back without you on

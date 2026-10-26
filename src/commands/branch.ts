@@ -436,7 +436,7 @@ was not delivered
         spinner.succeed(`Assigned issue #${issueNumber} to ${login}`);
         return true;
       }
-      const message = `Issue #${issueNumber} was not assigned to ${login}. Assigning needs a token whose account has push access to the repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.`;
+      const message = `Issue #${issueNumber} was not assigned to ${login}. Assigning needs a token whose account has push access to the repository.`;
       spinner.warn(message);
       this.recordWarning(message);
     } catch (error) {
