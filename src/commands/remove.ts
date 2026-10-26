@@ -2,9 +2,11 @@ import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
 import { BaseCommand } from "../lib/base-command.js";
 import {
+  findWorktreeByTarget,
   gitGetWorktreeList,
   gitRemoveWorktree,
   gitRemoveWorktreesWithProgress,
+  isPathTarget,
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
 import { askCheckbox, askConfirm, Separator } from "../lib/prompt.js";
@@ -14,7 +16,10 @@ import { worktreeListEntryToListName } from "../lib/utils.js";
 export default class Delete extends BaseCommand {
   static aliases = ["rm", "delete"];
   static override args = {
-    branchName: Args.string({ description: "Name of the branch to remove" }),
+    branchName: Args.string({
+      description:
+        "Name of the branch to remove, or the path of a worktree (the only way to name a detached one)",
+    }),
   };
   // The first line is the summary oclif lists in `worktree --help`; the rest is
   // the `--json` shape and exit codes, kept to key names and nullability.
@@ -78,12 +83,17 @@ Exit codes:
     }
 
     if (args.branchName) {
-      const wt = worktrees.find((wt) => wt.branchName === args.branchName);
+      const wt = findWorktreeByTarget(worktrees, args.branchName);
 
       if (!wt) {
-        this.error(`Branch "${args.branchName}" not found.`, {
-          code: "not_found",
-        });
+        // The current worktree is never listed, so from inside one `remove .`
+        // lands here too.
+        this.error(
+          isPathTarget(args.branchName)
+            ? `No worktree to remove at "${args.branchName}".`
+            : `Branch "${args.branchName}" not found.`,
+          { code: "not_found" },
+        );
       }
 
       // Resolved before the removal, never after: `git worktree remove` and
