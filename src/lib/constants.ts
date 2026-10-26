@@ -6,6 +6,8 @@ export const CONFIG_NAMES = [
   "jira.email",
   "jira.apiToken",
   "linear.apiKey",
+  "clickup.apiToken",
+  "clickup.workspaceId",
   "github.token",
   "github.autoAssign",
   "branchPrefix.feature",
@@ -25,6 +27,7 @@ export const CONFIG_NAMES = [
 export const SECRET_CONFIG_NAMES = [
   "jira.apiToken",
   "linear.apiKey",
+  "clickup.apiToken",
   "github.token",
 ] as const satisfies readonly ConfigName[];
 

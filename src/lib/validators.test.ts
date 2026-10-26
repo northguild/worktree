@@ -388,9 +388,31 @@ describe("isValidConfigValue token keys", () => {
     "github.token",
     "jira.apiToken",
     "linear.apiKey",
+    "clickup.apiToken",
   ])("refuses a whitespace-only value for %s", async (name) => {
     expect(await isValidConfigValue(name, "   ")).toBe("Token cannot be empty");
     expect(await isValidConfigValue(name, "real-token")).toBe(true);
+  });
+});
+
+describe("isValidConfigValue clickup.workspaceId", () => {
+  it.each(["9012345", " 9012345 "])("accepts %j", async (value) => {
+    expect(await isValidConfigValue("clickup.workspaceId", value)).toBe(true);
+  });
+
+  it.each([
+    "",
+    "   ",
+    "abc",
+    "12a",
+    "12 34",
+    "-1",
+    "1.5",
+    "123&custom_task_ids=false",
+  ])("refuses %j", async (value) => {
+    expect(await isValidConfigValue("clickup.workspaceId", value)).toBe(
+      "Workspace id must be digits only",
+    );
   });
 });
 

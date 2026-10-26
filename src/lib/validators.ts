@@ -120,6 +120,12 @@ export function isValidToken(value: string): true | string {
   return value.trim() !== "" || "Token cannot be empty";
 }
 
+// ClickUp workspace (team) ids are numeric, and the value goes into a query
+// string, so anything else is refused here.
+export function isValidWorkspaceId(value: string): true | string {
+  return /^\d+$/.test(value.trim()) || "Workspace id must be digits only";
+}
+
 export async function isValidConfigValue(
   configName: string,
   value: string,
@@ -142,7 +148,10 @@ export async function isValidConfigValue(
     case "github.token":
     case "jira.apiToken":
     case "linear.apiKey":
+    case "clickup.apiToken":
       return isValidToken(value);
+    case "clickup.workspaceId":
+      return isValidWorkspaceId(value);
     case "agent.command":
     // Executed in every new worktree, so it is held to the same check as the
     // other command line: its head has to be a program that exists.
