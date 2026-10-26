@@ -1,6 +1,6 @@
 import { gitGetConfigValue } from "../lib/git.js";
 import { InvalidValueError } from "../lib/prompt.js";
-import { sanitizeBranchName } from "../lib/utils.js";
+import { slugifyBranchTitle } from "../lib/utils.js";
 
 interface JiraCredentials {
   host: string;
@@ -208,7 +208,7 @@ export async function getJiraBranchNameFromIssue(
 
   const prefix = await gitGetConfigValue(prefixConfigName);
 
-  return `${prefix}${issue.key}-${sanitizeBranchName(issue.fields.summary) || "issue"}`;
+  return `${prefix}${issue.key}-${slugifyBranchTitle(issue.fields.summary)}`;
 }
 
 export async function validateJiraCredentials(): Promise<boolean> {

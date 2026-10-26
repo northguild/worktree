@@ -329,7 +329,8 @@ describe("Linear integration", () => {
     });
   });
 
-  // D6: prefix + IDENTIFIER + "-" + sanitized title, "issue" when it empties.
+  // D6: prefix + IDENTIFIER + "-" + slugified title (cut to 48 at a word
+  // boundary), "issue" when it empties.
   describe("getLinearBranchNameFromIssue", () => {
     it("builds the name from the label prefix, the identifier and the title", async () => {
       expectCommands("git config northguild.worktree.branchPrefix.bugfix");
@@ -371,6 +372,23 @@ describe("Linear integration", () => {
       });
 
       expect(name).toBe("chore/ENG-8-bump-deps");
+    });
+
+    it("cuts a long title to a whole-word slug of at most 48 characters", async () => {
+      expectCommands("git config northguild.worktree.branchPrefix.feature");
+      vi.spyOn(cli, "run").mockResolvedValueOnce("feature/");
+
+      const name = await getLinearBranchNameFromIssue({
+        identifier: "ENG-10",
+        title:
+          "Login redirect loops forever when the session cookie expires during a multi step checkout flow",
+        url: null,
+        labels: [],
+      });
+
+      expect(name).toBe(
+        "feature/ENG-10-login-redirect-loops-forever-when-the-session",
+      );
     });
 
     it('falls back to "issue" when the title leaves no slug', async () => {

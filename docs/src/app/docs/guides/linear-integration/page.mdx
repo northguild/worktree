@@ -26,11 +26,13 @@ worktree is still created.
 ## How Branch Names Are Built
 
 1. Read the issue's identifier, title and labels from the Linear API.
-2. Sanitize the title into a branch-safe slug.
+2. Sanitize the title into a branch-safe slug, cut to at most 48 characters at the last dash so it ends on a whole word. A single word longer than 48 characters is cut at 48.
 3. Prepend a configured prefix chosen from the issue's labels.
 
 The name is the prefix, the identifier and the slug, for example `fix/ENG-123-fix-login-redirect`. Keeping the
-identifier in the name is what lets Linear's GitHub integration link the branch to the issue.
+identifier in the name is what lets Linear's GitHub integration link the branch to the issue. A long title is cut:
+ENG-124 titled "Login redirect loops forever when the session cookie expires during checkout" becomes
+`fix/ENG-124-login-redirect-loops-forever-when-the-session`.
 
 Linear has no issue type, so the prefix comes from the issue's labels. Labels are compared by exact name,
 ignoring case:
