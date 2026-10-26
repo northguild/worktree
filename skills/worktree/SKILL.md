@@ -390,7 +390,7 @@ worktree config --missing --names jira.host,jira.email,jira.apiToken
 # (for example `worktree config github.token <token>`)
 worktree config --yes --names branchPrefix.feature,branchPrefix.bugfix
 
-# List all current values
+# List current values (tokens shown as ***; read one with worktree config <key>)
 worktree config --list
 ```
 
