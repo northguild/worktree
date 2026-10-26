@@ -417,6 +417,10 @@ export async function fetchGitHubLogin(
   return user.login;
 }
 
+// The same sentence the branch, configuration and GitHub guide docs carry.
+const ASSIGN_PERMISSION_HINT =
+  "Assigning needs a token whose account has push access to the repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.";
+
 export async function assignGitHubIssue(issueId: number | string) {
   const normalizedIssueId = String(issueId).trim();
 
@@ -437,11 +441,16 @@ export async function assignGitHubIssue(issueId: number | string) {
   );
 
   if (!response.ok) {
-    throw await githubFailure(
+    const failure = await githubFailure(
       `GitHub: Failed to assign issue ${normalizedIssueId} in ${owner}/${name}.`,
       response,
       source,
     );
+    // A fine-grained token without Issues write is refused here with a 403
+    // (recorded for #61), so the refusal names what the token needs.
+    throw response.status === 403
+      ? new Error(`${failure.message}\n${ASSIGN_PERMISSION_HINT}`)
+      : failure;
   }
 
   // Confirmed against the response rather than assumed: GitHub documents that an
