@@ -146,7 +146,8 @@ or no bump.
   then runs: `pnpm test`, `pnpm build`; extracts that version's `CHANGELOG.md` section with
   `scripts/release-notes.mjs` and **fails before publishing if it is missing**; `npm publish` (or
   `--tag next` for a version containing `-`); an annotated `v<version>` tag by `github-actions[bot]`; the
-  GitHub release from the CHANGELOG section (`--prerelease` for a prerelease); a Discord post. Each step
+  GitHub release from the CHANGELOG section (`--prerelease` for a prerelease). A separate `notify` job, with
+  no permissions and no environment, then posts to Discord with `curl`. Each publish step
   skips itself if its result already exists (version on npm, tag, release), so a failed run is recovered
   with "Run workflow". It replaces `tag-on-version-change.yml` (deleted) and the old `release: published`
   trigger, which could not fire once the release is created by a workflow's own token. **Runs, green**: it

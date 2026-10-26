@@ -5,7 +5,8 @@ name: Publish
 # run twice, so a failed run is recovered with "Run workflow" (workflow_dispatch), which forces the gate open.
 #
 #   guard      did this push move the version?            (no environment, read-only)
-#   publish    test, build, notes, npm publish, tag, GitHub release, Discord
+#   publish    test, build, notes, npm publish, tag, GitHub release
+#   notify     the Discord post                           (no permissions, no environment, no OIDC)
 #
 # Nothing here holds an npm token: the publish job has `id-token: write` and npm exchanges it for a
 # short-lived credential (trusted publishing), which also attaches the provenance attestation.
@@ -81,6 +82,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: release
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      release-url: ${{ steps.release.outputs.url }}
     permissions:
       id-token: write # npm trusted publishing (OIDC)
       contents: write # push the tag and create the GitHub release
@@ -171,12 +175,25 @@ jobs:
           fi
           echo "url=$(gh release view "$TAG" --json url --jq .url)" >> "$GITHUB_OUTPUT"
 
+  # Kept out of `publish` on purpose: that job can mint an npm publish credential, so nothing runs there that
+  # publishing does not need. The post is a plain `curl`, not a third-party action, and this job holds no
+  # token at all.
+  notify:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
       - name: Send Discord Notification
-        uses: Ilshidur/action-discord@0c4b27844ba47cb1c7bee539c8eead5284ce9fa9 # 0.3.2
+        shell: bash
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        with:
-          args: |
-            🚀 Version ${{ steps.version.outputs.tag }} of @northguild/worktree is now live on npm!
-            📑 **What's New:**
-            ${{ steps.release.outputs.url }}
+          TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_URL: ${{ needs.publish.outputs.release-url }}
+        run: |
+          set -euo pipefail
+          CONTENT=$(printf '🚀 Version %s of @northguild/worktree is now live on npm!\n📑 **What'"'"'s New:**\n%s' "$TAG" "$RELEASE_URL")
+          jq -n --arg content "$CONTENT" '{content: $content}' |
+            curl --fail --silent --show-error --retry 3 \
+              --header 'Content-Type: application/json' \
+              --data @- "$DISCORD_WEBHOOK"
