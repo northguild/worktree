@@ -10,7 +10,9 @@ Keep it in step with CI. If a command here fails while CI is green, this file is
 
 **Every command below was run from the repo root on 2026-10-18 and exited 0** (re-verified by `/onboard`
 under `@baldurpan/create-ai-workflow` 0.26.0, in this worktree and in a fresh clone; first verified
-2026-09-06). Anything that did not is recorded as such rather than written into a section.
+2026-09-06). Anything that did not is recorded as such rather than written into a section. The one
+later addition, `pnpm --filter docs typecheck`, was added on 2026-10-26 for #152 and run from the repo
+root of a worktree that day, exiting 0; it has not been run in a fresh clone.
 
 ## Prerequisites
 
@@ -56,7 +58,17 @@ section of this file. Keep that entry.
 
 ```bash
 pnpm typecheck
+pnpm --filter docs typecheck
 ```
+
+The root `tsconfig.json` includes only `src/`, so the second command is what type-checks the `docs`
+workspace, `docs/worker/` included. It first runs `worker:build-context`, which regenerates the gitignored
+`docs/worker/docs-context.ts` (`tsc` cannot resolve `worker.ts`'s import of it otherwise) and rewrites the
+tracked `docs/src/chat/docs-routes.generated.ts` in place, then runs `tsc --noEmit`. That rewrite changes
+nothing while the committed routes file is current. If a docs page was added without regenerating it, the
+file shows as modified after this section, as it would after `pnpm docs:build`, and the regenerated file
+belongs in the change. It needs no `GEMINI_WORKER_URL`, which is why it sits here while `pnpm docs:build`
+sits below *Not run by Gate 1*. CI runs both typecheck commands.
 
 ## Build
 
@@ -116,7 +128,8 @@ test that genuinely has to be skipped is a conversation, not an edit to this pat
   `CHANGELOG.md`, deletes the consumed notes) and is run once, by a maintainer, to make a release pull
   request. Never run it to verify anything.
 - **`pnpm docs:build`** — needs the `GEMINI_WORKER_URL` repository variable baked in at build time.
-  Deploy concern; `docs-deploy.yml` owns it.
+  Deploy concern; `docs-deploy.yml` owns it. The TypeScript errors it would report outside Next's generated
+  route types are caught earlier, by `pnpm --filter docs typecheck` under *Typecheck*.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID`. Never run against production from a workstation; `worker-deploy.yml` owns it.
 

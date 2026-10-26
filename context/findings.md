@@ -51,57 +51,12 @@ off than before this change.
 path, pinned by a test in `src/lib/env.test.ts`. It is otherwise withdrawn rather than closed, if someone
 decides submodules stay out of scope; a recorded decision is not something a gate run can witness.
 
-### F-054 — P2 — Gate 1's Typecheck section does not reach the `docs/` workspace at all
-
-**Tied to:** chat-input-multiline Phase 1 · **Raised:** 2026-09-10 (hand, during Gate 1)
-
-*Raised the day before the triage below and not swept by it: it was written on the
-`feature/40-chat-input-multiline` branch and reached this file only when that branch merged `main`. It was
-renumbered from F-052 on the way in, because #54 had taken that id meanwhile.*
-
-`context/verify.md`'s Typecheck section is `pnpm typecheck`, which is `tsc --noEmit` against the root
-`tsconfig.json` — and that config carries `"include": ["src/**/*"]` (`tsconfig.json:12`). It compiles the
-CLI and nothing else: `npx tsc --noEmit --listFilesOnly | grep -c 'docs/src/chat'` returns **0**.
-
-So the whole `docs/` workspace — the Next.js app, the chat feature, and `docs/worker/` — is outside the
-gate. A type error anywhere in it exits 0 and passes Gate 1. This was found while verifying Phase 1, whose
-every file lives in `docs/src/chat/`: the section reported green having read none of them.
-
-`docs/` has its own `docs/tsconfig.json` and is never invoked by any script — `docs/package.json` has no
-`typecheck` script, and `ci.yml` runs only the root one. Running it by hand
-(`./node_modules/.bin/tsc --noEmit -p docs/tsconfig.json`) exits **1** on **23 errors**, which is what
-confirms it has not been run in a long time rather than that it is merely unwired. **22 are pre-existing**
-and one arrives with this phase:
-
-- **21 of the 22 are a single cause.** `docs/tsconfig.json:16` sets `"types": ["vitest/globals"]` and omits
-  `@testing-library/jest-dom`, so every jest-dom matcher is unknown to the compiler —
-  `toBeInTheDocument`, `toHaveAttribute`, `toHaveClass`. They land across four test files:
-  `ProfileAvatarLink.test.tsx` (7), `Footer.test.tsx` (6), `TerminalBlock.test.tsx` (5) and
-  `Navbar.test.tsx` (3). `docs/test-setup.ts:1` does the runtime half of this correctly, which is why the
-  suite passes while the compiler does not.
-- **The 22nd is generated.** `worker/worker.ts(5,31)` cannot resolve `./docs-context.js`, which
-  `worker:build-context` writes and `.gitignore`s. `docs/vitest.config.ts:9` already aliases it to
-  `worker/docs-context.stub.ts` for tests; no equivalent exists for the compiler.
-- **The 23rd is new**, and is the same jest-dom cause rather than a new one:
-  `ChatInput.test.tsx(29,21)`, a `toHaveAttribute`. Two more of this kind were removed from that file at
-  Gate 2 for an unrelated reason, which is why the count moved from 25 to 23 during the phase.
-
-Not raised as a blocker: this is pre-existing, it is not caused by Phase 1, and Phase 1's own types are
-covered in practice by the Next.js build and by `docs:test` executing every line of the new component.
-But `verify.md` presents four gate sections as covering this repository, and one of them silently covers
-half of it — which is exactly the drift that file exists to prevent.
-
-**Closes when:** either `verify.md`'s Typecheck section names a command that compiles `docs/` too, or that
-file records the exclusion deliberately and says why. Whichever is chosen, a Gate 1 run citing it is the
-evidence. Clearing the 23 errors is the prerequisite for the first option, and the `"types"` line above is
-22 of them.
-
 ### F-067 — P3 — a workspace id that is present but not a string reads as "no space open", and closes nothing
 
 **Tied to:** herdr-space-closer Phase 2 ([#52](https://github.com/northguild/worktree/issues/52), retired) · **Raised:** 2026-09-11 (Gate 2, the `reviewer` subagent, note NB2)
 
-*Renumbered from F-055 when this branch merged `main`, the same way F-054 above was: the triage below
-closed a different F-055 meanwhile. This feature's own F-052, F-053 and F-054 left this file for the
+*Renumbered from F-055 when this branch merged `main`, the same way F-054 (now under *Closed*) was:
+the triage below closed a different F-055 meanwhile. This feature's own F-052, F-053 and F-054 left this file for the
 closing comment on [#52](https://github.com/northguild/worktree/issues/52) before that merge, and the three
 ids now above and below belong to other findings — read those three on the issue, not here.*
 
@@ -226,6 +181,53 @@ the second copy the Contract above just stopped keeping.
 ---
 
 ## Closed
+
+### F-054 — P2 — Gate 1's Typecheck section does not reach the `docs/` workspace at all
+
+**Tied to:** chat-input-multiline Phase 1 · **Raised:** 2026-09-10 (hand, during Gate 1)
+
+*Raised the day before the triage below and not swept by it: it was written on the
+`feature/40-chat-input-multiline` branch and reached this file only when that branch merged `main`. It was
+renumbered from F-052 on the way in, because #54 had taken that id meanwhile.*
+
+`context/verify.md`'s Typecheck section is `pnpm typecheck`, which is `tsc --noEmit` against the root
+`tsconfig.json` — and that config carries `"include": ["src/**/*"]` (`tsconfig.json:12`). It compiles the
+CLI and nothing else: `npx tsc --noEmit --listFilesOnly | grep -c 'docs/src/chat'` returns **0**.
+
+So the whole `docs/` workspace — the Next.js app, the chat feature, and `docs/worker/` — is outside the
+gate. A type error anywhere in it exits 0 and passes Gate 1. This was found while verifying Phase 1, whose
+every file lives in `docs/src/chat/`: the section reported green having read none of them.
+
+`docs/` has its own `docs/tsconfig.json` and is never invoked by any script — `docs/package.json` has no
+`typecheck` script, and `ci.yml` runs only the root one. Running it by hand
+(`./node_modules/.bin/tsc --noEmit -p docs/tsconfig.json`) exits **1** on **23 errors**, which is what
+confirms it has not been run in a long time rather than that it is merely unwired. **22 are pre-existing**
+and one arrives with this phase:
+
+- **21 of the 22 are a single cause.** `docs/tsconfig.json:16` sets `"types": ["vitest/globals"]` and omits
+  `@testing-library/jest-dom`, so every jest-dom matcher is unknown to the compiler —
+  `toBeInTheDocument`, `toHaveAttribute`, `toHaveClass`. They land across four test files:
+  `ProfileAvatarLink.test.tsx` (7), `Footer.test.tsx` (6), `TerminalBlock.test.tsx` (5) and
+  `Navbar.test.tsx` (3). `docs/test-setup.ts:1` does the runtime half of this correctly, which is why the
+  suite passes while the compiler does not.
+- **The 22nd is generated.** `worker/worker.ts(5,31)` cannot resolve `./docs-context.js`, which
+  `worker:build-context` writes and `.gitignore`s. `docs/vitest.config.ts:9` already aliases it to
+  `worker/docs-context.stub.ts` for tests; no equivalent exists for the compiler.
+- **The 23rd is new**, and is the same jest-dom cause rather than a new one:
+  `ChatInput.test.tsx(29,21)`, a `toHaveAttribute`. Two more of this kind were removed from that file at
+  Gate 2 for an unrelated reason, which is why the count moved from 25 to 23 during the phase.
+
+Not raised as a blocker: this is pre-existing, it is not caused by Phase 1, and Phase 1's own types are
+covered in practice by the Next.js build and by `docs:test` executing every line of the new component.
+But `verify.md` presents four gate sections as covering this repository, and one of them silently covers
+half of it — which is exactly the drift that file exists to prevent.
+
+**Closes when:** either `verify.md`'s Typecheck section names a command that compiles `docs/` too, or that
+file records the exclusion deliberately and says why. Whichever is chosen, a Gate 1 run citing it is the
+evidence. Clearing the 23 errors is the prerequisite for the first option, and the `"types"` line above is
+22 of them.
+
+**Closed:** 2026-10-26 by an ad-hoc `/orchestrate` for [#152](https://github.com/northguild/worktree/issues/152), which took the first option: `docs/package.json` gained a `typecheck` script, `ci.yml` runs it on every pull request, and `verify.md`'s Typecheck section names it. The 23 errors counted above had already gone by then; its Gate 1 run exited 0, and a planted type error in `docs/worker/` made it exit 1.
 
 ### F-064 — P3 — two shipped skill artifacts claim 9 config keys; there are 15
 

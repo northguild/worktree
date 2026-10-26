@@ -192,7 +192,7 @@ worktree config branchPrefix.chore chore/
 
 - `worktree branch --github <issue-number>` reads issues from the current repository remote.
 - Branch prefix keys are optional. If missing, `worktree` uses no prefix.
-- If `github.token` is missing, `worktree` can attempt to use `gh auth token` and then prompt.
+- If `github.token` is missing, `worktree` can attempt to use `gh auth token` (read each run, never saved) and then prompt; only a typed or configured token is stored.
 - `github.autoAssign` decides whether reading an issue also assigns it to you. It has three states, not
   two: `true` always assigns, `false` never does, and leaving it **unset** means you are asked, once, and
   your answer is saved to this key. A non-interactive run does not ask: it assigns and saves nothing. Assigning needs a token whose account has push access to the repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.
