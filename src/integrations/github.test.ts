@@ -278,7 +278,30 @@ describe("GitHub integration", () => {
     );
 
     await expect(fetchGitHubIssue(999)).rejects.toThrow(
-      'GitHub: Failed to fetch issue 999 from northguild/worktree. 404 Not Found - {"message":"Not Found"}',
+      new Error(
+        'GitHub: Failed to fetch issue 999 from northguild/worktree. 404 Not Found - {"message":"Not Found"}',
+      ),
+    );
+  });
+
+  it("adds no hint to a 401 when no token was sent", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce(""); // git config: no token
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce({ ok: true }); // repository probe answers
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchGitHubIssue(13)).rejects.toThrow(
+      new Error(
+        'GitHub: Failed to fetch issue 13 from northguild/worktree. 401 Unauthorized - {"message":"Bad credentials"}',
+      ),
     );
   });
 
@@ -287,7 +310,6 @@ describe("GitHub integration", () => {
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git"); // git remote get-url origin
     runSpy.mockResolvedValueOnce(""); // git config token (no token)
     runSpy.mockResolvedValueOnce("ghp_auto_token"); // gh auth token
-    runSpy.mockResolvedValueOnce(""); // gitSetConfigValue (saving token)
 
     const fetchSpy = vi.fn();
     fetchSpy.mockResolvedValueOnce({
@@ -310,10 +332,8 @@ describe("GitHub integration", () => {
     ); // issue fetch succeeds with token
     vi.stubGlobal("fetch", fetchSpy);
 
-    expectCommands(
-      "gh auth token",
-      "git config northguild.worktree.github.token ghp_auto_token",
-    );
+    // The token from `gh` is used for this run only: no `git config` write.
+    expectCommands("gh auth token");
 
     const issue = await fetchGitHubIssue(13);
 
@@ -321,6 +341,11 @@ describe("GitHub integration", () => {
     expect(runSpy).toHaveBeenCalledWith("gh", ["auth", "token"], {
       timeout: 10_000,
     });
+    expect(runSpy).not.toHaveBeenCalledWith("git", [
+      "config",
+      "northguild.worktree.github.token",
+      "ghp_auto_token",
+    ]);
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://api.github.com/repos/northguild/worktree/issues/13",
       {
@@ -330,6 +355,100 @@ describe("GitHub integration", () => {
         signal: expect.any(AbortSignal),
       },
     );
+  });
+
+  it("stores a token the person typed at the prompt", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
+    runSpy.mockResolvedValueOnce("");
+    runSpy.mockRejectedValueOnce(new Error("not logged in")); // gh auth token
+    runSpy.mockResolvedValueOnce(""); // gitSetConfigValue (saving token)
+    vi.mocked(input).mockResolvedValueOnce("ghp_typed_token");
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      text: vi.fn().mockResolvedValue(""),
+    });
+    fetchSpy.mockResolvedValueOnce(
+      makeOkJsonResponse(makeIssueApiResponse({ number: 13, type: null })),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    expectCommands(
+      "gh auth token",
+      "git config northguild.worktree.github.token ghp_typed_token",
+    );
+
+    await fetchGitHubIssue(13);
+
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "config",
+      "northguild.worktree.github.token",
+      "ghp_typed_token",
+    ]);
+  });
+
+  it("says the stored token was refused, naming both remedies, on a 401 fetching an issue", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_stale_token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+      }),
+    );
+
+    const error = await fetchGitHubIssue(13).catch((e: Error) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    const { message } = error as Error;
+    expect(message).toContain(
+      'GitHub: Failed to fetch issue 13 from northguild/worktree. 401 Unauthorized - {"message":"Bad credentials"}',
+    );
+    expect(message).toContain("The stored github.token was refused.");
+    expect(message).toContain("`worktree config github.token <token>`");
+    expect(message).toContain(
+      "`git config --unset northguild.worktree.github.token`",
+    );
+    expect(message).not.toContain("GitHub refused the token");
+    expect(message).not.toContain("ghp_stale_token");
+  });
+
+  it("keeps the gh hint on a 401 for a token that came from gh", async () => {
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
+    runSpy.mockResolvedValueOnce(""); // git config: no token
+    runSpy.mockResolvedValueOnce("ghp_gh_token"); // gh auth token
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      text: vi.fn().mockResolvedValue(""),
+    }); // repo check fails
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    expectCommands("gh auth token");
+
+    const error = await fetchGitHubIssue(13).catch((e: Error) => e);
+
+    const { message } = error as Error;
+    expect(message).toContain("GitHub refused the token");
+    expect(message).toContain("`gh auth login`");
+    expect(message).toContain("`worktree config github.token <token>`");
+    expect(message).not.toContain("stored github.token");
+    expect(message).not.toContain("ghp_gh_token");
   });
 
   it("fails naming where to put a token, and prints nothing, when non-interactive", async () => {
@@ -401,9 +520,22 @@ describe("GitHub integration", () => {
       }),
     );
 
-    await expect(fetchGitHubLogin()).rejects.toThrow(
+    const error = await fetchGitHubLogin().catch((e: Error) => e);
+
+    expect((error as Error).message).toContain(
       'GitHub: Failed to resolve the authenticated user. 401 Unauthorized - {"message":"Bad credentials"}',
     );
+    expect((error as Error).message).toContain(
+      "The stored github.token was refused.",
+    );
+    expect((error as Error).message).toContain(
+      "`worktree config github.token <token>`",
+    );
+    expect((error as Error).message).toContain(
+      "`git config --unset northguild.worktree.github.token`",
+    );
+    expect((error as Error).message).not.toContain("GitHub refused the token");
+    expect((error as Error).message).not.toContain("ghp_test_token");
   });
 
   it("assigns the authenticated user to the issue", async () => {
@@ -488,8 +620,89 @@ describe("GitHub integration", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await expect(assignGitHubIssue(42)).rejects.toThrow(
-      'GitHub: Failed to assign issue 42 in northguild/worktree. 403 Forbidden - {"message":"Resource not accessible"}',
+      new Error(
+        'GitHub: Failed to assign issue 42 in northguild/worktree. 403 Forbidden - {"message":"Resource not accessible"}',
+      ),
     );
+  });
+
+  it("gives the stored-token hint when /user answers 401 during an assignment", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+      }),
+    );
+
+    const error = await assignGitHubIssue(42).catch((e: Error) => e);
+
+    const { message } = error as Error;
+    expect(message).toContain("The stored github.token was refused.");
+    expect(message).toContain(
+      "`git config --unset northguild.worktree.github.token`",
+    );
+    expect(message).not.toContain("GitHub refused the token");
+    expect(message).not.toContain("ghp_test_token");
+  });
+
+  it("gives the gh hint when /user answers 401 for a gh token during an assignment", async () => {
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
+    runSpy.mockResolvedValueOnce(""); // git config: no token
+    runSpy.mockResolvedValueOnce("ghp_gh_token"); // gh auth token
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+      }),
+    );
+    expectCommands("gh auth token");
+
+    const error = await assignGitHubIssue(42).catch((e: Error) => e);
+
+    const { message } = error as Error;
+    expect(message).toContain("GitHub refused the token");
+    expect(message).toContain("`gh auth login`");
+    expect(message).not.toContain("stored github.token");
+    expect(message).not.toContain("ghp_gh_token");
+  });
+
+  it("says the token was refused when the assignment request answers 401", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
+
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce(makeOkJsonResponse(makeUserResponse()));
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const error = await assignGitHubIssue(42).catch((e: Error) => e);
+
+    expect((error as Error).message).toContain(
+      "GitHub: Failed to assign issue 42 in northguild/worktree. 401 Unauthorized",
+    );
+    expect((error as Error).message).toContain(
+      "The stored github.token was refused.",
+    );
+    expect((error as Error).message).toContain(
+      "`git config --unset northguild.worktree.github.token`",
+    );
+    expect((error as Error).message).not.toContain("ghp_test_token");
   });
 
   it("throws for an invalid issue id without reaching the network", async () => {

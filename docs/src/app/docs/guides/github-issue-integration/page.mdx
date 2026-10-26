@@ -40,9 +40,24 @@ If a prefix key is not configured, no prefix is applied.
 Authentication is resolved in this order:
 
 1. Existing `github.token` in local git config.
-2. `gh auth token` from GitHub CLI.
+2. `gh auth token` from GitHub CLI. The token is read on each run and is **never saved** to git config, so
+   it cannot go stale or sit in clear text.
 3. Interactive prompt for a token, then save to local git config. A non-interactive run has no prompt: it exits
    `2` naming `worktree config github.token <token>` or `gh auth login`, and never prints a token.
+
+Only a token you type at the prompt or set with `worktree config github.token <token>` is stored. If GitHub
+refuses a token with `401`, the error says so. A stored token wins over `gh`, so when it is the one
+refused, running `gh auth login` does not help: the error tells you to replace it with
+`worktree config github.token <token>`, or to remove it so `gh auth token` is used again:
+
+```bash
+git config --unset northguild.worktree.github.token
+```
+
+A token saved by an earlier version stays stored until you run that command or replace it.
+
+A token that came from `gh` or from the prompt this run gets a shorter hint: `gh auth login`, or
+`worktree config github.token <token>`.
 
 Reading an issue and assigning one need different amounts of access. A public repository answers an
 unauthenticated read, which is why `--github` has never required a token there. **Assigning always requires
