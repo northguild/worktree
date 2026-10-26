@@ -1195,7 +1195,11 @@ describe("branch command", () => {
         // assignment's; without this, swapping `warn` for `fail` or `succeed`
         // is invisible to the whole suite.
         const spinner = vi.mocked(ora).mock.results.at(-1)?.value;
-        expect(spinner.warn).toHaveBeenCalled();
+        // The same sentence the branch, configuration and GitHub guide docs
+        // carry; nothing here reads those pages, so change them together.
+        expect(spinner.warn).toHaveBeenCalledWith(
+          "Issue #42 was not assigned to octocat. Assigning needs a token whose account has push access to the repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.",
+        );
         expect(spinner.fail).not.toHaveBeenCalled();
         expect(spinner.succeed).not.toHaveBeenCalled();
       });
