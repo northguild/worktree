@@ -283,10 +283,12 @@ export async function gitGetWorktrees({
           ? branchName === currentBranch
           : path === currentPath,
       }))
-      // Filter out any branches that are not worktree branches, and also skip the current branch
+      // Filter out any branches that are not worktree branches, and also skip the current branch.
+      // The trailing separator keeps a sibling such as `<root>.worktrees-old` out.
       .filter(
         ({ path, isCurrent }) =>
-          path.startsWith(worktreesRootPath) && (includeCurrent || !isCurrent),
+          path.startsWith(`${worktreesRootPath}/`) &&
+          (includeCurrent || !isCurrent),
       )
   );
 }
