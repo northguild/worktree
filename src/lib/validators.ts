@@ -113,6 +113,13 @@ export function isValidAgentKind(value: string): true | string {
   );
 }
 
+// A token or API key that is only whitespace authenticates nothing. The wizard
+// already keeps the stored token on such an answer; a direct `worktree config
+// <key> <value>` is refused instead, rather than storing it.
+export function isValidToken(value: string): true | string {
+  return value.trim() !== "" || "Token cannot be empty";
+}
+
 export async function isValidConfigValue(
   configName: string,
   value: string,
@@ -132,6 +139,10 @@ export async function isValidConfigValue(
       return isValidBoolean(value);
     case "herdr.agent":
       return isValidAgentKind(value);
+    case "github.token":
+    case "jira.apiToken":
+    case "linear.apiKey":
+      return isValidToken(value);
     case "agent.command":
     // Executed in every new worktree, so it is held to the same check as the
     // other command line: its head has to be a program that exists.

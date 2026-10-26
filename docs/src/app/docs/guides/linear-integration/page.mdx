@@ -91,4 +91,4 @@ An empty answer to the key prompt keeps the key already stored rather than clear
 
 The key is stored locally in git config and never sent anywhere except to Linear. `worktree` never prints it:
 any `lin_api_` key that would reach the output is replaced first. The key is checked the first time `--linear`
-uses it; `worktree config` does not validate it.
+uses it; `worktree config` refuses a key that is only whitespace but does not check it with Linear.
