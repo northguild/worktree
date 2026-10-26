@@ -799,6 +799,126 @@ describe("config command", () => {
     });
   });
 
+  // Issue #122: the Jira host prompt offered the placeholder
+  // `example.atlassian.com` as its default, so Enter overwrote a real host (or
+  // wrote the placeholder onto an unset one). Expected values come from the
+  // issue's "Expected" text, not from the code's output.
+  describe("jira.host prompt", () => {
+    const hostRun = () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, names: "jira.host" },
+      });
+    };
+    const withStoredHost = (stored: string) => {
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "jira.host") return Promise.resolve(stored);
+        return Promise.resolve("");
+      });
+    };
+
+    // Issue: "offers the stored host as an editable default".
+    it("should offer the stored host as an editable default", async () => {
+      mockInput.mockResolvedValue("https://real.atlassian.net");
+      withStoredHost("https://real.atlassian.net");
+      hostRun();
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          default: "https://real.atlassian.net",
+          prefill: "editable",
+        }),
+      );
+    });
+
+    // Issue: "with nothing stored offers NO default that Enter would write";
+    // the placeholder may remain only as hint text in the message.
+    it("should pass no default when no host is stored", async () => {
+      mockInput.mockResolvedValue("https://new.atlassian.net");
+      withStoredHost("");
+      hostRun();
+
+      await config.run();
+
+      const prompt = mockInput.mock.calls[0][0] as {
+        default?: string;
+        message: string;
+      };
+      expect(prompt.default ?? "").toBe("");
+      expect(prompt.default).not.toContain("example.atlassian.com");
+    });
+
+    // Issue: "An empty/whitespace-only answer must not be written as the host".
+    it("should reject an empty or whitespace-only answer with its validator", async () => {
+      mockInput.mockResolvedValue("https://new.atlassian.net");
+      hostRun();
+
+      await config.run();
+
+      const { validate } = mockInput.mock.calls[0][0] as {
+        validate: (value: string) => true | string | Promise<true | string>;
+      };
+      expect(await validate("")).not.toBe(true);
+      expect(await validate("   ")).not.toBe(true);
+      expect(await validate("https://new.atlassian.net")).toBe(true);
+    });
+
+    it("should write the answer the prompt returns", async () => {
+      mockInput.mockResolvedValue("https://new.atlassian.net");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      hostRun();
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "jira.host",
+        "https://new.atlassian.net",
+      );
+    });
+
+    // Issue: "Non-interactive behaviour must stay as now: fallback is the
+    // stored host or nothing".
+    it("should take the stored host without prompting when non-interactive", async () => {
+      setNonInteractive(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      withStoredHost("https://real.atlassian.net");
+      hostRun();
+
+      await config.run();
+
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "jira.host",
+        "https://real.atlassian.net",
+      );
+    });
+
+    // Issue: "a missing one fails naming `worktree config jira.host <value>`".
+    it("should fail naming worktree config jira.host when non-interactive and none is stored", async () => {
+      setNonInteractive(true);
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      withStoredHost("");
+      hostRun();
+
+      await expect(config.run()).rejects.toThrow(
+        "worktree config jira.host <value>",
+      );
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "jira.host",
+        expect.anything(),
+      );
+    });
+  });
+
   describe("opener prompts", () => {
     it("should set both opener and herdr.focus from a prompt run", async () => {
       mockSelect.mockResolvedValueOnce("herdr");
