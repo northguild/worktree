@@ -140,7 +140,8 @@ export const BRANCH_SLUG_MAX_LENGTH = 48;
  * The title part of a derived branch name (D7): `sanitizeBranchName`, cut to at
  * most `BRANCH_SLUG_MAX_LENGTH` characters at the last `-` at or before that
  * length, so the slug ends on a whole word. The same slug is used in both modes,
- * so one GitHub issue never yields two names. Jira names do not use it.
+ * so one GitHub issue never yields two names, and `--jira` and `--linear` cut
+ * theirs the same way.
  *
  * A title whose first 49 characters hold no `-` (one unbroken word) has no word
  * boundary to cut at, so it is hard-cut at the limit. An empty result falls back

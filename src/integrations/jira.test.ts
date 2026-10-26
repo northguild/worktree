@@ -155,6 +155,75 @@ describe("Jira integration", () => {
     expect(branchName).toBe("fix/DEV-42-fix-login-bug");
   });
 
+  it("cuts a long summary to a whole-word slug of at most 48 characters", async () => {
+    expectCommands(
+      "git config northguild.worktree.jira.host",
+      "git config northguild.worktree.jira.email",
+      "git config northguild.worktree.jira.apiToken",
+      "git config northguild.worktree.branchPrefix.bugfix",
+    );
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("example.atlassian.net")
+      .mockResolvedValueOnce("test@example.com")
+      .mockResolvedValueOnce("api-token")
+      .mockResolvedValueOnce("fix/");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(
+          makeJiraIssue({
+            key: "DEV-43",
+            fields: {
+              summary:
+                "Login redirect loops forever when the session cookie expires during a multi step checkout flow",
+              issuetype: { id: "10008", name: "Bug" },
+            },
+          }),
+        ),
+      }),
+    );
+
+    const branchName = await getJiraBranchNameFromIssue("dev-43");
+
+    expect(branchName).toBe(
+      "fix/DEV-43-login-redirect-loops-forever-when-the-session",
+    );
+  });
+
+  it('falls back to "issue" when the summary leaves no slug', async () => {
+    expectCommands(
+      "git config northguild.worktree.jira.host",
+      "git config northguild.worktree.jira.email",
+      "git config northguild.worktree.jira.apiToken",
+      "git config northguild.worktree.branchPrefix.bugfix",
+    );
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("example.atlassian.net")
+      .mockResolvedValueOnce("test@example.com")
+      .mockResolvedValueOnce("api-token")
+      .mockResolvedValueOnce("fix/");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(
+          makeJiraIssue({
+            key: "DEV-44",
+            fields: {
+              summary: "!!!",
+              issuetype: { id: "10008", name: "Bug" },
+            },
+          }),
+        ),
+      }),
+    );
+
+    const branchName = await getJiraBranchNameFromIssue("dev-44");
+
+    expect(branchName).toBe("fix/DEV-44-issue");
+  });
+
   it("validates Jira credentials against jira.host", async () => {
     expectCommands(
       "git config northguild.worktree.jira.host",
