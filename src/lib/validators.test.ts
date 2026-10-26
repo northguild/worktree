@@ -11,6 +11,7 @@ import {
   isValidConfigValue,
   isValidEmail,
   isValidOpener,
+  isValidToken,
   validateConfigValue,
 } from "./validators.js";
 
@@ -160,10 +161,25 @@ describe("isValidConfigValue", () => {
   it("leaves a config name with no case unvalidated", async () => {
     vi.spyOn(cli, "commandExists").mockResolvedValue(false);
 
-    expect(await isValidConfigValue("github.token", "anything at all")).toBe(
-      true,
-    );
+    expect(await isValidConfigValue("jira.host", "anything at all")).toBe(true);
     expect(cli.commandExists).not.toHaveBeenCalled();
+  });
+});
+
+describe("isValidToken", () => {
+  // Source: issue #145 — a whitespace-only value must be refused; any value with
+  // a non-whitespace character is a token as far as the CLI can tell.
+  it.each`
+    value             | expected                   | description
+    ${"ghp_abc123"}   | ${true}                    | ${"a real token"}
+    ${" ghp_abc123 "} | ${true}                    | ${"a token with surrounding whitespace"}
+    ${"   "}          | ${"Token cannot be empty"} | ${"only spaces"}
+    ${"\t"}           | ${"Token cannot be empty"} | ${"a tab"}
+    ${"\n"}           | ${"Token cannot be empty"} | ${"a newline"}
+    ${" \t\r\n "}     | ${"Token cannot be empty"} | ${"mixed whitespace"}
+    ${""}             | ${"Token cannot be empty"} | ${"empty"}
+  `("returns $expected for $description", ({ value, expected }) => {
+    expect(isValidToken(value)).toBe(expected);
   });
 });
 
@@ -364,6 +380,17 @@ describe("isValidConfigValue — github.autoAssign", () => {
     expect(await isValidConfigValue("github.autoAssign", "yes")).toBe(
       "Value must be true or false",
     );
+  });
+});
+
+describe("isValidConfigValue token keys", () => {
+  it.each([
+    "github.token",
+    "jira.apiToken",
+    "linear.apiKey",
+  ])("refuses a whitespace-only value for %s", async (name) => {
+    expect(await isValidConfigValue(name, "   ")).toBe("Token cannot be empty");
+    expect(await isValidConfigValue(name, "real-token")).toBe(true);
   });
 });
 

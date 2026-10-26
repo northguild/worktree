@@ -191,6 +191,30 @@ describe("config command", () => {
       expect(mockSetConfigValue).toHaveBeenCalledWith("opener", "none");
     });
 
+    it.each([
+      "github.token",
+      "jira.apiToken",
+      "linear.apiKey",
+    ])("should refuse a whitespace-only %s and store nothing", async (name) => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name, value: "   " },
+        flags: {},
+      });
+
+      await expect(config.run()).rejects.toMatchObject({
+        code: "invalid_value",
+        oclif: { exit: 2 },
+      });
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        name,
+        expect.anything(),
+      );
+    });
+
     it("should reject a bogus opener naming the accepted kinds", async () => {
       // Earlier tests stub the validator; this one wants the real one.
       vi.spyOn(validators, "validateConfigValue").mockRestore();

@@ -83,6 +83,8 @@ time". The last leaves the key unset, clearing any stored answer, which is the "
 `--missing` goes on offering the prompt until you settle it either way. Leaving the `github.token`,
 `jira.apiToken` or `linear.apiKey` prompt empty, or answering with only spaces, keeps any token you already have,
 rather than clearing it. A pasted value is stored without surrounding whitespace.
+A direct `worktree config github.token "   "` (likewise `jira.apiToken` and `linear.apiKey`) with a value that is only
+whitespace is refused with exit `2`, and nothing is stored.
 
 ## Agent Key
 
