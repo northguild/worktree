@@ -1099,6 +1099,9 @@ describe("branch command", () => {
         vi.spyOn(git, "gitSetConfigValue").mockRejectedValue(
           new Error("error: could not lock config file .git/config"),
         );
+        const mockWarn = vi
+          .spyOn(branch, "warn")
+          .mockImplementation((input: any) => input);
         githubRun({});
         const mockGitCreateWorktree = vi
           .spyOn(git, "gitCreateWorktree")
@@ -1115,6 +1118,38 @@ describe("branch command", () => {
         expect(mockOpenWorktreePath).toHaveBeenCalledWith(
           "/path/to/worktree",
           defaultOpenOptions,
+        );
+        expect(mockWarn).toHaveBeenCalledWith(
+          "Could not save github.autoAssign, so you will be asked again next time. error: could not lock config file .git/config",
+        );
+      });
+
+      it("puts a non-Error rejection into the warning when persisting the answer fails", async () => {
+        // The write is bookkeeping about whether to assign, not the assignment
+        // itself, so §2 covers it just as firmly: a stale .git/config.lock must
+        // not cost the user the branch they asked for.
+        mockConfirm.mockResolvedValue(true);
+        vi.spyOn(git, "gitSetConfigValue").mockRejectedValue(
+          "config file is locked",
+        );
+        const mockWarn = vi
+          .spyOn(branch, "warn")
+          .mockImplementation((input: any) => input);
+        githubRun({});
+        const mockGitCreateWorktree = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockResolvedValue("/path/to/worktree");
+
+        await expect(branch.run()).resolves.toMatchObject({
+          path: "/path/to/worktree",
+        });
+
+        expect(mockGitCreateWorktree).toHaveBeenCalledWith(
+          "42-add-dark-mode",
+          "origin/main",
+        );
+        expect(mockWarn).toHaveBeenCalledWith(
+          "Could not save github.autoAssign, so you will be asked again next time. config file is locked",
         );
       });
 
