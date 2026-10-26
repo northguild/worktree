@@ -277,6 +277,27 @@ describe("git root path", () => {
     expect(path).toBe("/repo/project");
   });
 
+  it.each([
+    "/Users/x/.github/proj",
+    "/Users/x/.git/proj",
+    "/Users/x/.gitfiles/proj",
+  ])("keeps a %s parent directory in the resolved root", async (root) => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce(`${root}.worktrees/a`)
+      .mockResolvedValueOnce(`${root}/.git/worktrees/a`);
+
+    expect(await gitGetRootPath()).toBe(root);
+  });
+
+  it("resolves a main checkout under a .worktrees path to its own root", async () => {
+    const root = "/Users/x/.github/r.worktrees/app";
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce(root)
+      .mockResolvedValueOnce(`${root}/.git`);
+
+    expect(await gitGetRootPath()).toBe(root);
+  });
+
   it("throws a friendly error when git commands fail", async () => {
     vi.spyOn(cli, "run").mockRejectedValueOnce(new Error("not a repo"));
 
