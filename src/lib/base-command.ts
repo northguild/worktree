@@ -71,7 +71,7 @@ const JSON_ERROR_CODES: readonly JsonErrorCode[] = [
   "failed",
 ];
 
-// The timeout messages this CLI writes — github.ts, jira.ts, linear.ts, git.ts, herdr.ts
+// The timeout messages this CLI writes — github.ts, jira.ts, linear.ts, clickup.ts, git.ts, herdr.ts
 // and cli.ts all say "<what> did not answer|finish within <n>s".
 const TIMEOUT_MESSAGE = /did not (?:answer|finish) within \d+s/;
 

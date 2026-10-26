@@ -20,3 +20,9 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
 - **Phase 2:** the "keeps the stored token for an empty answer" test does not assert the prompt was asked;
   the Jira twin's `expect(mockInput).toHaveBeenCalled()` would pin it. Two other test titles (prompt order,
   workspace id still listed) promise more than they assert.
+- **Phase 3:** no `branch`-level test that a `pk_` token quoted in a ClickUp error is scrubbed from
+  output (GitHub has one); redaction is pinned generically in `base-command.ts` and `redact.test.ts`.
+- **Phase 3:** the workspace-id test's `vi.spyOn(globalThis, "fetch")` passes through, so a regression
+  would make a real request before failing; `.mockRejectedValue(...)` would keep it offline.
+- **Phase 3:** no `branch`-level test for an invalid id (exit 2, `invalid_value`) or for
+  `--no-assign --clickup`; the first is pinned in `clickup.test.ts`, the second matches Linear.

@@ -151,7 +151,8 @@ export interface JsonErrorDocument {
 export type BranchIssue =
   | { provider: "github"; number: number; url: string | null }
   | { provider: "jira"; key: string; url: string | null }
-  | { provider: "linear"; key: string; url: string | null };
+  | { provider: "linear"; key: string; url: string | null }
+  | { provider: "clickup"; key: string; url: string | null };
 
 export interface BranchDocument {
   path: string;
