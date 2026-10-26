@@ -11,3 +11,10 @@ Branch-local observations from the gates of #56. Read by nobody; `/feature-close
   `agentWorktree`'s mocked `safeToRemove: false` after stripping its agent, which a real
   `gitGetWorktreeList` would not return. `docs/.../cleanup/page.mdx:154` appends its sentence to an
   already long line. All cosmetic (Gate 2, non-blocking).
+- **Phase 4** — `src/lib/cli.ts` `spawnDetached`: on `pid === undefined` the warning carries a synthesised
+  `spawn <file> failed to start`, because the errno only arrives on the later `error` event; a human run
+  shows the specific `Error: spawn … ENOENT` line right after it, but the `--json` `warnings` entry stays
+  generic. Separately, a brief from `--agent-file`/`--agent-stdin` containing a NUL byte makes `spawn`
+  throw `ERR_INVALID_ARG_VALUE`, whose message quotes the argument, so the brief text reaches the warning
+  (it reached the uncaught throw before this phase; `checkBrief` does not reject NUL bytes). Gate 2,
+  non-blocking.

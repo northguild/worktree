@@ -233,6 +233,8 @@ There is **one agent per worktree**, started one of two ways:
   `` worktree: no default for the agent command; pass `worktree config agent.command "<command>"` ``. If
   Herdr was expected to open and failed, and there is no `agent.command` to fall back to, the worktree is
   kept and the run exits `1`.
+  If the program in `agent.command` cannot be started (it is not installed, say), a warning says so, the
+  worktree is kept, no `Agent started` line is printed, `agent` is `null`, and the run exits `1`.
 
 `--no-agent` opens the worktree as usual but starts no agent. `--no-open` creates the worktree and prints
 `Worktree created at <path>` without calling Herdr or the editor, for this run only, like `opener` `none`;

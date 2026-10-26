@@ -61,6 +61,10 @@ class TestCommand extends BaseCommand {
     return this.dispatchAgent(path, prompt);
   }
 
+  get recordedWarnings() {
+    return this.warnings;
+  }
+
   closer() {
     return this.resolveSpaceCloser();
   }
@@ -310,6 +314,19 @@ describe("openWorktreePath — the editor and none openers", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  // Decided by the plan's D7 and the branch page's contract (agent is null when
+  // none was started; a brief that reached no agent exits 1), not by the code.
+  it("exits 1 with agent null when the detached launch did not start", async () => {
+    setConfig({ opener: "none", "agent.command": "claude" });
+    vi.spyOn(command, "logToStderr").mockImplementation(() => {});
+    mockSpawnDetached.mockReturnValueOnce(new Error("spawn claude failed"));
+
+    const outcome = await command.open(worktreePath, { brief: "do it" });
+
+    expect(outcome.agent).toBeUndefined();
+    expect(process.exitCode).toBe(1);
+  });
+
   it("dispatches no agent for --no-agent, but still opens the editor", async () => {
     setConfig({
       opener: "editor",
@@ -419,6 +436,26 @@ describe("dispatchAgent", () => {
     expect(logSpy).toHaveBeenCalledWith(
       'No agent configured. Run worktree config agent.command "<command>" to set one.',
     );
+  });
+
+  it("prints no success line and warns when the launch did not start", async () => {
+    mockSpawnDetached.mockReturnValueOnce(new Error("spawn claude failed"));
+    // Passes through to the real warn, which records the message and prints it:
+    // a synchronous throw has no child, so no onError line ever follows.
+    const warnSpy = vi.spyOn(command, "warn");
+
+    const started = await command.dispatch(worktreePath, prompt);
+
+    expect(started).toBeUndefined();
+    expect(logSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("Agent started"),
+    );
+    // The phrase is the plan's D7, following "No agent configured, so the brief
+    // was not delivered" just above it in dispatchAgent.
+    const warning =
+      "The agent could not be started (spawn claude failed), so the brief was not delivered.";
+    expect(warnSpy).toHaveBeenCalledWith(warning);
+    expect(command.recordedWarnings).toEqual([warning]);
   });
 
   it("reports a failed launch through the error handler it registers", async () => {
