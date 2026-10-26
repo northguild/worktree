@@ -229,7 +229,7 @@ export default class Config extends BaseCommand {
         // message as a hint only. A non-interactive run takes the stored host
         // and fails on none, because the validator rejects an empty one.
         const jiraHost = await this.askConfigInput("jira.host", {
-          message: "Jira host (for example example.atlassian.com)",
+          message: "Jira host (for example https://your-domain.atlassian.net)",
           validate: (value) =>
             value.trim() ? true : "Jira host cannot be empty",
         });
