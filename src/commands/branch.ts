@@ -17,7 +17,12 @@ import {
 import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
-import { askConfirm, askInput, MissingValueError } from "../lib/prompt.js";
+import {
+  askConfirm,
+  askInput,
+  InvalidValueError,
+  MissingValueError,
+} from "../lib/prompt.js";
 import type {
   BranchDocument,
   BranchIssue,
@@ -228,21 +233,77 @@ was not delivered
     const spinner = createSpinner(
       `Fetching GitHub issue #${issueNumber}`,
     ).start();
+    let fetched: {
+      issue: Awaited<ReturnType<typeof fetchGitHubIssue>>;
+      prefix: string;
+    };
     try {
       const issue = await fetchGitHubIssue(issueNumber);
+      if (issue.pullRequest) {
+        // A pull request already has a branch; a new one named after its title
+        // is never what was meant.
+        // A ref name may hold `;`, `$` or a backtick, so only a name that
+        // pastes as one shell word is put into the suggested command.
+        const { headBranch } = issue.pullRequest;
+        const suggestable = headBranch && /^[\w./-]+$/.test(headBranch);
+        throw new InvalidValueError(
+          `GitHub: #${issue.number} is a pull request, not an issue. ${
+            suggestable
+              ? `To work on its branch, run \`worktree checkout ${headBranch}\`.`
+              : "To work on its branch, run `worktree checkout` and pick it."
+          }`,
+        );
+      }
       const prefix = await this.getGitHubBranchPrefix(issue.type?.name);
       spinner.succeed();
-      return {
-        branchName: `${prefix}${issue.number}-${slugifyBranchTitle(issue.title)}`,
-        issue: {
-          provider: "github",
-          number: issue.number,
-          url: issue.htmlUrl ?? null,
-        },
-      };
+      fetched = { issue, prefix };
     } catch (error) {
       spinner.fail();
       throw error;
+    }
+
+    // After the spinner has settled, so a declined prompt is not reported as a
+    // failed fetch as well.
+    const { issue, prefix } = fetched;
+    if (issue.state === "closed") {
+      await this.confirmClosedGithubIssue(issue);
+    }
+    return {
+      branchName: `${prefix}${issue.number}-${slugifyBranchTitle(issue.title)}`,
+      issue: {
+        provider: "github",
+        number: issue.number,
+        url: issue.htmlUrl ?? null,
+      },
+    };
+  }
+
+  /**
+   * Starting work on a closed issue is allowed but rarely meant. A run that
+   * cannot ask carries on with the warning, so `--json` reports it in
+   * `warnings`; declining ends the run before anything is created.
+   */
+  private async confirmClosedGithubIssue(issue: {
+    number: number;
+    stateReason: string | null;
+  }) {
+    const reason = issue.stateReason
+      ? ` as ${issue.stateReason.replace(/_/g, " ")}`
+      : "";
+    const message = `Issue #${issue.number} is closed${reason}.`;
+    if (isNonInteractive()) {
+      this.warn(message);
+      return;
+    }
+    const proceed = await askConfirm(
+      { message: `${message} Create a branch for it anyway?` },
+      { value: "whether to branch from a closed issue", flag: "--github" },
+    );
+    if (!proceed) {
+      // Not a usage error: the user answered, so it exits 1 rather than 2.
+      this.error(`Not creating a branch for closed issue #${issue.number}.`, {
+        exit: 1,
+      });
     }
   }
 
