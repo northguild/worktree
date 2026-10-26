@@ -37,7 +37,7 @@ jobs:
       changed: ${{ steps.version.outputs.changed }}
     steps:
       # fetch-depth: 0 so `github.event.before` is present even when a push carries several commits.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -85,16 +85,16 @@ jobs:
       id-token: write # npm trusted publishing (OIDC)
       contents: write # push the tag and create the GitHub release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # tags must be present for the "does it exist" check
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version-file: package.json
           registry-url: https://registry.npmjs.org
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
@@ -172,7 +172,7 @@ jobs:
           echo "url=$(gh release view "$TAG" --json url --jq .url)" >> "$GITHUB_OUTPUT"
 
       - name: Send Discord Notification
-        uses: Ilshidur/action-discord@0.3.2
+        uses: Ilshidur/action-discord@0c4b27844ba47cb1c7bee539c8eead5284ce9fa9 # 0.3.2
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         with:
