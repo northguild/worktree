@@ -420,6 +420,46 @@ describe("GitHub integration", () => {
     expect(message).not.toContain("ghp_stale_token");
   });
 
+  // A typed token is saved before it is sent, so when GitHub refuses it the
+  // copy in git config is what will win next run: the stored hint, not `gh`.
+  it("gives the stored hint on a 401 for a token typed at the prompt", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
+    runSpy.mockResolvedValueOnce(""); // git config: no token
+    runSpy.mockRejectedValueOnce(new Error("not logged in")); // gh auth token
+    runSpy.mockResolvedValueOnce(""); // gitSetConfigValue (saving token)
+    vi.mocked(input).mockResolvedValueOnce("ghp_typed_token");
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      text: vi.fn().mockResolvedValue(""),
+    }); // repo check fails
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    expectCommands(
+      "gh auth token",
+      "git config northguild.worktree.github.token ghp_typed_token",
+    );
+
+    const error = await fetchGitHubIssue(13).catch((e: Error) => e);
+
+    const { message } = error as Error;
+    expect(message).toContain("The stored github.token was refused.");
+    expect(message).toContain(
+      "`git config --unset northguild.worktree.github.token`",
+    );
+    expect(message).not.toContain("GitHub refused the token");
+    expect(message).not.toContain("ghp_typed_token");
+  });
+
   it("keeps the gh hint on a 401 for a token that came from gh", async () => {
     const runSpy = vi.spyOn(cli, "run");
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
@@ -676,6 +716,39 @@ describe("GitHub integration", () => {
     expect(message).not.toContain("ghp_gh_token");
   });
 
+  it("gives the stored hint when /user answers 401 for a token typed during an assignment", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
+    runSpy.mockResolvedValueOnce(""); // git config: no token
+    runSpy.mockRejectedValueOnce(new Error("not logged in")); // gh auth token
+    runSpy.mockResolvedValueOnce(""); // gitSetConfigValue (saving token)
+    vi.mocked(input).mockResolvedValueOnce("ghp_typed_token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: vi.fn().mockResolvedValue('{"message":"Bad credentials"}'),
+      }),
+    );
+    expectCommands(
+      "gh auth token",
+      "git config northguild.worktree.github.token ghp_typed_token",
+    );
+
+    const error = await assignGitHubIssue(42).catch((e: Error) => e);
+
+    const { message } = error as Error;
+    expect(message).toContain("The stored github.token was refused.");
+    expect(message).toContain(
+      "`git config --unset northguild.worktree.github.token`",
+    );
+    expect(message).not.toContain("GitHub refused the token");
+    expect(message).not.toContain("ghp_typed_token");
+  });
+
   it("says the token was refused when the assignment request answers 401", async () => {
     vi.spyOn(cli, "run")
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
@@ -740,7 +813,10 @@ describe("GitHub integration", () => {
       ),
     );
 
-    const failure = fetchGitHubLogin("ghp_secret_token");
+    const failure = fetchGitHubLogin({
+      token: "ghp_secret_token",
+      source: "gh",
+    });
 
     await expect(failure).rejects.toThrow(
       "GitHub: /user did not answer within 15s.",
