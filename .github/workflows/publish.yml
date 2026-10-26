@@ -175,9 +175,9 @@ jobs:
           fi
           echo "url=$(gh release view "$TAG" --json url --jq .url)" >> "$GITHUB_OUTPUT"
 
-  # Kept out of `publish` on purpose: that job can mint an npm publish credential, so nothing in it may run
-  # code this repository does not control. The post is a plain `curl`, not a third-party action, and this job
-  # holds no token at all.
+  # Kept out of `publish` on purpose: that job can mint an npm publish credential, so nothing runs there that
+  # publishing does not need. The post is a plain `curl`, not a third-party action, and this job holds no
+  # token at all.
   notify:
     needs: publish
     runs-on: ubuntu-latest
