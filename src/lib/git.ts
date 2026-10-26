@@ -209,22 +209,22 @@ export async function gitGetUncommittedChangesCount(branchPath: string) {
 }
 
 export async function gitGetLocalBranchesTracking() {
-  // The format is one argv element, so the single quotes the shell form needed
-  // around its spaces are gone rather than being passed on to git literally.
+  // A space separates the two names because git-check-ref-format(1) forbids one
+  // in a ref name, so the first space is always the boundary. "<-" was no such
+  // boundary: a ref may contain "<". The format is one argv element, so no
+  // shell quoting is involved either.
   const res = await run("git", [
     "for-each-ref",
-    "--format=%(refname:short) <- %(upstream:short)",
+    "--format=%(refname:short) %(upstream:short)",
     "refs/heads",
   ]);
   return res.split(EOL).map((branch) => {
-    const [local, remote] = branch
-      .trim()
-      .split("<-")
-      .map((b) => b.trim());
+    const line = branch.trim();
+    const boundary = line.indexOf(" ");
 
     return {
-      local,
-      remote,
+      local: boundary === -1 ? line : line.slice(0, boundary),
+      remote: boundary === -1 ? "" : line.slice(boundary + 1).trim(),
     };
   });
 }
