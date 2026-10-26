@@ -224,16 +224,15 @@ export default class Config extends BaseCommand {
       ))
     ) {
       if (shouldPrompt("jira.host")) {
-        // The prompt's default is a placeholder, not a host, so a
-        // non-interactive run takes only what is already set.
-        const jiraHost = await askInput(
-          { message: "Jira host", default: "example.atlassian.com" },
-          {
-            value: "jira.host",
-            flag: "worktree config jira.host <value>",
-            fallback: (await gitGetConfigValue("jira.host")) || undefined,
-          },
-        );
+        // The stored host is the editable default; with none stored there is
+        // no default, so Enter cannot write the example host. It stays in the
+        // message as a hint only. A non-interactive run takes the stored host
+        // and fails on none, because the validator rejects an empty one.
+        const jiraHost = await this.askConfigInput("jira.host", {
+          message: "Jira host (for example https://your-domain.atlassian.net)",
+          validate: (value) =>
+            value.trim() ? true : "Jira host cannot be empty",
+        });
         await gitSetConfigValue("jira.host", jiraHost);
       }
 
