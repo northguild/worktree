@@ -114,7 +114,9 @@ worktree config agent.command "nope --bg"     # rejected — Command not found: 
 ```
 
 `worktree` does not assume a particular agent. There is no default value, and nothing about this key is
-specific to one vendor — any agent CLI of the same shape works. The same rules as
+specific to one vendor — any agent CLI of the same shape works. A detached agent's output is discarded, not
+kept anywhere, so the shape includes keeping its own session record: `claude --bg` is reachable through
+`claude agents`, and `codex exec` keeps its session files unless `--ephemeral` is passed. The same rules as
 [Editor Command](#editor-command) apply: no shell parses the value, quotes group an argument containing a
 space, and `~` and `$VAR` are not expanded.
 

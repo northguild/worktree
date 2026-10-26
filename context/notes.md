@@ -24,3 +24,8 @@ Branch-local observations from the gates of #56. Read by nobody; `/feature-close
   worktree* list of what the confirmation names omits the agent session now (still true, not complete). The
   remove page's `warnings` row could name the agent warning, and its example pairs session `feature-one-1f`
   with branch `feature/add-bulk-actions`. Gate 2, non-blocking.
+- **Phase 5** — D8 says the docs give "why" detached output is discarded; the three surfaces give the
+  consequence (name an agent that keeps its own record) but not the reason (a log in the worktree would read
+  as an uncommitted change and hold it back from `cleanup`). The phase's Scope does not ask for it. The
+  phase's coder returned an empty hand-back; its work was judged from the tree and the diff. Gate 2,
+  non-blocking.
