@@ -289,6 +289,15 @@ describe("git root path", () => {
     expect(await gitGetRootPath()).toBe(root);
   });
 
+  it("resolves a main checkout under a .worktrees path to its own root", async () => {
+    const root = "/Users/x/.github/r.worktrees/app";
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce(root)
+      .mockResolvedValueOnce(`${root}/.git`);
+
+    expect(await gitGetRootPath()).toBe(root);
+  });
+
   it("throws a friendly error when git commands fail", async () => {
     vi.spyOn(cli, "run").mockRejectedValueOnce(new Error("not a repo"));
 
