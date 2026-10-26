@@ -1234,6 +1234,63 @@ describe("config command", () => {
     });
   });
 
+  // Expected values: an answer is written only when non-empty after
+  // `String.prototype.trim` (ECMA-262), and then as the trimmed text; this is
+  // F-047's "guard on the trimmed value, write the trimmed value", and the
+  // Linear cases above are the existing precedent.
+  describe("Jira API token prompt", () => {
+    const jiraTokenRun = () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, names: "jira.apiToken" },
+      });
+    };
+
+    it.each([
+      "",
+      "   ",
+      "\t\n",
+    ])("writes nothing for an empty answer (%j)", async (answer) => {
+      mockInput.mockResolvedValue(answer);
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      jiraTokenRun();
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalled();
+      expect(mockSet).not.toHaveBeenCalledWith(
+        "jira.apiToken",
+        expect.anything(),
+      );
+    });
+
+    it("stores a pasted token without surrounding whitespace", async () => {
+      mockInput.mockResolvedValue("  jira_pasted_placeholder \n");
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      jiraTokenRun();
+
+      await config.run();
+
+      expect(mockSet).toHaveBeenCalledWith(
+        "jira.apiToken",
+        "jira_pasted_placeholder",
+      );
+    });
+
+    it("stores a plain token as given", async () => {
+      mockInput.mockResolvedValue("jira_plain_placeholder");
+      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      jiraTokenRun();
+
+      await config.run();
+
+      expect(mockSet).toHaveBeenCalledWith(
+        "jira.apiToken",
+        "jira_plain_placeholder",
+      );
+    });
+  });
+
   // `github.token` was in CONFIG_NAMES with no prompt block, so `--missing`
   // listed it as missing and then asked nothing. These pin that both GitHub
   // keys are actually answerable — the dead-key shape is what they guard.
@@ -1315,8 +1372,12 @@ describe("config command", () => {
       );
     });
 
-    it("should keep a stored github.token when the prompt is answered empty", async () => {
-      mockInput.mockResolvedValue("");
+    it.each([
+      "",
+      "   ",
+      "\t\n",
+    ])("should keep a stored github.token when the prompt is answered empty (%j)", async (answer) => {
+      mockInput.mockResolvedValue(answer);
       vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
         if (key === "has-called-config") return Promise.resolve("true");
         if (key === "github.token") return Promise.resolve("ghp_stored_token");
@@ -1346,6 +1407,30 @@ describe("config command", () => {
       expect(mockSetConfigValue).not.toHaveBeenCalledWith(
         "github.token",
         expect.anything(),
+      );
+    });
+
+    it("should store a pasted github.token without surrounding whitespace", async () => {
+      mockInput.mockResolvedValue("  ghp_padded_placeholder \n");
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "github.token",
+        },
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "github.token",
+        "ghp_padded_placeholder",
       );
     });
 
