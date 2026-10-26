@@ -617,7 +617,9 @@ describe("GitHub integration", () => {
 
   // The silent no-op shape: GitHub documents that an assignee change made
   // without push access is ignored rather than refused, so a 201 proves nothing
-  // on its own.
+  // on its own. NOT recorded from GitHub: case (b), an owner without push
+  // access, had not been run as of 2026-10-26 (#61), so these bodies are
+  // written from the documentation and not from an observed response.
   it.each([
     { label: "no assignees at all", assignees: [] },
     {
@@ -644,7 +646,13 @@ describe("GitHub integration", () => {
     });
   });
 
-  it("throws when the assignment request is refused", async () => {
+  // Recorded 2026-10-26 (#61, case (a)): a fine-grained token with Issues set
+  // to read-only, owned by an account with push access, POSTing to the
+  // assignees endpoint. The status code and message are as GitHub returned
+  // them; the run was over HTTP/2, which carries no reason phrase, so
+  // statusText is the standard one for 403. The second line is the sentence the
+  // branch, configuration and GitHub guide docs carry; change them together.
+  it("throws naming the permission when the assignment request is refused", async () => {
     vi.spyOn(cli, "run")
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
@@ -655,13 +663,17 @@ describe("GitHub integration", () => {
       ok: false,
       status: 403,
       statusText: "Forbidden",
-      text: vi.fn().mockResolvedValue('{"message":"Resource not accessible"}'),
+      text: vi
+        .fn()
+        .mockResolvedValue(
+          '{"message":"Resource not accessible by personal access token"}',
+        ),
     });
     vi.stubGlobal("fetch", fetchSpy);
 
     await expect(assignGitHubIssue(42)).rejects.toThrow(
       new Error(
-        'GitHub: Failed to assign issue 42 in northguild/worktree. 403 Forbidden - {"message":"Resource not accessible"}',
+        'GitHub: Failed to assign issue 42 in northguild/worktree. 403 Forbidden - {"message":"Resource not accessible by personal access token"}\nAssigning needs a token whose account has push access to the repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.',
       ),
     );
   });

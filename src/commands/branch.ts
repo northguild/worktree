@@ -421,7 +421,8 @@ was not delivered
    *
    * Success is confirmed against the response rather than assumed (D6):
    * `assigned` is false when the login never appeared in the returned issue's
-   * assignees, which is what a write without push access looks like.
+   * assignees, which is what GitHub documents a write from an account without
+   * push access to look like (not observed: #61 never ran that case).
    */
   private async assignGithubIssue(issueNumberFlag: string): Promise<boolean> {
     const issueNumber = this.getGithubIssueNumber(issueNumberFlag);
@@ -435,7 +436,7 @@ was not delivered
         spinner.succeed(`Assigned issue #${issueNumber} to ${login}`);
         return true;
       }
-      const message = `Issue #${issueNumber} was not assigned to ${login}. Assigning requires a token with push access to the repository.`;
+      const message = `Issue #${issueNumber} was not assigned to ${login}. Assigning needs a token whose account has push access to the repository.`;
       spinner.warn(message);
       this.recordWarning(message);
     } catch (error) {

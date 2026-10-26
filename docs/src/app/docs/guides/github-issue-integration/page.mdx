@@ -61,9 +61,11 @@ A token that came from `gh` gets a shorter hint: `gh auth login`, or
 `worktree config github.token <token>`.
 
 Reading an issue and assigning one need different amounts of access. A public repository answers an
-unauthenticated read, which is why `--github` has never required a token there. **Assigning always requires
-a token, and that token needs push access to the repository** — so the first time you assign on such a
-repository you may be asked for one, unless the resolution order above already supplies it.
+unauthenticated read, which is why `--github` has never required a token there. Assigning always does, and
+the token has to be allowed to write: **Assigning needs a token whose account has push access to the
+repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and
+write.** So the first time you assign on such a repository you may be asked for one, unless the resolution
+order above already supplies it.
 
 ## Assigning the Issue
 
