@@ -20,6 +20,14 @@ export const CONFIG_NAMES = [
   "defaultSourceBranch",
 ] as const;
 
+// The keys that hold a credential. `worktree config --list` shows these as set
+// but masked, because a listing ends up in screen shares and pasted bug reports.
+export const SECRET_CONFIG_NAMES = [
+  "jira.apiToken",
+  "linear.apiKey",
+  "github.token",
+] as const satisfies readonly ConfigName[];
+
 // Accepted values for the `opener` config key: which destination a worktree is
 // handed to once it exists. Unset means `editor`, which is what every install
 // did before the key existed. `none` opens nothing: the path is printed and the

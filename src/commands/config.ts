@@ -7,6 +7,7 @@ import {
   CONFIG_NAMES,
   HERDR_CONFIG_NAMES,
   OPENER_KINDS,
+  SECRET_CONFIG_NAMES,
 } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
 import { askConfirm, askInput, askSelect } from "../lib/prompt.js";
@@ -87,7 +88,12 @@ export default class Config extends BaseCommand {
         continue;
       }
 
-      this.log(value ? `${variable}=${value}` : variable);
+      // A secret is listed as set and never shown: `worktree config <name>` is
+      // the way to read one, by name.
+      const shown = SECRET_CONFIG_NAMES.some((name) => name === variable)
+        ? "***"
+        : value;
+      this.log(value ? `${variable}=${shown}` : variable);
       count++;
     }
 
@@ -606,8 +612,8 @@ export default class Config extends BaseCommand {
         await gitSetConfigValue(args.name, args.value);
         return;
       }
-      // The value alone, secrets included as `--list` does, so `$(worktree
-      // config <name>)` is usable in a script. An unset key prints nothing and
+      // The value alone, secrets included (unlike `--list`, which masks them),
+      // so `$(worktree config <name>)` is usable in a script. An unset key prints nothing and
       // exits 0, the same empty answer the rest of the CLI reads it as.
       const current = await gitGetConfigValue(args.name);
       if (current) {

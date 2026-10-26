@@ -66,12 +66,35 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith(
         "jira.email=test@example.com",
       );
-      expect(mockConsoleLog).toHaveBeenCalledWith(
-        "jira.apiToken=api-token-123",
-      );
+      expect(mockConsoleLog).toHaveBeenCalledWith("jira.apiToken=***");
       expect(mockConsoleLog).toHaveBeenCalledWith("codeEditor=code");
       expect(mockConsoleLog).toHaveBeenCalledWith(
         "defaultSourceBranch=origin/main",
+      );
+    });
+
+    it("masks every secret key and never prints its value", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: false },
+      });
+
+      const secrets: Record<string, string> = {
+        "jira.apiToken": "jira-secret-value",
+        "linear.apiKey": "linear-secret-value",
+        "github.token": "github-secret-value",
+      };
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(secrets[key] ?? ""),
+      );
+
+      await config.run();
+
+      for (const key of Object.keys(secrets)) {
+        expect(mockConsoleLog).toHaveBeenCalledWith(`${key}=***`);
+      }
+      expect(JSON.stringify(mockConsoleLog.mock.calls)).not.toContain(
+        "secret-value",
       );
     });
 

@@ -19,9 +19,10 @@ worktree config --missing --names <comma-separated-keys>
 worktree config --yes --names <comma-separated-keys>
 ```
 
-`worktree config <key>` with no value prints the current value and nothing else, secrets included as
-`--list` does, so `token=$(worktree config github.token)` works in a script. A key with no value prints
-nothing and exits `0`.
+`--list` shows `github.token`, `jira.apiToken` and `linear.apiKey` as `<key>=***` when set, so a listing is safe to
+paste or screen-share. `worktree config <key>` with no value prints the current value and nothing else, secrets
+included, so `token=$(worktree config github.token)` works in a script. A key with no value prints nothing and
+exits `0`.
 
 `--missing` filters to values that are not configured yet.
 
