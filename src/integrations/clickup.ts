@@ -56,8 +56,21 @@ export async function resolveClickUpWorkspaceId(): Promise<string | undefined> {
   return workspaceId || undefined;
 }
 
-// Every ClickUp request is bounded. The timeout message matches TIMEOUT_MESSAGE
-// in base-command.ts; it names no header and never the token.
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
+// The timeout message matches TIMEOUT_MESSAGE in base-command.ts; it names no
+// header and never the token.
+function timeoutError(cause: unknown): Error {
+  return new Error(
+    `ClickUp: the request did not answer within ${CLICKUP_REQUEST_TIMEOUT_MS / 1000}s.`,
+    { cause },
+  );
+}
+
+// Every ClickUp request is bounded, body included: the signal also aborts a
+// body that stalls after the headers arrive (see readBody).
 export async function fetchClickUp(
   path: string,
   token: string,
@@ -70,11 +83,8 @@ export async function fetchClickUp(
       signal: AbortSignal.timeout(CLICKUP_REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      throw new Error(
-        `ClickUp: the request did not answer within ${CLICKUP_REQUEST_TIMEOUT_MS / 1000}s.`,
-        { cause: error },
-      );
+    if (isTimeout(error)) {
+      throw timeoutError(error);
     }
     throw error;
   }
@@ -84,13 +94,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+// A body that is not JSON is an unexpected response; one that timed out is a
+// timeout, not a parse failure.
 async function readBody(
   response: Response,
 ): Promise<Record<string, unknown> | undefined> {
   try {
     const body: unknown = await response.json();
     return isRecord(body) ? body : undefined;
-  } catch {
+  } catch (error) {
+    if (isTimeout(error)) {
+      throw timeoutError(error);
+    }
     return undefined;
   }
 }

@@ -383,6 +383,25 @@ describe("ClickUp integration", () => {
       );
     });
 
+    // The fetch signal also bounds the body: headers in time and a body that
+    // stalls past 15s rejects response.json() with the signal's TimeoutError.
+    it("reports a body that stalls past the timeout as a timeout", async () => {
+      stubToken();
+      const answer = respond(200, null);
+      answer.json.mockRejectedValue(
+        new DOMException("timed out", "TimeoutError"),
+      );
+      stubFetch(answer);
+
+      const failure = fetchClickUpTask("9hx");
+
+      // TIMEOUT_MESSAGE in base-command.ts is /did not (?:answer|finish) within \d+s/
+      await expect(failure).rejects.toThrow(
+        "ClickUp: the request did not answer within 15s.",
+      );
+      await expect(failure).rejects.not.toThrow(/pk_/);
+    });
+
     it.each([
       ["a body that is not an object", "oops"],
       ["a list", []],
