@@ -21,6 +21,8 @@ title: Configuration
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
 - `linear.apiKey` (Linear personal API key, example: `lin_api_...`)
+- `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
+- `clickup.workspaceId` (optional; your ClickUp Workspace id, a number, needed only for custom task ids like `DEV-123`)
 - `branchPrefix.feature` (example: `feature/`)
 - `branchPrefix.bugfix` (example: `fix/`)
 - `branchPrefix.chore` (example: `chore/`)
@@ -170,6 +172,8 @@ worktree config jira.host https://company.atlassian.net
 worktree config jira.email your-email@example.com
 worktree config jira.apiToken <api-token>
 worktree config linear.apiKey <api-key>
+worktree config clickup.apiToken <api-token>
+worktree config clickup.workspaceId <workspace-id>
 worktree config branchPrefix.feature feature/
 worktree config branchPrefix.bugfix fix/
 worktree config branchPrefix.chore chore/
@@ -224,6 +228,16 @@ worktree config github.autoAssign true
   `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`.
 - Issue identifiers are case-insensitive (both `eng-123` and `ENG-123` work).
 
+## ClickUp Integration Notes
+
+- `worktree branch --clickup <task-id>` reads tasks from the ClickUp Workspace your token belongs to.
+- `clickup.apiToken` is required. `clickup.workspaceId` is optional and is needed only when you pass a custom task id
+  such as `DEV-123`; a short id such as `9hx` never needs it. An empty answer to its prompt skips it.
+- The branch prefix comes from the task's tags: `bug` uses `branchPrefix.bugfix`,
+  `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`.
+- A short id is case-sensitive and typed without `CU-` (`9hx`); the branch name gains `CU-`. A custom id is
+  sent to ClickUp as typed and upper-cased in the branch name (`dev-123` gives `DEV-123` in the name).
+
 ## Recommended Team Baseline
 
 1. Agree on one source branch (`origin/main` for most teams).
@@ -231,3 +245,4 @@ worktree config github.autoAssign true
 3. Keep editor command consistent across local setups.
 4. For Jira integration, share workspace URL and branch prefix conventions.
 5. For Linear integration, share which labels map to bug and chore work, since the label decides the prefix.
+6. For ClickUp integration, share which tags map to bug and chore work, since the tag decides the prefix, and whether your Workspace uses custom task ids (then also the workspace id).

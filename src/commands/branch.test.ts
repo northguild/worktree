@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { confirm, input } from "@inquirer/prompts";
 import ora from "ora";
+import * as clickupIntegration from "../integrations/clickup.js";
 import * as githubIntegration from "../integrations/github.js";
 import * as herdr from "../integrations/herdr.js";
 import * as jiraIntegration from "../integrations/jira.js";
@@ -970,6 +971,324 @@ describe("branch command", () => {
     });
   });
 
+  describe("--clickup flag", () => {
+    // Expected names come from D6: `${prefix}CU-<id>-<slug>` for a short id,
+    // `${prefix}<CUSTOM-ID>-<slug>` for a custom one.
+    const shortTask = {
+      id: "9hx",
+      customId: null,
+      name: "Add dark mode",
+      url: "https://app.clickup.com/t/9hx",
+      tags: [] as string[],
+    };
+    const customTask = {
+      id: "86abc",
+      customId: "DEV-123",
+      name: "Add dark mode",
+      url: "https://app.clickup.com/t/86abc",
+      tags: [] as string[],
+    };
+
+    function stubConfig(values: Record<string, string> = {}) {
+      const config: Record<string, string> = {
+        "has-called-config": "true",
+        defaultSourceBranch: "origin/main",
+        "clickup.apiToken": "pk_test",
+        "branchPrefix.feature": "feature/",
+        "branchPrefix.bugfix": "fix/",
+        ...values,
+      };
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(config[key] ?? ""),
+      );
+    }
+
+    it("names a short id CU-<id> with the feature prefix", async () => {
+      stubConfig();
+      const fetchSpy = vi
+        .spyOn(clickupIntegration, "fetchClickUpTask")
+        .mockResolvedValue(shortTask);
+      mockInput.mockImplementation(async (config: any) => config.default);
+      const create = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { clickup: "9hx" },
+      });
+
+      await branch.run();
+
+      // One fetch feeds both the name and `issue.url` (D9).
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(create).toHaveBeenCalledWith(
+        "feature/CU-9hx-add-dark-mode",
+        "origin/main",
+      );
+    });
+
+    it("names a custom id upper-cased, with the bugfix prefix for a bug tag", async () => {
+      stubConfig();
+      vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue({
+        ...customTask,
+        tags: ["Bug"],
+      });
+      mockInput.mockImplementation(async (config: any) => config.default);
+      const create = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { clickup: "dev-123" },
+      });
+
+      await branch.run();
+
+      expect(create).toHaveBeenCalledWith(
+        "fix/DEV-123-add-dark-mode",
+        "origin/main",
+      );
+    });
+
+    it("names DEV-123 with the feature prefix", async () => {
+      stubConfig();
+      vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+        customTask,
+      );
+      mockInput.mockImplementation(async (config: any) => config.default);
+      const create = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { clickup: "DEV-123" },
+      });
+
+      await branch.run();
+
+      expect(create).toHaveBeenCalledWith(
+        "feature/DEV-123-add-dark-mode",
+        "origin/main",
+      );
+    });
+
+    it("reports a short id's key and the url the API returned", async () => {
+      stubConfig();
+      vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+        shortTask,
+      );
+      mockInput.mockImplementation(async (config: any) => config.default);
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { clickup: "9hx" },
+      });
+
+      const document = await branch.run();
+
+      expect(document.issue).toEqual({
+        provider: "clickup",
+        key: "9hx",
+        url: "https://app.clickup.com/t/9hx",
+      });
+      expect(document.assigned).toBeNull();
+    });
+
+    it("reports the task's custom_id as the key, not the id that was typed (D9)", async () => {
+      stubConfig();
+      // A short id typed against a task that also has a custom id: D9 says the
+      // key is custom_id; D6 says the name still follows the typed shape.
+      vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue({
+        ...shortTask,
+        customId: "DEV-123",
+      });
+      mockInput.mockImplementation(async (config: any) => config.default);
+      const create = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { clickup: "9hx" },
+      });
+
+      const document = await branch.run();
+
+      expect(document.issue).toMatchObject({
+        provider: "clickup",
+        key: "DEV-123",
+      });
+      expect(create).toHaveBeenCalledWith(
+        "feature/CU-9hx-add-dark-mode",
+        "origin/main",
+      );
+    });
+
+    it("reports the custom id as the key when the task has one (D9)", async () => {
+      stubConfig();
+      vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+        customTask,
+      );
+      mockInput.mockImplementation(async (config: any) => config.default);
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { clickup: "DEV-123" },
+      });
+
+      const document = await branch.run();
+
+      expect(document.issue).toEqual({
+        provider: "clickup",
+        key: "DEV-123",
+        url: "https://app.clickup.com/t/86abc",
+      });
+    });
+
+    it("includes clickup.apiToken in the config it verifies", async () => {
+      stubConfig();
+      vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+        shortTask,
+      );
+      mockInput.mockImplementation(async (config: any) => config.default);
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      const verify = vi.spyOn(branch as any, "verifyConfig");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { clickup: "9hx" },
+      });
+
+      await branch.run();
+
+      expect(verify).toHaveBeenCalledWith([
+        "defaultSourceBranch",
+        "clickup.apiToken",
+      ]);
+    });
+
+    it("warns and carries on for --assign", async () => {
+      stubConfig();
+      vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+        shortTask,
+      );
+      const mockAssign = vi.spyOn(githubIntegration, "assignGitHubIssue");
+      const mockWarn = vi
+        .spyOn(branch, "warn")
+        .mockImplementation((input: any) => input);
+      mockInput.mockImplementation(async (config: any) => config.default);
+      const create = vi
+        .spyOn(git, "gitCreateWorktree")
+        .mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { clickup: "9hx", assign: true },
+      });
+
+      await branch.run();
+
+      expect(mockWarn).toHaveBeenCalledWith(
+        "Assignment is not supported for ClickUp tasks yet.",
+      );
+      expect(mockAssign).not.toHaveBeenCalled();
+      expect(create).toHaveBeenCalled();
+    });
+
+    describe("with --json", () => {
+      let output: ReturnType<typeof captureOutput>;
+      const originalExitCode = process.exitCode;
+
+      beforeEach(() => {
+        output = captureOutput();
+        process.exitCode = undefined;
+      });
+
+      afterEach(() => {
+        output.restore();
+        process.exitCode = originalExitCode;
+      });
+
+      async function runJson(flags: Record<string, unknown>) {
+        const command = new Branch(["--json"], await loadConfig());
+        (command as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
+        (command as any).parsed = true;
+        vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+          opener: "none",
+        });
+        return (command as any)._run();
+      }
+
+      it("carries {provider, key, url} in the document", async () => {
+        stubConfig();
+        vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+          shortTask,
+        );
+        vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+          "/path/to/worktree",
+        );
+
+        await runJson({ clickup: "9hx" });
+
+        expect(output.document()).toMatchObject({
+          branch: "feature/CU-9hx-add-dark-mode",
+          issue: {
+            provider: "clickup",
+            key: "9hx",
+            url: "https://app.clickup.com/t/9hx",
+          },
+          assigned: null,
+        });
+      });
+
+      it("gives a missing token as missing_value with exit 2 and no worktree", async () => {
+        stubConfig({ "clickup.apiToken": "" });
+        const fetchSpy = vi.spyOn(clickupIntegration, "fetchClickUpTask");
+        const create = vi.spyOn(git, "gitCreateWorktree");
+
+        await runJson({ clickup: "9hx" });
+
+        expect(output.document()).toMatchObject({
+          error: { code: "missing_value" },
+        });
+        expect(process.exitCode).toBe(2);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(create).not.toHaveBeenCalled();
+      });
+
+      it("gives a custom id with no workspace id as missing_value with exit 2 and no request", async () => {
+        stubConfig();
+        // Earlier tests leave fetchClickUpTask stubbed; this one needs the real
+        // function, which refuses before any request.
+        vi.spyOn(clickupIntegration, "fetchClickUpTask").mockRestore();
+        const httpSpy = vi.spyOn(globalThis, "fetch");
+        const create = vi.spyOn(git, "gitCreateWorktree");
+
+        await runJson({ clickup: "DEV-123" });
+
+        expect(output.document()).toMatchObject({
+          error: { code: "missing_value" },
+        });
+        expect(process.exitCode).toBe(2);
+        expect(httpSpy).not.toHaveBeenCalled();
+        expect(create).not.toHaveBeenCalled();
+      });
+
+      it("gives a failed fetch as failed with exit 1 and no worktree", async () => {
+        stubConfig();
+        vi.spyOn(clickupIntegration, "fetchClickUpTask").mockRejectedValue(
+          new Error("ClickUp: Unable to find task 9hx."),
+        );
+        const create = vi.spyOn(git, "gitCreateWorktree");
+
+        await runJson({ clickup: "9hx" });
+
+        expect(output.document()).toMatchObject({
+          error: { code: "failed" },
+        });
+        expect(process.exitCode).toBe(1);
+        expect(create).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   describe("flag validation", () => {
     it.each([
       ["--github", { github: "42", linear: "ENG-1" }],
@@ -986,7 +1305,28 @@ describe("branch command", () => {
 
       await expect(branch.run()).rejects.toThrow("refused");
       expect(mockError).toHaveBeenCalledWith(
-        "Please provide only one of --github, --jira or --linear, not several.",
+        "Please provide only one of --github, --jira, --linear or --clickup, not several.",
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["--github", { github: "42", clickup: "9hx" }],
+      ["--jira", { jira: "DEV-42", clickup: "9hx" }],
+      ["--linear", { linear: "ENG-1", clickup: "9hx" }],
+    ])("refuses --clickup with %s", async (_label, flags) => {
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "has-called-config" ? "true" : ""),
+      );
+      const fetchSpy = vi.spyOn(clickupIntegration, "fetchClickUpTask");
+      (branch as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
+      const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
+        throw new Error("refused");
+      });
+
+      await expect(branch.run()).rejects.toThrow("refused");
+      expect(mockError).toHaveBeenCalledWith(
+        "Please provide only one of --github, --jira, --linear or --clickup, not several.",
       );
       expect(fetchSpy).not.toHaveBeenCalled();
     });
@@ -1004,15 +1344,15 @@ describe("branch command", () => {
 
       const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
         throw new Error(
-          "Please provide only one of --github, --jira or --linear, not several.",
+          "Please provide only one of --github, --jira, --linear or --clickup, not several.",
         );
       });
 
       await expect(branch.run()).rejects.toThrow(
-        "Please provide only one of --github, --jira or --linear, not several.",
+        "Please provide only one of --github, --jira, --linear or --clickup, not several.",
       );
       expect(mockError).toHaveBeenCalledWith(
-        "Please provide only one of --github, --jira or --linear, not several.",
+        "Please provide only one of --github, --jira, --linear or --clickup, not several.",
       );
     });
   });
@@ -1359,14 +1699,14 @@ describe("branch command", () => {
       it.each([
         [true],
         [false],
-      ])("errors when the assign flag is %s with none of --github, --jira or --linear", async (assign) => {
+      ])("errors when the assign flag is %s with none of --github, --jira, --linear or --clickup", async (assign) => {
         vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
           if (key === "has-called-config") return Promise.resolve("true");
           return Promise.resolve("");
         });
         const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
           throw new Error(
-            "--assign/--no-assign requires one of --github, --jira or --linear.",
+            "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
           );
         });
 
@@ -1378,10 +1718,10 @@ describe("branch command", () => {
         // Both spellings are one flag under `allowNo`, and neither has an
         // issue to act on here.
         await expect(branch.run()).rejects.toThrow(
-          "--assign/--no-assign requires one of --github, --jira or --linear.",
+          "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
         );
         expect(mockError).toHaveBeenCalledWith(
-          "--assign/--no-assign requires one of --github, --jira or --linear.",
+          "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
         );
       });
 
@@ -2292,6 +2632,12 @@ describe("branch command — --help", () => {
     expect(help).toContain("1 failure");
     expect(help).toContain("2 usage");
     expect(help).toContain('{provider:"linear", key, url|null}');
+    expect(help).toContain('{provider:"clickup", key');
+  });
+
+  // D1: `--clickup` is `-c`.
+  it("gives --clickup the short flag -c", () => {
+    expect(Branch.flags.clickup.char).toBe("c");
   });
 
   // D1: `--linear` is `-l`, beside `-g` and `-j`.

@@ -19,7 +19,7 @@ worktree config --missing --names <comma-separated-keys>
 worktree config --yes --names <comma-separated-keys>
 ```
 
-`--list` shows `github.token`, `jira.apiToken` and `linear.apiKey` as `<key>=***` when set, so a listing is safe to
+`--list` shows `github.token`, `jira.apiToken`, `linear.apiKey` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
 paste or screen-share. `worktree config <key>` with no value prints the current value and nothing else, secrets
 included, so `token=$(worktree config github.token)` works in a script. A key with no value prints nothing and
 exits `0`.
@@ -29,7 +29,7 @@ exits `0`.
 - With `--list`, it only prints config names that currently have no value.
 - Without `--list`, it only prompts for missing values.
 - `--names` limits prompting to specific config keys. Naming keys is asking for them, so the optional group
-  confirms (Jira, GitHub, Linear, prefixes, opener, editor, Herdr, agent, post-create) are not asked for them.
+  confirms (Jira, GitHub, Linear, ClickUp, prefixes, opener, editor, Herdr, agent, post-create) are not asked for them.
 - `--yes` (`-y`) makes the run [non-interactive](/docs/commands/branch#non-interactive-runs): nothing is asked.
   Each key takes its default, or the value it already holds, and the run fails with exit `2` naming
   `worktree config <key> <value>` for a key with neither, such as a token. Without `--names` the optional groups have no default and the run fails naming `--names <keys>`.
@@ -82,9 +82,10 @@ regardless, so a machine can be configured before Herdr is installed.
 yes/no. The `github.autoAssign` prompt has three choices: "Yes, always", "No, never" and "Ask me each
 time". The last leaves the key unset, clearing any stored answer, which is the "ask me" state — so
 `--missing` goes on offering the prompt until you settle it either way. Leaving the `github.token`,
-`jira.apiToken` or `linear.apiKey` prompt empty, or answering with only spaces, keeps any token you already have,
+`jira.apiToken`, `linear.apiKey` or `clickup.apiToken` prompt empty, or answering with only spaces, keeps any token you already have,
 rather than clearing it. A pasted value is stored without surrounding whitespace.
-A direct `worktree config github.token "   "` (likewise `jira.apiToken` and `linear.apiKey`) with a value that is only
+`clickup.workspaceId` is optional and only matters for custom task ids such as `DEV-123`: an empty answer skips it and writes nothing, a non-interactive run skips it rather than failing, and under `--missing` pressing Enter skips its prompt too.
+A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey` and `clickup.apiToken`) with a value that is only
 whitespace is refused with exit `2`, and nothing is stored.
 
 ## Agent Key
