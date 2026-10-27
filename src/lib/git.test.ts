@@ -9,6 +9,7 @@ import {
   getCurrentBranchName,
   gitCreateWorktree,
   gitFetch,
+  gitFindBranchCheckout,
   gitGetAbsoluteWorktreesPath,
   gitGetChurn,
   gitGetCommitsAheadCount,
@@ -2800,5 +2801,132 @@ describe("gitGetWorktrees", () => {
       ["one", true],
       ["two", false],
     ]);
+  });
+});
+
+// Expected values come from the porcelain layout in git-worktree(1) "Porcelain
+// Format" and from the root convention `<root>.worktrees/` that gitGetWorktrees
+// already filters on: a path is "in the root" when it sits under that directory,
+// so the main checkout (at `<root>` itself) is not.
+describe("gitFindBranchCheckout", () => {
+  const rootPath = "/home/dev/proj";
+  const treesPath = `${rootPath}.worktrees`;
+  const hash = "eb6c1c8b1fb56781b1947be18b3627f06f2d6bde";
+
+  function porcelain(...records: string[][]): string {
+    return `${records.map((lines) => lines.join("\n")).join("\n\n")}\n`;
+  }
+
+  function record(path: string, branch: string): string[] {
+    return [`worktree ${path}`, `HEAD ${hash}`, `branch refs/heads/${branch}`];
+  }
+
+  function mockList(stdout: string, currentBranch = "main") {
+    mockRun
+      .mockResolvedValueOnce(currentBranch)
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(stdout);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    expectCommands(
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list --porcelain",
+    );
+  });
+
+  it("finds a branch checked out in the worktrees root", async () => {
+    mockList(
+      porcelain(record(rootPath, "main"), record(`${treesPath}/feat`, "feat")),
+    );
+
+    expect(await gitFindBranchCheckout("feat")).toEqual({
+      path: `${treesPath}/feat`,
+      pathExists: true,
+      inWorktreesRoot: true,
+      isCurrent: false,
+    });
+  });
+
+  it("reports a missing directory without dropping the match", async () => {
+    mockList(porcelain(record(`${treesPath}/gone`, "gone")));
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+
+    expect(await gitFindBranchCheckout("gone")).toEqual({
+      path: `${treesPath}/gone`,
+      pathExists: false,
+      inWorktreesRoot: true,
+      isCurrent: false,
+    });
+  });
+
+  it("finds a branch checked out outside the root, such as the main checkout", async () => {
+    mockList(porcelain(record(rootPath, "main")), "other");
+
+    expect(await gitFindBranchCheckout("main")).toEqual({
+      path: rootPath,
+      pathExists: true,
+      inWorktreesRoot: false,
+      isCurrent: false,
+    });
+  });
+
+  it("does not treat a sibling directory sharing the root prefix as inside it", async () => {
+    mockList(porcelain(record(`${treesPath}-old/x`, "x")));
+
+    expect(await gitFindBranchCheckout("x")).toMatchObject({
+      inWorktreesRoot: false,
+    });
+  });
+
+  it("marks the worktree you are standing in as current", async () => {
+    mockList(
+      porcelain(record(rootPath, "main"), record(`${treesPath}/here`, "here")),
+      "here",
+    );
+
+    expect(await gitFindBranchCheckout("here")).toEqual({
+      path: `${treesPath}/here`,
+      pathExists: true,
+      inWorktreesRoot: true,
+      isCurrent: true,
+    });
+  });
+
+  it("returns undefined when no worktree has the branch", async () => {
+    mockList(porcelain(record(rootPath, "main")));
+
+    expect(await gitFindBranchCheckout("nope")).toBeUndefined();
+  });
+
+  it("matches the exact name, not a prefix or a suffix", async () => {
+    mockList(
+      porcelain(
+        record(`${treesPath}/feature/a-b`, "feature/a-b"),
+        record(`${treesPath}/a`, "a"),
+      ),
+    );
+
+    expect(await gitFindBranchCheckout("feature/a")).toBeUndefined();
+  });
+
+  it("never matches a detached record, whose label no branch name can equal", async () => {
+    mockList(
+      porcelain([`worktree ${treesPath}/det`, `HEAD ${hash}`, "detached"]),
+    );
+
+    expect(await gitFindBranchCheckout("det")).toBeUndefined();
+  });
+
+  it("keeps a path containing spaces whole", async () => {
+    mockList(porcelain(record(`${treesPath}/has space`, "spaced")));
+
+    expect(await gitFindBranchCheckout("spaced")).toMatchObject({
+      path: `${treesPath}/has space`,
+      inWorktreesRoot: true,
+    });
   });
 });

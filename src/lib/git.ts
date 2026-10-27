@@ -301,6 +301,40 @@ export async function gitGetWorktrees({
   );
 }
 
+export interface BranchCheckout {
+  path: string;
+  pathExists: boolean;
+  inWorktreesRoot: boolean;
+  isCurrent: boolean;
+}
+
+// Where a branch name is already checked out, from git's own listing and never
+// a path computed from the name. Unlike gitGetWorktrees it keeps the main
+// checkout, anything outside `<root>.worktrees/` and the current worktree, and
+// reports those facts instead of filtering on them. A detached record carries
+// DETACHED_LABEL, which no real branch name can equal.
+export async function gitFindBranchCheckout(
+  branchName: string,
+): Promise<BranchCheckout | undefined> {
+  const currentBranch = await getCurrentBranchName();
+  const worktreesRootPath = await gitGetAbsoluteWorktreesPath();
+  const result = await run("git", ["worktree", "list", "--porcelain"]);
+
+  const match = parseWorktreeRecords(result).find(
+    (record) => record.branchName === branchName,
+  );
+  if (match === undefined) {
+    return undefined;
+  }
+
+  return {
+    path: match.path,
+    pathExists: fs.existsSync(match.path),
+    inWorktreesRoot: match.path.startsWith(`${worktreesRootPath}/`),
+    isCurrent: currentBranch === branchName,
+  };
+}
+
 // Somebody is working in this worktree — a dispatched agent or a human's own
 // terminal, which D5 treats alike. Fails safe on an absent marker: an entry that
 // records a session without saying whether it finished counts as live, so a
