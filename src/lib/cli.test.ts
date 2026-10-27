@@ -432,6 +432,40 @@ describe("spawnDetached", () => {
     expect(error.message).toContain("worktree-no-such-binary");
   });
 
+  it("reports a missing binary as not started, before it returns", async () => {
+    // Node docs, subprocess.pid: undefined when the spawn failed, with the
+    // "error" event following on a later tick. Nothing is awaited before the
+    // assertion, so it can only hold if the answer is synchronous.
+    const failure = spawnDetached("worktree-no-such-binary");
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure?.message).toContain("worktree-no-such-binary");
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+
+  it("reports nothing for a launch that started", async () => {
+    const marker = join(tempPath, "detached-started.txt");
+
+    const failure = spawnDetached(node, ["-e", writeMarker(marker, '"done"')]);
+
+    expect(failure).toBeUndefined();
+    await vi.waitFor(() => expect(existsSync(marker)).toBe(true));
+  });
+
+  it("reports a synchronous spawn throw as not started without throwing", () => {
+    // Node throws, rather than emits, for errors outside EACCES, EAGAIN,
+    // EMFILE, ENFILE and ENOENT — lib/internal/child_process.js. An argument
+    // holding a NUL byte is rejected the same way (ERR_INVALID_ARG_VALUE).
+    let failure: Error | undefined;
+    expect(() => {
+      failure = spawnDetached(node, ["bad\0argument"]);
+    }).not.toThrow();
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure?.message).toContain("null bytes");
+  });
+
   it("survives a failed launch when the caller supplies no handler", async () => {
     // An "error" event with no listener throws on a ChildProcess, so dropping
     // the handler registration would crash the CLI — and would surface here as

@@ -52,18 +52,41 @@ counted as ahead, because a squash merge and a rebase both give the same work ne
 identities, but there is nothing in it to lose. Warning about those commits would teach you
 that this prompt does not mean anything, which is how the one that does gets waved through.
 
+## When an agent is working in the worktree
+
+If an agent session is working in the worktree you name, the prompt opens with that fact and then
+says whatever it would have said anyway:
+
+```text
+An agent session (feature-one-1f) is working in this worktree. Are you sure you want to remove this worktree?
+```
+
+`remove` warns here and does not refuse: it names one worktree that you chose. A session that is
+only idle does not count, so nothing is added for it, and the run prints exactly what it printed
+before sessions were looked up.
+
 Removing has no default, so a [non-interactive run](/docs/commands/branch#non-interactive-runs) needs `-f`
 (`--force`) and a branch name: without `-f` it exits `2` with `worktree: no default for confirmation to remove
 <branch>; pass -f`, and with no branch it names `<branchName> -f` rather than showing the picker.
 
-`--force` skips the prompt entirely. Unlike [`cleanup`](/docs/commands/cleanup), `remove`
-names one worktree that you chose, so `--force` here answers only the confirmation you
-would otherwise have been given.
+`--force` skips the prompt entirely, but it does not stay silent about an agent. If a session
+was working in the worktree, `remove` prints a warning on stderr after removing it, and every
+`--json` run (which needs `--force`) carries the same text in the document's `warnings`:
+
+```text
+Removed feature/add-bulk-actions while an agent session (feature-one-1f) was working in it.
+```
+
+Unlike [`cleanup`](/docs/commands/cleanup), `remove` names one worktree that you chose, so
+`--force` here answers only the confirmation you would otherwise have been given.
 
 Running `remove` with no branch shows a picker instead, grouped into branches that are safe
 to delete and branches that are still active. Each entry carries the same detail
 [`list`](/docs/commands/list) shows, so unpushed commits are visible before you select
-anything.
+anything, and a worktree an agent session is working in is listed under the active branches
+with its `Agent:` detail beside it. A session that is only idle leaves the worktree where it
+was. Selecting an active branch asks the usual "not safe to delete" question, and
+`--force` skips it and warns as above.
 
 ## Detached worktrees
 

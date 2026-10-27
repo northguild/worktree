@@ -6,6 +6,7 @@ import {
   gitGetWorktreeList,
   gitRemoveWorktree,
   gitRemoveWorktreesWithProgress,
+  hasLiveAgent,
   isPathTarget,
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
@@ -50,7 +51,7 @@ Exit codes:
 
   private getWorktreeChoices(worktrees: WorktreeListEntry[]) {
     const choices = worktrees.map((wt) => ({
-      name: worktreeListEntryToListName(wt, "red"),
+      name: worktreeListEntryToListName(wt, "red", { agents: true }),
       value: wt,
     }));
     const safeToRemove = choices.filter(({ value }) => value.safeToRemove);
@@ -71,7 +72,10 @@ Exit codes:
   public async run(): Promise<RemoveDocument> {
     const { args, flags } = await this.parse(Delete);
     const spinner = createSpinner("Gathering worktree branches").start();
-    const worktrees = await gitGetWorktreeList();
+    // The run's one session lookup, for both paths (#56, D5): the picker renders
+    // and groups by it, and the named path hands the session it finds to the
+    // prompt. `gitRemoveWorktree` gathers the list again but never the sessions.
+    const worktrees = await gitGetWorktreeList({ includeAgents: true });
     spinner.stop();
 
     // A named branch under `--json` is a request a script is waiting on, so an
@@ -104,6 +108,9 @@ Exit codes:
       const closeSpaces = await this.resolveSpaceCloser();
       const removed = await gitRemoveWorktree(args.branchName, {
         force: flags.force,
+        // Only a session that blocks (#89). Left off otherwise, so a run with
+        // no blocking session makes exactly the call it always made.
+        ...(hasLiveAgent(wt) && wt.agent ? { agent: wt.agent } : {}),
       });
 
       // Only what was actually removed (D4). gitRemoveWorktree answers
@@ -120,6 +127,12 @@ Exit codes:
       // time it was looked up again.
       if (!removed && this.jsonEnabled()) {
         throw new Error(`Could not remove the worktree ${args.branchName}.`);
+      }
+
+      // `wt` rather than `removed`: it is the entry the sessions were joined
+      // onto, and the one `removed` is read back from carries none.
+      if (removed && flags.force) {
+        this.warnRemovedWhileWorking([wt]);
       }
 
       return this.toDocument(removed ? [removed] : [], closed);
@@ -157,7 +170,27 @@ Exit codes:
 
     const closed = await closeSpaces(removed.map((worktree) => worktree.path));
 
+    if (flags.force) {
+      this.warnRemovedWhileWorking(removed);
+    }
+
     return this.toDocument(removed, closed);
+  }
+
+  /**
+   * `--force` answers the confirmation, not the telling (D4): the person is not
+   * asked, so this is the only place they hear that somebody was in the worktree
+   * they just removed. `warn` rather than `recordWarning`, which would put it in
+   * the document and show it to no one. Without `--force` the prompt said it.
+   */
+  private warnRemovedWhileWorking(removed: WorktreeListEntry[]) {
+    for (const worktree of removed) {
+      if (worktree.agent && hasLiveAgent(worktree)) {
+        this.warn(
+          `Removed ${worktree.branchName} while an agent session (${worktree.agent.name}) was working in it.`,
+        );
+      }
+    }
   }
 
   private toDocument(

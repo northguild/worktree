@@ -234,14 +234,29 @@ export async function commandExists(command: string): Promise<boolean> {
 // one argument rather than shell syntax. A failed launch arrives as an "error"
 // event, and an unhandled one on a ChildProcess throws, so a handler is always
 // attached even when the caller supplies none.
+//
+// Returns why the launch did not start, or undefined when it did. That is known
+// before this returns: `pid` is undefined when the spawn failed (Node's
+// `subprocess.pid`), and a few errors are thrown by spawn itself rather than
+// emitted. The caller sequences its success message on this, because the
+// "error" event only arrives on a later tick. The event still reaches onError
+// with the system's own message.
 export function spawnDetached(
   file: string,
   args: string[] = [],
   { cwd, onError }: SpawnDetachedOptions = {},
-): void {
-  const child = spawn(file, args, { cwd, detached: true, stdio: "ignore" });
+): Error | undefined {
+  let child: ChildProcess;
+  try {
+    child = spawn(file, args, { cwd, detached: true, stdio: "ignore" });
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
   child.on("error", (error: Error) => onError?.(error));
   child.unref();
+  return child.pid === undefined
+    ? new Error(`spawn ${file} failed to start`)
+    : undefined;
 }
 
 /**

@@ -133,9 +133,17 @@ worktree back as before. With [`opener`](/docs/configuration) set to `herdr`, th
 with the worktree's space.
 
 `--force` does **not** override this. It answers the confirmation prompt, not the safety
-verdict. To sweep a worktree anyway, pass `--ignore-agents`, which skips the session lookup
-entirely and leaves `cleanup` deciding exactly as it did before agents existed. It has no
-short alias on purpose: overruling this one is worth spelling out.
+verdict. To sweep a worktree anyway, pass `--ignore-agents`. It still looks up the sessions, but
+decides exactly as `cleanup` did before agents existed, so a worktree with uncommitted changes is
+still held back whatever is running in it. What it sweeps past, it names, under its own heading, in
+the confirming run before the prompt and under `--force` as well:
+
+```
+Removing 1 worktree branch despite a live agent session:
+- feature/api-retries (Remote removed, Agent: feature-api-retries-1f)
+```
+
+It has no short alias on purpose: overruling this one is worth spelling out.
 
 `--ignore-agents` costs more than it used to. With [`opener`](/docs/configuration) set to
 `herdr`, a worktree removed this way also has its Herdr space closed — which takes down the
@@ -143,7 +151,7 @@ panes the agent is working in, not just the directory underneath it. Before spac
 closed, an overruled agent at least kept its output on screen.
 
 If neither source is available — `herdr` is not installed and no runtime is configured, or the
-runtime cannot be reached — no session data is gathered and `cleanup` behaves exactly as it always has.
+runtime cannot be reached — no session data is gathered and `cleanup` behaves exactly as it always has. With `--ignore-agents` that means no heading above either.
 
 ## Herdr spaces
 

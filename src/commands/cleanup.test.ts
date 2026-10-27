@@ -572,34 +572,205 @@ describe("cleanup command", () => {
     expect(mockRemove).toHaveBeenCalledWith([finishedAgentWorktree]);
   });
 
-  // The override is "do not look": with no join asked for, the builder returns
-  // entries carrying no agent at all, and the verdict is what it was before the
-  // flag existed. Asserting the argument is the real check — the list here is
-  // what the builder would then hand back.
-  it("asks for no session join with --ignore-agents and removes anyway", async () => {
-    const listSpy = vi
-      .spyOn(git, "gitGetWorktreeList")
-      .mockResolvedValue([
-        { ...agentWorktree, agent: undefined, safeToRemove: true },
-      ]);
-    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
-    const mockRemove = vi
-      .spyOn(git, "gitRemoveWorktreesWithProgress")
-      .mockImplementation(async (worktrees) => worktrees);
+  // F-030 / D6: the override overrules the verdict, not the lookup. Sessions are
+  // always gathered, the sweep is classified as if none had been, and what the
+  // sweep passes over is named.
+  //
+  // Expected values, decided from the fixtures before the code ran: the removed
+  // set is what an agent-free run removes (live-clean, idle, ordinary stale),
+  // because the cleanup page (":136-138", "deciding exactly as it did before
+  // agents existed") and D6 say so. The live-and-dirty one stays held under the
+  // uncommitted heading for the same reason. Only the live-clean one carried a
+  // blocking session (`hasLiveAgent`), so it alone is named.
+  describe("--ignore-agents", () => {
+    const fixture = () => [
+      agentWorktree,
+      agentWorktreeWithChanges,
+      idleAgentWorktree,
+      safeWorktree,
+    ];
+    const removedPaths = [
+      agentWorktree.path,
+      idleAgentWorktree.path,
+      safeWorktree.path,
+    ];
+    const heading = "Removing 1 worktree branch despite a live agent session:";
 
-    (cleanup as any).parse = vi.fn().mockResolvedValue({
-      flags: { force: true, "ignore-agents": true },
+    const run = async (flags: Record<string, boolean>) => {
+      const listSpy = vi
+        .spyOn(git, "gitGetWorktreeList")
+        .mockResolvedValue(fixture() as any);
+      const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktreesWithProgress")
+        .mockImplementation(async (worktrees) => worktrees);
+      (cleanup as any).parse = vi.fn().mockResolvedValue({ flags });
+      await cleanup.run();
+      return { listSpy, logSpy, mockRemove };
+    };
+
+    const logged = (logSpy: { mock: { calls: unknown[][] } }) =>
+      logSpy.mock.calls.map((call) => String(call[0] ?? ""));
+
+    it("gathers sessions with the flag", async () => {
+      const { listSpy } = await run({ force: true, "ignore-agents": true });
+      expect(listSpy).toHaveBeenCalledWith({ includeAgents: true });
     });
 
-    await cleanup.run();
+    it("gathers sessions without the flag", async () => {
+      const { listSpy } = await run({ force: true });
+      expect(listSpy).toHaveBeenCalledWith({ includeAgents: true });
+    });
 
-    expect(listSpy).toHaveBeenCalledWith({ includeAgents: false });
-    expect(
-      logSpy.mock.calls.some((call) => (call[0] ?? "").startsWith("Skipped ")),
-    ).toBe(false);
-    expect(mockRemove).toHaveBeenCalledWith([
-      { ...agentWorktree, agent: undefined, safeToRemove: true },
-    ]);
+    it("removes the set an agent-free run removes", async () => {
+      const { mockRemove } = await run({ force: true, "ignore-agents": true });
+
+      expect(
+        mockRemove.mock.calls[0][0].map((wt: WorktreeListEntry) => wt.path),
+      ).toEqual(removedPaths);
+    });
+
+    it("still holds a live-agent worktree with uncommitted changes under the uncommitted heading", async () => {
+      const { logSpy, mockRemove } = await run({
+        force: true,
+        "ignore-agents": true,
+      });
+
+      const lines = logged(logSpy);
+      const at = lines.indexOf(
+        "Skipped 1 worktree branch that has uncommitted changes:",
+      );
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(lines[at + 1]).toContain("feature/agent-dirty");
+      expect(
+        mockRemove.mock.calls[0][0].map((wt: WorktreeListEntry) => wt.path),
+      ).not.toContain(agentWorktreeWithChanges.path);
+      expect(lines.some((l) => l.includes("with a live agent session"))).toBe(
+        false,
+      );
+    });
+
+    it("names only the removed worktree that carried a live session, with its detail, under --force", async () => {
+      const { logSpy } = await run({ force: true, "ignore-agents": true });
+
+      const lines = logged(logSpy);
+      const at = lines.indexOf(heading);
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(lines[at + 1]).toContain("feature/agent-live");
+      expect(lines[at + 1]).toContain("feature-agent-1f");
+      expect(lines.filter((l) => l.startsWith("Removing "))).toHaveLength(1);
+      expect(lines.join("\n")).not.toContain("feature-idle-4c");
+    });
+
+    it("prints the heading before asking for confirmation without --force", async () => {
+      const order: string[] = [];
+      mockConfirm.mockImplementation(async () => {
+        order.push("confirm");
+        return true;
+      });
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue(fixture() as any);
+      vi.spyOn(cleanup, "log").mockImplementation((m) => {
+        order.push(String(m));
+      });
+      vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockImplementation(
+        async (worktrees) => worktrees,
+      );
+      (cleanup as any).parse = vi
+        .fn()
+        .mockResolvedValue({ flags: { "ignore-agents": true } });
+
+      await cleanup.run();
+
+      expect(order.indexOf(heading)).toBeGreaterThanOrEqual(0);
+      expect(order.indexOf(heading)).toBeLessThan(order.indexOf("confirm"));
+    });
+
+    it("pluralises the heading for two live sessions", async () => {
+      const second = {
+        ...agentWorktree,
+        path: "/path/to/project.worktrees/feature/agent-live-two",
+        branchName: "feature/agent-live-two",
+      };
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+        agentWorktree,
+        second,
+      ] as any);
+      const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockImplementation(
+        async (worktrees) => worktrees,
+      );
+      (cleanup as any).parse = vi
+        .fn()
+        .mockResolvedValue({ flags: { force: true, "ignore-agents": true } });
+
+      await cleanup.run();
+
+      expect(logSpy).toHaveBeenCalledWith(
+        "Removing 2 worktree branches despite a live agent session:",
+      );
+    });
+
+    it("prints no such heading without the flag", async () => {
+      const { logSpy } = await run({ force: true });
+
+      expect(logged(logSpy).some((l) => l.startsWith("Removing "))).toBe(false);
+    });
+
+    // A session can still report a cwd whose directory is gone. Such a worktree
+    // is safe whatever the session says (`isSafeToRemove` answers `pathExists`
+    // first), so it is removed with or without the flag and the override swept
+    // past nothing: D6's heading names what the flag changed, not every removed
+    // worktree a session matched.
+    it.each([
+      [{ force: true }],
+      [{ force: true, "ignore-agents": true }],
+    ])("does not name a live session in a worktree whose directory is gone (%o)", async (flags) => {
+      const gone = {
+        ...agentWorktree,
+        path: "/path/to/project.worktrees/feature/agent-gone",
+        branchName: "feature/agent-gone",
+        pathExists: false,
+        safeToRemove: true,
+      };
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([gone] as any);
+      const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktreesWithProgress")
+        .mockImplementation(async (worktrees) => worktrees);
+      (cleanup as any).parse = vi.fn().mockResolvedValue({ flags });
+
+      await cleanup.run();
+
+      expect(
+        mockRemove.mock.calls[0][0].map((wt: WorktreeListEntry) => wt.path),
+      ).toEqual([gone.path]);
+      expect(logged(logSpy).some((l) => l.startsWith("Removing "))).toBe(false);
+    });
+
+    // §4: a failed lookup yields no sessions, so the run is today's run with no
+    // extra heading (cleanup page, "no heading above either").
+    it("prints no heading under the flag when the lookup found no sessions", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue(
+        fixture().map((wt) => ({ ...wt, agent: undefined })) as any,
+      );
+      const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      vi.spyOn(git, "gitRemoveWorktreesWithProgress").mockImplementation(
+        async (worktrees) => worktrees,
+      );
+      (cleanup as any).parse = vi
+        .fn()
+        .mockResolvedValue({ flags: { force: true, "ignore-agents": true } });
+
+      await cleanup.run();
+
+      expect(logged(logSpy).some((l) => l.startsWith("Removing "))).toBe(false);
+    });
+
+    it("keeps the flag description", () => {
+      expect(Cleanup.flags["ignore-agents"].description).toBe(
+        "Remove worktrees even when an agent session is living in them",
+      );
+    });
   });
 
   // --force answers the confirmation prompt, not the safety verdict, so a live

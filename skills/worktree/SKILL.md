@@ -157,7 +157,9 @@ names (a brief with neither exits 2). `agent.command`'s arguments are reused
 without `--bg`/`--background`, and `claude` gets `--name <repo>-<branch>`
 (lowercased, never truncated, printed on stderr). Otherwise `agent.command` is
 launched detached and left running, so `worktree` does not wait for it and its
-output does not appear here.
+output does not appear here. That output is discarded, not kept, so name an agent
+that keeps its own session record: `claude --bg` (see `claude agents`), or
+`codex exec` unless `--ephemeral` is passed.
 
 ### Drive worktrees from a script or another agent (agent mode)
 

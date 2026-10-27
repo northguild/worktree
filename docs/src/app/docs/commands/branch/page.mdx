@@ -251,12 +251,16 @@ There is **one agent per worktree**, started one of two ways:
     space are kept, and the run exits `1`.
 - **Otherwise** (editor opener, `opener` `none`, or Herdr failing to open) `agent.command` is launched
   detached with the brief as its last argument and the new worktree as its working directory. It is started
-  and left running; `worktree` does not wait for it and its output does not appear here. With a brief, no
+  and left running; `worktree` does not wait for it and its output does not appear here. That output is not
+  kept anywhere either, so name an agent that keeps its own session record, such as `claude --bg`
+  (reachable through `claude agents`) or `codex exec` (unless `--ephemeral` is passed). With a brief, no
   `agent.command` and a run Herdr will not open (editor, `none`, `--no-open`, or `herdr` not on your `PATH`),
   the run exits `2` before the worktree is created, with
   `` worktree: no default for the agent command; pass `worktree config agent.command "<command>"` ``. If
   Herdr was expected to open and failed, and there is no `agent.command` to fall back to, the worktree is
   kept and the run exits `1`.
+  If the program in `agent.command` cannot be started (it is not installed, say), a warning says so, the
+  worktree is kept, no `Agent started` line is printed, `agent` is `null`, and the run exits `1`.
 
 `--no-agent` opens the worktree as usual but starts no agent. `--no-open` creates the worktree and prints
 `Worktree created at <path>` without calling Herdr or the editor, for this run only, like `opener` `none`;

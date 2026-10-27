@@ -962,11 +962,18 @@ export abstract class BaseCommand extends Command {
     }
 
     // Fire-and-forget: the agent outlives this command, so there is no exit
-    // status to report and no spinner that could ever settle.
-    spawnDetached(agent, [...agentArgs, prompt], {
+    // status to report and no spinner that could ever settle. Whether it
+    // started is known now, though (D7), so the success line waits for that.
+    const failure = spawnDetached(agent, [...agentArgs, prompt], {
       cwd: path,
       onError: (error: Error) => this.log(chalk.red(`Error: ${error.message}`)),
     });
+    if (failure) {
+      this.warn(
+        `The agent could not be started (${failure.message}), so the brief was not delivered.`,
+      );
+      return undefined;
+    }
     this.log(`${chalk.green("✔")} Agent started in ${path}`);
 
     return {
