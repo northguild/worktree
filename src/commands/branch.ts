@@ -1,4 +1,8 @@
 import { Args, Flags } from "@oclif/core";
+import {
+  fetchClickUpTask,
+  getClickUpBranchNameFromTask,
+} from "../integrations/clickup.js";
 import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
 import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
 import {
@@ -44,7 +48,8 @@ export default class Branch extends BaseCommand {
 path, branch, source, issue, assigned, envFilesCopied, installed, herdr,
 agent, warnings
 issue: {provider:"github", number, url|null}, {provider:"jira", key,
-url|null}, {provider:"linear", key, url|null} or null
+url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
+url|null} or null
 assigned: boolean, or null if no assignment was attempted
 installed: {ran:true, command, inferred, ok, reason?} or {ran:false, reason}
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
@@ -67,6 +72,8 @@ was not delivered
     "<%= config.bin %> <%= command.id %> --github 42 --assign",
     "<%= config.bin %> <%= command.id %> --jira DEV-123",
     "<%= config.bin %> <%= command.id %> --linear ENG-123",
+    "<%= config.bin %> <%= command.id %> --clickup 9hx",
+    "<%= config.bin %> <%= command.id %> --clickup DEV-123",
     '<%= config.bin %> <%= command.id %> --github 42 --agent "implement the issue"',
     "<%= config.bin %> <%= command.id %> --github 42 --agent-file brief.md",
     "<%= config.bin %> <%= command.id %> --github 42 --no-agent",
@@ -90,6 +97,10 @@ was not delivered
     linear: Flags.string({
       char: "l",
       description: "Create a branch from a Linear issue (issue identifier)",
+    }),
+    clickup: Flags.string({
+      char: "c",
+      description: "Create a branch from a ClickUp task (task id)",
     }),
     // The three brief sources are one choice (D13), and `--no-agent` says there
     // is no brief to deliver, so it excludes all of them.
@@ -120,7 +131,7 @@ was not delivered
     assign: Flags.boolean({
       allowNo: true,
       description:
-        "Assign the issue to you when creating a branch from --github (not supported for --jira or --linear yet)",
+        "Assign the issue to you when creating a branch from --github (not supported for --jira, --linear or --clickup yet)",
     }),
     // Unset is meaningful: it defers to postCreate and the run's mode (D9), so
     // there is no `default`. `--no-install` is the one switch that wins over both.
@@ -356,6 +367,31 @@ was not delivered
     }
   }
 
+  private async getClickUpTaskBranchName(taskIdFlag: string): Promise<{
+    branchName: string;
+    issue: BranchIssue;
+  }> {
+    const typedId = taskIdFlag.trim();
+    const spinner = createSpinner(`Fetching ClickUp task ${typedId}`).start();
+    try {
+      // One fetch gives both the name and the url the API reports (D9).
+      const task = await fetchClickUpTask(taskIdFlag);
+      const branchName = await getClickUpBranchNameFromTask(task, taskIdFlag);
+      spinner.succeed();
+      return {
+        branchName,
+        issue: {
+          provider: "clickup",
+          key: task.customId ?? task.id,
+          url: task.url,
+        },
+      };
+    } catch (error) {
+      spinner.fail();
+      throw error;
+    }
+  }
+
   /**
    * Flag, then config, then true when non-interactive, then prompt (D4, D8). The key is tri-state through unset
    * (D3): `true` always assigns, `false` never does, and unset means ask.
@@ -449,12 +485,18 @@ was not delivered
 
   private async getBranchName(
     branchNameArg?: string,
-    flags?: { github?: string; jira?: string; linear?: string },
+    flags?: {
+      github?: string;
+      jira?: string;
+      linear?: string;
+      clickup?: string;
+    },
   ): Promise<{ branchName: string; issue: BranchIssue | null }> {
     if (
       !flags?.github &&
       !flags?.jira &&
       !flags?.linear &&
+      !flags?.clickup &&
       branchNameArg &&
       this.validateBranchName(branchNameArg)
     ) {
@@ -467,7 +509,9 @@ was not delivered
         ? await this.getJiraIssueBranchName(flags.jira)
         : flags?.linear
           ? await this.getLinearIssueBranchName(flags.linear)
-          : undefined;
+          : flags?.clickup
+            ? await this.getClickUpTaskBranchName(flags.clickup)
+            : undefined;
     const defaultValue = derived?.branchName ?? "";
 
     const branchName = await askInput(
@@ -490,9 +534,12 @@ was not delivered
 
   public async run(): Promise<BranchDocument> {
     const { args, flags } = await this.parse(Branch);
-    if ([flags.github, flags.jira, flags.linear].filter(Boolean).length > 1) {
+    if (
+      [flags.github, flags.jira, flags.linear, flags.clickup].filter(Boolean)
+        .length > 1
+    ) {
       this.error(
-        "Please provide only one of --github, --jira or --linear, not several.",
+        "Please provide only one of --github, --jira, --linear or --clickup, not several.",
       );
     }
 
@@ -503,10 +550,11 @@ was not delivered
       flags.assign !== undefined &&
       !flags.github &&
       !flags.jira &&
-      !flags.linear
+      !flags.linear &&
+      !flags.clickup
     ) {
       this.error(
-        "--assign/--no-assign requires one of --github, --jira or --linear.",
+        "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
       );
     }
 
@@ -544,6 +592,10 @@ was not delivered
       configNames.push("linear.apiKey");
     }
 
+    if (flags.clickup) {
+      configNames.push("clickup.apiToken");
+    }
+
     // If there is no source flag provided, make sure defaultSourceBranch is configured
     await this.verifyConfig(configNames);
 
@@ -553,6 +605,12 @@ was not delivered
       throw new MissingValueError(
         "the Linear API key",
         "`worktree config linear.apiKey <key>`",
+      );
+    }
+    if (flags.clickup && !(await gitGetConfigValue("clickup.apiToken"))) {
+      throw new MissingValueError(
+        "the ClickUp API token",
+        "`worktree config clickup.apiToken <token>`",
       );
     }
     const { branchName, issue } = await this.getBranchName(
@@ -571,6 +629,8 @@ was not delivered
       this.warn("Assignment is not supported for Jira issues yet.");
     } else if (flags.linear && flags.assign) {
       this.warn("Assignment is not supported for Linear issues yet.");
+    } else if (flags.clickup && flags.assign) {
+      this.warn("Assignment is not supported for ClickUp tasks yet.");
     } else if (flags.github) {
       if (await this.shouldAssignGithubIssue(flags.assign)) {
         assigned = await this.assignGithubIssue(flags.github);

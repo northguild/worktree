@@ -3,7 +3,7 @@ name: worktree
 description: >
   Use when creating, listing, opening, removing or cleaning up git worktrees
   with the `worktree` CLI (@northguild/worktree), including starting a
-  worktree from a GitHub, Jira or Linear issue, handing a new worktree to a coding
+  worktree from a GitHub, Jira or Linear issue or a ClickUp task, handing a new worktree to a coding
   agent, opening worktrees as Herdr spaces, and driving worktrees from a
   script, CI or another coding agent with `--json`.
 ---
@@ -62,7 +62,7 @@ worktree checkout origin/feature/fix-login-timeout
 Use `checkout` only for branches that already exist on the remote.
 Use `branch` to create something new.
 
-### Derive a branch name from a GitHub, Jira or Linear issue
+### Derive a branch name from a GitHub, Jira or Linear issue or a ClickUp task
 
 ```bash
 # GitHub — requires github.token in config (or gh CLI authenticated)
@@ -82,12 +82,17 @@ worktree branch --jira dev-123
 # Linear — requires linear.apiKey in config
 worktree branch --linear ENG-123
 worktree branch --linear eng-123
+
+# ClickUp — requires clickup.apiToken in config; a custom id (DEV-123) also
+# needs clickup.workspaceId. A short id is typed without CU- (CU-9hx is refused)
+worktree branch --clickup 9hx
+worktree branch --clickup DEV-123
 ```
 
-`--github`, `--jira` and `--linear` are mutually exclusive. `--assign` and
-`--no-assign` need one of the three; `--assign --linear` (as `--assign --jira`)
-skips the assignment with a warning, because Linear assignment is not
-supported yet. `--linear` alone warns nothing.
+`--github`, `--jira`, `--linear` and `--clickup` are mutually exclusive. `--assign` and
+`--no-assign` need one of the four; `--assign --linear` (as `--assign --jira`
+and `--assign --clickup`) skips the assignment with a warning, because
+assignment is not supported for them yet. `--linear` alone warns nothing.
 
 With neither flag, `github.autoAssign` decides whether the issue is
 assigned: `true` always, `false` never, and unset means you are asked once
@@ -110,9 +115,15 @@ and by exact name: a `bug` label → `branchPrefix.bugfix`; else a `chore` or
 others. The name is the prefix, the upper-cased identifier and the slugged
 title, such as `fix/ENG-123-fix-login`.
 
+ClickUp's tags decide the same way, with the same `bug`, `chore` and
+`maintenance` rule (a guess carried over from Linear, not confirmed against a
+live Workspace). A short id such as `9hx` becomes `CU-9hx` in the name
+(`feature/CU-9hx-fix-login`); a custom id is upper-cased in the name only, and sent to ClickUp as typed
+(`fix/DEV-123-fix-login`).
+
 **Issue content is used for the branch name and nothing else.** `--github`,
-`--jira` and `--linear` read the issue's number or key, its title (Jira:
-summary) and its type (Linear: its labels); `--github` also reads whether the
+`--jira`, `--linear` and `--clickup` read the issue's number or key, its title (Jira:
+summary) and its type (Linear: its labels; ClickUp: its tags); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
 refused, naming `worktree checkout <branch>` when its branch is on this
 repository and its name is only letters, digits, `_`, `.`, `/` and `-`, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
@@ -191,7 +202,7 @@ Defaults when non-interactive:
   and exits `1`.
 - **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
-- **Bounded calls:** GitHub, Jira and Linear requests 15 s, `git fetch` 60 s,
+- **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, `git fetch` 60 s,
   `gh auth token` and the session listing 10 s, the install 10 min. A command
   still running at its bound is sent SIGTERM, then SIGKILL 2 s later.
 
@@ -211,8 +222,8 @@ document:
  "warnings":[]}
 ```
 
-- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, or
-  `null`; `url` can itself be `null`.
+- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`,
+  `{provider:"clickup",key,url}`, or `null`; `url` can itself be `null`.
 - `assigned` is `null` when no assignment was attempted.
 - `herdr` and `agent` are `null` when skipped. `agent.command` leaves the brief
   out. `agent.name` is `null` where this CLI named nothing: a detached
@@ -376,9 +387,11 @@ under `northguild.worktree.*`.
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
 | `linear.apiKey` | `lin_api_...` | `--linear` flag |
-| `branchPrefix.feature` | `feature/` | auto-prefix on Feature issues, and on Linear issues with no bug, chore or maintenance label |
-| `branchPrefix.bugfix` | `fix/` | auto-prefix on Bug issues, and on Linear issues labelled `bug` |
-| `branchPrefix.chore` | `chore/` | auto-prefix on Task issues, and on Linear issues labelled `chore` or `maintenance` |
+| `clickup.apiToken` | `pk_...` | `--clickup` flag |
+| `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
+| `branchPrefix.feature` | `feature/` | auto-prefix on Feature issues, on Linear issues with no bug, chore or maintenance label, and on ClickUp tasks with no such tag |
+| `branchPrefix.bugfix` | `fix/` | auto-prefix on Bug issues, on Linear issues labelled `bug`, and on ClickUp tasks tagged `bug` |
+| `branchPrefix.chore` | `chore/` | auto-prefix on Task issues, on Linear issues labelled `chore` or `maintenance`, and on ClickUp tasks tagged so |
 
 ```bash
 # Configure only missing keys
@@ -512,6 +525,31 @@ worktree branch --linear ENG-123
 never prompts for it.
 
 Source: `docs/guides/linear-integration`, `src/integrations/linear.ts`
+
+---
+
+### HIGH `--clickup` flag used without a ClickUp API token
+
+Wrong:
+
+```bash
+worktree branch --clickup 9hx
+```
+
+Correct:
+
+```bash
+worktree config clickup.apiToken pk_...
+worktree branch --clickup 9hx
+```
+
+`clickup.apiToken` is required. Without it `branch --clickup` exits `2`
+(`missing_value`) before any worktree is created, and a non-interactive run
+never prompts for it. A custom id (`DEV-123`) also needs `clickup.workspaceId`
+(`worktree config clickup.workspaceId <id>`) and exits `2` without it. Type a
+short id without `CU-`: `CU-9hx` is refused as an invalid id (`invalid_value`).
+
+Source: `docs/guides/clickup-integration`, `src/integrations/clickup.ts`
 
 ---
 
