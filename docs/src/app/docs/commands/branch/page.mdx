@@ -376,8 +376,9 @@ With `--dry-run`, steps 2 to 8 do not happen: the command stops after naming, se
 3. Creates a branch from your configured source branch (`--source`, else your `defaultSourceBranch`, else the
    file's, else `origin/main`).
 4. Adds a worktree under `<repo>.worktrees/<branch-name>`.
-5. Copies the gitignored env files into the new worktree — see
-   [Environment Files](/docs/guides/env-files).
+5. Copies the gitignored env files into the new worktree, and the gitignored files the project file lists
+   under `copy` — see [Environment Files](/docs/guides/env-files) and
+   [Copy files](/docs/project-configuration#copy-files).
 6. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
 7. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
 8. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
@@ -421,7 +422,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
 | `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}` or `{provider:"clickup", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
 | `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, or a Jira issue is held by someone else); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
-| `envFilesCopied` | the env files copied, relative to the repository root; `[]` when there were none |
+| `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
 | `installed` | `{ran:true, command, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |
 | `agent` | `{name, kind, command, prompted}` for the agent that was started; `null` when none was. `command` leaves out the brief. `name` is the session name, `null` where `worktree` named nothing (a detached start) |

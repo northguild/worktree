@@ -7,6 +7,7 @@ import {
   gitGetRemoteBranches,
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
+import { loadProjectConfig } from "../lib/project-config.js";
 import { askSelect } from "../lib/prompt.js";
 
 export default class Checkout extends BaseCommand {
@@ -74,6 +75,15 @@ export default class Checkout extends BaseCommand {
     const localBranches = await gitGetLocalBranches();
     spinner.stop();
 
+    // Read now, after the fetch above and before anything is chosen or created,
+    // so a file that cannot be used stops the run here (D4) exactly as in
+    // branch, rather than after the worktree exists. The result is memoised, so
+    // the copy step below reuses it.
+    const project = await loadProjectConfig();
+    for (const warning of project.warnings) {
+      this.warn(warning);
+    }
+
     const branchNameArg = this.normalizeBranchNameArg(args.branchName);
     const sourceBranchName =
       branchNameArg || (await this.selectRemoteBranch(remoteBranches));
@@ -93,9 +103,11 @@ export default class Checkout extends BaseCommand {
         sourceBranchName,
         { isCheckout: true },
       );
-      // Same order as branch: env files complete the worktree before the agent
-      // sees it.
-      await copyEnvFilesFromRootPath(projectPath);
+      // Same order as branch: env files, and the file's `copy` patterns (D14),
+      // complete the worktree before the agent sees it.
+      await copyEnvFilesFromRootPath(projectPath, {
+        copy: project.status === "loaded" ? project.config.copy : undefined,
+      });
       // The brief rides on the open: with Herdr it goes to the agent Herdr
       // starts, and the detached launch happens only where Herdr did not open.
       await this.openWorktreePath(projectPath, { brief });

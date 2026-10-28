@@ -42,8 +42,18 @@ const NODE_MODULES_PATHSPEC = ":(glob,exclude)**/node_modules/**";
  * and `trim: false` because the answer is a NUL-delimited stream rather than a
  * single value: git sorts bytewise, so a path whose first component starts with
  * a space comes back first, and a trim would rename it to one that is not there.
+ *
+ * `copyPatterns` are the project file's `copy` globs (D14). They join the env
+ * shapes in this one call, so they get the same selection: a tracked file is
+ * never listed, and neither is an untracked file that is not gitignored, so a
+ * `copy` path has to be gitignored to be copied. The schema has already refused
+ * a leading `/` or `:` and any `..`, so a pattern cannot leave the repository
+ * or carry pathspec magic of its own.
  */
-async function gitListIgnoredEnvFiles(gitRootPath: string) {
+async function gitListIgnoredEnvFiles(
+  gitRootPath: string,
+  copyPatterns: readonly string[],
+) {
   const result = await run(
     "git",
     [
@@ -54,6 +64,7 @@ async function gitListIgnoredEnvFiles(gitRootPath: string) {
       "-z",
       "--",
       ...ENV_FILE_PATHSPECS,
+      ...copyPatterns.map((pattern) => `:(glob)${pattern}`),
       NODE_MODULES_PATHSPEC,
     ],
     { cwd: gitRootPath, trim: false },
@@ -92,6 +103,9 @@ function renderPath(envFile: string) {
  * interesting part of `docs/worker/.dev.vars` is `docs/worker`, and an absolute
  * prefix repeated down the column is what buries it.
  *
+ * `copy` is the project file's patterns (D14); the files they select are copied
+ * and listed with the env files, in the one list.
+ *
  * Resolves with the paths copied, relative to the repository root as printed.
  *
  * The whole report goes to stdout, heading included (stderr when `report` says
@@ -103,7 +117,10 @@ function renderPath(envFile: string) {
  */
 export async function copyEnvFilesFromRootPath(
   destinationWorktreePath: string,
-  { report = "stdout" }: { report?: "stdout" | "stderr" } = {},
+  {
+    report = "stdout",
+    copy = [],
+  }: { report?: "stdout" | "stderr"; copy?: readonly string[] } = {},
 ): Promise<string[]> {
   // A run whose stdout carries a machine-readable document sends the report to
   // stderr instead, so the document stays the only thing on stdout.
@@ -113,7 +130,7 @@ export async function copyEnvFilesFromRootPath(
 
   let envFiles: string[];
   try {
-    envFiles = await gitListIgnoredEnvFiles(gitRootPath);
+    envFiles = await gitListIgnoredEnvFiles(gitRootPath, copy);
   } catch (error) {
     // Without this the spinner keeps ticking while the error surfaces past it,
     // and ora's stream hook is never uninstalled.
@@ -125,13 +142,15 @@ export async function copyEnvFilesFromRootPath(
   // Said out loud rather than passed over in silence. A worktree missing the
   // env file someone expected looks identical to one that never needed any, and
   // this line is what separates "none found" from "the copy never ran".
+  // With patterns the list is no longer only env files, so it says "files".
+  const noun = copy.length > 0 ? "file" : "env file";
   if (envFiles.length === 0) {
-    say(`No env files to copy from ${gitRootPath}`);
+    say(`No ${noun}s to copy from ${gitRootPath}`);
     return [];
   }
 
   say(
-    `Copying ${chalk.bold(envFiles.length)} env ${envFiles.length === 1 ? "file" : "files"} from ${gitRootPath}:`,
+    `Copying ${chalk.bold(envFiles.length)} ${noun}${envFiles.length === 1 ? "" : "s"} from ${gitRootPath}:`,
   );
 
   for (const envFile of envFiles) {

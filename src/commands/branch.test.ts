@@ -292,6 +292,33 @@ jira:
       });
     });
 
+    // Phase 6 (#181), D14. The pattern is the example file's `config/master.key`.
+    describe("copy patterns (D14)", () => {
+      it("hands the file's copy patterns to the copy step, with the report on stdout", async () => {
+        personalConfig({ defaultSourceBranch: "origin/main" });
+        projectFile("copy:\n  - config/master.key\n");
+
+        await run({}, "feature/test");
+
+        expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+          report: "stdout",
+          copy: ["config/master.key"],
+        });
+      });
+
+      it("passes no patterns for a file without a copy key", async () => {
+        personalConfig({ defaultSourceBranch: "origin/main" });
+        projectFile("defaultSourceBranch: origin/develop\n");
+
+        await run({}, "feature/test");
+
+        expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+          report: "stdout",
+          copy: undefined,
+        });
+      });
+    });
+
     describe("fetching (D7)", () => {
       it("fetches exactly once, before the file is read, and tells creation not to", async () => {
         personalConfig();
@@ -3255,6 +3282,24 @@ jira:
       });
     });
 
+    it("lists a copy-pattern file in envFilesCopied beside the env files, and sends the report to stderr", async () => {
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "found",
+        content: "copy:\n  - config/master.key\n",
+      });
+      mockCopyEnvFiles.mockResolvedValue([".env", "config/master.key"]);
+
+      await runJson({ branchName: "feature/test" }, { "no-open": true });
+
+      expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+        report: "stderr",
+        copy: ["config/master.key"],
+      });
+      expect(output.document()).toMatchObject({
+        envFilesCopied: [".env", "config/master.key"],
+      });
+    });
+
     it("reports what was skipped as null, not omitted", async () => {
       await runJson(
         { branchName: "feature/test" },
@@ -3803,6 +3848,16 @@ github:
     expect(mockRunInstall).not.toHaveBeenCalled();
     expect(mockCopyEnvFiles).not.toHaveBeenCalled();
     expect(output.stderr()).toContain("Issue #8 is closed as completed.");
+  });
+
+  it("copies nothing even when the file lists copy patterns", async () => {
+    projectFile(`${FILE}copy:\n  - config/master.key\n`);
+    githubIssue();
+
+    await runDry({ github: "8" });
+
+    expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
   });
 
   it("assigns no Jira issue and asks Jira for names", async () => {

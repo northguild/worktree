@@ -101,3 +101,24 @@ Non-blocking Gate 2 observations, branch-local. Read by no command; `/feature-cl
   non-interactive dry run. Phases 7 and 8 should pin that a dry run runs no approval and no nudge.
 - `BranchDryRunMatch`'s kind spells out `"feature" | "bugfix" | "chore"` instead of reusing `BranchKind`.
 - The human rule-text format is the coder's own, pinned to the formatter.
+
+## From Phase 6
+
+- `checkout` now reads `.worktree.yml` and a bad file stops it with exit 2; `SKILL.md` says an invalid file
+  stops `branch` only, and `commands/checkout/page.mdx` mentions neither env files nor the project file (§7's
+  "defers to the env-files guide" is not true of that page). Neither is false today.
+- `checkout` now prints the `git remote set-head origin --auto` warning once per run where `origin/HEAD` is
+  unset.
+- `env-files/page.mdx`: "A file is copied when both … its name is env-shaped" is qualified only by the
+  following `###`; "not from a list anyone maintains" no longer holds; sample output shows only the "env
+  files" wording, where a run with `copy` prints "Copying N files" / "No files to copy". The new `###` is
+  sentence case on a Title Case page.
+- Untested: the "No files to copy" branch with patterns present; `checkout` reading the file before the
+  branch-picker prompt. One `env.test.ts` case pins pathspec order, which git does not care about.
+- `getting-started/page.mdx` and `README.md`'s opening still describe env files only (incomplete, not false).
+- A `**` pattern copies every ignored file except `node_modules`, build output included; the docs could say so.
+- Unverified: on Windows a `C:\x` entry passes the schema (git should refuse it as outside the repository).
+- `src/agent-mode.test.ts`'s fixture `git()` helper (`gitEnv()`: `GIT_CONFIG_GLOBAL=/dev/null`,
+  `GIT_CONFIG_NOSYSTEM=1`, also on `origin/main`) keeps the real `HOME`, so git's default excludes file
+  (`~/.config/git/ignore`) still applies while fixtures are built; the spawned CLI itself gets a scratch `HOME`
+  and `XDG_CONFIG_HOME`. Not a user-visible defect.

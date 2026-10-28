@@ -108,7 +108,7 @@ That will:
 
 1. create a new branch from your configured source branch
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
-3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc`
+3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc` — and any gitignored file `.worktree.yml` lists under `copy`
 4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`), and a failure keeps the worktree, opens nothing and exits `1`
 5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
 

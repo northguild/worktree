@@ -4,6 +4,10 @@ import * as herdr from "../integrations/herdr.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import {
+  ProjectConfigError,
+  resetProjectConfigCache,
+} from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
 import Checkout from "./checkout.js";
 
@@ -33,6 +37,15 @@ describe("checkout command", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // The repository has an origin/HEAD and no .worktree.yml, the run every case
+    // below was written for; the copy cases vary the file.
+    resetProjectConfigCache();
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "absent-path",
+    });
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
     const mockConfig = {
       runCommand: vi.fn().mockResolvedValue(undefined),
     } as any;
@@ -67,7 +80,9 @@ describe("checkout command", () => {
       "origin/feature/test",
       { isCheckout: true },
     );
-    expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree");
+    expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+      copy: undefined,
+    });
     expect(mockOpenWorktreePath).toHaveBeenCalledWith("/path/to/worktree", {
       brief: undefined,
     });
@@ -177,6 +192,61 @@ describe("checkout command", () => {
       'Local branch "feature/test" already exists',
     );
     expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+  });
+
+  // Phase 6 (#181), D14: checkout copies the file's patterns as branch does.
+  // The pattern is the #181 example file's `config/master.key`.
+  describe("copy patterns (D14)", () => {
+    beforeEach(() => {
+      vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue([
+        "origin/main",
+        "origin/feature/test",
+      ]);
+      vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: {},
+      });
+    });
+
+    it("hands the file's copy patterns to the copy step", async () => {
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "found",
+        content: "copy:\n  - config/master.key\n",
+      });
+
+      await checkout.run();
+
+      expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+        copy: ["config/master.key"],
+      });
+    });
+
+    it("stops on a file that cannot be used before a worktree exists", async () => {
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "found",
+        content: "copy:\n  - ../outside\n",
+      });
+
+      await expect(checkout.run()).rejects.toBeInstanceOf(ProjectConfigError);
+
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+    });
+
+    it("says the file's warnings once", async () => {
+      vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("");
+      vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
+      const warn = vi
+        .spyOn(checkout, "warn")
+        .mockImplementation((input) => input);
+
+      await checkout.run();
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("git remote set-head origin");
+    });
   });
 
   describe("--agent flag", () => {

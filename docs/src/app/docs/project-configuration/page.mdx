@@ -76,9 +76,10 @@ not offer to run `worktree config` for a key the file supplies.
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.
 
-The file's format also reserves the keys `copy` and `postCreate`. This release checks them for mistakes but
-does not act on them yet. The `branchType` lists under `jira`, `github`, `linear` and `clickup` are live:
-see [Branch-type rules](#branch-type-rules). So is `branchName`: see [Branch name template](#branch-name-template).
+The file's format also reserves the key `postCreate`. This release checks it for mistakes but does not act on
+it yet. The `branchType` lists under `jira`, `github`, `linear` and `clickup` are live: see
+[Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
+and `copy`, see [Copy files](#copy-files).
 
 ### What the file may not hold
 
@@ -221,6 +222,35 @@ the reason (exit `2` when nothing can be asked, a message in the prompt otherwis
 
 The template applies only to names derived from an issue. A name you type, as in `worktree branch my-branch`,
 is used as given.
+
+## Copy files
+
+`copy` lists files that `worktree branch` and `worktree checkout` carry into a new worktree, beside the
+[env files](/docs/guides/env-files) they already copy:
+
+```yaml
+copy:
+  - config/master.key
+  - certs/**/*.pem
+```
+
+- **Each entry is a relative glob**, matched from the repository root. `*` matches within a directory and
+  `**/` matches any number of directories, so `config/*.key` finds `config/master.key` but not
+  `config/old/master.key`.
+- **A path must be gitignored to be copied.** `copy` uses the same selection as the env files: the file is
+  untracked and matched by your ignore rules. A tracked file is already in the new worktree, so it is never
+  copied over itself. A file that is neither tracked nor ignored is not copied either; add it to
+  `.gitignore` first.
+- **`node_modules` is never searched**, even by a pattern that would match inside it.
+- **Listed files are reported with the env files.** They appear in the same list on screen, and in
+  `envFilesCopied` of the `--json` document.
+- **An entry that starts with `/` or `:`, or has a `..` segment, is an error** when the file is read, so a
+  pattern cannot reach outside the repository.
+- **Nothing is asked first.** Unlike steps that run commands, copying executes nothing and stays within your
+  own clone, so no approval is needed.
+- **`worktree branch --dry-run` copies nothing**, like everything else it skips.
+
+A repository with no file, or a file without `copy`, copies exactly what it did before.
 
 ## A broken file stops the run
 

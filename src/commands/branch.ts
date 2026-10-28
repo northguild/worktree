@@ -944,8 +944,11 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // worktree that is already complete. The editor stays last so its "Worktree
     // created" fallback remains the final line.
     // The report goes to stderr under `--json`, so stdout stays the document.
+    // The file's `copy` patterns ride in the same call (D14), so what they
+    // select is copied and listed with the env files, under the same selection.
     const envFilesCopied = await copyEnvFilesFromRootPath(projectPath, {
       report: this.jsonEnabled() ? "stderr" : "stdout",
+      copy: project.status === "loaded" ? project.config.copy : undefined,
     });
 
     // Before the agent and before any opener: both start working in the tree at

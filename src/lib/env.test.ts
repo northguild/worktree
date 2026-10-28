@@ -99,6 +99,67 @@ describe("copyEnvFilesFromRootPath", () => {
     await expect(copyEnvFilesFromRootPath(worktreePath)).resolves.toEqual([]);
   });
 
+  it("adds each copy pattern as a glob pathspec, between the env shapes and the node_modules exclusion", async () => {
+    expectCommands(
+      "git rev-parse --show-toplevel",
+      `git ls-files --others --ignored --exclude-standard -z -- :(glob)**/.env* :(glob)**/.dev.vars* :(glob)**/.envrc :(glob)config/master.key :(glob)certs/*.pem :(glob,exclude)**/node_modules/** (cwd: ${rootPath})`,
+    );
+    mockGitResponses(nulTerminated("config/master.key"));
+
+    const copied = await copyEnvFilesFromRootPath(worktreePath, {
+      copy: ["config/master.key", "certs/*.pem"],
+    });
+
+    expect(mockRun).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      [
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "-z",
+        "--",
+        ":(glob)**/.env*",
+        ":(glob)**/.dev.vars*",
+        ":(glob)**/.envrc",
+        ":(glob)config/master.key",
+        ":(glob)certs/*.pem",
+        ":(glob,exclude)**/node_modules/**",
+      ],
+      { cwd: rootPath, trim: false },
+    );
+    expect(copied).toEqual(["config/master.key"]);
+  });
+
+  it("calls the list files, not env files, once patterns are in play", async () => {
+    expectCommands(
+      "git rev-parse --show-toplevel",
+      `git ${selectionArgv.slice(0, -1).join(" ")} :(glob)config/master.key ${selectionArgv.at(-1)} (cwd: ${rootPath})`,
+    );
+    mockGitResponses(nulTerminated("config/master.key"));
+
+    await copyEnvFilesFromRootPath(worktreePath, {
+      copy: ["config/master.key"],
+    });
+
+    expect(loggedLines()).toEqual([
+      `Copying 1 file from ${rootPath}:`,
+      "  ✔ config/master.key",
+    ]);
+  });
+
+  it("asks exactly the same of git for an empty copy list as for none", async () => {
+    mockGitResponses("");
+
+    await copyEnvFilesFromRootPath(worktreePath, { copy: [] });
+
+    expect(mockRun).toHaveBeenNthCalledWith(2, "git", selectionArgv, {
+      cwd: rootPath,
+      trim: false,
+    });
+  });
+
   it("prints the report on stdout by default and on stderr when asked", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     mockGitResponses(nulTerminated(".env"));

@@ -46,7 +46,9 @@ worktree branch feature/add-bulk-actions --source origin/release/1.4
 ```
 
 Creates a branch, adds a worktree under `<repo>.worktrees/feature/add-bulk-actions`,
-copies the gitignored env files from the root worktree, and opens the directory
+copies the gitignored env files from the root worktree (plus any gitignored
+file the project's `.worktree.yml` lists under `copy`, which `checkout` copies
+too), and opens the directory
 in the configured `codeEditor` — or, when `opener` is `herdr`, as a Herdr space
 labelled with the branch name.
 
@@ -418,6 +420,11 @@ with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
 `2` (`invalid_value`) before anything is created. An unknown key only warns. A
 file's `jira.host` receives every teammate's Jira credentials, so treat a change
 to it like code.
+
+The file's `copy` list (relative globs such as `config/master.key`) names extra
+files for `branch` and `checkout` to copy with the env files. A path must be
+gitignored to be copied; a tracked file never is. Copied files are listed in
+`envFilesCopied`, and `branch --dry-run` copies nothing.
 
 | Key | Example value | Required for |
 |---|---|---|
