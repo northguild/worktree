@@ -244,10 +244,14 @@ interface JiraUser {
 }
 
 // D5: a failed assignment is named in the person's terms. The messages carry
-// the issue key and the API's own text, never a header.
+// the issue key and the API's own text, never a header. `step` is which of the
+// three requests failed, because each needs something different: reading the
+// caller needs only a login, reading the issue needs Browse Projects, and
+// writing its assignee needs Assign Issues.
 async function jiraAssignFailure(
   response: Response,
   issueKey: string,
+  step: "caller" | "issue" | "assignee",
 ): Promise<Error> {
   if (response.status === 401) {
     return new Error(
@@ -255,20 +259,21 @@ async function jiraAssignFailure(
     );
   }
 
-  if (response.status === 403) {
+  if (response.status === 403 && step !== "caller") {
+    const permission = step === "issue" ? "Browse Projects" : "Assign Issues";
     return new Error(
-      `Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of ${issueKey}.`,
+      `Jira: Your account lacks the ${permission} permission on the project of ${issueKey}.`,
     );
   }
 
-  if (response.status === 404) {
+  if (response.status === 404 && step !== "caller") {
     return new Error(`Jira: Issue ${issueKey} was not found.`);
   }
 
   const errorMessage = await response.text();
   const detail = `${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
 
-  if (response.status === 400) {
+  if (response.status === 400 && step === "assignee") {
     return new Error(
       `Jira: The account was not accepted as assignee for ${issueKey}. ${detail}`,
     );
@@ -292,11 +297,11 @@ export async function assignJiraIssue(
   ]);
 
   if (!myselfResponse.ok) {
-    throw await jiraAssignFailure(myselfResponse, issueKey);
+    throw await jiraAssignFailure(myselfResponse, issueKey, "caller");
   }
 
   if (!issueResponse.ok) {
-    throw await jiraAssignFailure(issueResponse, issueKey);
+    throw await jiraAssignFailure(issueResponse, issueKey, "issue");
   }
 
   const me = (await myselfResponse.json()) as JiraUser;
@@ -322,6 +327,9 @@ export async function assignJiraIssue(
     };
   }
 
+  // Not atomic: someone who takes the issue between the read above and this
+  // write is replaced. Jira has no conditional assign, so the window is
+  // narrowed, not closed.
   const path = `/rest/api/3/issue/${issueKey}/assignee`;
   const putResponse = await fetchJira(path, credentials, {
     method: "PUT",
@@ -329,7 +337,7 @@ export async function assignJiraIssue(
   });
 
   if (!putResponse.ok) {
-    throw await jiraAssignFailure(putResponse, issueKey);
+    throw await jiraAssignFailure(putResponse, issueKey, "assignee");
   }
 
   return { outcome: "assigned", displayName };

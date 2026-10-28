@@ -469,14 +469,49 @@ describe("Jira integration", () => {
       );
     });
 
-    it("names Browse Projects and Assign Issues for a 403", async () => {
+    it("names Assign Issues for a 403 on the write", async () => {
       stubJira({ assignee: null, putStatus: 403 });
 
       const failure = assignJiraIssue("DEV-123");
 
-      await expect(failure).rejects.toThrow(/Browse Projects/);
-      await expect(failure).rejects.toThrow(/Assign Issues/);
-      await expect(failure).rejects.toThrow(/DEV-123/);
+      await expect(failure).rejects.toThrow(
+        "Jira: Your account lacks the Assign Issues permission on the project of DEV-123.",
+      );
+      await expect(failure).rejects.not.toThrow(/Browse Projects/);
+    });
+
+    it("names Browse Projects for a 403 on the read of the issue, and writes nothing", async () => {
+      const fetchSpy = stubJira({ assignee: null, issueStatus: 403 });
+
+      const failure = assignJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        "Jira: Your account lacks the Browse Projects permission on the project of DEV-123.",
+      );
+      await expect(failure).rejects.not.toThrow(/Assign Issues/);
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("names no project permission for a 403 on the read of the caller", async () => {
+      stubJira({ assignee: null, myselfStatus: 403 });
+
+      const failure = assignJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        "Jira: Failed to assign issue DEV-123. 403 status 403",
+      );
+      await expect(failure).rejects.not.toThrow(/permission/);
+    });
+
+    it("does not call a 400 on a read an assignee rejection", async () => {
+      stubJira({ assignee: null, issueStatus: 400 });
+
+      const failure = assignJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        "Jira: Failed to assign issue DEV-123. 400 status 400",
+      );
+      await expect(failure).rejects.not.toThrow(/not accepted as assignee/);
     });
 
     it("names the issue for a 404", async () => {

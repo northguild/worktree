@@ -1926,7 +1926,7 @@ describe("branch command", () => {
         it("still creates the worktree when the assignment is rejected", async () => {
           vi.spyOn(jiraIntegration, "assignJiraIssue").mockRejectedValue(
             new Error(
-              "Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of DEV-123.",
+              "Jira: Your account lacks the Assign Issues permission on the project of DEV-123.",
             ),
           );
           jiraRun({ assign: true });
@@ -1942,11 +1942,11 @@ describe("branch command", () => {
           expect(mockOpenWorktreePath).toHaveBeenCalled();
           const spinner = lastSpinner();
           expect(spinner.warn).toHaveBeenCalledWith(
-            "Could not assign DEV-123. Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of DEV-123.",
+            "Could not assign DEV-123. Jira: Your account lacks the Assign Issues permission on the project of DEV-123.",
           );
           expect(spinner.fail).not.toHaveBeenCalled();
           expect(document?.warnings).toContain(
-            "Could not assign DEV-123. Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of DEV-123.",
+            "Could not assign DEV-123. Jira: Your account lacks the Assign Issues permission on the project of DEV-123.",
           );
         });
 
