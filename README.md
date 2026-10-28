@@ -95,7 +95,10 @@ The setup flow can configure:
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
-`jira.host` and `clickup.workspaceId`, read from the default branch; your own git config overrides it. See
+`jira.host` and `clickup.workspaceId`, read from the default branch; your own git config overrides it. The
+wizard skips what the file answers, `worktree config --list` marks each value `(.worktree.yml)` or
+`(overrides .worktree.yml: <file value>)`, and `worktree config --project` writes a `.worktree.yml` from the
+team keys in your git config (never a personal or secret one), uncommitted. See
 [Project Configuration](https://northguild.github.io/worktree/docs/project-configuration).
 
 Then create your first worktree:
@@ -250,6 +253,7 @@ worktree config opener herdr
 worktree config agent.command "claude --bg"
 worktree config --list
 worktree config --missing
+worktree config --project
 ```
 
 `codeEditor` is the executable plus any arguments, run without a shell — quotes group, but `~` and

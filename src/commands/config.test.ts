@@ -1,7 +1,11 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { confirm, input, select } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
-import { CONFIG_NAMES } from "../lib/constants.js";
+import { CONFIG_NAMES, SECRET_CONFIG_NAMES } from "../lib/constants.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import * as projectConfig from "../lib/project-config.js";
@@ -33,6 +37,15 @@ describe("config command", () => {
 
     // Prevent config command tests from touching the low-level cmd wrapper.
     vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+
+    // No project file unless a case supplies one; the offers are covered by
+    // project-config.test.ts, so they are spies here.
+    vi.spyOn(projectConfig, "loadProjectConfig").mockResolvedValue({
+      status: "none",
+      reason: "no-file",
+      warnings: [],
+    });
+    vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
 
     // Default mock to prevent config verification from running
     vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
@@ -2334,6 +2347,484 @@ describe("config command", () => {
 
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(setConfigValue).toHaveBeenCalledWith("opener", "herdr");
+    });
+  });
+
+  // Phase 8 (#181), D19-D22. The file below is the example from plan §4; the
+  // expected lines are D19's wording and the brief's marker formats.
+  describe("with a .worktree.yml (D19)", () => {
+    const EXAMPLE = `defaultSourceBranch: origin/main
+branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+  branchType:
+    - when: { issuetype: { id: "10008" } }
+      type: bugfix
+    - otherwise: feature
+github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+branchName: "{prefix}{id}-{slug}"
+copy:
+  - config/master.key
+postCreate:
+  - pnpm install
+  - pnpm prisma generate
+`;
+    let scratch: string;
+    let personal: Record<string, string>;
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    function parsed(args: object, flags: object) {
+      (config as any).parse = vi.fn().mockResolvedValue({ args, flags });
+    }
+
+    async function withFile(content: string) {
+      const file = path.join(scratch, ".worktree.yml");
+      fs.writeFileSync(file, content);
+      const result = await projectConfig.readProjectConfig({
+        WORKTREE_PROJECT_CONFIG: file,
+      });
+      vi.spyOn(projectConfig, "loadProjectConfig").mockResolvedValue(result);
+    }
+
+    // The loader also warns that it read the override file the tests use.
+    function setsWarning() {
+      return String(
+        warn.mock.calls
+          .map(([message]: [string]) => message)
+          .find((message: string) => message.includes(" sets ")),
+      );
+    }
+
+    function printed(): string[] {
+      return mockConsoleLog.mock.calls.map((call: unknown[]) => call.join(" "));
+    }
+
+    beforeEach(() => {
+      scratch = fs.mkdtempSync(path.join(os.tmpdir(), "wt-config-"));
+      personal = {};
+      setNonInteractive(false);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+        async (key: string) =>
+          key === "has-called-config" ? "true" : (personal[key] ?? ""),
+      );
+      warn = vi.spyOn(config, "warn").mockImplementation((m) => m);
+      mockConfirm.mockReset();
+      mockInput.mockReset();
+      mockSelect.mockReset();
+    });
+
+    afterEach(() => {
+      fs.rmSync(scratch, { recursive: true, force: true });
+      setNonInteractive(false);
+    });
+
+    describe("the wizard", () => {
+      it("asks nothing the file answers, and says once which keys it sets", async () => {
+        await withFile(EXAMPLE);
+        parsed({}, { missing: false });
+        mockConfirm.mockResolvedValue(true);
+        mockInput.mockResolvedValue("anything");
+        mockSelect.mockResolvedValue("editor");
+
+        await config.run();
+
+        const asked = [
+          ...mockConfirm.mock.calls,
+          ...mockInput.mock.calls,
+          ...mockSelect.mock.calls,
+        ].map(([prompt]) => (prompt as { message: string }).message);
+        for (const answered of [
+          "Which branch should new worktrees be based on?",
+          "branch name prefixes",
+          "Prefix for",
+          "Jira host",
+          "run a command in new worktrees",
+        ]) {
+          expect(asked.filter((m) => m.includes(answered))).toEqual([]);
+        }
+        // Questions the file cannot answer are still asked.
+        expect(asked.some((m) => m.includes("Jira email"))).toBe(true);
+        const says = printed().filter((line) =>
+          line.includes(".worktree.yml sets"),
+        );
+        expect(says).toEqual([
+          ".worktree.yml sets defaultSourceBranch, branchPrefix.feature, branchPrefix.bugfix, branchPrefix.chore, jira.host, postCreate, so the wizard does not ask for them. Change one for yourself with `worktree config <key> <value>`.",
+        ]);
+      });
+
+      it("asks a personal postCreate nothing when the file has steps, but does when it has none", async () => {
+        await withFile("postCreate: []\n");
+        parsed({}, { missing: false });
+        mockConfirm.mockResolvedValue(false);
+
+        await config.run();
+
+        expect(
+          mockConfirm.mock.calls.some(([p]) =>
+            (p as { message: string }).message.includes(
+              "run a command in new worktrees",
+            ),
+          ),
+        ).toBe(true);
+        expect(printed().some((l) => l.includes(".worktree.yml sets"))).toBe(
+          false,
+        );
+      });
+
+      it("asks for a file-set key that --names names, since naming it is asking", async () => {
+        await withFile(EXAMPLE);
+        parsed({}, { missing: false, names: "defaultSourceBranch" });
+        mockInput.mockResolvedValue("origin/develop");
+
+        await config.run();
+
+        expect(mockInput).toHaveBeenCalledTimes(1);
+        expect(
+          printed().some((line) => line.includes(".worktree.yml sets")),
+        ).toBe(false);
+      });
+
+      it("under --missing, asks nothing the file supplies even when --names names it, but still asks a named key the file lacks", async () => {
+        await withFile(EXAMPLE);
+        parsed(
+          {},
+          { missing: true, names: "defaultSourceBranch,jira.host,jira.email" },
+        );
+        mockInput.mockResolvedValue("a@b.co");
+
+        await config.run();
+
+        const asked = mockInput.mock.calls.map(
+          ([prompt]) => (prompt as { message: string }).message,
+        );
+        expect(asked).toEqual(["Jira email"]);
+      });
+
+      it("without --missing, --names still asks for a key the file sets", async () => {
+        await withFile(EXAMPLE);
+        parsed({}, { missing: false, names: "defaultSourceBranch,jira.host" });
+        mockInput.mockResolvedValue("x");
+
+        await config.run();
+
+        expect(mockInput).toHaveBeenCalledTimes(2);
+      });
+
+      it("makes the offers only for a bare run, not for --names or --skip-offers", async () => {
+        await withFile(EXAMPLE);
+        mockConfirm.mockResolvedValue(false);
+        mockInput.mockResolvedValue("x");
+
+        parsed({}, { missing: false });
+        await config.run();
+        expect(projectConfig.offerProjectConfig).toHaveBeenCalledTimes(1);
+
+        parsed({}, { missing: true, names: "jira.email" });
+        await config.run();
+        parsed({}, { missing: false, "skip-offers": true });
+        await config.run();
+        expect(projectConfig.offerProjectConfig).toHaveBeenCalledTimes(1);
+      });
+
+      it("hides --skip-offers, which only the delegating commands pass", () => {
+        expect(Config.flags["skip-offers"]?.hidden).toBe(true);
+      });
+    });
+
+    describe("worktree config <key> <value> for a key the file sets", () => {
+      it("says the file sets it, shows both values and asks; yes sets it", async () => {
+        await withFile(EXAMPLE);
+        parsed({ name: "branchPrefix.feature", value: "mine/" }, {});
+        mockConfirm.mockResolvedValue(true);
+
+        await config.run();
+
+        const said = printed().join("\n");
+        expect(said).toContain(".worktree.yml sets branchPrefix.feature");
+        expect(said).toContain("feat/");
+        expect(said).toContain("mine/");
+        expect(mockConfirm).toHaveBeenCalledTimes(1);
+        expect(git.gitSetConfigValue).toHaveBeenCalledWith(
+          "branchPrefix.feature",
+          "mine/",
+        );
+      });
+
+      it("sets nothing on no", async () => {
+        await withFile(EXAMPLE);
+        parsed({ name: "branchPrefix.feature", value: "mine/" }, {});
+        mockConfirm.mockResolvedValue(false);
+
+        await config.run();
+
+        expect(git.gitSetConfigValue).not.toHaveBeenCalledWith(
+          "branchPrefix.feature",
+          "mine/",
+        );
+      });
+
+      it("sets the value and warns, without asking, when non-interactive", async () => {
+        await withFile(EXAMPLE);
+        setNonInteractive(true);
+        parsed({ name: "branchPrefix.feature", value: "mine/" }, {});
+
+        await config.run();
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(git.gitSetConfigValue).toHaveBeenCalledWith(
+          "branchPrefix.feature",
+          "mine/",
+        );
+        const text = setsWarning();
+        expect(text).toContain(".worktree.yml sets branchPrefix.feature");
+        expect(text).toContain("feat/");
+        expect(text).toContain("mine/");
+      });
+
+      it("shows a file value visibly", async () => {
+        await withFile('branchPrefix:\n  feature: "a\\e[2Kb/"\n');
+        setNonInteractive(true);
+        parsed({ name: "branchPrefix.feature", value: "mine/" }, {});
+
+        await config.run();
+
+        const text = setsWarning();
+        expect(text).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+        expect(text).toContain("a\\x1b[2Kb/");
+      });
+
+      it("does not ask for a key the file does not set", async () => {
+        await withFile(EXAMPLE);
+        parsed({ name: "codeEditor", value: "code" }, {});
+        vi.spyOn(validators, "validateConfigValue").mockResolvedValue();
+
+        await config.run();
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(warn).not.toHaveBeenCalled();
+        expect(git.gitSetConfigValue).toHaveBeenCalledWith(
+          "codeEditor",
+          "code",
+        );
+      });
+    });
+
+    describe("--list", () => {
+      beforeEach(() => parsed({}, { list: true, missing: false }));
+
+      it("marks a value only the file supplies, in plain text", async () => {
+        await withFile(EXAMPLE);
+
+        await config.run();
+
+        expect(printed()).toContain(
+          "defaultSourceBranch=origin/main (.worktree.yml)",
+        );
+        expect(printed()).toContain(
+          "branchPrefix.feature=feat/ (.worktree.yml)",
+        );
+        expect(printed()).toContain(
+          "jira.host=https://acme.atlassian.net (.worktree.yml)",
+        );
+      });
+
+      it("marks a git config value that differs as an override, with the file's value", async () => {
+        await withFile(EXAMPLE);
+        personal["branchPrefix.bugfix"] = "bug/";
+
+        await config.run();
+
+        expect(printed()).toContain(
+          "branchPrefix.bugfix=bug/ (overrides .worktree.yml: fix/)",
+        );
+      });
+
+      it("marks a git config value equal to the file's as the file's", async () => {
+        await withFile(EXAMPLE);
+        personal["branchPrefix.bugfix"] = "fix/";
+
+        await config.run();
+
+        expect(printed()).toContain("branchPrefix.bugfix=fix/ (.worktree.yml)");
+      });
+
+      it("shows a personal postCreate as an override of the file's steps", async () => {
+        await withFile(EXAMPLE);
+        personal.postCreate = "pnpm build";
+
+        await config.run();
+
+        expect(printed()).toContain(
+          "postCreate=pnpm build (overrides .worktree.yml: pnpm install; pnpm prisma generate)",
+        );
+      });
+
+      it("summarises the file-only keys, one line each", async () => {
+        await withFile(EXAMPLE);
+
+        await config.run();
+
+        expect(printed()).toEqual(
+          expect.arrayContaining([
+            "jira.branchType: 2 rules (.worktree.yml)",
+            "github.branchType: 1 rule (.worktree.yml)",
+            "branchName={prefix}{id}-{slug} (.worktree.yml)",
+            "copy: 1 pattern (.worktree.yml)",
+            "postCreate: 2 steps (.worktree.yml)",
+          ]),
+        );
+        // postCreate is summarised, not also listed as a bare unset name.
+        expect(printed()).not.toContain("postCreate");
+      });
+
+      it("shows file-derived text visibly", async () => {
+        await withFile(
+          'branchPrefix:\n  feature: "a\\e[2Kb/"\nbranchName: "{id}\\e[2K"\n',
+        );
+        personal["branchPrefix.feature"] = "mine/";
+
+        await config.run();
+
+        const text = printed().join("\n");
+        for (const line of printed()) {
+          expect(line).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+        }
+        expect(text).toContain(
+          "branchPrefix.feature=mine/ (overrides .worktree.yml: a\\x1b[2Kb/)",
+        );
+        expect(text).toContain("branchName={id}\\x1b[2K (.worktree.yml)");
+      });
+
+      it("still masks every secret exactly as before", async () => {
+        await withFile(EXAMPLE);
+        for (const key of SECRET_CONFIG_NAMES) {
+          personal[key] = `${key}-secret-value`;
+        }
+
+        await config.run();
+
+        for (const key of SECRET_CONFIG_NAMES) {
+          expect(printed()).toContain(`${key}=***`);
+        }
+        expect(printed().join("\n")).not.toContain("secret-value");
+      });
+
+      it("does not call a file-supplied key missing under --missing", async () => {
+        await withFile(EXAMPLE);
+        parsed({}, { list: true, missing: true });
+
+        await config.run();
+
+        const text = printed().join("\n");
+        expect(text).not.toContain("defaultSourceBranch");
+        expect(text).not.toContain("branchPrefix");
+        expect(text).not.toContain(".worktree.yml");
+        expect(text).toContain("jira.email");
+      });
+
+      it("prints no markers and no summary without a file", async () => {
+        personal.codeEditor = "code";
+
+        await config.run();
+
+        expect(printed().join("\n")).not.toContain(".worktree.yml");
+        expect(printed()).toContain("codeEditor=code");
+      });
+
+      it("lists a file that cannot be used as no file, with a warning", async () => {
+        vi.spyOn(projectConfig, "loadProjectConfig").mockRejectedValue(
+          new projectConfig.ProjectConfigError("Invalid .worktree.yml: bad"),
+        );
+
+        await config.run();
+
+        expect(String(warn.mock.calls[0]?.[0])).toContain(
+          "Invalid .worktree.yml",
+        );
+        expect(printed()).toContain("codeEditor");
+      });
+    });
+
+    describe("--project (D20)", () => {
+      it("writes the file and says it is not committed", async () => {
+        const write = vi
+          .spyOn(projectConfig, "writeProjectFile")
+          .mockResolvedValue({
+            path: "/repo/.worktree.yml",
+            keys: ["defaultSourceBranch", "postCreate"],
+          });
+        parsed({}, { project: true });
+
+        await config.run();
+
+        expect(write).toHaveBeenCalledTimes(1);
+        const said = printed().join("\n");
+        expect(said).toContain("/repo/.worktree.yml");
+        expect(said).toContain("defaultSourceBranch, postCreate");
+        expect(said).toContain("not committed");
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(projectConfig.offerProjectConfig).not.toHaveBeenCalled();
+      });
+
+      it("surfaces a refusal to overwrite", async () => {
+        vi.spyOn(projectConfig, "writeProjectFile").mockRejectedValue(
+          new projectConfig.ProjectFileExistsError("/repo/.worktree.yml"),
+        );
+        parsed({}, { project: true });
+
+        await expect(config.run()).rejects.toThrow(/already exists/);
+      });
+
+      it("cannot be combined with other arguments or flags", async () => {
+        vi.spyOn(config, "error").mockImplementation(((message: string) => {
+          throw new Error(message);
+        }) as any);
+        const write = vi.spyOn(projectConfig, "writeProjectFile");
+
+        parsed({ name: "opener" }, { project: true });
+        await expect(config.run()).rejects.toThrow(
+          /--project cannot be combined/,
+        );
+        parsed({}, { project: true, list: true });
+        await expect(config.run()).rejects.toThrow(
+          /--project cannot be combined/,
+        );
+        expect(write).not.toHaveBeenCalled();
+      });
+
+      it("is documented in the flags", () => {
+        expect(Config.flags.project).toBeDefined();
+      });
+    });
+
+    describe("the internal offer keys (D22)", () => {
+      for (const key of ["projectFileOffer", "migrationOffer"]) {
+        it(`${key} is not in CONFIG_NAMES, not in --list and cannot be set by name`, async () => {
+          expect(CONFIG_NAMES as readonly string[]).not.toContain(key);
+          personal[key] = "a-stored-value";
+          parsed({}, { list: true, missing: false });
+          await config.run();
+          expect(printed().join("\n")).not.toContain(key);
+
+          parsed({ name: key, value: "x" }, {});
+          vi.spyOn(config, "error").mockImplementation(((message: string) => {
+            throw new Error(message);
+          }) as any);
+          await expect(config.run()).rejects.toThrow(
+            `Unknown config name: ${key}`,
+          );
+          expect(git.gitSetConfigValue).not.toHaveBeenCalledWith(
+            key,
+            expect.anything(),
+          );
+        });
+      }
     });
   });
 });

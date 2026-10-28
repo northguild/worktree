@@ -7,6 +7,10 @@ title: Configuration
 `worktree` stores your config in Git config under `northguild.worktree.*`. A repository can also carry its
 team's settings in a `.worktree.yml` file; see [Project Configuration](/docs/project-configuration). For a
 team key your git config wins over the file, and the file wins over the built-in default.
+`worktree config` does not ask for a key the file sets, and `worktree config --list` marks each value
+`(.worktree.yml)` or `(overrides .worktree.yml: <file value>)`; see
+[`config`](/docs/commands/config#project-file). `worktree config --project` writes the file from your git
+config.
 
 ## Common Keys
 
@@ -257,7 +261,8 @@ worktree config jira.autoAssign true
 
 Put the settings a team shares in a committed `.worktree.yml` instead of asking everyone to run the same
 `worktree config` commands: the source branch, the branch prefixes, the Jira workspace URL and the ClickUp
-workspace id. See [Project Configuration](/docs/project-configuration).
+workspace id. See [Project Configuration](/docs/project-configuration). `worktree config --project` writes
+the first version from your own git config.
 
 Some things stay personal, so agree on them in conversation rather than in the file: the editor command, and
 which labels (Linear) or tags (ClickUp) mean bug and chore work, since the label or tag decides the prefix,

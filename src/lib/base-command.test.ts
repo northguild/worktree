@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { confirm } from "@inquirer/prompts";
+import { confirm, input, select } from "@inquirer/prompts";
+import Config from "../commands/config.js";
 import * as herdr from "../integrations/herdr.js";
 import {
   captureOutput,
@@ -43,7 +44,11 @@ const spinnerMocks = vi.hoisted(() => {
   return { succeed, fail, warn, stop, start, oraFactory };
 });
 
-vi.mock("@inquirer/prompts", () => ({ confirm: vi.fn() }));
+vi.mock("@inquirer/prompts", () => ({
+  confirm: vi.fn(),
+  input: vi.fn(),
+  select: vi.fn(),
+}));
 
 vi.mock("ora", () => ({
   default: spinnerMocks.oraFactory,
@@ -1450,6 +1455,7 @@ describe("verifyConfig", () => {
       "--missing",
       "--names",
       "defaultSourceBranch",
+      "--skip-offers",
     ]);
   });
 
@@ -1487,6 +1493,26 @@ describe("verifyConfig", () => {
       expect(warnSpy).not.toHaveBeenCalled();
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(runCommand).not.toHaveBeenCalled();
+    });
+
+    it("ends with no prompt for a key the file supplies, when run interactively through the real config", async () => {
+      // Hand the delegated call to the real config command, so what verifyConfig
+      // passes is what is asked.
+      runCommand.mockImplementation(async (id: string, argv: string[]) => {
+        expect(id).toBe("config");
+        await new Config(argv, await loadConfig()).run();
+      });
+      vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.mocked(confirm).mockResolvedValue(true);
+      vi.mocked(select).mockResolvedValue("none");
+
+      await command.verify(["defaultSourceBranch", "jira.host", "opener"]);
+
+      // opener is neither in git config nor in the file, so it is asked; the two
+      // keys the file supplies are not.
+      expect(select).toHaveBeenCalledTimes(1);
+      expect(input).not.toHaveBeenCalled();
     });
 
     it("still reports a key neither git config nor the file holds", async () => {

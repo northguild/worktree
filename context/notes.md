@@ -151,3 +151,19 @@ Non-blocking Gate 2 observations, branch-local. Read by no command; `/feature-cl
 - `--dry-run` prints rule text (`formatBranchTypeRule`, `pasteReadyLine`) without `showVisibly`; it runs and
   asks nothing, but escaping it would be cleaner. A ref name holding U+202E can reorder the "differs from … at
   <ref>" warning in a bidi-aware terminal; it cannot hide the step list.
+
+## From Phase 8
+
+- **Defect, branch-local:** migration's `git config --local --unset` has no value guard, so a local value
+  changed (e.g. by `worktree config` in another worktree of the clone) while the prompt is open is removed
+  anyway. Unset with `--fixed-value <value>` or re-read first.
+- The migration "once per file content" hash is over the parsed config, so a comment-only edit does not ask
+  again; the docs say "once per version of the file".
+- D21 can remove the local `defaultSourceBranch` that D1 uses as its fallback ref; with `followRemoteHEAD` off
+  and no `origin/HEAD`, the file would then stop being read. The tension is in the plan.
+- `--list`'s equal-value line prints the git value raw (not `showVisibly`); an equal personal `postCreate` runs
+  without approval while marked `(.worktree.yml)`, and shows twice (value line and summary).
+- The writer's three header comment lines under `$schema` are pinned from the implementation, not the plan;
+  no test checks the first-time `verifyConfig` path passes `--skip-offers`.
+- `getting-started/page.mdx` says "The wizard says which keys the file sets"; under `branch`'s delegated
+  `--missing --names` run that line is not printed (only a bare `worktree config` prints it).

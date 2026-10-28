@@ -40,6 +40,7 @@ import {
   ensurePostCreateApproved,
   getTeamConfigValue,
   loadProjectConfig,
+  offerProjectConfig,
 } from "../lib/project-config.js";
 import {
   askConfirm,
@@ -993,6 +994,17 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       agent: !flags["no-agent"],
       brief,
     });
+
+    // D21: after the worktree is open, so the offers never sit between the
+    // person and their tree. The worktree is the deliverable (§2): nothing
+    // here can fail the run.
+    try {
+      await offerProjectConfig();
+    } catch (error) {
+      this.warn(
+        `Could not make the .worktree.yml offer. ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     return this.toDocument({
       projectPath,

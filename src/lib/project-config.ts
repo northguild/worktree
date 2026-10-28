@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { LineCounter, parseDocument } from "yaml";
+import { LineCounter, parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import { run } from "./cli.js";
 import { SECRET_CONFIG_NAMES } from "./constants.js";
@@ -785,4 +785,303 @@ export async function approvePostCreate() {
     return false;
   }
   return askToApprove(steps);
+}
+
+// ---------------------------------------------------------------------------
+// What the file sets, as `worktree config` shows it (D19)
+// ---------------------------------------------------------------------------
+
+/** The keys a person's git config and the file can both hold (D3). */
+const PROJECT_FILE_KEYS = [
+  ...TEAM_CONFIG_KEYS,
+  "postCreate",
+] as const satisfies readonly ConfigName[];
+export type ProjectFileKey = (typeof PROJECT_FILE_KEYS)[number];
+
+export function isProjectFileKey(name: string): name is ProjectFileKey {
+  return (PROJECT_FILE_KEYS as readonly string[]).includes(name);
+}
+
+/**
+ * What the file says for a key, as text; `undefined` when it does not set it.
+ * Steps are joined with `; ` to show them on one line, which is a display and
+ * never a command.
+ */
+export function projectFileValue(config: ProjectConfig, key: ProjectFileKey) {
+  if (key === "postCreate") {
+    const steps = (config.postCreate ?? []).map((step) => step.trim());
+    return steps.length > 0 ? steps.join("; ") : undefined;
+  }
+  return projectValue(config, key) || undefined;
+}
+
+/** The keys the file sets, which the wizard does not ask for. */
+export function projectFileKeys(config: ProjectConfig) {
+  return PROJECT_FILE_KEYS.filter(
+    (key) => projectFileValue(config, key) !== undefined,
+  );
+}
+
+const MARKER = `(${PROJECT_CONFIG_FILE})`;
+
+function count(amount: number, noun: string) {
+  return `${amount} ${noun}${amount === 1 ? "" : "s"}`;
+}
+
+/**
+ * One line per file-only key, for `--list` (D19). Text from the file goes
+ * through `showVisibly`.
+ */
+export function summariseProjectFile(config: ProjectConfig) {
+  const lines: string[] = [];
+  for (const provider of ["jira", "github", "linear", "clickup"] as const) {
+    const rules = config[provider]?.branchType;
+    if (rules) {
+      lines.push(
+        `${provider}.branchType: ${count(rules.length, "rule")} ${MARKER}`,
+      );
+    }
+  }
+  if (config.branchName !== undefined) {
+    lines.push(`branchName=${showVisibly(config.branchName)} ${MARKER}`);
+  }
+  if (config.copy) {
+    lines.push(`copy: ${count(config.copy.length, "pattern")} ${MARKER}`);
+  }
+  if (config.postCreate && config.postCreate.length > 0) {
+    lines.push(
+      `postCreate: ${count(config.postCreate.length, "step")} ${MARKER}`,
+    );
+  }
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// `worktree config --project` (D20)
+// ---------------------------------------------------------------------------
+
+const PROJECT_FILE_HEADER = [
+  `# yaml-language-server: $schema=${PROJECT_CONFIG_SCHEMA_URL}`,
+  "# Team settings for worktree, written by `worktree config --project` from your git config.",
+  "# Review it, commit it to the default branch, and everyone shares these settings.",
+  "# Settings that belong to one person never go in this file.",
+];
+
+/**
+ * The commented file for these team values. Only `PROJECT_FILE_KEYS` are ever
+ * read, so a personal or secret key has no path into the text; the result is
+ * checked against the schema, so it loads as written.
+ */
+export function renderProjectFile(
+  values: Partial<Record<ProjectFileKey, string>>,
+) {
+  const document: Record<string, unknown> = {};
+  const section = (name: string, child: string, value: string | undefined) => {
+    if (value) {
+      document[name] = { ...(document[name] as object), [child]: value };
+    }
+  };
+  document.defaultSourceBranch = values.defaultSourceBranch || undefined;
+  section("branchPrefix", "feature", values["branchPrefix.feature"]);
+  section("branchPrefix", "bugfix", values["branchPrefix.bugfix"]);
+  section("branchPrefix", "chore", values["branchPrefix.chore"]);
+  section("jira", "host", values["jira.host"]);
+  section("clickup", "workspaceId", values["clickup.workspaceId"]);
+  // A personal postCreate is one string; the file holds a list of steps.
+  document.postCreate = values.postCreate ? [values.postCreate] : undefined;
+
+  const parsed = projectConfigSchema.safeParse(
+    Object.fromEntries(
+      Object.entries(document).filter(([, value]) => value !== undefined),
+    ),
+  );
+  if (!parsed.success) {
+    const keys = flattenIssues(parsed.error.issues)
+      .map((issue) => formatKeyPath(issue.path))
+      .join(", ");
+    throw new InvalidValueError(
+      `A value in your git config would not load from ${PROJECT_CONFIG_FILE} (${showVisibly(keys)}). Fix it with \`worktree config <key> <value>\` and run \`worktree config --project\` again.`,
+    );
+  }
+
+  const sections = Object.entries(parsed.data).map(([key, value]) =>
+    stringify({ [key]: value }),
+  );
+  return `${PROJECT_FILE_HEADER.join("\n")}\n\n${sections.join("\n")}`;
+}
+
+/** The working copy is already there; it is the person's, so it is not touched. */
+export class ProjectFileExistsError extends Error {
+  constructor(file: string) {
+    super(
+      `${file} already exists, so nothing was written. Edit it, or remove it and run \`worktree config --project\` again.`,
+    );
+    this.name = "ProjectFileExistsError";
+  }
+}
+
+/**
+ * Writes `.worktree.yml` at the current worktree's top level from the team keys
+ * in git config (any scope), and leaves it uncommitted. Never overwrites.
+ */
+export async function writeProjectFile() {
+  const values: Partial<Record<ProjectFileKey, string>> = {};
+  for (const key of PROJECT_FILE_KEYS) {
+    const value = (await gitGetConfigValue(key)).trim();
+    if (value) {
+      values[key] = value;
+    }
+  }
+  const keys = PROJECT_FILE_KEYS.filter((key) => key in values);
+  if (keys.length === 0) {
+    throw new InvalidValueError(
+      "Your git config holds no team settings, so there is nothing to write. Set one with `worktree config <key> <value>` first.",
+    );
+  }
+
+  const file = path.join(await gitGetTopLevelPath(), PROJECT_CONFIG_FILE);
+  const content = renderProjectFile(values);
+  try {
+    // `wx` fails if the file exists, so a copy made since we looked is safe.
+    fs.writeFileSync(file, content, { flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new ProjectFileExistsError(file);
+    }
+    throw error;
+  }
+  return { path: file, keys };
+}
+
+// ---------------------------------------------------------------------------
+// The two offers (D21, D22)
+// ---------------------------------------------------------------------------
+
+/** "accepted" or "declined": the nudge is made once per repository. */
+export const PROJECT_FILE_OFFER_KEY = "northguild.worktree.projectFileOffer";
+/** A hash of the file's content the migration was last offered for. */
+export const MIGRATION_OFFER_KEY = "northguild.worktree.migrationOffer";
+
+async function readLocal(key: string) {
+  try {
+    return (await run("git", ["config", "--local", key])).trim();
+  } catch {
+    return "";
+  }
+}
+
+const localKey = (name: ProjectFileKey) => `northguild.worktree.${name}`;
+
+async function offerProjectFile() {
+  if (await readLocal(PROJECT_FILE_OFFER_KEY)) {
+    return;
+  }
+  let hasTeamKey = false;
+  for (const key of PROJECT_FILE_KEYS) {
+    hasTeamKey ||= Boolean(await gitGetConfigValue(key));
+  }
+  if (!hasTeamKey) {
+    return;
+  }
+  const accepted = await askConfirm(
+    {
+      message: `Your git config holds team settings and this repository has no ${PROJECT_CONFIG_FILE}. Write one from them with \`worktree config --project\`? You will not be asked again.`,
+    },
+    {
+      value: `whether to write ${PROJECT_CONFIG_FILE}`,
+      flag: "`worktree config --project`",
+      fallback: false,
+    },
+  );
+  await run("git", [
+    "config",
+    "--local",
+    PROJECT_FILE_OFFER_KEY,
+    accepted ? "accepted" : "declined",
+  ]);
+  if (!accepted) {
+    return;
+  }
+  try {
+    const written = await writeProjectFile();
+    console.log(
+      `Wrote ${written.path} with ${written.keys.join(", ")}. It is not committed; review it first.`,
+    );
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function offerMigration(config: ProjectConfig) {
+  const contentHash = createHash("sha256")
+    .update(JSON.stringify(config), "utf8")
+    .digest("hex");
+  if ((await readLocal(MIGRATION_OFFER_KEY)) === contentHash) {
+    return;
+  }
+  // Only a local value the file repeats exactly. A differing one is the
+  // discouraged override, and a global one is not this repository's to remove.
+  // A list of steps is not one string, so only a single step can match.
+  const covered: { key: ProjectFileKey; value: string }[] = [];
+  for (const key of PROJECT_FILE_KEYS) {
+    const fromFile = projectFileValue(config, key);
+    if (key === "postCreate" && (config.postCreate?.length ?? 0) !== 1) {
+      continue;
+    }
+    if (fromFile && (await readLocal(localKey(key))) === fromFile) {
+      covered.push({ key, value: fromFile });
+    }
+  }
+  if (covered.length === 0) {
+    return;
+  }
+  const list = covered
+    .map(({ key, value }) => `  ${key}=${showVisibly(value)}`)
+    .join("\n");
+  const remove = await askConfirm(
+    {
+      message: `${PROJECT_CONFIG_FILE} already sets these, with the same value, in your local git config:\n${list}\nRemove them from your local git config? You will not be asked again for this version of the file.`,
+    },
+    {
+      value: "whether to remove the settings the project file covers",
+      flag: "`git config --local --unset`",
+      fallback: false,
+    },
+  );
+  await run("git", ["config", "--local", MIGRATION_OFFER_KEY, contentHash]);
+  if (!remove) {
+    return;
+  }
+  for (const { key } of covered) {
+    await run("git", ["config", "--local", "--unset", localKey(key)]);
+  }
+  console.log(
+    `Removed ${covered.map(({ key }) => key).join(", ")} from your local git config.`,
+  );
+}
+
+/**
+ * The two offers of D21, for an interactive `branch` (after the worktree is
+ * opened) and `config`. Nothing is asked, read or written for a run that is
+ * non-interactive, which covers `--json`, `--yes`, CI and no TTY. A file that
+ * cannot be used was already reported by the caller, so it is left alone here.
+ */
+export async function offerProjectConfig() {
+  if (isNonInteractive()) {
+    return;
+  }
+  let project: ProjectConfigResult;
+  try {
+    project = await loadProjectConfig();
+  } catch (error) {
+    if (error instanceof ProjectConfigError) {
+      return;
+    }
+    throw error;
+  }
+  if (project.status === "loaded") {
+    await offerMigration(project.config);
+  } else if (project.status === "none" && project.reason === "no-file") {
+    await offerProjectFile();
+  }
 }

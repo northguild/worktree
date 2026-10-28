@@ -28,6 +28,7 @@ worktree config
 # behind a confirm. The Herdr keys
 # herdr.focus and herdr.agent are offered only when `herdr` is on PATH; opener is
 # always offered. `worktree config <key>` prints one value, for scripts.
+# It skips any key the project's .worktree.yml sets and says which.
 
 # Create your first worktree
 worktree branch feature/my-feature
@@ -431,6 +432,22 @@ with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
 file's `jira.host` receives every teammate's Jira credentials, so treat a change
 to it like code.
 
+Config behaviours with the file: the wizard does not ask for a key the file sets (a
+personal `postCreate` included when the file has steps). `worktree config <key>
+<value>` for a key the file sets shows both values and asks; non-interactive it sets
+the value and warns. `worktree config --list` prints `<key>=<value> (.worktree.yml)`
+or `<key>=<value> (overrides .worktree.yml: <file value>)`, then one summary line per
+file-only key (rules per provider, `branchName`, `copy`, `postCreate` steps).
+`worktree config --project` writes a commented `.worktree.yml` at the current
+worktree's top level from the team keys in git config (never a personal or secret
+key; a personal `postCreate` becomes a one-step list), uncommitted, and refuses to
+overwrite an existing one. On a terminal only (never `--json`, `--yes`,
+`--non-interactive`, CI, no TTY or `branch --dry-run`; in `branch`, after the
+worktree is open), two offers each appear at most once: `--project` when the
+repository has no file and git config holds a team key, and removal of the local
+keys the file repeats with the same value. Their answers live under
+`northguild.worktree.*` outside the config keys, so an agent cannot set them.
+
 The file's `copy` list (relative globs such as `config/master.key`) names extra
 files for `branch` and `checkout` to copy with the env files. A path must be
 gitignored to be copied; a tracked file never is. Copied files are listed in
@@ -471,6 +488,9 @@ worktree config --yes --names branchPrefix.feature,branchPrefix.bugfix
 
 # List current values (tokens shown as ***; read one with worktree config <key>)
 worktree config --list
+
+# Write .worktree.yml from the team keys in git config (uncommitted)
+worktree config --project
 ```
 
 ## Common Mistakes

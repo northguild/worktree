@@ -13,6 +13,7 @@ import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { runInstall } from "../lib/install.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
 import * as validators from "../lib/validators.js";
@@ -113,6 +114,8 @@ describe("branch command", () => {
     // repository has an origin/HEAD and no .worktree.yml: the run every case
     // below was written for, which the project-config cases then vary.
     resetProjectConfigCache();
+    // The offers of D21 have their own cases at the end of this file.
+    vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
     vi.spyOn(git, "gitFetch").mockResolvedValue("");
     vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
     vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
@@ -4303,5 +4306,134 @@ describe("branch command — approval of the project's postCreate steps", () => 
     const help = Branch.description ?? "";
     expect(help).toContain("steps");
     expect(help).toContain('"git-config", "project" or "lockfile"');
+  });
+});
+
+// Phase 8 of the project-config plan (#181): D21. Expected values come from the
+// plan's Done-when line and §4 ("the nudge runs only interactively, after the
+// worktree is opened"); the offer's own rules are pinned in project-config.test.
+describe("branch command — the offers of D21", () => {
+  const mockConfirm = vi.mocked(confirm);
+  const OFFER_KEY = "northguild.worktree.projectFileOffer";
+  let open: ReturnType<typeof vi.spyOn>;
+
+  async function run(flags: Record<string, unknown> = {}) {
+    const command = new Branch([], await loadConfig());
+    (command as any).parse = vi.fn().mockResolvedValue({
+      args: { branchName: "feature/test" },
+      flags,
+    });
+    (command as any).parsed = true;
+    open = vi
+      .spyOn(command as any, "openWorktreePath")
+      .mockResolvedValue({ opener: "editor" });
+    return { command, result: await command.run() };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProjectConfigCache();
+    // The earlier suites stub the offers out; these cases need the real ones.
+    vi.mocked(projectConfig.offerProjectConfig).mockRestore?.();
+    setNonInteractive(false);
+    mockRun.mockResolvedValue("");
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(false);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // A team key in git config and no .worktree.yml on origin/HEAD: the
+    // repository the nudge is for.
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (key: string) => {
+        if (key === "has-called-config") return "true";
+        if (key === "defaultSourceBranch") return "origin/main";
+        return "";
+      },
+    );
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "absent-path",
+    });
+    vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+  });
+
+  afterEach(() => {
+    setNonInteractive(false);
+  });
+
+  const offered = () =>
+    mockConfirm.mock.calls.filter(([prompt]) =>
+      (prompt as { message: string }).message.includes("--project"),
+    );
+
+  it("offers --project only after the worktree is opened", async () => {
+    await run();
+
+    expect(offered()).toHaveLength(1);
+    const openedAt = open.mock.invocationCallOrder[0] ?? Infinity;
+    const askedAt = mockConfirm.mock.invocationCallOrder[0] ?? 0;
+    expect(askedAt).toBeGreaterThan(openedAt);
+    expect(mockRun).toHaveBeenCalledWith("git", [
+      "config",
+      "--local",
+      OFFER_KEY,
+      "declined",
+    ]);
+  });
+
+  it("offers nothing when the run is non-interactive (--json, --yes, CI, no TTY)", async () => {
+    setNonInteractive(true);
+
+    await run();
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining([OFFER_KEY]),
+    );
+  });
+
+  it("offers nothing on a dry run", async () => {
+    vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+      number: 8,
+      title: "Fix memory leak",
+      state: "open",
+      htmlUrl: "https://github.com/acme/demo/issues/8",
+      type: null,
+      labels: [],
+      pullRequest: null,
+    } as any);
+
+    await run({ github: "8", "dry-run": true });
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining([OFFER_KEY]),
+    );
+  });
+
+  it("does not offer before the worktree exists: a failed creation asks nothing", async () => {
+    vi.spyOn(git, "gitCreateWorktree").mockRejectedValue(new Error("no"));
+
+    await expect(run()).rejects.toThrow("no");
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("warns and still returns the document when an offer fails", async () => {
+    mockConfirm.mockRejectedValue(new Error("prompt closed"));
+
+    const { command, result } = await run();
+
+    expect(result?.path).toBe("/path/to/worktree");
+    expect(result?.warnings.join(" ")).toContain("prompt closed");
+    expect(command).toBeDefined();
   });
 });

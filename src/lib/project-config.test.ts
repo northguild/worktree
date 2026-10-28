@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { confirm } from "@inquirer/prompts";
 import { expectCommands, mockRun } from "../test-setup.js";
-import { CONFIG_NAMES } from "./constants.js";
+import { CONFIG_NAMES, SECRET_CONFIG_NAMES } from "./constants.js";
 import * as git from "./git.js";
 import { setNonInteractive } from "./interaction.js";
 import {
@@ -15,14 +15,22 @@ import {
   getProjectPostCreateSteps,
   isTeamConfigKey,
   loadProjectConfig,
+  MIGRATION_OFFER_KEY,
+  offerProjectConfig,
   POST_CREATE_APPROVAL_KEY,
+  PROJECT_CONFIG_SCHEMA_URL,
+  PROJECT_FILE_OFFER_KEY,
   ProjectConfigError,
   postCreateApprovalHash,
   projectConfigJsonSchema,
+  projectFileKeys,
+  projectFileValue,
   readProjectConfig,
   renderBranchName,
   resetProjectConfigCache,
   resolveTeamConfig,
+  summariseProjectFile,
+  writeProjectFile,
 } from "./project-config.js";
 import { MissingValueError } from "./prompt.js";
 
@@ -1045,5 +1053,479 @@ describe("file-derived text in warnings is shown, not interpreted", () => {
         ".worktree.yml at origin/main: ",
       ),
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8 (#181): D19-D22. Expected values come from the plan's §4 example
+// file and from D20's wording, never from the writer under test.
+// ---------------------------------------------------------------------------
+
+describe("projectFileKeys and projectFileValue (D19)", () => {
+  it("lists the keys the example file sets, in the order the wizard knows them", async () => {
+    fromOriginMain(EXAMPLE);
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("example did not load");
+
+    expect(projectFileKeys(result.config)).toEqual([
+      "defaultSourceBranch",
+      "branchPrefix.feature",
+      "branchPrefix.bugfix",
+      "branchPrefix.chore",
+      "jira.host",
+      "postCreate",
+    ]);
+    expect(projectFileValue(result.config, "jira.host")).toBe(
+      "https://acme.atlassian.net",
+    );
+    expect(projectFileValue(result.config, "postCreate")).toBe(
+      "pnpm install; pnpm prisma generate",
+    );
+  });
+
+  it("counts a postCreate with no steps as not set", async () => {
+    fromOriginMain("postCreate: []\n");
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("did not load");
+
+    expect(projectFileKeys(result.config)).toEqual([]);
+  });
+});
+
+describe("summariseProjectFile (D19)", () => {
+  it("gives one line per file-only key, with counts, for the example file", async () => {
+    fromOriginMain(EXAMPLE);
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("example did not load");
+
+    // Counts read off the example in plan §4: jira has 4 rules, github 2,
+    // copy 1 pattern, postCreate 2 steps.
+    expect(summariseProjectFile(result.config)).toEqual([
+      "jira.branchType: 4 rules (.worktree.yml)",
+      "github.branchType: 2 rules (.worktree.yml)",
+      "branchName={prefix}{id}-{slug} (.worktree.yml)",
+      "copy: 1 pattern (.worktree.yml)",
+      "postCreate: 2 steps (.worktree.yml)",
+    ]);
+  });
+
+  it("uses the singular for one rule or step and shows a template visibly", async () => {
+    fromOriginMain(
+      'github:\n  branchType:\n    - otherwise: chore\nbranchName: "{id}\\e[2K"\npostCreate:\n  - pnpm install\n',
+    );
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("did not load");
+
+    expect(summariseProjectFile(result.config)).toEqual([
+      "github.branchType: 1 rule (.worktree.yml)",
+      "branchName={id}\\x1b[2K (.worktree.yml)",
+      "postCreate: 1 step (.worktree.yml)",
+    ]);
+  });
+
+  it("is empty for a file with no file-only keys", async () => {
+    fromOriginMain("defaultSourceBranch: origin/main\n");
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("did not load");
+
+    expect(summariseProjectFile(result.config)).toEqual([]);
+  });
+});
+
+// A model of git config, so the writer and the offers run end to end against
+// something that answers like git: `gitGetConfigValue` reads every scope, the
+// `--local` calls read and write the local one.
+function fakeGitConfig(initial: Record<string, string> = {}) {
+  const local = new Map<string, string>(
+    Object.entries(initial).map(([name, value]) => [
+      `northguild.worktree.${name}`,
+      value,
+    ]),
+  );
+  const global = new Map<string, string>();
+  mocked.gitGetConfigValue.mockImplementation(async (name: string) => {
+    const key = `northguild.worktree.${name}`;
+    return local.get(key) ?? global.get(key) ?? "";
+  });
+  mockRun.mockImplementation(async (_file: string, args: string[]) => {
+    const [, scope, a, b] = args;
+    if (scope !== "--local")
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    if (a === "--unset") {
+      if (!b || !local.delete(b)) throw new Error("exit 5");
+      return "";
+    }
+    if (b === undefined) {
+      const value = a === undefined ? undefined : local.get(a);
+      if (value === undefined) throw new Error("exit 1");
+      return value;
+    }
+    local.set(a as string, b);
+    return "";
+  });
+  return { local, global };
+}
+
+const SECRET_VALUES: Record<string, string> = {
+  "jira.apiToken": "jira-secret-value-1",
+  "linear.apiKey": "linear-secret-value-2",
+  "clickup.apiToken": "clickup-secret-value-3",
+  "github.token": "github-secret-value-4",
+};
+// Personal keys per D3, each with a value no team key shares.
+const PERSONAL_VALUES: Record<string, string> = {
+  opener: "personal-opener-value",
+  codeEditor: "personal-editor-value",
+  "herdr.focus": "personal-focus-value",
+  "herdr.agent": "personal-herdragent-value",
+  "agent.command": "personal-agentcmd-value",
+  "jira.email": "personal-email-value",
+  "jira.autoAssign": "personal-jira-assign-value",
+  "github.autoAssign": "personal-github-assign-value",
+};
+const TEAM_VALUES: Record<string, string> = {
+  defaultSourceBranch: "origin/main",
+  "branchPrefix.feature": "feat/",
+  "branchPrefix.bugfix": "fix/",
+  "branchPrefix.chore": "chore/",
+  "jira.host": "https://acme.atlassian.net",
+  "clickup.workspaceId": "9001234",
+  postCreate: "pnpm install",
+};
+
+describe("writeProjectFile (D20)", () => {
+  const target = () => path.join(scratch, ".worktree.yml");
+
+  it("writes the commented file, in the example's shape, from the team keys", async () => {
+    fakeGitConfig({
+      defaultSourceBranch: "origin/main",
+      "branchPrefix.feature": "feat/",
+      "branchPrefix.bugfix": "fix/",
+      "jira.host": "https://acme.atlassian.net",
+      postCreate: "pnpm install",
+    });
+
+    const written = await writeProjectFile();
+
+    expect(written).toEqual({
+      path: target(),
+      keys: [
+        "defaultSourceBranch",
+        "branchPrefix.feature",
+        "branchPrefix.bugfix",
+        "jira.host",
+        "postCreate",
+      ],
+    });
+    // Built by hand from plan §4: the $schema line first, a blank line between
+    // sections, and the personal postCreate string as a one-step list.
+    expect(
+      fs.readFileSync(target(), "utf8"),
+    ).toBe(`# yaml-language-server: $schema=${PROJECT_CONFIG_SCHEMA_URL}
+# Team settings for worktree, written by \`worktree config --project\` from your git config.
+# Review it, commit it to the default branch, and everyone shares these settings.
+# Settings that belong to one person never go in this file.
+
+defaultSourceBranch: origin/main
+
+branchPrefix:
+  feature: feat/
+  bugfix: fix/
+
+jira:
+  host: https://acme.atlassian.net
+
+postCreate:
+  - pnpm install
+`);
+  });
+
+  it("holds the schema line from #181 verbatim", async () => {
+    fakeGitConfig({ defaultSourceBranch: "origin/main" });
+    await writeProjectFile();
+
+    expect(fs.readFileSync(target(), "utf8").split("\n")[0]).toBe(
+      "# yaml-language-server: $schema=https://northguild.github.io/worktree/schema/v1.json",
+    );
+  });
+
+  it("never writes a personal or secret key, by name or by value", async () => {
+    fakeGitConfig({
+      ...TEAM_VALUES,
+      ...PERSONAL_VALUES,
+      ...SECRET_VALUES,
+    });
+
+    await writeProjectFile();
+    const text = fs.readFileSync(target(), "utf8");
+
+    // Every personal key from D3 and every SECRET_CONFIG_NAMES key is set above.
+    expect(Object.keys(SECRET_VALUES).sort()).toEqual(
+      [...SECRET_CONFIG_NAMES].sort(),
+    );
+    for (const [name, value] of [
+      ...Object.entries(PERSONAL_VALUES),
+      ...Object.entries(SECRET_VALUES),
+    ]) {
+      expect(text).not.toContain(name);
+      expect(text).not.toContain(value);
+      // The last segment is what a nested YAML key would be spelled as.
+      expect(text).not.toContain(name.split(".").pop() as string);
+    }
+    expect(text).not.toContain("has-called-config");
+  });
+
+  it("round-trips through the loader unchanged", async () => {
+    fakeGitConfig(TEAM_VALUES);
+
+    await writeProjectFile();
+    const result = await readProjectConfig({
+      WORKTREE_PROJECT_CONFIG: target(),
+    });
+
+    expect(result.status).toBe("loaded");
+    if (result.status !== "loaded") return;
+    expect(result.config).toEqual({
+      defaultSourceBranch: "origin/main",
+      branchPrefix: { feature: "feat/", bugfix: "fix/", chore: "chore/" },
+      jira: { host: "https://acme.atlassian.net" },
+      // A text value, so an id that looks like a number stays text.
+      clickup: { workspaceId: "9001234" },
+      postCreate: ["pnpm install"],
+    });
+    // Only the override notice: no personal-key or unknown-key warning.
+    expect(result.warnings).toHaveLength(1);
+  });
+
+  it("refuses to overwrite an existing working copy", async () => {
+    fakeGitConfig({ defaultSourceBranch: "origin/main" });
+    fs.writeFileSync(target(), "# mine\n");
+
+    await expect(writeProjectFile()).rejects.toThrow(/already exists/);
+    expect(fs.readFileSync(target(), "utf8")).toBe("# mine\n");
+  });
+
+  it("says so, and writes nothing, when git config holds no team key", async () => {
+    fakeGitConfig({ opener: "editor", "jira.apiToken": "x-secret" });
+
+    await expect(writeProjectFile()).rejects.toThrow(/no team settings/i);
+    expect(fs.existsSync(target())).toBe(false);
+  });
+
+  it("refuses a value the loader would reject, naming the key and not the file", async () => {
+    fakeGitConfig({ "clickup.workspaceId": "not-digits" });
+
+    await expect(writeProjectFile()).rejects.toThrow(/clickup\.workspaceId/);
+    expect(fs.existsSync(target())).toBe(false);
+  });
+
+  it("leaves the file uncommitted: no git add, commit or push", async () => {
+    fakeGitConfig({ defaultSourceBranch: "origin/main" });
+
+    await writeProjectFile();
+
+    const verbs = mockRun.mock.calls.map((call) => (call[1] as string[])[0]);
+    expect(verbs.every((verb) => verb === "config")).toBe(true);
+  });
+});
+
+describe("the internal offer keys (D22)", () => {
+  it("live under northguild.worktree.* and are not in CONFIG_NAMES", () => {
+    for (const key of [PROJECT_FILE_OFFER_KEY, MIGRATION_OFFER_KEY]) {
+      expect(key.startsWith("northguild.worktree.")).toBe(true);
+      const bare = key.replace("northguild.worktree.", "");
+      expect(CONFIG_NAMES as readonly string[]).not.toContain(bare);
+      expect(CONFIG_NAMES as readonly string[]).not.toContain(key);
+    }
+  });
+});
+
+describe("offerProjectConfig: the nudge (D21)", () => {
+  let say: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.mocked(confirm).mockReset();
+    say = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    setNonInteractive(false);
+    // origin/HEAD resolves and holds no .worktree.yml: the repository the
+    // nudge is for.
+    mocked.gitResolveOriginHead.mockResolvedValue("origin/main");
+  });
+
+  afterEach(() => {
+    say.mockRestore();
+    setNonInteractive(false);
+  });
+
+  it("offers --project once when there is no file and a team key is set", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    await offerProjectConfig();
+    await offerProjectConfig();
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(confirm).mock.calls[0]?.[0].message).toContain(
+      "worktree config --project",
+    );
+    // A "no" is recorded as well as a "yes".
+    expect(local.get(PROJECT_FILE_OFFER_KEY)).toBe("declined");
+    expect(fs.existsSync(path.join(scratch, ".worktree.yml"))).toBe(false);
+  });
+
+  it("writes the file on yes and records the answer", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await offerProjectConfig();
+
+    expect(local.get(PROJECT_FILE_OFFER_KEY)).toBe("accepted");
+    expect(
+      fs.readFileSync(path.join(scratch, ".worktree.yml"), "utf8"),
+    ).toContain("feature: feat/");
+  });
+
+  it("does not ask again after a yes, even once the file is deleted", async () => {
+    fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await offerProjectConfig();
+    fs.rmSync(path.join(scratch, ".worktree.yml"));
+    await offerProjectConfig();
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers nothing when git config holds only personal or secret keys", async () => {
+    fakeGitConfig({ ...PERSONAL_VALUES, ...SECRET_VALUES });
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing under --json, --yes, --non-interactive, CI or without a TTY", async () => {
+    // All five resolve to isNonInteractive() (interaction.test.ts); the offer
+    // must read that one answer and prompt, record and write nothing.
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    setNonInteractive(true);
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(local.has(PROJECT_FILE_OFFER_KEY)).toBe(false);
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing when the file cannot be read", async () => {
+    fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    fromOriginMain("surprise: [unterminated\n");
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("offerProjectConfig: migration (D21)", () => {
+  const FILE =
+    "branchPrefix:\n  feature: feat/\n  bugfix: fix/\npostCreate:\n  - pnpm install\n";
+  let say: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.mocked(confirm).mockReset();
+    say = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    setNonInteractive(false);
+    fromOriginMain(FILE);
+  });
+
+  afterEach(() => {
+    say.mockRestore();
+    setNonInteractive(false);
+  });
+
+  it("offers to unset local keys that hold the file's value, and leaves a differing one", async () => {
+    const { local } = fakeGitConfig({
+      "branchPrefix.feature": "feat/",
+      "branchPrefix.bugfix": "bug/",
+      postCreate: "pnpm install",
+      opener: "herdr",
+    });
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await offerProjectConfig();
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    const message = vi.mocked(confirm).mock.calls[0]?.[0].message ?? "";
+    expect(message).toContain("branchPrefix.feature");
+    expect(message).toContain("postCreate");
+    expect(message).not.toContain("branchPrefix.bugfix");
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
+    expect(local.has("northguild.worktree.postCreate")).toBe(false);
+    // The differing value is the discouraged override; a personal key is not covered.
+    expect(local.get("northguild.worktree.branchPrefix.bugfix")).toBe("bug/");
+    expect(local.get("northguild.worktree.opener")).toBe("herdr");
+    expect(mockRun).toHaveBeenCalledWith("git", [
+      "config",
+      "--local",
+      "--unset",
+      "northguild.worktree.branchPrefix.feature",
+    ]);
+  });
+
+  it("unsets nothing on no, and does not ask again for the same content", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    await offerProjectConfig();
+    await offerProjectConfig();
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+  });
+
+  it("asks again when the file's content changes", async () => {
+    fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    await offerProjectConfig();
+    resetProjectConfigCache();
+    fromOriginMain(`${FILE}defaultSourceBranch: origin/main\n`);
+    await offerProjectConfig();
+
+    expect(confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not ask when no local key matches, and does not unset a global one", async () => {
+    const { local, global } = fakeGitConfig({
+      "branchPrefix.feature": "other/",
+    });
+    global.set("northguild.worktree.branchPrefix.bugfix", "fix/");
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(local.has(MIGRATION_OFFER_KEY)).toBe(false);
+  });
+
+  it("offers a multi-step postCreate nothing, since one string is not a list", async () => {
+    fromOriginMain("postCreate:\n  - pnpm install\n  - pnpm build\n");
+    fakeGitConfig({ postCreate: "pnpm install; pnpm build" });
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing non-interactively", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    setNonInteractive(true);
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
   });
 });

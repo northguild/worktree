@@ -62,7 +62,10 @@ worktree config
 ```
 
 If your repository commits a `.worktree.yml`, `worktree branch` already has the team's source branch,
-prefixes and Jira host and does not offer to configure them; see
+prefixes and Jira host and does not offer to configure them. The wizard says which keys the file sets and
+does not ask for them, so it no longer writes a personal copy of a team value; to override one for yourself,
+run `worktree config <key> <value>`. If the repository has no file yet, `worktree config --project` writes one
+from the team settings in your git config, and on a terminal `worktree` offers it once. See
 [Project Configuration](/docs/project-configuration).
 
 Common values:

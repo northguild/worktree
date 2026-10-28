@@ -392,7 +392,7 @@ export abstract class BaseCommand extends Command {
   protected async verifyConfig(configNames: ConfigName[] = []) {
     if ((await gitGetConfigValue("has-called-config")) !== "true") {
       if (await this.confirmFirstTimeConfig()) {
-        await this.config.runCommand("config");
+        await this.config.runCommand("config", ["--skip-offers"]);
         return;
       }
     }
@@ -429,6 +429,7 @@ export abstract class BaseCommand extends Command {
         "--missing",
         "--names",
         configNames.join(","),
+        "--skip-offers",
       ]);
     }
   }
