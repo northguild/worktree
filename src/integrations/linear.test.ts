@@ -87,6 +87,15 @@ describe("Linear integration", () => {
   });
 
   describe("fetchLinearIssue", () => {
+    // These cases script `git config` through cli.run in a fixed order; the
+    // rules lookup reads no project file and so consumes none of those answers.
+    beforeEach(() => {
+      stubProjectFile("");
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "absent-path",
+      });
+    });
+
     // D5: same shape as a Jira key; refusal is invalid_value, exit 2.
     it.each([
       "invalid",
@@ -350,6 +359,15 @@ describe("Linear integration", () => {
   // D6: prefix + IDENTIFIER + "-" + slugified title (cut to 48 at a word
   // boundary), "issue" when it empties.
   describe("getLinearBranchNameFromIssue", () => {
+    // The scripted `git config` answers below are prefixes; the rules and
+    // template lookup finds no project file and so consumes none of them.
+    beforeEach(() => {
+      stubProjectFile("");
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "absent-path",
+      });
+    });
+
     it("builds the name from the label prefix, the identifier and the title", async () => {
       expectCommands("git config northguild.worktree.branchPrefix.bugfix");
       vi.spyOn(cli, "run").mockResolvedValueOnce("fix/");
@@ -450,6 +468,188 @@ describe("Linear integration", () => {
       });
 
       expect(name).toBe("feature/ENG-9-issue");
+    });
+  });
+
+  describe("branch-type rules (linear.branchType)", () => {
+    const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+    // The query as it was before rules existed (git show a9f8852:src/integrations/linear.ts).
+    const QUERY_WITHOUT_LABEL_IDS = `query Issue($id: String!) {
+  issue(id: $id) {
+    identifier
+    title
+    url
+    labels {
+      nodes {
+        name
+      }
+    }
+  }
+}`;
+
+    function withRules(rules: string) {
+      stubProjectFile(`${PREFIXES}linear:\n  branchType:\n${rules}`);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
+      );
+    }
+
+    const LABEL_RULES = `    - when: { Labels: bug }
+      type: bugfix
+    - when: { Labels: { id: "lbl-chore" } }
+      type: chore
+`;
+
+    function linearIssue(labels: { id: string; name: string }[]) {
+      return {
+        identifier: "ENG-42",
+        title: "Fix login bug",
+        url: null,
+        labels: labels.map((label) => label.name),
+        labelNodes: labels,
+      };
+    }
+
+    it("sends the query it always sent when no rules are set", async () => {
+      stubProjectFile(PREFIXES);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
+      );
+      const fetchSpy = stubFetch(respond(200, issuePayload()));
+
+      const issue = await fetchLinearIssue("eng-123");
+
+      const body = JSON.parse(
+        (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string,
+      );
+      expect(body.query).toBe(QUERY_WITHOUT_LABEL_IDS);
+      expect(issue).toEqual({
+        identifier: "ENG-123",
+        title: "Add dark mode",
+        url: "https://linear.app/acme/issue/ENG-123/add-dark-mode",
+        labels: ["Feature"],
+      });
+    });
+
+    it("asks for each label's id only when rules are set, and keeps them", async () => {
+      withRules(LABEL_RULES);
+      const fetchSpy = stubFetch(
+        respond(
+          200,
+          issuePayload({
+            labels: { nodes: [{ id: "lbl-chore", name: "Housekeeping" }] },
+          }),
+        ),
+      );
+
+      const issue = await fetchLinearIssue("eng-123");
+
+      const body = JSON.parse(
+        (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string,
+      );
+      expect(body.query).toContain("nodes {\n        id\n        name");
+      expect(issue.labelNodes).toEqual([
+        { id: "lbl-chore", name: "Housekeeping" },
+      ]);
+      expect(issue.labels).toEqual(["Housekeeping"]);
+    });
+
+    it("refuses an answer whose label has no id when the id was asked for", async () => {
+      withRules(LABEL_RULES);
+      stubFetch(respond(200, issuePayload()));
+
+      await expect(fetchLinearIssue("eng-123")).rejects.toThrow(
+        "Linear: Unexpected response for issue ENG-123.",
+      );
+    });
+
+    it("a label name in a rule gives its kind, and the rules replace the built-in mapping", async () => {
+      withRules(`    - when: { Labels: Urgent }
+      type: bugfix
+`);
+
+      // "Bug" is bugfix in the built-in mapping; here no rule names it.
+      expect(
+        await getLinearBranchNameFromIssue(
+          linearIssue([{ id: "x", name: "Bug" }]),
+        ),
+      ).toBe("ENG-42-fix-login-bug");
+      expect(
+        await getLinearBranchNameFromIssue(
+          linearIssue([{ id: "y", name: "urgent" }]),
+        ),
+      ).toBe("fix/ENG-42-fix-login-bug");
+    });
+
+    it("a label id in a rule gives its kind, whatever the label is called", async () => {
+      withRules(LABEL_RULES);
+
+      expect(
+        await getLinearBranchNameFromIssue(
+          linearIssue([{ id: "lbl-chore", name: "Housekeeping" }]),
+        ),
+      ).toBe("chore/ENG-42-fix-login-bug");
+    });
+
+    it("no match and no otherwise gets no prefix; otherwise: feature opts in", async () => {
+      withRules(LABEL_RULES);
+      const none = linearIssue([{ id: "z", name: "Improvement" }]);
+      expect(await getLinearBranchNameFromIssue(none)).toBe(
+        "ENG-42-fix-login-bug",
+      );
+
+      resetProjectConfigCache();
+      withRules(`${LABEL_RULES}    - otherwise: feature\n`);
+      expect(await getLinearBranchNameFromIssue(none)).toBe(
+        "feat/ENG-42-fix-login-bug",
+      );
+    });
+
+    it("warns, naming the rule and the field, for a field Linear does not have (D11)", async () => {
+      withRules(`    - when: { Team: Core }
+      type: bugfix
+`);
+      const warnings: string[] = [];
+
+      await getLinearBranchNameFromIssue(linearIssue([]), (w) =>
+        warnings.push(w),
+      );
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("Rule 1 of linear.branchType");
+      expect(warnings[0]).toContain('"Team"');
+    });
+
+    it("applies the branchName template", async () => {
+      stubProjectFile(`${PREFIXES}branchName: "{prefix}{slug}-{id}"\n`);
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+      expect(
+        await getLinearBranchNameFromIssue({
+          identifier: "ENG-42",
+          title: "Fix login bug",
+          url: null,
+          labels: ["Bug"],
+        }),
+      ).toBe("fix/fix-login-bug-ENG-42");
+    });
+
+    it("the default template reproduces today's name", async () => {
+      stubProjectFile(`${PREFIXES}branchName: "{prefix}{id}-{slug}"\n`);
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+      expect(
+        await getLinearBranchNameFromIssue({
+          identifier: "ENG-42",
+          title: "Fix login bug",
+          url: null,
+          labels: ["Bug"],
+        }),
+      ).toBe("fix/ENG-42-fix-login-bug");
     });
   });
 

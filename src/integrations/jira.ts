@@ -7,6 +7,7 @@ import { gitGetConfigValue } from "../lib/git.js";
 import {
   getTeamConfigValue,
   loadProjectConfig,
+  renderBranchName,
 } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
@@ -304,7 +305,11 @@ export async function getJiraBranchNameFromIssue(
     ? await getTeamConfigValue(prefixConfigName)
     : "";
 
-  return `${prefix}${issue.key}-${slugifyBranchTitle(issue.fields.summary)}`;
+  return renderBranchName({
+    prefix,
+    id: issue.key,
+    slug: slugifyBranchTitle(issue.fields.summary),
+  });
 }
 
 export async function validateJiraCredentials(): Promise<boolean> {

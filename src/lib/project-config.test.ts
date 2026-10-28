@@ -4,11 +4,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as git from "./git.js";
 import {
+  getBranchPrefix,
+  getBranchTypeRules,
   isTeamConfigKey,
   loadProjectConfig,
   ProjectConfigError,
   projectConfigJsonSchema,
   readProjectConfig,
+  renderBranchName,
   resetProjectConfigCache,
   resolveTeamConfig,
 } from "./project-config.js";
@@ -677,5 +680,73 @@ describe("the published JSON Schema (D5, D6)", () => {
     }
 
     expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual(generated);
+  });
+});
+
+// D12: placeholders {prefix}, {id}, {slug}; the default is today's name. The
+// expected names come from D12 and from the example file's "{prefix}{id}-{slug}".
+describe("renderBranchName (D12)", () => {
+  const parts = { prefix: "fix/", id: "ENG-7", slug: "fix-login" };
+
+  it("gives today's name when the file has no branchName", async () => {
+    fromOriginMain("copy: [a]\n");
+
+    expect(await renderBranchName(parts)).toBe("fix/ENG-7-fix-login");
+  });
+
+  it("gives today's name when there is no project file", async () => {
+    expect(await renderBranchName(parts)).toBe("fix/ENG-7-fix-login");
+  });
+
+  it("gives today's name for the example file's own template", async () => {
+    fromOriginMain(EXAMPLE);
+
+    expect(await renderBranchName(parts)).toBe("fix/ENG-7-fix-login");
+  });
+
+  it("fills a different template with each placeholder", async () => {
+    fromOriginMain('branchName: "{id}/{prefix}{slug}"\n');
+
+    expect(await renderBranchName(parts)).toBe("ENG-7/fix/fix-login");
+  });
+
+  it("does not expand a placeholder that appears inside a value", async () => {
+    fromOriginMain('branchName: "{prefix}{id}-{slug}"\n');
+
+    expect(await renderBranchName({ prefix: "", id: "7", slug: "{id}" })).toBe(
+      "7-{id}",
+    );
+  });
+});
+
+describe("getBranchTypeRules and getBranchPrefix", () => {
+  it("reads one provider's rules from the example file", async () => {
+    fromOriginMain(EXAMPLE);
+
+    expect(await getBranchTypeRules("github")).toEqual([
+      { when: { Type: "Bug" }, type: "bugfix" },
+      { when: { Labels: ["chore", "maintenance"] }, type: "chore" },
+    ]);
+    expect(await getBranchTypeRules("linear")).toBeUndefined();
+  });
+
+  it("has no rules without a project file", async () => {
+    expect(await getBranchTypeRules("clickup")).toBeUndefined();
+  });
+
+  it.each([
+    ["feature", "feat/"],
+    ["bugfix", "fix/"],
+    ["chore", "chore/"],
+  ] as const)("the %s prefix is %s in the example file", async (kind, expected) => {
+    fromOriginMain(EXAMPLE);
+
+    expect(await getBranchPrefix(kind)).toBe(expected);
+  });
+
+  it("is empty for no kind, whatever the file says", async () => {
+    fromOriginMain(EXAMPLE);
+
+    expect(await getBranchPrefix(undefined)).toBe("");
   });
 });

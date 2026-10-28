@@ -474,6 +474,113 @@ describe("ClickUp integration", () => {
 
   // D6: prefix + (CU-<id> | CUSTOM-ID) + "-" + slugified name (cut to 48 at a
   // word boundary), "issue" when it empties.
+  // D8-D12. ClickUp's rule field in v1 is `Tags`, by name only: a tag has no
+  // id (developer.clickup.com, Get Task). Kinds and prefixes come from the
+  // plan's example file; the default names from the ClickUp guide (`CU-<id>`).
+  describe("branch-type rules (clickup.branchType)", () => {
+    const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+    const task = {
+      id: "9hx",
+      customId: null,
+      name: "Fix login bug",
+      url: null,
+      tags: ["Urgent"],
+    };
+
+    function projectFile(rules: string, rest = "") {
+      stubProjectFile(`${PREFIXES}${rest}clickup:\n  branchType:\n${rules}`);
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    }
+
+    it("a tag in a rule gives its kind, and the rules replace the built-in mapping", async () => {
+      projectFile(`    - when: { Tags: [urgent, hotfix] }
+      type: bugfix
+`);
+
+      expect(await getClickUpBranchNameFromTask(task, "9hx")).toBe(
+        "fix/CU-9hx-fix-login-bug",
+      );
+      // "Bug" is bugfix in the built-in mapping; here no rule names it.
+      expect(
+        await getClickUpBranchNameFromTask({ ...task, tags: ["Bug"] }, "9hx"),
+      ).toBe("CU-9hx-fix-login-bug");
+    });
+
+    it("no match and no otherwise gets no prefix; otherwise: feature opts in", async () => {
+      projectFile(`    - when: { Tags: hotfix }
+      type: bugfix
+`);
+      expect(await getClickUpBranchNameFromTask(task, "9hx")).toBe(
+        "CU-9hx-fix-login-bug",
+      );
+
+      resetProjectConfigCache();
+      projectFile(`    - when: { Tags: hotfix }
+      type: bugfix
+    - otherwise: feature
+`);
+      expect(await getClickUpBranchNameFromTask(task, "9hx")).toBe(
+        "feat/CU-9hx-fix-login-bug",
+      );
+    });
+
+    it("warns, naming the rule and the field, for a field ClickUp does not have (D11)", async () => {
+      projectFile(`    - when: { Space: Core }
+      type: bugfix
+`);
+      const warnings: string[] = [];
+
+      await getClickUpBranchNameFromTask(task, "9hx", (w) => warnings.push(w));
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("Rule 1 of clickup.branchType");
+      expect(warnings[0]).toContain('"Space"');
+    });
+
+    it("keeps the built-in mapping when the file has no clickup.branchType", async () => {
+      stubProjectFile(PREFIXES);
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+      expect(
+        await getClickUpBranchNameFromTask({ ...task, tags: ["Bug"] }, "9hx"),
+      ).toBe("fix/CU-9hx-fix-login-bug");
+    });
+
+    it("the default template reproduces today's names, short and custom id", async () => {
+      projectFile(
+        `    - otherwise: chore
+`,
+        'branchName: "{prefix}{id}-{slug}"\n',
+      );
+
+      expect(await getClickUpBranchNameFromTask(task, "9hx")).toBe(
+        "chore/CU-9hx-fix-login-bug",
+      );
+      expect(
+        await getClickUpBranchNameFromTask(
+          { ...task, customId: "DEV-42" },
+          "dev-42",
+        ),
+      ).toBe("chore/DEV-42-fix-login-bug");
+    });
+
+    it("applies the branchName template to the id the person typed", async () => {
+      projectFile(
+        `    - otherwise: chore
+`,
+        'branchName: "{id}/{prefix}{slug}"\n',
+      );
+
+      expect(await getClickUpBranchNameFromTask(task, "9hx")).toBe(
+        "CU-9hx/chore/fix-login-bug",
+      );
+    });
+  });
+
   describe("getClickUpBranchNameFromTask", () => {
     const task = {
       id: "9hx",
@@ -482,6 +589,15 @@ describe("ClickUp integration", () => {
       url: null,
       tags: ["Bug"],
     };
+
+    // The scripted `git config` answers below are prefixes; the rules and
+    // template lookup finds no project file and so consumes none of them.
+    beforeEach(() => {
+      stubProjectFile("");
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "absent-path",
+      });
+    });
 
     it("takes the prefix from the project file when git config has none", async () => {
       stubProjectFile("branchPrefix:\n  bugfix: fix/\n");

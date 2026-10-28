@@ -122,24 +122,29 @@ name, case-insensitively) and values (by name or `{ id: "10301" }`), every field
 in a `when` must match, and `type:` is `feature`, `bugfix` or `chore`. `- otherwise:
 <kind>` closes the list; without it an unmatched issue gets no prefix. A rule
 naming a field the issue lacks warns (in `warnings` under `--json`) and does not
-match. Prefer ids in a shared file.
+match. Prefer ids in a shared file. `github`, `linear` and `clickup` take a `branchType` list of the same
+shape and replace their built-in mapping the same way: GitHub rules match `Type` and `Labels`, Linear
+`Labels` (by name or id), ClickUp `Tags` (by name only; a tag has no id). GitHub's built-in gives an issue
+with no type no prefix; `- otherwise: feature` in `github.branchType` opts in. `branchName: "{prefix}{id}-{slug}"`
+in the file sets the shape of an issue-derived name (default as shown, today's names); a template that makes
+an invalid branch name is refused, and a name typed as the argument is never templated.
 
 Linear has no issue type, so its labels decide, compared case-insensitively
 and by exact name: a `bug` label → `branchPrefix.bugfix`; else a `chore` or
 `maintenance` label → `branchPrefix.chore`; otherwise (`Feature`,
 `Improvement`, no label) `branchPrefix.feature`. A bug label wins over the
-others. The name is the prefix, the upper-cased identifier and the slugged
-title, such as `fix/ENG-123-fix-login`.
+others. That is the built-in Linear mapping and applies only when no `linear.branchType` rules are set.
+The name is the prefix, the upper-cased identifier and the slugged title, such as `fix/ENG-123-fix-login`.
 
 ClickUp's tags decide the same way, with the same `bug`, `chore` and
 `maintenance` rule (a guess carried over from Linear, not confirmed against a
-live Workspace). A short id such as `9hx` becomes `CU-9hx` in the name
+live Workspace), unless `clickup.branchType` rules are set. A short id such as `9hx` becomes `CU-9hx` in the name
 (`feature/CU-9hx-fix-login`); a custom id is upper-cased in the name only, and sent to ClickUp as typed
 (`fix/DEV-123-fix-login`).
 
 **Issue content is used for the branch name and nothing else.** `--github`,
 `--jira`, `--linear` and `--clickup` read the issue's number or key, its title (Jira:
-summary) and its type (Linear: its labels; ClickUp: its tags); `--github` also reads whether the
+summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
 refused, naming `worktree checkout <branch>` when its branch is on this
 repository and its name is only letters, digits, `_`, `.`, `/` and `-`, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
@@ -210,7 +215,7 @@ Flags for agent mode:
 
 Defaults when non-interactive:
 
-- **Branch name** from `--github`: `<prefix><number>-<slug>`, the slug cut to
+- **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to
   48 characters at the last dash. With no issue, the branch name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or
   `jira.autoAssign`, then assign. The default is never saved.

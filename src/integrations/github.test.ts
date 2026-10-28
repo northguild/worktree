@@ -1,13 +1,17 @@
 import { input } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
+import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import { resetProjectConfigCache } from "../lib/project-config.js";
 import { expectCommands } from "../test-setup.js";
 import {
   assignGitHubIssue,
   fetchGitHubIssue,
   fetchGitHubLogin,
+  type GitHubIssue,
   type GitHubIssueApiResponse,
   type GitHubIssueTypeApiResponse,
+  getGitHubBranchNameFromIssue,
   parseGitHubRepositoryFromRemote,
 } from "./github.js";
 
@@ -64,6 +68,7 @@ function makeIssueApiResponse(
     author_association: "CONTRIBUTOR",
     html_url: `https://github.com/northguild/worktree/issues/${number}`,
     assignees: [],
+    labels: [],
     ...restOverrides,
     type: overrideType === undefined ? defaultType : overrideType,
     user: {
@@ -173,11 +178,48 @@ describe("GitHub integration", () => {
         isEnabled: true,
       },
       pullRequest: null,
+      labels: [],
       user: {
         login: "baldurpan",
         htmlUrl: "https://github.com/baldurpan",
       },
     });
+  });
+
+  // GitHub's REST issue: labels are objects with an id and a name (docs.github.com,
+  // "Get an issue"); the client keeps those two.
+  it("maps the issue's labels to their id and name", async () => {
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        makeOkJsonResponse(
+          makeIssueApiResponse({
+            labels: [
+              {
+                id: 208045946,
+                node_id: "MDU6TGFiZWwyMDgwNDU5NDY=",
+                url: "https://api.github.com/repos/northguild/worktree/labels/bug",
+                name: "bug",
+                color: "f29513",
+                default: true,
+                description: "Something isn't working",
+              },
+              "plain",
+            ],
+          }),
+        ),
+      ),
+    );
+
+    const issue = await fetchGitHubIssue(42);
+
+    expect(issue.labels).toEqual([
+      { id: 208045946, name: "bug" },
+      { name: "plain" },
+    ]);
   });
 
   it("reads the head branch of a pull request answered as an issue", async () => {
@@ -835,5 +877,196 @@ describe("GitHub integration", () => {
     );
     await expect(failure).rejects.not.toThrow(/ghp_secret_token/);
     expect(AbortSignal.timeout).toHaveBeenCalledWith(15_000);
+  });
+});
+
+// D8-D10, D12. Expected kinds come from the plan's example file (section 4):
+// `Type: Bug` is a bugfix, `Labels: [chore, maintenance]` a chore, its prefixes
+// feat/ fix/ chore/. Built-in kinds without rules are #128's account of today:
+// Feature, Bug and Task types, and no prefix for anything else (D10, #118).
+describe("getGitHubBranchNameFromIssue", () => {
+  const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+  const EXAMPLE_RULES = `github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+    - when: { Labels: [chore, maintenance] }
+      type: chore
+`;
+
+  function issue(
+    overrides: {
+      type?: string | null;
+      labels?: { id?: number; name: string }[];
+    } = {},
+  ) {
+    return {
+      number: 42,
+      title: "Fix login bug",
+      type:
+        overrides.type === null || overrides.type === undefined
+          ? null
+          : { id: 9, name: overrides.type },
+      labels: overrides.labels ?? [],
+    } as unknown as GitHubIssue;
+  }
+
+  function projectFile(content: string) {
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "found",
+      content,
+    });
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+  }
+
+  beforeEach(() => {
+    resetProjectConfigCache();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe("without github.branchType", () => {
+    it.each([
+      ["Feature", "feat/42-fix-login-bug"],
+      ["Bug", "fix/42-fix-login-bug"],
+      ["Task", "chore/42-fix-login-bug"],
+    ])("a %s issue gets its built-in prefix", async (type, expected) => {
+      projectFile(PREFIXES);
+
+      expect(await getGitHubBranchNameFromIssue(issue({ type }))).toBe(
+        expected,
+      );
+    });
+
+    it("an issue with no type gets no prefix, whatever its labels say (#118)", async () => {
+      projectFile(PREFIXES);
+
+      expect(
+        await getGitHubBranchNameFromIssue(
+          issue({ labels: [{ id: 1, name: "bug" }] }),
+        ),
+      ).toBe("42-fix-login-bug");
+    });
+  });
+
+  describe("with github.branchType", () => {
+    it("Type: Bug gives the bugfix prefix, matching the name case-insensitively", async () => {
+      projectFile(PREFIXES + EXAMPLE_RULES);
+
+      expect(await getGitHubBranchNameFromIssue(issue({ type: "bug" }))).toBe(
+        "fix/42-fix-login-bug",
+      );
+    });
+
+    it("a label in the list gives the chore prefix", async () => {
+      projectFile(PREFIXES + EXAMPLE_RULES);
+
+      expect(
+        await getGitHubBranchNameFromIssue(
+          issue({ labels: [{ id: 1, name: "Maintenance" }] }),
+        ),
+      ).toBe("chore/42-fix-login-bug");
+    });
+
+    it("the first matching rule wins", async () => {
+      projectFile(PREFIXES + EXAMPLE_RULES);
+
+      expect(
+        await getGitHubBranchNameFromIssue(
+          issue({ type: "Bug", labels: [{ id: 1, name: "chore" }] }),
+        ),
+      ).toBe("fix/42-fix-login-bug");
+    });
+
+    it("the rules replace the built-in mapping: a Feature type no rule names gets no prefix", async () => {
+      projectFile(PREFIXES + EXAMPLE_RULES);
+
+      expect(
+        await getGitHubBranchNameFromIssue(issue({ type: "Feature" })),
+      ).toBe("42-fix-login-bug");
+    });
+
+    it("no type and no matching rule gets no prefix (#118)", async () => {
+      projectFile(PREFIXES + EXAMPLE_RULES);
+
+      expect(await getGitHubBranchNameFromIssue(issue())).toBe(
+        "42-fix-login-bug",
+      );
+    });
+
+    it("otherwise: feature opts an unmatched issue in to a prefix (#118)", async () => {
+      projectFile(`${PREFIXES + EXAMPLE_RULES}    - otherwise: feature\n`);
+
+      expect(await getGitHubBranchNameFromIssue(issue())).toBe(
+        "feat/42-fix-login-bug",
+      );
+    });
+
+    it("matches a label by id", async () => {
+      projectFile(`${PREFIXES}github:
+  branchType:
+    - when: { Labels: { id: 208045946 } }
+      type: bugfix
+`);
+
+      expect(
+        await getGitHubBranchNameFromIssue(
+          issue({ labels: [{ id: 208045946, name: "anything" }] }),
+        ),
+      ).toBe("fix/42-fix-login-bug");
+    });
+
+    it("an issue with no type does not match a Type rule, and does not warn", async () => {
+      projectFile(PREFIXES + EXAMPLE_RULES);
+      const warnings: string[] = [];
+
+      await getGitHubBranchNameFromIssue(issue(), (w) => warnings.push(w));
+
+      expect(warnings).toEqual([]);
+    });
+
+    it("warns, naming the rule and the field, when a rule names a field GitHub does not have (D11)", async () => {
+      projectFile(`${PREFIXES}github:
+  branchType:
+    - when: { Priority: High }
+      type: bugfix
+`);
+      const warnings: string[] = [];
+
+      const name = await getGitHubBranchNameFromIssue(issue(), (w) =>
+        warnings.push(w),
+      );
+
+      expect(name).toBe("42-fix-login-bug");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("Rule 1 of github.branchType");
+      expect(warnings[0]).toContain('"Priority"');
+    });
+  });
+
+  describe("branchName", () => {
+    it("the default template gives the names above", async () => {
+      projectFile(`${PREFIXES}branchName: "{prefix}{id}-{slug}"\n`);
+
+      expect(await getGitHubBranchNameFromIssue(issue({ type: "Bug" }))).toBe(
+        "fix/42-fix-login-bug",
+      );
+    });
+
+    it("a different template reorders the parts", async () => {
+      projectFile(`${PREFIXES}branchName: "{prefix}{slug}-{id}"\n`);
+
+      expect(await getGitHubBranchNameFromIssue(issue({ type: "Bug" }))).toBe(
+        "fix/fix-login-bug-42",
+      );
+    });
   });
 });

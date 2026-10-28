@@ -292,7 +292,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 
 ### Defaults when non-interactive
 
-- **Branch name** from `--github`: `<prefix><number>-<slug>`, the slug cut to 48 characters at the last dash.
+- **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to 48 characters at the last dash.
   With no issue, the name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or `jira.autoAssign`, then assign. The default is never saved.
 - **Install:** on. The command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`,

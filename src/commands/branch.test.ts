@@ -328,6 +328,185 @@ jira:
       });
     });
 
+    // Phase 4 (#181): github/linear/clickup rules and branchName. Prefixes
+    // and kinds are the plan's example file (section 4): feat/ fix/ chore/,
+    // `Type: Bug` is a bugfix, `Labels: [chore, maintenance]` a chore.
+    describe("branch-type rules and branchName", () => {
+      const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+      const GITHUB_RULES = `github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+    - when: { Labels: [chore, maintenance] }
+      type: chore
+`;
+
+      function githubIssue(overrides: Record<string, unknown> = {}) {
+        vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+          number: 8,
+          title: "Fix memory leak",
+          state: "open",
+          type: null,
+          labels: [],
+          pullRequest: null,
+          ...overrides,
+        } as any);
+      }
+
+      beforeEach(() => {
+        personalConfig();
+        mockInput.mockImplementation(async (config: any) => config.default);
+      });
+
+      it("a GitHub rule on the label decides the prefix", async () => {
+        projectFile(PREFIXES + GITHUB_RULES);
+        githubIssue({ labels: [{ id: 3, name: "Maintenance" }] });
+
+        await run({ github: "8" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "chore/8-fix-memory-leak",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("a GitHub issue no rule matches gets no prefix", async () => {
+        projectFile(PREFIXES + GITHUB_RULES);
+        githubIssue({ type: { id: 1, name: "Feature" } });
+
+        await run({ github: "8" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "8-fix-memory-leak",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("keeps a rule warning in the run's warnings", async () => {
+        projectFile(`${PREFIXES}github:
+  branchType:
+    - when: { Priority: High }
+      type: bugfix
+`);
+        githubIssue();
+
+        await run({ github: "8" });
+
+        expect((branch as any).warnings).toEqual([
+          expect.stringContaining(
+            'Rule 1 of github.branchType names the field "Priority"',
+          ),
+        ]);
+      });
+
+      it("a Linear rule on the label decides the prefix", async () => {
+        personalConfig({ "linear.apiKey": "lin_api_test" });
+        projectFile(`${PREFIXES}linear:
+  branchType:
+    - when: { Labels: Urgent }
+      type: bugfix
+`);
+        vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue({
+          identifier: "ENG-1",
+          title: "Add dark mode",
+          url: null,
+          labels: ["Urgent"],
+          labelNodes: [{ id: "l1", name: "Urgent" }],
+        });
+
+        await run({ linear: "eng-1" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "fix/ENG-1-add-dark-mode",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("a ClickUp rule on the tag decides the prefix", async () => {
+        personalConfig({ "clickup.apiToken": "pk_test" });
+        projectFile(`${PREFIXES}clickup:
+  branchType:
+    - when: { Tags: hotfix }
+      type: bugfix
+`);
+        vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue({
+          id: "9hx",
+          customId: null,
+          name: "Fix login",
+          url: null,
+          tags: ["Hotfix"],
+        });
+
+        await run({ clickup: "9hx" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "fix/CU-9hx-fix-login",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("applies the branchName template to an issue-derived name", async () => {
+        projectFile(`${PREFIXES}branchName: "{prefix}{slug}-{id}"\n`);
+        githubIssue({ type: { id: 1, name: "Bug" } });
+
+        await run({ github: "8" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "fix/fix-memory-leak-8",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("never applies the template to a positional name", async () => {
+        projectFile(`${PREFIXES}branchName: "{prefix}{slug}-{id}"\n`);
+
+        await run({}, "my/own-name");
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "my/own-name",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      // A space is valid in a template (the schema only checks braces), and
+      // isValidBranchName refuses it: "Branch name cannot contain spaces".
+      it("refuses a template that produces an invalid name when nothing can be asked", async () => {
+        setNonInteractive(true);
+        projectFile(`${PREFIXES}branchName: "{prefix}{id} {slug}"\n`);
+        githubIssue();
+
+        await expect(run({ github: "8" })).rejects.toMatchObject({
+          code: "invalid_value",
+          message: "Branch name cannot contain spaces",
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it("offers a template's invalid name to the prompt, which validates it", async () => {
+        projectFile(`${PREFIXES}branchName: "{prefix}{id} {slug}"\n`);
+        githubIssue();
+        mockInput.mockResolvedValue("8-fix-memory-leak");
+
+        await run({ github: "8" });
+
+        const config = mockInput.mock.calls[0]?.[0] as any;
+        expect(config.default).toBe("8 fix-memory-leak");
+        expect(config.validate(config.default)).toBe(
+          "Branch name cannot contain spaces",
+        );
+      });
+    });
+
     describe("a bad file (D4)", () => {
       it("stops with exit 2 before a worktree is added or anything is prompted", async () => {
         personalConfig();

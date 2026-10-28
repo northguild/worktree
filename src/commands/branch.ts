@@ -3,7 +3,11 @@ import {
   fetchClickUpTask,
   getClickUpBranchNameFromTask,
 } from "../integrations/clickup.js";
-import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
+import {
+  assignGitHubIssue,
+  fetchGitHubIssue,
+  getGitHubBranchNameFromIssue,
+} from "../integrations/github.js";
 import {
   assignJiraIssue,
   getJiraBranchNameFromIssue,
@@ -42,7 +46,6 @@ import type {
   ConfigName,
   OpenOutcome,
 } from "../lib/types.js";
-import { slugifyBranchTitle } from "../lib/utils.js";
 import { isValidBranchName } from "../lib/validators.js";
 
 export default class Branch extends BaseCommand {
@@ -224,19 +227,6 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     return true;
   }
 
-  private async getGitHubBranchPrefix(type?: string) {
-    if (type === "Feature") {
-      return (await getTeamConfigValue("branchPrefix.feature")) || "";
-    }
-    if (type === "Bug") {
-      return (await getTeamConfigValue("branchPrefix.bugfix")) || "";
-    }
-    if (type === "Task") {
-      return (await getTeamConfigValue("branchPrefix.chore")) || "";
-    }
-    return "";
-  }
-
   /**
    * One normalisation for both readers of `--github`. The branch-name path and
    * the assignment path derive the same number from the same flag, so a leading
@@ -262,7 +252,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     ).start();
     let fetched: {
       issue: Awaited<ReturnType<typeof fetchGitHubIssue>>;
-      prefix: string;
+      branchName: string;
     };
     try {
       const issue = await fetchGitHubIssue(issueNumber);
@@ -281,9 +271,11 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
           }`,
         );
       }
-      const prefix = await this.getGitHubBranchPrefix(issue.type?.name);
+      const branchName = await getGitHubBranchNameFromIssue(issue, (warning) =>
+        this.warn(warning),
+      );
       spinner.succeed();
-      fetched = { issue, prefix };
+      fetched = { issue, branchName };
     } catch (error) {
       spinner.fail();
       throw error;
@@ -291,12 +283,12 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
     // After the spinner has settled, so a declined prompt is not reported as a
     // failed fetch as well.
-    const { issue, prefix } = fetched;
+    const { issue, branchName } = fetched;
     if (issue.state === "closed") {
       await this.confirmClosedGithubIssue(issue);
     }
     return {
-      branchName: `${prefix}${issue.number}-${slugifyBranchTitle(issue.title)}`,
+      branchName,
       issue: {
         provider: "github",
         number: issue.number,
@@ -435,7 +427,9 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     try {
       // One fetch gives both the name and the url the API reports (D9).
       const issue = await fetchLinearIssue(issueIdFlag);
-      const branchName = await getLinearBranchNameFromIssue(issue);
+      const branchName = await getLinearBranchNameFromIssue(issue, (warning) =>
+        this.warn(warning),
+      );
       spinner.succeed();
       return {
         branchName,
@@ -456,7 +450,11 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     try {
       // One fetch gives both the name and the url the API reports (D9).
       const task = await fetchClickUpTask(taskIdFlag);
-      const branchName = await getClickUpBranchNameFromTask(task, taskIdFlag);
+      const branchName = await getClickUpBranchNameFromTask(
+        task,
+        taskIdFlag,
+        (warning) => this.warn(warning),
+      );
       spinner.succeed();
       return {
         branchName,

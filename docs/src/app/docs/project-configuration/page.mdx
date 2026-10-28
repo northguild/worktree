@@ -76,9 +76,9 @@ not offer to run `worktree config` for a key the file supplies.
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.
 
-The file's format also reserves the keys `branchName`, `copy` and `postCreate`, and a `branchType` list
-under `github`, `linear` and `clickup`. This release checks them for mistakes but does not act on them yet.
-The `jira.branchType` list is live: see [Branch-type rules](#branch-type-rules).
+The file's format also reserves the keys `copy` and `postCreate`. This release checks them for mistakes but
+does not act on them yet. The `branchType` lists under `jira`, `github`, `linear` and `clickup` are live:
+see [Branch-type rules](#branch-type-rules). So is `branchName`: see [Branch name template](#branch-name-template).
 
 ### What the file may not hold
 
@@ -90,7 +90,9 @@ should not stop you.
 ## Branch-type rules
 
 Which prefix a branch gets (`feat/`, `fix/`, `chore/`) depends on the kind of issue. By default `worktree`
-guesses from the issue type. `jira.branchType` replaces the guess with your team's own rules.
+guesses from the issue (Jira and GitHub from the issue type, Linear from labels, ClickUp from tags). A
+`branchType` list under `jira`, `github`, `linear` or `clickup` replaces that provider's guess with your
+team's own rules.
 
 ```yaml
 jira:
@@ -113,8 +115,41 @@ jira:
   them does, and a field that holds a list (labels, components, a multi-select) matches if any element does.
 - **`- otherwise: <kind>` may appear once, last.** It sets the kind for an issue no rule matched. Without it,
   an unmatched issue gets **no prefix**.
-- **With `jira.branchType` set, the built-in mapping is not used at all.** The rules replace it, so a rule
-  list without `otherwise` does not fall back to `feature`. Without `jira.branchType`, nothing changes.
+- **With a provider's `branchType` set, that provider's built-in mapping is not used at all.** The rules
+  replace it, so a rule list without `otherwise` does not fall back to `feature`. A provider without a
+  `branchType` list keeps its built-in mapping, and nothing changes for it.
+
+### Fields per provider
+
+Each provider offers the fields below to `when`. Jira offers every field on the issue; the others offer one or
+two.
+
+| Provider | Fields | Ids |
+|---|---|---|
+| Jira | every field on the issue | yes |
+| GitHub | `Type` (the issue type) and `Labels` | yes, for both |
+| Linear | `Labels` | yes |
+| ClickUp | `Tags` | no: a ClickUp tag has no id, so match it by name |
+
+```yaml
+github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+    - when: { Labels: [chore, maintenance] }
+      type: chore
+```
+
+GitHub's built-in mapping gives an issue with no type, or a type other than `Feature`, `Bug` or `Task`, no
+prefix, and that stays true unless you opt in. A `github.branchType` list that ends with
+`- otherwise: feature` gives every issue the rules do not match the `feature` prefix. An issue with no type
+simply does not match a `Type` rule; that is not a mistake and does not warn.
+
+Linear and ClickUp keep falling back to `feature` without rules; with rules, an issue none of them matches
+gets no prefix unless the list ends with `otherwise`.
+
+With `linear.branchType` set, `worktree` asks Linear for each label's `id` as well as its name, so a rule can
+match `{ id: "..." }`. Without rules the Linear request is unchanged.
 
 ### Ids or names
 
@@ -139,6 +174,27 @@ matches nothing.
 
 With rules set, `worktree` asks Jira for field display names (`?expand=names`) on the issue request it was
 already making. Without rules the request is unchanged.
+
+## Branch name template
+
+`branchName` sets the shape of a branch name that `worktree` derives from an issue:
+
+```yaml
+branchName: "{prefix}{id}-{slug}"
+```
+
+- **`{prefix}`** is the prefix the rules (or the built-in mapping) chose, or nothing when none applies.
+- **`{id}`** is the issue number (GitHub), key (Jira), identifier (Linear), or `CU-<id>` or the upper-cased
+  custom id (ClickUp).
+- **`{slug}`** is the title as lowercase letters, digits and dashes, cut to at most 48 characters.
+
+`{prefix}{id}-{slug}` is the default and gives the names `worktree` has always made, for every provider. Any
+other word in braces is an error when the file is read. The result still has to be a valid git branch name:
+a template that produces one that is not, such as `"{prefix}{id} {slug}"` with its space, is refused with
+the reason (exit `2` when nothing can be asked, a message in the prompt otherwise).
+
+The template applies only to names derived from an issue. A name you type, as in `worktree branch my-branch`,
+is used as given.
 
 ## A broken file stops the run
 

@@ -199,6 +199,49 @@ describe("Jira integration", () => {
     );
   });
 
+  describe("branchName template", () => {
+    function stubIssue(file: string) {
+      stubProjectFile(file);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: vi.fn().mockResolvedValue(
+            makeJiraIssue({
+              fields: {
+                summary: "Tidy up",
+                issuetype: { id: "10009", name: "Task" },
+              },
+            }),
+          ),
+        }),
+      );
+    }
+
+    it("the default template gives today's name", async () => {
+      stubIssue(`${PROJECT_FILE}branchName: "{prefix}{id}-{slug}"\n`);
+
+      expect(await getJiraBranchNameFromIssue("dev-123")).toBe(
+        "chore/DEV-123-tidy-up",
+      );
+    });
+
+    it("a different template reorders the key, the prefix and the slug", async () => {
+      stubIssue(`${PROJECT_FILE}branchName: "{id}/{prefix}{slug}"\n`);
+
+      expect(await getJiraBranchNameFromIssue("dev-123")).toBe(
+        "DEV-123/chore/tidy-up",
+      );
+    });
+  });
+
   describe("branch-type rules (jira.branchType)", () => {
     // The #181 example file (plan §4): its rules and comments decide the kinds.
     const RULES_FILE = `branchPrefix:

@@ -1,6 +1,17 @@
+import {
+  evaluateBranchTypeRules,
+  type IssueField,
+} from "../lib/branch-type.js";
 import { commandExists, run } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
+import {
+  type BranchKind,
+  getBranchPrefix,
+  getBranchTypeRules,
+  renderBranchName,
+} from "../lib/project-config.js";
 import { askInput, assertCanPrompt, InvalidValueError } from "../lib/prompt.js";
+import { slugifyBranchTitle } from "../lib/utils.js";
 
 interface GitHubRepository {
   owner: string;
@@ -49,6 +60,8 @@ export interface GitHubIssue {
   authorAssociation: string;
   htmlUrl: string;
   type: GitHubIssueType | null;
+  /** Each label's id and name; a label given as a bare string has no id. */
+  labels: { id?: number; name: string }[];
   /**
    * Set when the number is a pull request, which GitHub's issues endpoint
    * answers for too. `headBranch` is the branch the pull request is from, or
@@ -89,6 +102,8 @@ export interface GitHubIssueApiResponse {
   closed_at: string | null;
   author_association: string;
   type: GitHubIssueTypeApiResponse | null;
+  // Objects in the REST API; older payloads and some proxies send bare names.
+  labels: (string | { id?: number; name?: string; [field: string]: unknown })[];
   // Present only when the number is a pull request.
   pull_request?: { url: string };
   html_url: string;
@@ -358,6 +373,19 @@ export async function fetchGitHubIssue(issueId: number | string) {
           isEnabled: issue.type.is_enabled,
         }
       : null,
+    labels: (issue.labels ?? []).flatMap((label) => {
+      if (typeof label === "string") {
+        return [{ name: label }];
+      }
+      return typeof label.name === "string"
+        ? [
+            {
+              ...(label.id === undefined ? {} : { id: label.id }),
+              name: label.name,
+            },
+          ]
+        : [];
+    }),
     pullRequest,
     user: {
       login: issue.user.login,
@@ -466,3 +494,76 @@ export async function assignGitHubIssue(issueId: number | string) {
 }
 
 export { parseGitHubRepositoryFromRemote };
+
+// D9: GitHub's rule fields in v1 are `Type` and `Labels`. Each is always
+// present, so a rule on one never warns; an issue with no type or no labels has
+// an empty field, which matches nothing.
+export function getGitHubIssueFields(issue: GitHubIssue): IssueField[] {
+  return [
+    {
+      id: "Type",
+      name: "Type",
+      values: issue.type
+        ? [{ id: String(issue.type.id), name: issue.type.name }]
+        : [],
+    },
+    {
+      id: "Labels",
+      name: "Labels",
+      values: issue.labels.map((label) => ({
+        ...(label.id === undefined ? {} : { id: String(label.id) }),
+        name: label.name,
+      })),
+    },
+  ];
+}
+
+// Today's mapping, used only when the project file has no `github.branchType`.
+// An issue of any other type, or none, gets no prefix (D10, #118).
+function getBuiltInGitHubBranchKind(
+  typeName: string | undefined,
+): BranchKind | undefined {
+  if (typeName === "Feature") {
+    return "feature";
+  }
+  if (typeName === "Bug") {
+    return "bugfix";
+  }
+  if (typeName === "Task") {
+    return "chore";
+  }
+  return undefined;
+}
+
+/**
+ * With `github.branchType` in the project file the rules decide the kind (D10)
+ * and an issue no rule matches gets no prefix unless a rule says `otherwise`;
+ * without it the built-in mapping applies. Rule warnings go to `onWarning`.
+ */
+export async function getGitHubBranchNameFromIssue(
+  issue: GitHubIssue,
+  onWarning: (warning: string) => void = () => {},
+): Promise<string> {
+  const rules = await getBranchTypeRules("github");
+
+  let kind: BranchKind | undefined;
+  if (rules) {
+    const result = evaluateBranchTypeRules(
+      rules,
+      getGitHubIssueFields(issue),
+      "github.branchType",
+    );
+    for (const warning of result.warnings) {
+      onWarning(warning);
+    }
+    kind = result.kind;
+  } else {
+    kind = getBuiltInGitHubBranchKind(issue.type?.name);
+  }
+
+  return renderBranchName({
+    prefix: await getBranchPrefix(kind),
+    id: String(issue.number),
+    slug: slugifyBranchTitle(issue.title),
+  });
+}

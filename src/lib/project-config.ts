@@ -402,6 +402,49 @@ export async function getTeamConfigValue(name: TeamConfigKey) {
 }
 
 // ---------------------------------------------------------------------------
+// What the issue integrations share (D8, D12)
+// ---------------------------------------------------------------------------
+
+/** `<provider>.branchType` from the project file, when it sets one. */
+export async function getBranchTypeRules(
+  provider: "github" | "linear" | "clickup",
+) {
+  const project = await loadProjectConfig();
+  return project.status === "loaded"
+    ? project.config[provider]?.branchType
+    : undefined;
+}
+
+/** The configured prefix for a kind; no kind is no prefix (D8). */
+export async function getBranchPrefix(kind: BranchKind | undefined) {
+  return kind === undefined
+    ? ""
+    : ((await getTeamConfigValue(`branchPrefix.${kind}`)) ?? "");
+}
+
+const DEFAULT_BRANCH_NAME = "{prefix}{id}-{slug}";
+
+/**
+ * The name for an issue (D12). The default template is today's name for every
+ * provider. One pass, so a `{id}` inside a slug is not expanded. The caller
+ * still validates the result; a positional name never comes through here.
+ */
+export async function renderBranchName(parts: {
+  prefix: string;
+  id: string;
+  slug: string;
+}) {
+  const project = await loadProjectConfig();
+  const template =
+    (project.status === "loaded" ? project.config.branchName : undefined) ??
+    DEFAULT_BRANCH_NAME;
+  return template.replace(
+    /\{(prefix|id|slug)\}/g,
+    (_token, key: keyof typeof parts) => parts[key],
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Parsing and validation (D3, D4)
 // ---------------------------------------------------------------------------
 

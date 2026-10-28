@@ -81,6 +81,10 @@ regardless, so a machine can be configured before Herdr is installed.
 - `branchPrefix.bugfix` optional prefix used for `Bug` issues.
 - `branchPrefix.chore` optional prefix used for `Task` issues.
 
+These prefixes are chosen by each provider's built-in mapping (GitHub and Jira by issue type, Linear by label,
+ClickUp by tag). A `branchType` list for that provider in `.worktree.yml` replaces the mapping; see
+[Branch-type rules](/docs/project-configuration#branch-type-rules).
+
 `github.token` and `github.autoAssign` are asked together behind one confirm, so declining costs a single
 yes/no. The `github.autoAssign` prompt has three choices: "Yes, always", "No, never" and "Ask me each
 time". The last leaves the key unset, clearing any stored answer, which is the "ask me" state — so

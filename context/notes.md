@@ -68,3 +68,16 @@ Non-blocking Gate 2 observations, branch-local. Read by no command; `/feature-cl
   the `normalizeJiraFieldValue` comment says dates normalise to nothing (they are strings); the page's "Find an
   id" covers field ids only, not option or issue-type ids (Phase 5's `--dry-run` may cover it).
 - `jira.ts` uses `raw as Record<string, unknown>` after narrowing third-party data.
+
+## From Phase 4
+
+- `branchName: ""` passes the schema (only braces are checked) and renders an empty name, refused as
+  `missing_value` rather than `invalid_value`; a `.min(1)` would say what is wrong.
+- `linear.ts` casts label nodes to `{ id; name }[]` even when ids were not asked for; only `name` is read on
+  that path, but narrowing is preferred over the assertion.
+- The project-configuration page's "Ids or names" is written for Jira only; it does not say where to find a
+  GitHub or Linear label id.
+- Rule warnings print while a spinner is running in `branch`, which can garble the spinner line on a terminal
+  (same as Phase 3's Jira path).
+- GitHub guide steps 1 and 4 ("Read issue number and title", "based on issue type") leave out labels, which
+  are now read and can decide the prefix under rules; the *Prefix mapping* paragraph covers it.

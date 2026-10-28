@@ -1,5 +1,15 @@
+import {
+  evaluateBranchTypeRules,
+  type IssueField,
+} from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
-import { getTeamConfigValue } from "../lib/project-config.js";
+import {
+  type BranchKind,
+  getBranchPrefix,
+  getBranchTypeRules,
+  getTeamConfigValue,
+  renderBranchName,
+} from "../lib/project-config.js";
 import { InvalidValueError, MissingValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
@@ -207,27 +217,53 @@ export function getClickUpBranchType(tags: string[]) {
   return "feature" as const;
 }
 
+// D9: ClickUp's rule field in v1 is `Tags`, by name only (a tag has no id).
+export function getClickUpTaskFields(task: ClickUpTask): IssueField[] {
+  return [
+    {
+      id: "Tags",
+      name: "Tags",
+      values: task.tags.map((name) => ({ name })),
+    },
+  ];
+}
+
 // Takes the task already fetched so a caller can keep its url from the same
 // request. D6: `CU-<id>` for a short id, the custom id upper-cased otherwise;
 // it is told apart by the shape the user typed, not by `custom_id`, so the
-// branch carries the id that was asked for.
+// branch carries the id that was asked for. With `clickup.branchType` in the
+// project file the rules decide the kind (D10) and a task no rule matches gets
+// no prefix; without it the built-in mapping applies. Rule warnings go to
+// `onWarning`.
 export async function getClickUpBranchNameFromTask(
   task: ClickUpTask,
   typedId: string,
+  onWarning: (warning: string) => void = () => {},
 ): Promise<string> {
-  const branchType = getClickUpBranchType(task.tags);
+  const rules = await getBranchTypeRules("clickup");
 
-  const prefix = await getTeamConfigValue(
-    branchType === "bugfix"
-      ? "branchPrefix.bugfix"
-      : branchType === "chore"
-        ? "branchPrefix.chore"
-        : "branchPrefix.feature",
-  );
+  let kind: BranchKind | undefined;
+  if (rules) {
+    const result = evaluateBranchTypeRules(
+      rules,
+      getClickUpTaskFields(task),
+      "clickup.branchType",
+    );
+    for (const warning of result.warnings) {
+      onWarning(warning);
+    }
+    kind = result.kind;
+  } else {
+    kind = getClickUpBranchType(task.tags);
+  }
 
   const parsed = parseClickUpTaskId(typedId);
   const segment =
     parsed.kind === "custom" ? parsed.id.toUpperCase() : `CU-${task.id}`;
 
-  return `${prefix}${segment}-${slugifyBranchTitle(task.name)}`;
+  return renderBranchName({
+    prefix: await getBranchPrefix(kind),
+    id: segment,
+    slug: slugifyBranchTitle(task.name),
+  });
 }
