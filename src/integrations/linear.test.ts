@@ -1,4 +1,6 @@
 import * as cli from "../lib/cli.js";
+import * as git from "../lib/git.js";
+import { resetProjectConfigCache } from "../lib/project-config.js";
 import { expectCommands } from "../test-setup.js";
 import {
   fetchLinearIssue,
@@ -46,10 +48,26 @@ function stubKey(value = API_KEY) {
   vi.spyOn(cli, "run").mockResolvedValueOnce(value);
 }
 
+// A project file on origin/main, and no working copy of it to disagree with.
+function stubProjectFile(content: string) {
+  vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+  vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+    status: "found",
+    content,
+  });
+  vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+}
+
 describe("Linear integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetProjectConfigCache();
     vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    // The project-file cases spy on git.js; the rest read through cli.run.
+    vi.restoreAllMocks();
   });
 
   describe("resolveLinearApiKey", () => {
@@ -344,6 +362,35 @@ describe("Linear integration", () => {
       });
 
       expect(name).toBe("fix/ENG-42-fix-login-bug");
+    });
+
+    // Plan §4's example file: bugfix: fix/ decides the expected prefix.
+    it("takes the prefix from the project file when git config has none", async () => {
+      stubProjectFile("branchPrefix:\n  bugfix: fix/\n");
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+      const name = await getLinearBranchNameFromIssue({
+        identifier: "ENG-42",
+        title: "Fix login bug",
+        url: null,
+        labels: ["Bug"],
+      });
+
+      expect(name).toBe("fix/ENG-42-fix-login-bug");
+    });
+
+    it("prefers the personal prefix over the project file's", async () => {
+      stubProjectFile("branchPrefix:\n  bugfix: fix/\n");
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("bug/");
+
+      const name = await getLinearBranchNameFromIssue({
+        identifier: "ENG-42",
+        title: "Fix login bug",
+        url: null,
+        labels: ["Bug"],
+      });
+
+      expect(name).toBe("bug/ENG-42-fix-login-bug");
     });
 
     it("uses branchPrefix.feature when no label matches", async () => {

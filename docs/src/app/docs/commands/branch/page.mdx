@@ -183,7 +183,7 @@ If no prefix is configured, `worktree` falls back to an empty prefix and still g
 
 Jira authentication requires three configuration keys:
 
-1. `northguild.worktree.jira.host` - Your Jira workspace URL (e.g., `https://company.atlassian.net`)
+1. `northguild.worktree.jira.host` (or `jira.host` in `.worktree.yml`, see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials)) - Your Jira workspace URL (e.g., `https://company.atlassian.net`)
 2. `northguild.worktree.jira.email` - Your Jira email address
 3. `northguild.worktree.jira.apiToken` - Your Jira API token
 
@@ -293,18 +293,21 @@ animates; progress goes to stderr as plain lines.
   `--source` without the `origin/` prefix (`--source origin/<branch>`).
 - Dependencies are installed by default, from `postCreate` or the lockfile; `--no-install` skips it.
 - A branch name that is already taken is refused, exit `2` with `invalid_value`, naming the existing worktree's path and `worktree open <branch>`; it is never opened unasked.
-- Missing config is not offered to `config`: `defaultSourceBranch` unset warns and falls back to `origin/main`.
+- Missing config is not offered to `config`: `defaultSourceBranch` unset in both your git config and `.worktree.yml` warns and falls back to `origin/main`.
 
 ## What It Does
 
-1. Assigns the issue to you, when creating from `--github` or `--jira` and assignment is enabled.
-2. Creates a branch from your configured source branch.
-3. Adds a worktree under `<repo>.worktrees/<branch-name>`.
-4. Copies the gitignored env files into the new worktree — see
+1. Fetches from `origin` once, then reads the team's [`.worktree.yml`](/docs/project-configuration) from the
+   default branch. A file that cannot be used stops the command here, with exit `2`, before anything is created.
+2. Assigns the issue to you, when creating from `--github` or `--jira` and assignment is enabled.
+3. Creates a branch from your configured source branch (`--source`, else your `defaultSourceBranch`, else the
+   file's, else `origin/main`).
+4. Adds a worktree under `<repo>.worktrees/<branch-name>`.
+5. Copies the gitignored env files into the new worktree — see
    [Environment Files](/docs/guides/env-files).
-5. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
-6. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
-7. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
+6. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
+7. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
+8. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
 
 ## A branch name that is already taken
 

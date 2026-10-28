@@ -1,4 +1,5 @@
 import { gitGetConfigValue } from "../lib/git.js";
+import { getTeamConfigValue } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
@@ -218,7 +219,7 @@ export async function getLinearBranchNameFromIssue(
 ): Promise<string> {
   const branchType = getLinearBranchType(issue.labels);
 
-  const prefix = await gitGetConfigValue(
+  const prefix = await getTeamConfigValue(
     branchType === "bugfix"
       ? "branchPrefix.bugfix"
       : branchType === "chore"

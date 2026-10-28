@@ -1,4 +1,6 @@
 import * as cli from "../lib/cli.js";
+import * as git from "../lib/git.js";
+import { resetProjectConfigCache } from "../lib/project-config.js";
 import { expectCommands } from "../test-setup.js";
 import {
   fetchClickUpTask,
@@ -55,10 +57,26 @@ function stubTokenAndWorkspace(workspaceId: string, token = TOKEN) {
     .mockResolvedValueOnce(workspaceId);
 }
 
+// A project file on origin/main, and no working copy of it to disagree with.
+function stubProjectFile(content: string) {
+  vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+  vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+    status: "found",
+    content,
+  });
+  vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+}
+
 describe("ClickUp integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetProjectConfigCache();
     vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    // The project-file cases spy on git.js; the rest read through cli.run.
+    vi.restoreAllMocks();
   });
 
   // D3: a short id has no hyphen and keeps its case; a custom id is
@@ -119,6 +137,13 @@ describe("ClickUp integration", () => {
   });
 
   describe("resolveClickUpWorkspaceId", () => {
+    it("reads clickup.workspaceId from the project file when git config has none", async () => {
+      stubProjectFile("clickup:\n  workspaceId: 9012345\n");
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+      await expect(resolveClickUpWorkspaceId()).resolves.toBe("9012345");
+    });
+
     it("reads clickup.workspaceId from git config", async () => {
       expectCommands("git config northguild.worktree.clickup.workspaceId");
       vi.spyOn(cli, "run").mockResolvedValueOnce("9012345");
@@ -457,6 +482,15 @@ describe("ClickUp integration", () => {
       url: null,
       tags: ["Bug"],
     };
+
+    it("takes the prefix from the project file when git config has none", async () => {
+      stubProjectFile("branchPrefix:\n  bugfix: fix/\n");
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+      const name = await getClickUpBranchNameFromTask(task, "9hx");
+
+      expect(name).toBe("fix/CU-9hx-fix-login-bug");
+    });
 
     it("builds the name from the tag prefix, CU-<id> and the name for a short id", async () => {
       expectCommands("git config northguild.worktree.branchPrefix.bugfix");

@@ -1,4 +1,5 @@
 import { gitGetConfigValue } from "../lib/git.js";
+import { getTeamConfigValue } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
@@ -71,7 +72,8 @@ function getJiraAuthHeaders({ email, apiToken }: JiraCredentials): HeadersInit {
 
 async function resolveJiraCredentials(): Promise<JiraCredentials> {
   const [host, email, apiToken] = await Promise.all([
-    gitGetConfigValue("jira.host"),
+    // D17: a host from the project file is trusted like merged code, so no prompt.
+    getTeamConfigValue("jira.host"),
     gitGetConfigValue("jira.email"),
     gitGetConfigValue("jira.apiToken"),
   ]);
@@ -217,7 +219,7 @@ export async function getJiraBranchNameFromIssue(
         ? "branchPrefix.chore"
         : "branchPrefix.feature";
 
-  const prefix = await gitGetConfigValue(prefixConfigName);
+  const prefix = await getTeamConfigValue(prefixConfigName);
 
   return `${prefix}${issue.key}-${slugifyBranchTitle(issue.fields.summary)}`;
 }

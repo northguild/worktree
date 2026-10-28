@@ -33,6 +33,7 @@ import {
   setNonInteractive,
 } from "./interaction.js";
 import { createSpinner } from "./progress.js";
+import { getTeamConfigValue, isTeamConfigKey } from "./project-config.js";
 import { askConfirm, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
 import type {
@@ -398,7 +399,11 @@ export abstract class BaseCommand extends Command {
 
     const missingNames: ConfigName[] = [];
     for (const name of configNames) {
-      if (!(await gitGetConfigValue(name))) {
+      // A team key the project file supplies is not missing (D2, D3).
+      const value = isTeamConfigKey(name)
+        ? await getTeamConfigValue(name)
+        : await gitGetConfigValue(name);
+      if (!value) {
         missingNames.push(name);
       }
     }

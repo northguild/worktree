@@ -12,7 +12,8 @@ description: >
 
 CLI wrapper for `git worktree` that turns the common branch-create,
 env-copy, editor-open, and cleanup cycle into single commands. Config
-is stored in local git config under `northguild.worktree.*`. Worktrees
+is stored in git config under `northguild.worktree.*`; a committed `.worktree.yml`
+can supply the team keys (see Configuration Reference). Worktrees
 are created in a sibling directory named `<repo>.worktrees/`.
 
 ## Setup
@@ -208,7 +209,7 @@ Defaults when non-interactive:
   (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing
   to run it says so and carries on. A failure keeps the worktree, starts nothing
   and exits `1`.
-- **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
+- **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`), else `origin/main` with a warning.
 - **A branch name that is already taken** (a re-run of `branch`) is refused: exit
   `2`, `invalid_value`, naming the existing worktree's path and
   `worktree open <branch>`. A branch with no worktree, one checked out outside
@@ -384,6 +385,20 @@ panes it is working in along with the directory.
 
 All keys are stored via `worktree config <key> <value>` in git config
 under `northguild.worktree.*`.
+
+A repository can commit a `.worktree.yml` at its root that supplies the team keys:
+`defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host` and
+`clickup.workspaceId` (written nested: `jira: { host: ... }`). Precedence per key:
+flag, then git config (any scope), then the file, then the built-in default. The
+file is read from `origin/HEAD` (`git show`), never the working copy, and
+`branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
+that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
+`herdr.*`, `agent.command`, `jira.email`, `*.autoAssign`) in the file is ignored
+with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
+`clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
+`2` (`invalid_value`) before anything is created. An unknown key only warns. A
+file's `jira.host` receives every teammate's Jira credentials, so treat a change
+to it like code.
 
 | Key | Example value | Required for |
 |---|---|---|

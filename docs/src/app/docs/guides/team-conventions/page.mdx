@@ -14,11 +14,15 @@ Use conventions that keep worktree names and cleanup behavior predictable.
 
 ## Source Branch
 
-Set a shared default source branch during setup:
+Commit the shared default source branch to `.worktree.yml` at the repository root, so every clone agrees
+without any setup:
 
-```bash
-worktree config defaultSourceBranch origin/main
+```yaml
+defaultSourceBranch: origin/main
 ```
+
+See [Project Configuration](/docs/project-configuration) for the file and its other team keys. A person
+can still set their own with `worktree config defaultSourceBranch origin/develop`, which overrides the file.
 
 ## Cleanup Habit
 

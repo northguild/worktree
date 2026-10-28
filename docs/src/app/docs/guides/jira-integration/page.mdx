@@ -60,7 +60,7 @@ worktree config jira.autoAssign true
 
 Authentication is resolved in this order:
 
-1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in local git config.
+1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in git config. `jira.host` is read from git config, else from the team's `.worktree.yml`, with no prompt; a file's host receives everyone's credentials, see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials).
 2. Interactive prompts for missing values, then save to local git config.
 
 ## Suggested Setup

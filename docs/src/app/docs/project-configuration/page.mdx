@@ -1,0 +1,112 @@
+---
+title: Project Configuration
+---
+
+# Project Configuration
+
+A repository can carry its team's settings in a `.worktree.yml` file at the repository root, so a new
+teammate does not have to learn the source branch, the branch prefixes or the Jira host from a wiki. The
+file holds team settings only. Anything that belongs to one person or one machine stays in
+[git config](/docs/configuration).
+
+```yaml
+# yaml-language-server: $schema=https://northguild.github.io/worktree/schema/v1.json
+defaultSourceBranch: origin/main
+
+branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+
+jira:
+  host: https://acme.atlassian.net
+
+clickup:
+  workspaceId: 9012345
+```
+
+The `$schema` comment makes an editor with the YAML language server complete keys and flag mistakes as
+you type. The schema is published at `https://northguild.github.io/worktree/schema/v1.json`.
+
+## Where the file is read from
+
+`worktree` reads the file from the repository's default branch, not from your working copy:
+`git show <ref>:.worktree.yml`, where `<ref>` is `origin/HEAD`. So a branch that edits the file changes
+nothing until it is merged, and two worktrees of one repository always agree.
+
+- With no `origin/HEAD` it uses the personal `defaultSourceBranch` from git config instead. The file's own
+  `defaultSourceBranch` is never used to find the file.
+- With neither, no file is read. A repository that has an `origin` remote says so once and names
+  `git remote set-head origin --auto`; a repository with no `origin` stays silent.
+- `worktree branch` fetches once before it reads the file, so a change merged an hour ago applies to the
+  next branch you create. Other commands use the ref as it was last fetched.
+- If your working copy of `.worktree.yml` differs from the one in use, the run warns once and names both.
+
+To try an edit before it merges, point `WORKTREE_PROJECT_CONFIG` at the file:
+
+```bash
+WORKTREE_PROJECT_CONFIG=./.worktree.yml worktree branch feature/try-it
+```
+
+Every run that uses it says so on stderr.
+
+## Precedence
+
+For each key, the first of these that has a value wins:
+
+| Order | Source |
+|---|---|
+| 1 | A flag, where the key has one (`--source` for the source branch) |
+| 2 | Your git config, in any scope (`worktree config <key> <value>`) |
+| 3 | `.worktree.yml` |
+| 4 | The built-in default |
+
+Overriding a team value from git config is allowed and discouraged: it is the way to work around a wrong
+team value before a fix merges. A value in the file also counts as configured, so `worktree branch` does
+not offer to run `worktree config` for a key the file supplies.
+
+## Which keys go where
+
+| Kind of key | Keys | In the file |
+|---|---|---|
+| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `clickup.workspaceId` | Read; your git config overrides them |
+| Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `github.autoAssign` | Ignored with a warning naming the key and `worktree config <key>` |
+| Secret keys | `jira.apiToken`, `linear.apiKey`, `clickup.apiToken`, `github.token` | Refused; the run stops |
+
+Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
+under `branchPrefix`.
+
+The file's format also reserves the keys `branchName`, `copy`, `postCreate` and a `branchType` list under
+each provider. This release checks them for mistakes but does not act on them yet.
+
+### What the file may not hold
+
+A credential in a committed file is in the repository's history for good. A secret key, whatever its
+value, stops the run with exit `2`, and the message says the value must be rotated. Personal keys are
+ignored rather than refused, because they are harmless there and an unrelated teammate's preference
+should not stop you.
+
+## A broken file stops the run
+
+Invalid YAML, a value of the wrong type or a secret key is an error, and it stops the command before
+anything is created: no worktree, no assignment, no saved answer. The exit code is `2` (`invalid_value`
+under `--json`), and the message names the file, the ref it was read from, the key path and the line.
+`WORKTREE_PROJECT_CONFIG` points at a corrected copy while the fix is in review.
+
+An unknown top-level key does not stop the run. It warns, naming the key, and is ignored, so a file written
+for a newer `worktree` still works for a teammate on an older one.
+
+## `jira.host` receives everyone's credentials
+
+`worktree` sends your Jira email and API token to `https://<jira.host>` with every Jira request. When the
+host comes from `.worktree.yml`, a merged change to that line redirects every teammate's next Jira request,
+credentials included, to the new host. There is no prompt: the file is read only from the default branch,
+so it has been through your review process, and it is trusted the way any merged code is.
+
+Review a change to `jira.host` as carefully as you would a change to a build script. A personal
+`jira.host` in your git config overrides the file's, which is also how to stop a bad value reaching you
+before it is reverted:
+
+```bash
+worktree config jira.host https://acme.atlassian.net
+```

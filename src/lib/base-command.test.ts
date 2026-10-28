@@ -22,6 +22,7 @@ import {
 import * as cli from "./cli.js";
 import * as git from "./git.js";
 import { isNonInteractive, setNonInteractive } from "./interaction.js";
+import { resetProjectConfigCache } from "./project-config.js";
 import { InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
 import type { ConfigName } from "./types.js";
@@ -1427,6 +1428,7 @@ describe("verifyConfig", () => {
 
   // `defaultSourceBranch` is the missing one; the first-time flag is set.
   beforeEach(() => {
+    resetProjectConfigCache();
     runCommand = vi.fn().mockResolvedValue(undefined);
     command = new TestCommand([], { runCommand } as any);
     warnSpy = vi.spyOn(command, "warn").mockImplementation((input) => input);
@@ -1461,6 +1463,55 @@ describe("verifyConfig", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("Missing config: defaultSourceBranch, jira.host"),
     );
+  });
+
+  // D2/D3: a team key the project file supplies is not missing. The file below
+  // is the plan's example (`defaultSourceBranch`, `jira.host`).
+  describe("with a project file", () => {
+    beforeEach(() => {
+      vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "found",
+        content:
+          "defaultSourceBranch: origin/main\njira:\n  host: https://acme.atlassian.net\n",
+      });
+      // No working copy there, so there is no "differs" warning to count.
+      vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    });
+
+    it("reports no missing key when the file supplies defaultSourceBranch and jira.host", async () => {
+      setNonInteractive(true);
+
+      await command.verify(["defaultSourceBranch", "jira.host"]);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(runCommand).not.toHaveBeenCalled();
+    });
+
+    it("still reports a key neither git config nor the file holds", async () => {
+      setNonInteractive(true);
+
+      await command.verify(["defaultSourceBranch", "jira.email"]);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Missing config: jira.email."),
+      );
+    });
+
+    it("does not let the file satisfy a personal key", async () => {
+      setNonInteractive(true);
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "found",
+        content: "opener: herdr\n",
+      });
+
+      await command.verify(["opener"]);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Missing config: opener."),
+      );
+    });
   });
 
   it("skips the first-time offer when non-interactive", async () => {

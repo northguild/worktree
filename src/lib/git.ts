@@ -120,8 +120,15 @@ export async function gitGetLocalBranches() {
   return parseGetBranchesResult(res);
 }
 
-export async function gitGetRemoteBranches() {
-  await gitFetch();
+// `fetch: false` is for a caller that has already fetched this run (D7).
+export async function gitGetRemoteBranches({
+  fetch = true,
+}: {
+  fetch?: boolean;
+} = {}) {
+  if (fetch) {
+    await gitFetch();
+  }
   const res = await run("git", ["--no-pager", "branch", "-r"]);
   return parseGetBranchesResult(res);
 }
@@ -754,12 +761,14 @@ export async function gitGetWorktreeList({
 
 interface GitCreateWorktreeOptions {
   isCheckout?: boolean;
+  /** False when the caller has already fetched this run (D7). */
+  fetch?: boolean;
 }
 
 export async function gitCreateWorktree(
   branchName: string,
   sourceBranch: string,
-  { isCheckout = false }: GitCreateWorktreeOptions = {},
+  { isCheckout = false, fetch = true }: GitCreateWorktreeOptions = {},
 ): Promise<string> {
   const spinner = createSpinner(`Creating worktree ${branchName}`).start();
   try {
@@ -772,7 +781,9 @@ export async function gitCreateWorktree(
     // case the project is moved in the filesystem. cwd is per-call and never
     // moves this process, so there is nothing to change back afterwards.
     // Fetch the latest changes from the remote
-    await runGitFetch(["fetch"], gitRootPath);
+    if (fetch) {
+      await runGitFetch(["fetch"], gitRootPath);
+    }
     // If checking out a remote branch, create a local tracking branch. Awaiting
     // in sequence keeps the short-circuit the `&&` chain had: a rejection here
     // is only reached once the fetch has resolved.

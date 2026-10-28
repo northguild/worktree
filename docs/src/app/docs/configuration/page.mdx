@@ -4,7 +4,9 @@ title: Configuration
 
 # Configuration
 
-`worktree` stores config in local Git config under `northguild.worktree.*`.
+`worktree` stores your config in Git config under `northguild.worktree.*`. A repository can also carry its
+team's settings in a `.worktree.yml` file; see [Project Configuration](/docs/project-configuration). For a
+team key your git config wins over the file, and the file wins over the built-in default.
 
 ## Common Keys
 
@@ -198,7 +200,7 @@ worktree config branchPrefix.chore chore/
 ## GitHub Integration Notes
 
 - `worktree branch --github <issue-number>` reads issues from the current repository remote.
-- Branch prefix keys are optional. If missing, `worktree` uses no prefix.
+- Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
 - If `github.token` is missing, `worktree` can attempt to use `gh auth token` (read each run, never saved) and then prompt; only a typed or configured token is stored.
 - `github.autoAssign` decides whether reading an issue also assigns it to you. It has three states, not
   two: `true` always assigns, `false` never does, and leaving it **unset** means you are asked, once, and
@@ -224,7 +226,8 @@ worktree config github.autoAssign true
 worktree config jira.autoAssign true
 ```
 
-- Branch prefix keys are optional. If missing, `worktree` uses no prefix.
+- Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
+- `jira.host` can come from `.worktree.yml`; a file's host receives the credentials of everyone who uses it, so see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials).
 - Issue IDs are case-insensitive (both `dev-123` and `DEV-123` work).
 
 ## Linear Integration Notes
@@ -247,9 +250,9 @@ worktree config jira.autoAssign true
 
 ## Recommended Team Baseline
 
-1. Agree on one source branch (`origin/main` for most teams).
-2. Standardize branch naming conventions.
-3. Keep editor command consistent across local setups.
-4. For Jira integration, share workspace URL and branch prefix conventions.
-5. For Linear integration, share which labels map to bug and chore work, since the label decides the prefix.
-6. For ClickUp integration, share which tags map to bug and chore work, since the tag decides the prefix, and whether your Workspace uses custom task ids (then also the workspace id).
+Put the settings a team shares in a committed `.worktree.yml` instead of asking everyone to run the same
+`worktree config` commands: the source branch, the branch prefixes, the Jira workspace URL and the ClickUp
+workspace id. See [Project Configuration](/docs/project-configuration).
+
+Some things stay personal, so agree on them in conversation rather than in the file: the editor command, and
+which labels (Linear) or tags (ClickUp) mean bug and chore work, since the label or tag decides the prefix.

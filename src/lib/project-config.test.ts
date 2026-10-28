@@ -4,11 +4,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as git from "./git.js";
 import {
+  isTeamConfigKey,
   loadProjectConfig,
   ProjectConfigError,
   projectConfigJsonSchema,
   readProjectConfig,
   resetProjectConfigCache,
+  resolveTeamConfig,
 } from "./project-config.js";
 
 vi.mock("./git.js", () => ({
@@ -544,6 +546,112 @@ describe("loadProjectConfig", () => {
 
     expect(second).toBe(first);
     expect(mocked.gitReadBlobAtRef).toHaveBeenCalledTimes(1);
+  });
+});
+
+// D2: flag -> git config -> project file -> built-in default. The flag and the
+// built-in default belong to each caller; the resolver covers the middle two.
+// Expected values come from the plan's example file (EXAMPLE) and from D2/D3.
+describe("resolveTeamConfig (D2, D3)", () => {
+  const fromFile = [
+    ["defaultSourceBranch", "origin/main"],
+    ["branchPrefix.feature", "feat/"],
+    ["branchPrefix.bugfix", "fix/"],
+    ["branchPrefix.chore", "chore/"],
+    ["jira.host", "https://acme.atlassian.net"],
+  ] as const;
+
+  function personal(values: Record<string, string>) {
+    mocked.gitGetConfigValue.mockImplementation((name: string) =>
+      Promise.resolve(values[name] ?? ""),
+    );
+  }
+
+  it.each(
+    fromFile,
+  )("%s comes from the project file when git config has none", async (key, expected) => {
+    fromOriginMain(EXAMPLE);
+
+    expect(await resolveTeamConfig(key)).toEqual({
+      value: expected,
+      source: "project",
+    });
+  });
+
+  it.each(
+    fromFile,
+  )("%s in git config wins over the project file", async (key) => {
+    fromOriginMain(EXAMPLE);
+    personal({ [key]: "mine" });
+
+    expect(await resolveTeamConfig(key)).toEqual({
+      value: "mine",
+      source: "git-config",
+    });
+  });
+
+  it("does not read the project file when git config answers", async () => {
+    fromOriginMain(EXAMPLE);
+    personal({ "jira.host": "mine" });
+
+    await resolveTeamConfig("jira.host");
+
+    expect(mocked.gitReadBlobAtRef).not.toHaveBeenCalled();
+  });
+
+  it("reads clickup.workspaceId as text, though YAML parses 9001234 as a number", async () => {
+    fromOriginMain("clickup:\n  workspaceId: 9001234\n");
+
+    expect(await resolveTeamConfig("clickup.workspaceId")).toEqual({
+      value: "9001234",
+      source: "project",
+    });
+  });
+
+  it("falls through to the built-in default: empty, source default", async () => {
+    fromOriginMain("copy: [a]\n");
+
+    expect(await resolveTeamConfig("branchPrefix.feature")).toEqual({
+      value: "",
+      source: "default",
+    });
+  });
+
+  it("is empty with no project file at all", async () => {
+    expect(await resolveTeamConfig("defaultSourceBranch")).toEqual({
+      value: "",
+      source: "default",
+    });
+  });
+
+  it("never reads a file's defaultSourceBranch to find the file (D1)", async () => {
+    fromOriginMain(EXAMPLE);
+
+    await resolveTeamConfig("defaultSourceBranch");
+
+    expect(mocked.gitReadBlobAtRef).toHaveBeenCalledWith(
+      "origin/main",
+      ".worktree.yml",
+    );
+    expect(mocked.gitGetConfigValue).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws the file's error rather than answering with the default", async () => {
+    fromOriginMain("defaultSourceBranch: [not, text]\n");
+
+    await expect(resolveTeamConfig("jira.host")).rejects.toBeInstanceOf(
+      ProjectConfigError,
+    );
+  });
+
+  it("knows exactly the team keys the resolver covers", () => {
+    expect(isTeamConfigKey("jira.host")).toBe(true);
+    expect(isTeamConfigKey("clickup.workspaceId")).toBe(true);
+    // Personal and secret keys never come from the file (D3).
+    expect(isTeamConfigKey("opener")).toBe(false);
+    expect(isTeamConfigKey("jira.email")).toBe(false);
+    expect(isTeamConfigKey("jira.apiToken")).toBe(false);
+    expect(isTeamConfigKey("postCreate")).toBe(false);
   });
 });
 

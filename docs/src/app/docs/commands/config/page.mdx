@@ -53,7 +53,9 @@ worktree config --missing --names defaultSourceBranch
 worktree config --missing --yes --names branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
 ```
 
-Configuration is stored in local Git config under `northguild.worktree.*`.
+Configuration is stored in Git config under `northguild.worktree.*`. A team can also set some keys for
+everyone in a `.worktree.yml` file, which your own value overrides; see
+[Project Configuration](/docs/project-configuration).
 
 ## Opener Keys
 

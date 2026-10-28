@@ -16,6 +16,7 @@ import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
+  gitFetch,
   gitFindBranchCheckout,
   gitGetConfigValue,
   gitGetLocalBranches,
@@ -25,6 +26,10 @@ import {
 import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
+import {
+  getTeamConfigValue,
+  loadProjectConfig,
+} from "../lib/project-config.js";
 import {
   askConfirm,
   askInput,
@@ -181,7 +186,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
   private async getSourceBranch(sourceFlag?: string) {
     if (sourceFlag) {
-      const remoteBranches = await gitGetRemoteBranches();
+      // `run` fetched before it read the project file (D7).
+      const remoteBranches = await gitGetRemoteBranches({ fetch: false });
 
       if (sourceFlag.startsWith("origin/")) {
         if (!remoteBranches.includes(sourceFlag)) {
@@ -207,7 +213,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         return sourceFlag;
       }
     }
-    return (await gitGetConfigValue("defaultSourceBranch")) || "origin/main";
+    return (await getTeamConfigValue("defaultSourceBranch")) || "origin/main";
   }
 
   private validateBranchName(branchName: string) {
@@ -220,13 +226,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
   private async getGitHubBranchPrefix(type?: string) {
     if (type === "Feature") {
-      return (await gitGetConfigValue("branchPrefix.feature")) || "";
+      return (await getTeamConfigValue("branchPrefix.feature")) || "";
     }
     if (type === "Bug") {
-      return (await gitGetConfigValue("branchPrefix.bugfix")) || "";
+      return (await getTeamConfigValue("branchPrefix.bugfix")) || "";
     }
     if (type === "Task") {
-      return (await gitGetConfigValue("branchPrefix.chore")) || "";
+      return (await getTeamConfigValue("branchPrefix.chore")) || "";
     }
     return "";
   }
@@ -399,7 +405,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       const branchName = await getJiraBranchNameFromIssue(issueKeyFlag);
       spinner.succeed();
       // Built from the configured host, never from the credentials beside it.
-      const host = (await gitGetConfigValue("jira.host"))
+      const host = (await getTeamConfigValue("jira.host"))
         .trim()
         .replace(/^https?:\/\//i, "")
         .replace(/\/+$/, "");
@@ -685,6 +691,20 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       brief,
     });
 
+    // D7: the one fetch of this run, before the project file is read from
+    // origin/HEAD, so a team change merged an hour ago applies to this branch.
+    // Creation and the --source listing are told not to fetch again.
+    // No spinner of its own: a non-interactive run's stderr is a contract
+    // (agent-mode.test.ts), and this fetch used to sit under "Creating worktree".
+    await gitFetch();
+
+    // A file that cannot be used stops the run here (D4), before anything is
+    // assigned, saved or created.
+    const project = await loadProjectConfig();
+    for (const warning of project.warnings) {
+      this.warn(warning);
+    }
+
     const configNames: ConfigName[] = !flags.source
       ? ["defaultSourceBranch"]
       : [];
@@ -751,7 +771,9 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
 
     const sourceBranch = await this.getSourceBranch(flags.source);
-    const projectPath = await gitCreateWorktree(branchName, sourceBranch);
+    const projectPath = await gitCreateWorktree(branchName, sourceBranch, {
+      fetch: false,
+    });
     // Env files first: the agent starts working immediately, so it has to find a
     // worktree that is already complete. The editor stays last so its "Worktree
     // created" fallback remains the final line.

@@ -1,4 +1,7 @@
 import * as cli from "../lib/cli.js";
+import * as git from "../lib/git.js";
+import { resetProjectConfigCache } from "../lib/project-config.js";
+import * as prompt from "../lib/prompt.js";
 import { expectCommands } from "../test-setup.js";
 import {
   assignJiraIssue,
@@ -22,10 +25,35 @@ function makeJiraIssue(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// A project file on origin/main, and no working copy of it to disagree with.
+function stubProjectFile(content: string) {
+  vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+  vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+    status: "found",
+    content,
+  });
+  vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+}
+
+// The plan's example file (§4): its prefixes and host decide the values below.
+const PROJECT_FILE = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+`;
+
 describe("Jira integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetProjectConfigCache();
     vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    // The project-file cases spy on git.js; the rest read through cli.run.
+    vi.restoreAllMocks();
   });
 
   it("throws for invalid issue ids", async () => {
@@ -71,6 +99,93 @@ describe("Jira integration", () => {
       },
     );
     expect(issue.key).toBe("DEV-123");
+  });
+
+  // D17: a host from the file is trusted like merged code. It is used with no
+  // prompt, and the credentials go to it.
+  it("sends credentials to the host the project file supplies, without asking", async () => {
+    stubProjectFile(PROJECT_FILE);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+          name
+        ] ?? "",
+      ),
+    );
+    const prompted = vi.spyOn(prompt, "askConfirm");
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(makeJiraIssue()),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await fetchJiraIssue("dev-123");
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://acme.atlassian.net/rest/api/3/issue/DEV-123",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: `Basic ${Buffer.from("test@example.com:api-token").toString("base64")}`,
+        }),
+      }),
+    );
+    expect(prompted).not.toHaveBeenCalled();
+  });
+
+  it("prefers a personal jira.host over the project file's", async () => {
+    stubProjectFile(PROJECT_FILE);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        {
+          "jira.host": "mine.atlassian.net",
+          "jira.email": "test@example.com",
+          "jira.apiToken": "api-token",
+        }[name] ?? "",
+      ),
+    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(makeJiraIssue()),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await fetchJiraIssue("dev-123");
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://mine.atlassian.net/rest/api/3/issue/DEV-123",
+      expect.anything(),
+    );
+  });
+
+  it("takes the branch prefix from the project file when git config has none", async () => {
+    stubProjectFile(PROJECT_FILE);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        {
+          "jira.email": "test@example.com",
+          "jira.apiToken": "api-token",
+        }[name] ?? "",
+      ),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(
+          makeJiraIssue({
+            key: "DEV-42",
+            fields: {
+              summary: "Fix login bug",
+              issuetype: { id: "10008", name: "Bug" },
+            },
+          }),
+        ),
+      }),
+    );
+
+    expect(await getJiraBranchNameFromIssue("dev-42")).toBe(
+      "fix/DEV-42-fix-login-bug",
+    );
   });
 
   it("throws a helpful error when jira.host is missing", async () => {

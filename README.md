@@ -94,6 +94,10 @@ The setup flow can configure:
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise inferred from the lockfile)
 
+A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
+`jira.host` and `clickup.workspaceId`, read from the default branch; your own git config overrides it. See
+[Project Configuration](https://northguild.github.io/worktree/docs/project-configuration).
+
 Then create your first worktree:
 
 ```bash
@@ -231,7 +235,11 @@ worktree help branch
 
 ## Configuration
 
-Configuration is stored in local Git config under the `northguild.worktree.*` namespace.
+Configuration is stored in Git config under the `northguild.worktree.*` namespace. A committed
+`.worktree.yml` can supply the team keys (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`,
+`clickup.workspaceId`); your git config wins over it, and it wins over the built-in default. A file's
+`jira.host` receives every teammate's Jira credentials, so review a change to it like code. See
+[Project Configuration](https://northguild.github.io/worktree/docs/project-configuration).
 
 Examples:
 
@@ -290,7 +298,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 - **Install:** on. The command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`,
   `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing to run it says so and carries on. A failure keeps
   the worktree, starts nothing and exits `1`.
-- **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
+- **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`), else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
 - **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, `git fetch` 60 s, `gh auth token` and the session listing
   10 s, the install 10 min. A command still running at its bound is sent SIGTERM, then SIGKILL 2 s later, so

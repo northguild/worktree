@@ -28,3 +28,26 @@ Non-blocking Gate 2 observations, branch-local. Read by no command; `/feature-cl
   published URL independently of the code.
 - `yaml` and `zod` are pinned exactly while the other runtime dependencies use carets, which stops consumers
   deduplicating.
+
+## From Phase 2
+
+- The early `gitFetch()` in `branch` has no spinner (one broke agent-mode's one-stderr-line test), so an
+  interactive slow fetch shows nothing. A spinner gated on `isProgressEnabled()`, as `git.ts` does elsewhere,
+  would add feedback without stderr lines.
+- The early fetch is `git fetch --prune` on runs without `--source`, and the taken-branch refuse/reopen path
+  now fetches where it did not (D7 allows it; up to 60 s).
+- A personal empty prefix cannot override a file prefix (`gitGetConfigValue` returns `""` for unset and
+  empty), and the project-configuration page does not say so.
+- `configuration/page.mdx`'s *Recommended Team Baseline* says labels and tags "stay personal"; they are
+  built-in mappings the file takes over in Phase 4. Fix when Phase 4 lands.
+- Getting-started sends readers to the `worktree config` wizard, which still asks for keys the file sets and
+  so writes personal overrides until Phase 8 (D19).
+- The page does not say a file's `defaultSourceBranch` never sets the unpushed-work base for `list`,
+  `cleanup` and `remove` (§4 *Not affected*).
+- §5 says a broken file's error names `WORKTREE_PROJECT_CONFIG` as the escape; the Phase 1 loader's error
+  does not.
+- No test pins git config beating the file for `clickup.workspaceId` when both are set; the
+  "never reads a file's defaultSourceBranch" test cannot tell its two sources apart (both `origin/main`).
+- `guides/jira-integration/page.mdx` item 1 says `jira.host` is used "with no prompt"; that holds for a file host
+  only — with neither source set, `branch --jira` still offers `worktree config` (item 2). Reword to "a host
+  from the file is used with no prompt".

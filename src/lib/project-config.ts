@@ -11,6 +11,7 @@ import {
   gitResolveOriginHead,
 } from "./git.js";
 import { InvalidValueError } from "./prompt.js";
+import type { ConfigName } from "./types.js";
 
 // Imports git.ts and is never imported by it (or by agent.ts): git.ts and
 // agent.ts already import each other (#59), and this file must not close
@@ -329,6 +330,75 @@ export function loadProjectConfig() {
 
 export function resetProjectConfigCache() {
   cached = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Precedence (D2)
+// ---------------------------------------------------------------------------
+
+// The team keys whose file form is a single value. `postCreate` is a team key
+// too, but the file holds a list of steps and has its own reader.
+const TEAM_CONFIG_KEYS = [
+  "defaultSourceBranch",
+  "branchPrefix.feature",
+  "branchPrefix.bugfix",
+  "branchPrefix.chore",
+  "jira.host",
+  "clickup.workspaceId",
+] as const satisfies readonly ConfigName[];
+
+export type TeamConfigKey = (typeof TEAM_CONFIG_KEYS)[number];
+/** Where an answer came from; `default` means the caller's built-in applies. */
+export type ConfigValueSource = "git-config" | "project" | "default";
+
+export function isTeamConfigKey(name: string): name is TeamConfigKey {
+  return (TEAM_CONFIG_KEYS as readonly string[]).includes(name);
+}
+
+function projectValue(config: ProjectConfig, key: TeamConfigKey) {
+  switch (key) {
+    case "defaultSourceBranch":
+      return config.defaultSourceBranch;
+    case "branchPrefix.feature":
+      return config.branchPrefix?.feature;
+    case "branchPrefix.bugfix":
+      return config.branchPrefix?.bugfix;
+    case "branchPrefix.chore":
+      return config.branchPrefix?.chore;
+    case "jira.host":
+      return config.jira?.host;
+    case "clickup.workspaceId":
+      // YAML reads an unquoted 9001234 as a number; git config holds text.
+      return config.clickup?.workspaceId === undefined
+        ? undefined
+        : String(config.clickup.workspaceId);
+  }
+}
+
+/**
+ * A team key by D2: git config (any scope) first, then the project file, then
+ * `""` with source `default` for the caller's built-in. The file is not read
+ * when git config answers. A file that cannot be used throws
+ * `ProjectConfigError`, as `loadProjectConfig` does.
+ */
+export async function resolveTeamConfig(name: TeamConfigKey): Promise<{
+  value: string;
+  source: ConfigValueSource;
+}> {
+  const personal = await gitGetConfigValue(name);
+  if (personal) {
+    return { value: personal, source: "git-config" };
+  }
+  const result = await loadProjectConfig();
+  const fromFile =
+    result.status === "loaded" ? projectValue(result.config, name) : undefined;
+  return fromFile
+    ? { value: fromFile, source: "project" }
+    : { value: "", source: "default" };
+}
+
+export async function getTeamConfigValue(name: TeamConfigKey) {
+  return (await resolveTeamConfig(name)).value;
 }
 
 // ---------------------------------------------------------------------------

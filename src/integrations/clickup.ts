@@ -1,4 +1,5 @@
 import { gitGetConfigValue } from "../lib/git.js";
+import { getTeamConfigValue } from "../lib/project-config.js";
 import { InvalidValueError, MissingValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
@@ -51,7 +52,7 @@ export async function resolveClickUpToken(): Promise<string> {
 }
 
 export async function resolveClickUpWorkspaceId(): Promise<string | undefined> {
-  const workspaceId = await gitGetConfigValue("clickup.workspaceId");
+  const workspaceId = await getTeamConfigValue("clickup.workspaceId");
 
   return workspaceId || undefined;
 }
@@ -216,7 +217,7 @@ export async function getClickUpBranchNameFromTask(
 ): Promise<string> {
   const branchType = getClickUpBranchType(task.tags);
 
-  const prefix = await gitGetConfigValue(
+  const prefix = await getTeamConfigValue(
     branchType === "bugfix"
       ? "branchPrefix.bugfix"
       : branchType === "chore"

@@ -9,6 +9,7 @@ const meta: MetaRecord = {
     title: "Commands",
   },
   configuration: "Configuration",
+  "project-configuration": "Project Configuration",
   guides: {
     title: "Guides",
   },

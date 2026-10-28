@@ -168,6 +168,17 @@ describe("git branch parsing", () => {
     ]);
     expect(branches).toEqual(["origin/main", "origin/feature/test"]);
   });
+
+  // D7: a caller that has already fetched this run lists without fetching again.
+  it("lists remote branches without fetching when told the run already did", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("  origin/main");
+
+    const branches = await gitGetRemoteBranches({ fetch: false });
+
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(runSpy).toHaveBeenCalledWith("git", ["--no-pager", "branch", "-r"]);
+    expect(branches).toEqual(["origin/main"]);
+  });
 });
 
 describe("git config", () => {
@@ -621,6 +632,21 @@ describe("gitCreateWorktree", () => {
     );
     expect(worktreePath).toBe("/repo/project.worktrees/feature/test");
     expect(spinnerMocks.succeed).toHaveBeenCalled();
+  });
+
+  it("adds the worktree without fetching when told the run already did (D7)", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+    runSpy.mockResolvedValueOnce(gitRootPath);
+
+    await gitCreateWorktree(branchName, sourceBranch, { fetch: false });
+
+    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      expect.arrayContaining(["worktree", "add"]),
+      { cwd: gitRootPath },
+    );
   });
 
   it("adds a tracking worktree when checking out a remote branch", async () => {
