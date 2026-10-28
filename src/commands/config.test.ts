@@ -1,8 +1,11 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { confirm, input, select } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
+import { CONFIG_NAMES } from "../lib/constants.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import * as projectConfig from "../lib/project-config.js";
+import { MissingValueError } from "../lib/prompt.js";
 import * as validators from "../lib/validators.js";
 import Config from "./config.js";
 
@@ -35,6 +38,81 @@ describe("config command", () => {
     vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
       if (key === "has-called-config") return Promise.resolve("true");
       return Promise.resolve("");
+    });
+  });
+
+  // Phase 7 (#181), D16 and D22. The approval is made by `--approve`, which
+  // shows the steps and asks; no key a person can name sets it.
+  describe("--approve and the internal approval key", () => {
+    const INTERNAL = projectConfig.POST_CREATE_APPROVAL_KEY.replace(
+      "northguild.worktree.",
+      "",
+    );
+
+    function parsed(args: object, flags: object) {
+      (config as any).parse = vi.fn().mockResolvedValue({ args, flags });
+    }
+
+    it("hands --approve to the approval, which asks itself", async () => {
+      const approve = vi
+        .spyOn(projectConfig, "approvePostCreate")
+        .mockResolvedValue(true);
+      parsed({}, { approve: true });
+
+      await config.run();
+
+      expect(approve).toHaveBeenCalledTimes(1);
+      approve.mockRestore();
+      expect(git.gitSetConfigValue).not.toHaveBeenCalledWith(
+        INTERNAL,
+        expect.anything(),
+      );
+    });
+
+    it("refuses --approve non-interactively and stores nothing", async () => {
+      setNonInteractive(true);
+      parsed({}, { approve: true });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await expect(config.run()).rejects.toThrow(MissingValueError);
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(cli.run).not.toHaveBeenCalledWith(
+        "git",
+        expect.arrayContaining([projectConfig.POST_CREATE_APPROVAL_KEY]),
+      );
+    });
+
+    it("keeps the approval key out of CONFIG_NAMES and out of --list", async () => {
+      expect(CONFIG_NAMES as readonly string[]).not.toContain(INTERNAL);
+      parsed({}, { list: true, missing: false });
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+        async (key: string) => (key === INTERNAL ? "a-stored-value" : ""),
+      );
+
+      await config.run();
+
+      const printed = mockConsoleLog.mock.calls.flat().join("\n");
+      expect(printed).not.toContain(INTERNAL);
+      expect(printed).not.toContain("a-stored-value");
+    });
+
+    it("refuses `worktree config <that key> <value>`", async () => {
+      parsed({ name: INTERNAL, value: "deadbeef" }, {});
+      vi.spyOn(config, "error").mockImplementation(((message: string) => {
+        throw new Error(message);
+      }) as any);
+
+      await expect(config.run()).rejects.toThrow(
+        `Unknown config name: ${INTERNAL}`,
+      );
+      expect(git.gitSetConfigValue).not.toHaveBeenCalledWith(
+        INTERNAL,
+        expect.anything(),
+      );
+    });
+
+    it("documents --approve in the flags", () => {
+      expect(Config.flags.approve).toBeDefined();
     });
   });
 

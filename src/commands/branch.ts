@@ -37,6 +37,7 @@ import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
 import {
+  ensurePostCreateApproved,
   getTeamConfigValue,
   loadProjectConfig,
 } from "../lib/project-config.js";
@@ -86,7 +87,10 @@ url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
 url|null} or null
 assigned: true if the issue is yours after the run, false if it is not (held
 by someone else, or the attempt failed), null if none was attempted
-installed: {ran:true, command, inferred, ok, reason?} or {ran:false, reason}
+installed: {ran:true, command, steps[], from, inferred, ok, reason?} or
+{ran:false, reason}
+command is the step that failed, else the last that ran; steps are the ones
+that ran, in order; from is "git-config", "project" or "lockfile"
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
 agent: {name|null, kind|null, command[], prompted}, or null if none started
 agent.prompted is the delivery receipt for a brief.
@@ -188,7 +192,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     install: Flags.boolean({
       allowNo: true,
       description:
-        "Install dependencies in the new worktree (on by default when non-interactive or postCreate is set)",
+        "Install dependencies in the new worktree (on by default when non-interactive or postCreate is set; the project file's postCreate steps need your approval first, --no-install skips them)",
     }),
   };
 
@@ -903,6 +907,11 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       this.reportDryRun(derived);
       return undefined;
     }
+
+    // D16: the file's postCreate steps are approved by this person, or the run
+    // ends here, before a name is asked for, an issue assigned or a tree made.
+    // A dry run runs nothing, so it returned above without asking (D13).
+    await ensurePostCreateApproved({ install: flags.install });
 
     const { branchName, issue } = await this.getBranchName(
       args.branchName,

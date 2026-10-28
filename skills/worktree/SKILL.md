@@ -226,10 +226,18 @@ Defaults when non-interactive:
   48 characters at the last dash. With no issue, the branch name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or
   `jira.autoAssign`, then assign. The default is never saved.
-- **Install:** on. The command is `postCreate`, else inferred from the lockfile
-  (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing
-  to run it says so and carries on. A failure keeps the worktree, starts nothing
-  and exits `1`.
+- **Install:** on. The command is your `postCreate`, else the steps under
+  `postCreate` in `.worktree.yml` (run in order, the first failure stops the
+  rest), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`,
+  `yarn.lock`, `bun.lock`). With nothing to run it says so and carries on. A
+  failure keeps the worktree, starts nothing and exits `1`.
+- **Approval of the file's steps:** checked before anything is created. A
+  non-interactive run (script, CI, `--json`, `--yes`) that has not approved them
+  exits `2` with `missing_value`, naming `worktree config --approve` and
+  `--no-install`; the message never contains a value to approve with. Do not try
+  to approve for the person: run `branch --no-install`, or tell them to run
+  `worktree config --approve` in a terminal. A personal `postCreate` and
+  `--dry-run` need no approval.
 - **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`), else `origin/main` with a warning.
 - **A branch name that is already taken** (a re-run of `branch`) is refused: exit
   `2`, `invalid_value`, naming the existing worktree's path and
@@ -251,7 +259,7 @@ document:
 {"path":"/abs/repo.worktrees/42-fix-login","branch":"42-fix-login","source":"origin/main",
  "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,
  "envFilesCopied":["docs/.env.local"],
- "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","inferred":true,"ok":true},
+ "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
  "agent":{"name":"demo-42-fix-login","kind":"claude","command":["claude","--name","demo-42-fix-login"],"prompted":true},
  "warnings":[]}
@@ -265,7 +273,9 @@ document:
   start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a
   detached start. `herdr.agent` is `null` when no agent was started in the
   pane.
-- `installed` is `{ran:false,reason}` when skipped. A failed install still
+- `installed` is `{ran:false,reason}` when skipped. `steps` are the commands
+  that ran, in order; `command` is the one that failed, else the last that ran;
+  `from` is `"git-config"`, `"project"` or `"lockfile"`. A failed install still
   prints the whole document, with `installed.ok` `false` and a `reason`, and
   exits `1`.
 - A brief that was given and not delivered does the same: the whole document,
@@ -434,7 +444,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
-| `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
+| `postCreate` | `pnpm install` | the install step of `branch`; unset means the steps in `.worktree.yml` (once approved with `worktree config --approve`), else infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
 | `github.token` | `ghp_...` | `--github` flag |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |

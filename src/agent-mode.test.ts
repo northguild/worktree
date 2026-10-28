@@ -641,6 +641,95 @@ describe("agent mode, spawned", () => {
     );
   });
 
+  describe("the project file's postCreate steps (D16)", () => {
+    // WORKTREE_PROJECT_CONFIG reads the file from disk instead of origin/HEAD.
+    function projectFile(dir: string) {
+      const file = path.join(dir, "project.yml");
+      fs.writeFileSync(
+        file,
+        "postCreate:\n  - pnpm install\n  - pnpm prisma generate\n",
+      );
+      return { WORKTREE_PROJECT_CONFIG: file };
+    }
+
+    it(
+      "fails closed with exit 2 and missing_value, creates nothing and prints no hash",
+      async () => {
+        const scenario = await createScenario(projectFile(workDir));
+
+        const result = await scenario.run([
+          "branch",
+          "--github",
+          "7",
+          "--json",
+        ]);
+
+        expect(result.exitCode).toBe(2);
+        const document = parseDocument(result.stdout);
+        expect(document).toMatchObject({ error: { code: "missing_value" } });
+        const text = result.stdout + result.stderr;
+        expect(text).toContain("worktree config --approve");
+        expect(text).toContain("--no-install");
+        expect(text).not.toMatch(/[0-9a-f]{64}/);
+        expect(scenario.installCalls()).toEqual([]);
+        expect(
+          fs.existsSync(scenario.worktreePath("7-add-agent-mode-to-the-cli")),
+        ).toBe(false);
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "--no-install needs no approval and runs none of the steps",
+      async () => {
+        const scenario = await createScenario(projectFile(workDir));
+
+        const result = await scenario.run([
+          "branch",
+          "--github",
+          "7",
+          "--no-install",
+          "--json",
+        ]);
+
+        expect(result.exitCode).toBe(0);
+        expect(parseDocument(result.stdout)).toMatchObject({
+          installed: { ran: false },
+        });
+        expect(scenario.installCalls()).toEqual([]);
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "a personal postCreate runs without approval and reports its source",
+      async () => {
+        const scenario = await createScenario(projectFile(workDir), {
+          postCreate: "pnpm run setup",
+        });
+
+        const result = await scenario.run([
+          "branch",
+          "--github",
+          "7",
+          "--json",
+        ]);
+
+        expect(result.exitCode).toBe(0);
+        expect(parseDocument(result.stdout)).toMatchObject({
+          installed: {
+            ran: true,
+            command: "pnpm run setup",
+            steps: ["pnpm run setup"],
+            from: "git-config",
+            ok: true,
+          },
+        });
+      },
+      TEST_TIMEOUT_MS,
+    );
+  });
+
   it(
     "branch --github --dry-run --json prints one dry-run document and changes nothing",
     async () => {

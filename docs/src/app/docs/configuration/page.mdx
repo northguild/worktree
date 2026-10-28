@@ -16,7 +16,7 @@ team key your git config wins over the file, and the file wins over the built-in
 - `herdr.focus` (`true` or `false`, default `true`)
 - `herdr.agent` (example: `claude`; the agent kind that starts in every new Herdr space. Unset means no agent, unless `worktree branch` or `checkout` is given a brief, which falls back to `agent.command`'s program)
 - `agent.command` (the command `--agent` runs to hand a brief to a coding agent, example: `claude --bg`)
-- `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means infer from the lockfile)
+- `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means the steps in `.worktree.yml`, else infer from the lockfile)
 - `github.token` (GitHub personal access token)
 - `github.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
@@ -144,8 +144,10 @@ worktree config postCreate "pnpm install"
 worktree config postCreate "make setup"
 ```
 
-When it is set it is used as written, and it also turns the install on for a terminal run. When it is
-unset, `branch` infers the command from the new worktree's lockfile (`pnpm-lock.yaml`, `package-lock.json`,
+When it is set it is used as written, and it also turns the install on for a terminal run. Because you set
+it, it runs without asking. It wins over the `postCreate` steps in a repository's
+[`.worktree.yml`](/docs/project-configuration#post-create-steps), which run only after you approve them
+(`worktree config --approve`, or the prompt `branch` shows on a terminal). When both are unset, `branch` infers the command from the new worktree's lockfile (`pnpm-lock.yaml`, `package-lock.json`,
 `yarn.lock`, then `bun.lock`) and installs by default only when non-interactive. `--no-install` skips it for
 one run. See [`branch`](/docs/commands/branch#installing-dependencies).
 

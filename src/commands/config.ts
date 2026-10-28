@@ -10,6 +10,7 @@ import {
   SECRET_CONFIG_NAMES,
 } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
+import { approvePostCreate } from "../lib/project-config.js";
 import { askConfirm, askInput, askSelect } from "../lib/prompt.js";
 import type { ConfigName, OpenerKind } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
@@ -31,6 +32,10 @@ export default class Config extends BaseCommand {
     value: Args.string(),
   };
   static override flags = {
+    approve: Flags.boolean({
+      description:
+        "Review and approve the postCreate steps in the project's .worktree.yml (terminal only)",
+    }),
     list: Flags.boolean({
       char: "l",
       description: "List all available variables",
@@ -686,6 +691,16 @@ export default class Config extends BaseCommand {
 
     // Mark that config has been called at least once
     await gitSetConfigValue("has-called-config", "true");
+
+    if (flags.approve) {
+      if (args.name || flags.list || flags.missing || flags.names) {
+        this.error(
+          "--approve cannot be combined with other arguments or flags.",
+        );
+      }
+      await approvePostCreate();
+      return;
+    }
 
     if (args.name) {
       if (!this.isValidArgName(args.name)) {

@@ -122,3 +122,32 @@ Non-blocking Gate 2 observations, branch-local. Read by no command; `/feature-cl
   `GIT_CONFIG_NOSYSTEM=1`, also on `origin/main`) keeps the real `HOME`, so git's default excludes file
   (`~/.config/git/ignore`) still applies while fixtures are built; the spawned CLI itself gets a scratch `HOME`
   and `XDG_CONFIG_HOME`. Not a user-visible defect.
+
+## From Phase 7
+
+- **Defect, branch-local:** if `storeApproval`'s `git config --local` fails, `run`'s error carries execFile's
+  "Command failed: … <hash>", so the hash can reach the terminal (interactive only, after a yes). Rethrow
+  without the argv.
+- **Defect, branch-local:** the approval check runs before the taken-branch check, so a non-interactive re-run
+  on a taken name with unapproved steps gets `missing_value` instead of `invalid_value` with the `worktree
+  open` hint (the `context7.json` line is then true only once approved), and a terminal run that only reopens
+  a tree is asked to approve steps it will not run. Moving the call just after `reopenOrRefuseTakenBranch`
+  still sits before assignment and creation.
+- `config --approve` under `WORKTREE_PROJECT_CONFIG` prints no "Reading project config from …" line and the
+  prompt still says "This project's .worktree.yml"; its non-interactive refusal reuses `branch`'s message,
+  telling you to run the command you just ran.
+- The project-configuration page says a script "cannot approve its own run"; the hash is SHA-256 of public
+  steps, so anything with a shell can compute it — "cannot approve its own run from the message" is accurate.
+- `install.ts` pushes a step onto `steps` before `runStep`, so a step whose program is not on `PATH` is listed
+  though it never started; the help says "steps are the ones that ran".
+- The exit-code help and the branch page's "What It Does" do not mention the approval check or that declining
+  exits 1.
+- Only `STEPS_HASH` cites its `shasum` command; `REORDERED_HASH` and `CHANGED_HASH` are correct but unsourced.
+- `readApproval` swallows every error (`catch { return ""; }`); it fails closed.
+- Not pinned by a test: approval runs before assignment; `--approve` combined with other flags.
+- `BaseCommand.warn` prints text unescaped (only `redactSecrets`), and it also carries issue titles and other
+  third-party text; a `branchName` holding `\p{Cf}` characters may pass `isValidBranchName` and reach later
+  messages. None of these precede the approval prompt.
+- `--dry-run` prints rule text (`formatBranchTypeRule`, `pasteReadyLine`) without `showVisibly`; it runs and
+  asks nothing, but escaping it would be cleaner. A ref name holding U+202E can reorder the "differs from … at
+  <ref>" warning in a bidi-aware terminal; it cannot hide the step list.

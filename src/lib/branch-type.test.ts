@@ -270,3 +270,22 @@ describe("formatBranchTypeRule", () => {
     );
   });
 });
+
+// Phase 7 gate 2, B3: a `when` field name comes from the file and reaches a
+// warning, so control characters in it are shown as escapes.
+describe("rule warnings escape file-derived text", () => {
+  it("shows ESC and CR in a field name as escapes", () => {
+    const [rule] = [
+      { when: { "bad\r\u001b[8m": "x" }, type: "bugfix" },
+    ] as BranchTypeRule[];
+
+    const result = evaluateBranchTypeRules(
+      [rule as BranchTypeRule],
+      [workCategory],
+    );
+
+    const text = result.warnings.join(" ");
+    expect(text).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+    expect(text).toContain("bad\\x0d\\x1b[8m");
+  });
+});

@@ -76,10 +76,9 @@ not offer to run `worktree config` for a key the file supplies.
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.
 
-The file's format also reserves the key `postCreate`. This release checks it for mistakes but does not act on
-it yet. The `branchType` lists under `jira`, `github`, `linear` and `clickup` are live: see
+The `branchType` lists under `jira`, `github`, `linear` and `clickup` are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
-and `copy`, see [Copy files](#copy-files).
+`copy`, see [Copy files](#copy-files), and `postCreate`, see [Post-create steps](#post-create-steps).
 
 ### What the file may not hold
 
@@ -251,6 +250,46 @@ copy:
 - **`worktree branch --dry-run` copies nothing**, like everything else it skips.
 
 A repository with no file, or a file without `copy`, copies exactly what it did before.
+
+## Post-create steps
+
+`postCreate` lists the commands `worktree branch` runs in a new worktree to get it ready:
+
+```yaml
+postCreate:
+  - pnpm install
+  - pnpm prisma generate
+```
+
+- **Steps run in order**, in the new worktree, each as a program and its arguments with no shell, each
+  limited to 10 minutes. The first step that fails stops the rest, and `branch` exits `1` with the worktree
+  kept. See [Installing dependencies](/docs/commands/branch#installing-dependencies).
+- **A step cannot be empty or hold control or formatting characters** (a tab, a newline, an escape, a
+  right-to-left override), so the steps you approve are shown exactly as they run. A file with one stops the
+  run like any other [broken file](#a-broken-file-stops-the-run).
+- **An empty list is the same as no list**: the command is inferred from the lockfile.
+- **Your own `postCreate` wins.** A command you set with `worktree config postCreate` replaces the file's
+  steps and runs without approval, since you wrote it.
+- **`branch --source` an older release branch** still runs the default branch's steps. A failure is loud,
+  and `--no-install` gets round it.
+
+### Approving the steps
+
+Steps from a file run commands on your machine that someone else wrote, so each person approves them once.
+
+- **The approval covers exactly these steps.** Changing a step, adding one or reordering them asks again.
+  It is kept in your clone's local git config under an internal key. That key is not a setting: it is not
+  in `worktree config --list` and `worktree config <key> <value>` cannot set it.
+- **On a terminal**, `worktree branch` lists every step before anything is created and asks. Yes remembers
+  the approval; no exits `1` with nothing created. `worktree config --approve` shows the current steps and
+  asks the same question ahead of time.
+- **When nothing can be asked** (a script, CI, `--json`, `--yes` or `--non-interactive`), an unapproved or
+  changed list stops the run before anything is created, with exit `2` and `missing_value` under `--json`.
+  The message names the two ways out: approve once in a terminal with `worktree config --approve`, or skip
+  the steps with `--no-install`. It never prints a value you could paste to approve them, so a script or an
+  agent cannot approve its own run. CI that wants steps from the file should set its own `postCreate` or
+  pass `--no-install`.
+- **`--no-install` needs no approval**, and neither does `branch --dry-run`, which runs nothing.
 
 ## A broken file stops the run
 

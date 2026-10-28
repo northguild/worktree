@@ -1,4 +1,8 @@
-import type { BranchKind, BranchTypeRule } from "./project-config.js";
+import {
+  type BranchKind,
+  type BranchTypeRule,
+  showVisibly,
+} from "./project-config.js";
 
 export type { BranchKind, BranchTypeRule };
 
@@ -67,7 +71,7 @@ function findField(key: string, fields: IssueField[], where: string) {
   if (byName.length > 1) {
     const ids = byName.map((field) => field.id).join(" and ");
     throw new AmbiguousFieldError(
-      `${where} names the field "${key}", which is the display name of ${ids}. Name the field by its id instead.`,
+      `${where} names the field "${showVisibly(key)}", which is the display name of ${showVisibly(ids)}. Name the field by its id instead.`,
     );
   }
   return byName[0];
@@ -98,7 +102,7 @@ export function evaluateBranchTypeRules(
       const field = findField(key, fields, where);
       if (!field) {
         warnings.push(
-          `${where} names the field "${key}", which this issue does not have, so the rule did not match. Check the spelling, or use the field's id.`,
+          `${where} names the field "${showVisibly(key)}", which this issue does not have, so the rule did not match. Check the spelling, or use the field's id.`,
         );
         allMatch = false;
         continue;

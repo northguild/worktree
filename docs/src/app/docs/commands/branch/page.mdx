@@ -205,7 +205,9 @@ With `--json` a dry run prints one document, not the [`branch` document](#json-o
 After the worktree exists and its env files are copied, `branch` can install its dependencies, **before**
 anything is opened or any agent is started, so neither lands in a tree without them.
 
-- **The command** is [`postCreate`](/docs/configuration#post-create-command) when it is set. Otherwise it is
+- **The command** is [`postCreate`](/docs/configuration#post-create-command) when it is set in your git
+  config. Otherwise it is the list of steps under `postCreate` in the repository's
+  [`.worktree.yml`](/docs/project-configuration#post-create-steps), run in order. With neither, it is
   inferred from the first lockfile found in the new worktree:
 
   | Lockfile | Command |
@@ -219,11 +221,17 @@ anything is opened or any agent is started, so neither lands in a tree without t
 - **When it runs:** a [non-interactive run](#non-interactive-runs) installs by default. A terminal run
   installs only when `postCreate` is set or `--install` is given. `--no-install` switches it off for the run,
   whatever else is set.
-- **How it runs:** by argv in the new worktree, never through a shell, with its output on stderr and a
-  10 minute limit.
-- **Nothing to run:** with no `postCreate` and no lockfile, or when the program is not on `PATH`, `branch`
-  says why on stderr and carries on.
-- **A failed install** (non-zero exit, or the limit reached) keeps the worktree, opens nothing, starts no
+- **Approval:** the steps from `.worktree.yml` must be approved by you first, and this is checked before
+  anything is created. On a terminal `branch` lists every step and asks; no exits `1`. A non-interactive
+  run that has not approved them exits `2` with `missing_value`, naming `worktree config --approve` (run it
+  in a terminal) and `--no-install`. A `postCreate` you set yourself, `--no-install` and `--dry-run` need
+  no approval. See [Approving the steps](/docs/project-configuration#approving-the-steps).
+- **How it runs:** each step by argv in the new worktree, never through a shell, with its output on stderr
+  and a 10 minute limit per step. The first failing step stops the rest.
+- **Nothing to run:** with no `postCreate` and no lockfile, or when the program of your own `postCreate` or
+  of the lockfile command is not on `PATH`, `branch` says why on stderr and carries on.
+- **A failed install** (a step exits non-zero, or the limit is reached; a file step whose program is not on
+  `PATH` fails like any other step) keeps the worktree, opens nothing, starts no
   agent, and exits `1`. Nothing is rolled back. Fix the install in the worktree and run
   `worktree open <branch>`, or run `worktree remove <branch> -f` and re-run `branch` with `--no-install`.
   Re-running `branch` as it was does not create anything: the branch name is taken, so it reopens the
@@ -361,7 +369,7 @@ animates; progress goes to stderr as plain lines.
 - A prompt with none fails at once, exit `2`, with one line on stderr:
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`).
-- Dependencies are installed by default, from `postCreate` or the lockfile; `--no-install` skips it.
+- Dependencies are installed by default, from `postCreate` or the lockfile; `--no-install` skips it. Steps from `.worktree.yml` that you have not approved stop the run with exit `2` and `missing_value` before anything is created; the message names `worktree config --approve` and `--no-install`.
 - A branch name that is already taken is refused, exit `2` with `invalid_value`, naming the existing worktree's path and `worktree open <branch>`; it is never opened unasked.
 - Missing config is not offered to `config`: `defaultSourceBranch` unset in both your git config and `.worktree.yml` warns and falls back to `origin/main`.
 
@@ -411,7 +419,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 {"path":"/abs/repo.worktrees/70-headless-agent-mode","branch":"70-headless-agent-mode","source":"origin/main",
  "issue":{"provider":"github","number":70,"url":"https://github.com/acme/demo/issues/70"},"assigned":true,
  "envFilesCopied":["docs/.env.local"],
- "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","inferred":true,"ok":true},
+ "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-70-headless-agent-mode"},
  "agent":{"name":"demo-70-headless-agent-mode","kind":"claude","command":["claude","--name","demo-70-headless-agent-mode"],"prompted":true},
  "warnings":[]}
@@ -423,7 +431,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}` or `{provider:"clickup", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
 | `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, or a Jira issue is held by someone else); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
 | `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
-| `installed` | `{ran:true, command, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped |
+| `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`) or `"lockfile"` |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |
 | `agent` | `{name, kind, command, prompted}` for the agent that was started; `null` when none was. `command` leaves out the brief. `name` is the session name, `null` where `worktree` named nothing (a detached start) |
 | `warnings` | what went wrong without stopping the run: a failed assignment, a Herdr or agent failure, missing config, a closed `--github` issue |

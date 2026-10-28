@@ -92,7 +92,7 @@ The setup flow can configure:
 - `codeEditor` for automatically opening a worktree, such as `code`
 - `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
-- `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise inferred from the lockfile)
+- `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
 `jira.host` and `clickup.workspaceId`, read from the default branch; your own git config overrides it. See
@@ -109,7 +109,7 @@ That will:
 1. create a new branch from your configured source branch
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
 3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc` — and any gitignored file `.worktree.yml` lists under `copy`
-4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`), and a failure keeps the worktree, opens nothing and exits `1`
+4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml` (run in order, after you approve them: checked before anything is created, asked on a terminal, exit `2` with `missing_value` when nothing can be asked, so approve with `worktree config --approve` or skip with `--no-install`), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); a failure stops the remaining steps, keeps the worktree, opens nothing and exits `1`
 5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
 
 ## Common Workflows
@@ -296,8 +296,10 @@ line, `worktree: no default for <value>; pass <flag>`.
 - **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to 48 characters at the last dash.
   With no issue, the name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or `jira.autoAssign`, then assign. The default is never saved.
-- **Install:** on. The command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`,
-  `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing to run it says so and carries on. A failure keeps
+- **Install:** on. The command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml`, else
+  inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). Steps from the
+  file need your approval first; unapproved, a non-interactive run exits `2` (`missing_value`) before anything is
+  created, naming `worktree config --approve` (in a terminal) and `--no-install`. It never prints a value to approve with. With nothing to run it says so and carries on. A failure keeps
   the worktree, starts nothing and exits `1`.
 - **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`), else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
@@ -318,7 +320,7 @@ worktree branch --github 42 --json --agent-file brief.md
 {"path":"/abs/repo.worktrees/42-fix-login","branch":"42-fix-login","source":"origin/main",
  "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,
  "envFilesCopied":["docs/.env.local"],
- "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","inferred":true,"ok":true},
+ "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
  "agent":{"name":"demo-42-fix-login","kind":"claude","command":["claude","--name","demo-42-fix-login"],"prompted":true},
  "warnings":[]}
@@ -327,7 +329,8 @@ worktree branch --github 42 --json --agent-file brief.md
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, `{provider:"clickup",key,url}`, or `null`.
 - `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), and `null` when no assignment was attempted. `herdr` and `agent` are `null` when skipped, and
   `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
-- `installed` is `{ran:false,reason}` when skipped. A failed install still prints the whole document, with
+- `installed` is `{ran:false,reason}` when skipped. `steps` are the commands that ran, in order; `command` is the
+  one that failed, else the last that ran; `from` is `"git-config"`, `"project"` or `"lockfile"`. A failed install still prints the whole document, with
   `installed.ok` `false`, and exits `1`.
 - A brief that was given and not delivered does the same: the whole document, `agent` `null` or
   `agent.prompted` `false`, the reason in `warnings`, exit `1`.

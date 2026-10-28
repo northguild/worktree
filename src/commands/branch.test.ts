@@ -16,7 +16,12 @@ import { setNonInteractive } from "../lib/interaction.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
 import * as validators from "../lib/validators.js";
-import { captureOutput, loadConfig } from "../test-setup.js";
+import {
+  captureOutput,
+  expectCommands,
+  loadConfig,
+  mockRun,
+} from "../test-setup.js";
 import Branch from "./branch.js";
 
 // Mock the inquirer module
@@ -3104,6 +3109,8 @@ jira:
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "pnpm install --frozen-lockfile",
+        steps: ["pnpm install --frozen-lockfile"],
+        from: "lockfile",
         inferred: true,
         ok: true,
       });
@@ -3155,6 +3162,8 @@ jira:
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "npm ci",
+        steps: ["npm ci"],
+        from: "lockfile",
         inferred: true,
         ok: false,
         reason: "exited with code 1",
@@ -3218,6 +3227,8 @@ jira:
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "pnpm install --frozen-lockfile",
+        steps: ["pnpm install --frozen-lockfile"],
+        from: "lockfile",
         inferred: true,
         ok: true,
       });
@@ -3268,6 +3279,8 @@ jira:
         installed: {
           ran: true,
           command: "pnpm install --frozen-lockfile",
+          steps: ["pnpm install --frozen-lockfile"],
+          from: "lockfile",
           inferred: true,
           ok: true,
         },
@@ -3454,6 +3467,8 @@ jira:
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "npm ci",
+        steps: ["npm ci"],
+        from: "lockfile",
         inferred: true,
         ok: false,
         reason: "exited with code 1",
@@ -4110,5 +4125,183 @@ describe("branch command — --help", () => {
   // D1: `--linear` is `-l`, beside `-g` and `-j`.
   it("gives --linear the short flag -l", () => {
     expect(Branch.flags.linear.char).toBe("l");
+  });
+});
+
+// Phase 7 of the project-config plan (#181): D16, D13. Expected values come
+// from the plan's Done-when line and D16's wording; the hash is the one
+// `shasum -a 256` gives for the example file's steps (see project-config.test).
+describe("branch command — approval of the project's postCreate steps", () => {
+  const HASH =
+    "085b75c700b8be5a24f7d7c0fe76efa00d5cad067c3895aed7dddf53a79f56de";
+  const FILE = "postCreate:\n  - pnpm install\n  - pnpm prisma generate\n";
+  const KEY = "northguild.worktree.postCreateApproval";
+  let personal: string;
+  let stored: string;
+  const mockConfirm = vi.mocked(confirm);
+  const mockRunInstall = vi.mocked(runInstall);
+  const originalExitCode = process.exitCode;
+
+  async function run(flags: Record<string, unknown> = {}) {
+    const command = new Branch([], await loadConfig());
+    (command as any).parse = vi.fn().mockResolvedValue({
+      args: { branchName: "feature/test" },
+      flags,
+    });
+    (command as any).parsed = true;
+    vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+      opener: "editor",
+    });
+    return command.run();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    personal = "";
+    stored = "";
+    expectCommands(
+      `git config --local ${KEY}`,
+      `git config --local ${KEY} ${HASH}`,
+    );
+    mockRun.mockImplementation(async (_file: string, args: string[]) => {
+      if (args.length === 3) {
+        if (stored) return stored;
+        throw new Error("exit 1");
+      }
+      stored = args[args.length - 1] ?? "";
+      return "";
+    });
+    mockRunInstall.mockResolvedValue({ ran: false, reason: "skipped" });
+    resetProjectConfigCache();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (key: string) => {
+        if (key === "has-called-config") return "true";
+        if (key === "defaultSourceBranch") return "origin/main";
+        if (key === "postCreate") return personal;
+        return "";
+      },
+    );
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "found",
+      content: FILE,
+    });
+    vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+    setNonInteractive(false);
+  });
+
+  it("fails closed non-interactively: exit 2, nothing created, both ways out named, no hash", async () => {
+    setNonInteractive(true);
+
+    const error = await run().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(MissingValueError);
+    const text = JSON.stringify({
+      message: (error as Error).message,
+      value: (error as MissingValueError).value,
+      flag: (error as MissingValueError).flag,
+    });
+    expect(text).toContain("worktree config --approve");
+    expect(text).toContain("--no-install");
+    expect(text).not.toMatch(/[0-9a-f]{64}/);
+    expect((error as any).oclif.exit).toBe(2);
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(mockRunInstall).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+
+  it("asks interactively, stores the hash on yes and installs", async () => {
+    mockConfirm.mockResolvedValue(true);
+
+    await run();
+
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(stored).toBe(HASH);
+    expect(git.gitCreateWorktree).toHaveBeenCalled();
+    expect(mockRunInstall).toHaveBeenCalled();
+  });
+
+  it("exits 1 with nothing created when the answer is no", async () => {
+    mockConfirm.mockResolvedValue(false);
+
+    const error = await run().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect((error as any).oclif.exit).toBe(1);
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(mockRunInstall).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+
+  it("does not ask again once approved", async () => {
+    stored = HASH;
+    setNonInteractive(true);
+
+    await run();
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(git.gitCreateWorktree).toHaveBeenCalled();
+  });
+
+  it("--no-install needs no approval", async () => {
+    setNonInteractive(true);
+
+    await run({ install: false });
+
+    expect(git.gitCreateWorktree).toHaveBeenCalled();
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("a personal postCreate runs without approval", async () => {
+    personal = "make setup";
+    setNonInteractive(true);
+
+    await run();
+
+    expect(git.gitCreateWorktree).toHaveBeenCalled();
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("--dry-run runs no approval and no prompt, even non-interactively", async () => {
+    setNonInteractive(true);
+    vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+      number: 8,
+      title: "Fix it",
+      state: "open",
+      htmlUrl: "https://github.com/acme/demo/issues/8",
+      type: null,
+      labels: [],
+      pullRequest: null,
+    } as any);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await run({ "dry-run": true, github: "8" });
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+
+  it("documents the installed fields in --help", () => {
+    const help = Branch.description ?? "";
+    expect(help).toContain("steps");
+    expect(help).toContain('"git-config", "project" or "lockfile"');
   });
 });

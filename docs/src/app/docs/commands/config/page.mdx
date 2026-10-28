@@ -17,6 +17,7 @@ worktree config --list --missing
 worktree config --missing
 worktree config --missing --names <comma-separated-keys>
 worktree config --yes --names <comma-separated-keys>
+worktree config --approve
 ```
 
 `--list` shows `github.token`, `jira.apiToken`, `linear.apiKey` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
@@ -117,7 +118,15 @@ The last leaves the key unset, so `--missing` goes on offering the prompt until 
 ## Post-create Key
 
 - `postCreate` a command to run in every new worktree, such as `pnpm install`. Read by
-  [`branch`](/docs/commands/branch#installing-dependencies); when it is unset the command is inferred from
-  the lockfile instead. It is validated like `agent.command`: its first word has to be on `PATH`. See
+  [`branch`](/docs/commands/branch#installing-dependencies); when it is unset the steps under `postCreate`
+  in `.worktree.yml` run instead (after you approve them), else the command is inferred from the lockfile. It is validated like `agent.command`: its first word has to be on `PATH`. See
   [Configuration](/docs/configuration#post-create-command). The prompt accepts an empty answer, which leaves
   it unset.
+
+## Approving Post-create Steps
+
+`worktree config --approve` shows the `postCreate` steps in the repository's `.worktree.yml` and asks
+whether to run them in new worktrees on this machine. Yes records the approval for those exact steps in this
+clone's local git config, so `worktree branch` does not ask. It needs a terminal: when nothing can be asked
+it refuses with exit `2`. The approval is not a configuration key, so it is not listed by `--list` and
+cannot be set by name. See [Approving the steps](/docs/project-configuration#approving-the-steps).

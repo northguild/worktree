@@ -2,19 +2,37 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { confirm } from "@inquirer/prompts";
+import { expectCommands, mockRun } from "../test-setup.js";
+import { CONFIG_NAMES } from "./constants.js";
 import * as git from "./git.js";
+import { setNonInteractive } from "./interaction.js";
 import {
+  approvePostCreate,
+  ensurePostCreateApproved,
   getBranchPrefix,
   getBranchTypeRules,
+  getProjectPostCreateSteps,
   isTeamConfigKey,
   loadProjectConfig,
+  POST_CREATE_APPROVAL_KEY,
   ProjectConfigError,
+  postCreateApprovalHash,
   projectConfigJsonSchema,
   readProjectConfig,
   renderBranchName,
   resetProjectConfigCache,
   resolveTeamConfig,
 } from "./project-config.js";
+import { MissingValueError } from "./prompt.js";
+
+vi.mock("@inquirer/prompts", () => ({
+  confirm: vi.fn(),
+  input: vi.fn(),
+  select: vi.fn(),
+  checkbox: vi.fn(),
+  Separator: class {},
+}));
 
 vi.mock("./git.js", () => ({
   gitResolveOriginHead: vi.fn(),
@@ -748,5 +766,284 @@ describe("getBranchTypeRules and getBranchPrefix", () => {
     fromOriginMain(EXAMPLE);
 
     expect(await getBranchPrefix(undefined)).toBe("");
+  });
+});
+
+// Phase 7 (#181), D15/D16/D22. Expected values come from the plan: the hash of
+// the §4 example's steps was computed outside this code, with
+// `printf '%s' '["pnpm install","pnpm prisma generate"]' | shasum -a 256`
+// (an independent SHA-256 over the bytes D16 defines), and the messages from D16.
+describe("post-create approval", () => {
+  const STEPS = ["pnpm install", "pnpm prisma generate"];
+  const STEPS_HASH =
+    "085b75c700b8be5a24f7d7c0fe76efa00d5cad067c3895aed7dddf53a79f56de";
+  const REORDERED_HASH =
+    "2d41837c4a077d267bfbb058703e515e342e5e5f6a95aab3c67d53ff730ea7c9";
+  const CHANGED_HASH =
+    "5154217f8a8823c092af6dc51f380ab1aa11dd9f4bd50794618cee083c054194";
+  let stored: string;
+  let personal: string;
+  let log: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    stored = "";
+    personal = "";
+    expectCommands(
+      `git config --local ${POST_CREATE_APPROVAL_KEY}`,
+      ...[STEPS_HASH, REORDERED_HASH, CHANGED_HASH].map(
+        (hash) => `git config --local ${POST_CREATE_APPROVAL_KEY} ${hash}`,
+      ),
+    );
+    mockRun.mockImplementation(async (_file: string, args: string[]) => {
+      if (args.length === 3) {
+        if (stored) return stored;
+        throw new Error("exit 1");
+      }
+      stored = args[args.length - 1] ?? "";
+      return "";
+    });
+    mocked.gitGetConfigValue.mockImplementation(async (name: string) =>
+      name === "postCreate" ? personal : "",
+    );
+    fromOriginMain(
+      "postCreate:\n  - pnpm install\n  -   pnpm prisma generate  \n",
+    );
+    vi.mocked(confirm).mockReset();
+    log = vi.spyOn(console, "error").mockImplementation(() => {});
+    setNonInteractive(false);
+  });
+
+  afterEach(() => {
+    log.mockRestore();
+    setNonInteractive(false);
+  });
+
+  it("hashes the JSON array of the trimmed steps (value from shasum)", () => {
+    expect(postCreateApprovalHash(STEPS)).toBe(STEPS_HASH);
+    expect(
+      postCreateApprovalHash([" pnpm install ", "pnpm prisma generate\n"]),
+    ).toBe(STEPS_HASH);
+  });
+
+  it("hashes a different order differently (value from shasum)", () => {
+    expect(postCreateApprovalHash([...STEPS].reverse())).toBe(REORDERED_HASH);
+  });
+
+  it("keeps the approval key out of CONFIG_NAMES", () => {
+    expect(POST_CREATE_APPROVAL_KEY.startsWith("northguild.worktree.")).toBe(
+      true,
+    );
+    const bare = POST_CREATE_APPROVAL_KEY.replace("northguild.worktree.", "");
+    expect(CONFIG_NAMES as readonly string[]).not.toContain(bare);
+    expect(CONFIG_NAMES as readonly string[]).not.toContain(
+      POST_CREATE_APPROVAL_KEY,
+    );
+  });
+
+  it("reads the file's steps trimmed", async () => {
+    expect(await getProjectPostCreateSteps()).toEqual(STEPS);
+  });
+
+  it("needs nothing when the file has no steps", async () => {
+    fromOriginMain("postCreate: []\n");
+    setNonInteractive(true);
+
+    await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("fails closed non-interactively: exit 2, naming both ways out, never the hash", async () => {
+    setNonInteractive(true);
+
+    const error = await ensurePostCreateApproved({}).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(MissingValueError);
+    const { message, value, flag, oclif } = error as MissingValueError & {
+      oclif: { exit: number };
+    };
+    expect(oclif.exit).toBe(2);
+    expect(message).toContain("worktree config --approve");
+    expect(message).toContain("--no-install");
+    for (const text of [message, value, flag]) {
+      expect(text).not.toContain(STEPS_HASH);
+      expect(text).not.toMatch(/[0-9a-f]{64}/);
+    }
+    expect(stored).toBe("");
+  });
+
+  it("asks interactively with every step listed, and yes stores the hash", async () => {
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await ensurePostCreateApproved({});
+
+    const shown = log.mock.calls.flat().join("\n");
+    expect(shown).toContain("pnpm install");
+    expect(shown).toContain("pnpm prisma generate");
+    expect(stored).toBe(STEPS_HASH);
+    expect(mockRun).toHaveBeenCalledWith("git", [
+      "config",
+      "--local",
+      POST_CREATE_APPROVAL_KEY,
+      STEPS_HASH,
+    ]);
+  });
+
+  it("does not ask again once approved", async () => {
+    stored = STEPS_HASH;
+    setNonInteractive(true);
+
+    await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("asks again when one step changed", async () => {
+    stored = STEPS_HASH;
+    fromOriginMain("postCreate:\n  - pnpm install\n  - pnpm prisma migrate\n");
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await ensurePostCreateApproved({});
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(stored).toBe(CHANGED_HASH);
+  });
+
+  it("asks again when the order changed", async () => {
+    stored = STEPS_HASH;
+    fromOriginMain("postCreate:\n  - pnpm prisma generate\n  - pnpm install\n");
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await ensurePostCreateApproved({});
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(stored).toBe(REORDERED_HASH);
+  });
+
+  it("exits 1 and stores nothing when the answer is no", async () => {
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    const error = await ensurePostCreateApproved({}).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect((error as { oclif?: { exit: number } }).oclif?.exit).toBe(1);
+    expect(stored).toBe("");
+  });
+
+  it("needs no approval with --no-install", async () => {
+    setNonInteractive(true);
+
+    await expect(
+      ensurePostCreateApproved({ install: false }),
+    ).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("needs no approval when a personal postCreate wins (D2)", async () => {
+    personal = "make setup";
+    setNonInteractive(true);
+
+    await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("approvePostCreate refuses non-interactively and stores nothing", async () => {
+    setNonInteractive(true);
+
+    await expect(approvePostCreate()).rejects.toThrow(MissingValueError);
+    expect(stored).toBe("");
+  });
+
+  it("approvePostCreate shows the steps, asks, and stores on yes", async () => {
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await approvePostCreate();
+
+    expect(log.mock.calls.flat().join("\n")).toContain("pnpm prisma generate");
+    expect(stored).toBe(STEPS_HASH);
+  });
+
+  it("approvePostCreate says so when the file has no steps", async () => {
+    fromOriginMain("copy: []\n");
+
+    await approvePostCreate();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+});
+
+// Phase 7 gate 2, B1: the approval prompt shows the step as text, so a step
+// that can redraw the terminal or reorder what is shown (carriage return,
+// escape, newline, tab, bidi override) would run something the person never
+// saw. Such a file is refused at load, before any prompt (D4, D16).
+describe("postCreate steps: control and formatting characters", () => {
+  it.each([
+    ["a carriage return", "touch pwned\\r  2. pnpm install"],
+    ["an escape", "touch pwned\\e[2K"],
+    ["a newline", "touch pwned\\n  2. pnpm install"],
+    ["a tab", "touch\\tpwned"],
+    ["a bidi override (U+202E)", "touch \\u202Epwned"],
+  ])("refuses a step holding %s, naming the key path", async (_name, yaml) => {
+    const error = await failure(
+      `postCreate:\n  - pnpm install\n  - "${yaml}"\n`,
+    );
+
+    expect(error.message).toContain("postCreate[1] (line 3)");
+    expect(error.message).toContain("control or formatting characters");
+  });
+
+  it("still accepts an ordinary step with spaces and quotes", async () => {
+    fromOriginMain(`postCreate:\n  - make "setup all" --flag='x y'\n`);
+
+    const result = await readProjectConfig({});
+
+    expect(result).toMatchObject({
+      status: "loaded",
+      config: { postCreate: [`make "setup all" --flag='x y'`] },
+    });
+  });
+});
+
+// Phase 7 gate 2, B3: a key from the file reaches warnings printed before the
+// approval prompt. Raw ESC or CR in one could redraw the terminal and hide the
+// steps, so every control or formatting character is shown as an escape.
+describe("file-derived text in warnings is shown, not interpreted", () => {
+  it("escapes ESC and CR in an unknown key's warning", async () => {
+    fromOriginMain('"x\\r\\e[8mhidden": 1\npostCreate:\n  - pnpm install\n');
+
+    const result = await readProjectConfig({});
+
+    const text = result.warnings.join(" ");
+    expect(text).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+    expect(text).toContain("x\\x0d\\x1b[8mhidden");
+    expect(text).toContain("unknown key");
+  });
+
+  it("escapes a nested unknown key and a personal key the same way", async () => {
+    fromOriginMain('jira:\n  "a\\e[2K": 1\n"opener\\r": x\n');
+
+    const result = await readProjectConfig({});
+
+    expect(result.warnings).toHaveLength(2);
+    for (const warning of result.warnings) {
+      expect(warning).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+    }
+  });
+
+  it("leaves a plain unknown key's warning unchanged", async () => {
+    fromOriginMain("surprise: 1\n");
+
+    const result = await readProjectConfig({});
+
+    expect(result.warnings).toEqual([
+      "surprise (line 1): unknown key `surprise` is ignored. A newer version of worktree may know it.".replace(
+        /^/,
+        ".worktree.yml at origin/main: ",
+      ),
+    ]);
   });
 });

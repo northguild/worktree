@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { LineCounter, parseDocument } from "yaml";
 import { z } from "zod";
+import { run } from "./cli.js";
 import { SECRET_CONFIG_NAMES } from "./constants.js";
 import {
   gitGetConfigValue,
@@ -10,7 +12,8 @@ import {
   gitReadBlobAtRef,
   gitResolveOriginHead,
 } from "./git.js";
-import { InvalidValueError } from "./prompt.js";
+import { isNonInteractive } from "./interaction.js";
+import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
 
 // Imports git.ts and is never imported by it (or by agent.ts): git.ts and
@@ -103,9 +106,16 @@ const copyPattern = z
     },
   );
 
-const step = z.string().refine((value) => value.trim() !== "", {
-  message: "a step cannot be empty",
-});
+// The approval prompt prints a step as text, so one that redraws the terminal
+// (\r, ESC) or reorders it (bidi overrides) would hide what runs (D16).
+const step = z
+  .string()
+  .refine((value) => value.trim() !== "", {
+    message: "a step cannot be empty",
+  })
+  .refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), {
+    message: "a step cannot hold control or formatting characters",
+  });
 
 export const projectConfigSchema = z
   .object({
@@ -452,6 +462,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Text from the file, made safe to print: every control (`\p{Cc}`) and
+ * formatting (`\p{Cf}`) character becomes a visible escape such as `\x1b` or
+ * `\u{202e}`, so a key or value cannot redraw the terminal or reorder what a
+ * warning, an error or the approval prompt shows (D16).
+ */
+export function showVisibly(text: string) {
+  return text.replace(/[\p{Cc}\p{Cf}]/gu, (char) => {
+    const code = char.codePointAt(0) ?? 0;
+    return code < 0x100
+      ? `\\x${code.toString(16).padStart(2, "0")}`
+      : `\\u{${code.toString(16)}}`;
+  });
+}
+
 function formatKeyPath(keyPath: readonly PropertyKey[]) {
   return keyPath.reduce<string>((text, segment) => {
     if (typeof segment === "number") {
@@ -501,7 +526,9 @@ function parseProjectConfig(
   if (yamlError) {
     const line = yamlError.linePos?.[0].line;
     const where = line === undefined ? "" : ` (line ${line})`;
-    return fail(`${yamlError.message.split("\n")[0]}${where}`);
+    return fail(
+      `${showVisibly(yamlError.message.split("\n")[0] ?? "")}${where}`,
+    );
   }
 
   // The nearest node that exists: a missing required key still has a parent.
@@ -519,7 +546,7 @@ function parseProjectConfig(
     return 1;
   };
   const at = (keyPath: readonly PropertyKey[]) =>
-    `${formatKeyPath(keyPath)} (line ${lineOf(keyPath)})`;
+    `${showVisibly(formatKeyPath(keyPath))} (line ${lineOf(keyPath)})`;
 
   const raw: unknown = document.toJS();
   if (raw === null || raw === undefined) {
@@ -536,8 +563,8 @@ function parseProjectConfig(
       const keyPath = issue.path;
       const message =
         issue.code === "unrecognized_keys"
-          ? `${issue.message} (${issue.keys.join(", ")})`
-          : issue.message;
+          ? `${showVisibly(issue.message)} (${showVisibly(issue.keys.join(", "))})`
+          : showVisibly(issue.message);
       return `${keyPath.length === 0 ? `(line ${lineOf(keyPath)})` : at(keyPath)}: ${message}`;
     });
     return fail(`\n  ${problems.join("\n  ")}`);
@@ -560,11 +587,11 @@ function classifyKeys(
 
   const warnPersonal = (key: string, keyPath: readonly PropertyKey[]) =>
     warnings.push(
-      `${label}: ${at(keyPath)}: \`${key}\` is a personal setting and is ignored here. Set it with \`worktree config ${key}\`.`,
+      `${label}: ${at(keyPath)}: \`${showVisibly(key)}\` is a personal setting and is ignored here. Set it with \`worktree config ${showVisibly(key)}\`.`,
     );
   const warnUnknown = (key: string, keyPath: readonly PropertyKey[]) =>
     warnings.push(
-      `${label}: ${at(keyPath)}: unknown key \`${key}\` is ignored. A newer version of worktree may know it.`,
+      `${label}: ${at(keyPath)}: unknown key \`${showVisibly(key)}\` is ignored. A newer version of worktree may know it.`,
     );
 
   for (const [key, value] of Object.entries(raw)) {
@@ -615,13 +642,147 @@ function classifyKeys(
 
   if (secrets.length > 0) {
     // Never the value: it is the thing that leaked.
+    const names = showVisibly(secrets.join(", "));
     const where =
       source.kind === "ref"
-        ? `${secrets.join(", ")} is a secret and does not belong in a committed file. It is now in the repository's history and must be rotated.`
-        : `${secrets.join(", ")} is a secret and does not belong in a project file. If this file was ever committed, the value is in the history and must be rotated.`;
+        ? `${names} is a secret and does not belong in a committed file. It is now in the repository's history and must be rotated.`
+        : `${names} is a secret and does not belong in a project file. If this file was ever committed, the value is in the history and must be rotated.`;
     fail(
       `${where} Remove it and keep it in your own git config with \`worktree config <key>\`.`,
     );
   }
   return settings;
+}
+
+// ---------------------------------------------------------------------------
+// Approval of the file's postCreate steps (D16, D22)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a person's approval is kept: their local git config, under the
+ * `northguild.worktree.` namespace, and deliberately not in `CONFIG_NAMES`
+ * (D22). `--list` never shows it and `worktree config <key> <value>` cannot set
+ * it, so nothing that can only type a key name can approve its own steps.
+ */
+export const POST_CREATE_APPROVAL_KEY =
+  "northguild.worktree.postCreateApproval";
+
+/** SHA-256 over the UTF-8 bytes of the JSON array of the trimmed steps (D16). */
+export function postCreateApprovalHash(steps: readonly string[]) {
+  return createHash("sha256")
+    .update(JSON.stringify(steps.map((step) => step.trim())), "utf8")
+    .digest("hex");
+}
+
+/** The file's steps, trimmed; none when there is no file or it has no steps. */
+export async function getProjectPostCreateSteps() {
+  const project = await loadProjectConfig();
+  return project.status === "loaded"
+    ? (project.config.postCreate ?? []).map((step) => step.trim())
+    : [];
+}
+
+async function readApproval() {
+  try {
+    return (
+      await run("git", ["config", "--local", POST_CREATE_APPROVAL_KEY])
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+async function storeApproval(steps: readonly string[]) {
+  await run("git", [
+    "config",
+    "--local",
+    POST_CREATE_APPROVAL_KEY,
+    postCreateApprovalHash(steps),
+  ]);
+}
+
+/** A person said no to running the file's steps: exit 1, nothing created. */
+export class PostCreateDeclinedError extends Error {
+  /** Read by `BaseCommand.catch` for the exit code. */
+  readonly oclif = { exit: 1 };
+
+  constructor() {
+    super(
+      "The project's postCreate steps were not approved, so nothing was created. Pass --no-install to skip them.",
+    );
+    this.name = "PostCreateDeclinedError";
+  }
+}
+
+// The hash is never part of a message: a script that could read it from an
+// error could store it and approve the steps without a person (D16).
+function approvalRequired() {
+  return new MissingValueError(
+    "approval of this project's postCreate steps from .worktree.yml",
+    "`--no-install` to skip them, or approve them once in a terminal with `worktree config --approve`",
+  );
+}
+
+function showSteps(steps: readonly string[]) {
+  console.error("This project's .worktree.yml runs these steps, in order:");
+  steps.forEach((step, index) => {
+    console.error(`  ${index + 1}. ${step}`);
+  });
+}
+
+async function askToApprove(steps: readonly string[]) {
+  showSteps(steps);
+  const approved = await askConfirm(
+    { message: "Run these steps in new worktrees on this machine?" },
+    approvalRequired(),
+  );
+  if (approved) {
+    await storeApproval(steps);
+  }
+  return approved;
+}
+
+/**
+ * The check `branch` makes before anything is created (D16). Nothing to do for
+ * `--no-install`, a personal `postCreate` (the person set it; D2), a file with
+ * no steps, or steps whose hash this person already approved. Otherwise an
+ * interactive run lists every step and asks, and a non-interactive one fails
+ * closed with a missing value.
+ */
+export async function ensurePostCreateApproved(options: { install?: boolean }) {
+  if (options.install === false) {
+    return;
+  }
+  if (await gitGetConfigValue("postCreate")) {
+    return;
+  }
+  const steps = await getProjectPostCreateSteps();
+  if (steps.length === 0) {
+    return;
+  }
+  if ((await readApproval()) === postCreateApprovalHash(steps)) {
+    return;
+  }
+  if (isNonInteractive()) {
+    throw approvalRequired();
+  }
+  if (!(await askToApprove(steps))) {
+    throw new PostCreateDeclinedError();
+  }
+}
+
+/**
+ * `worktree config --approve`: shows the current steps and asks. A refusal to
+ * run unattended, since an approval nobody saw is no approval.
+ */
+export async function approvePostCreate() {
+  if (isNonInteractive()) {
+    throw approvalRequired();
+  }
+  const steps = await getProjectPostCreateSteps();
+  if (steps.length === 0) {
+    console.error("This project's .worktree.yml has no postCreate steps.");
+    return false;
+  }
+  return askToApprove(steps);
 }
