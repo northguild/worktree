@@ -163,7 +163,8 @@ anything is opened or any agent is started, so neither lands in a tree without t
 - **A failed install** (non-zero exit, or the limit reached) keeps the worktree, opens nothing, starts no
   agent, and exits `1`. Nothing is rolled back. Fix the install in the worktree and run
   `worktree open <branch>`, or run `worktree remove <branch> -f` and re-run `branch` with `--no-install`.
-  Re-running `branch` as it was fails, because the branch already exists.
+  Re-running `branch` as it was does not create anything: the branch name is taken, so it reopens the
+  worktree (on a terminal) or refuses — see [A branch name that is already taken](#a-branch-name-that-is-already-taken).
 
 `checkout` has no install step.
 
@@ -291,6 +292,7 @@ animates; progress goes to stderr as plain lines.
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`).
 - Dependencies are installed by default, from `postCreate` or the lockfile; `--no-install` skips it.
+- A branch name that is already taken is refused, exit `2` with `invalid_value`, naming the existing worktree's path and `worktree open <branch>`; it is never opened unasked.
 - Missing config is not offered to `config`: `defaultSourceBranch` unset warns and falls back to `origin/main`.
 
 ## What It Does
@@ -303,6 +305,24 @@ animates; progress goes to stderr as plain lines.
 5. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
 6. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
 7. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
+
+## A branch name that is already taken
+
+`branch` checks the final branch name before it assigns an issue, resolves a source or creates anything.
+Git's own `a branch named … already exists` does not say which of four states you are in, so `branch`
+tells them apart:
+
+| State | On a terminal | Non-interactive (and `--json`) |
+|---|---|---|
+| The branch has a worktree under `<repo>.worktrees/` | asks whether to open it; `y` opens it, `n` exits `1` | refuses, exit `2` (`invalid_value`), naming the path and `worktree open <branch>` |
+| The branch exists but has no worktree | refuses, exit `2`, saying to choose another name or delete the branch | the same |
+| The branch is checked out elsewhere, such as the main checkout | refuses, exit `2`, naming the path | the same |
+| A worktree record exists but its directory was deleted | refuses, exit `2`, naming the path and `git worktree prune` | the same |
+
+Opening an existing worktree creates nothing, so it copies no env files, installs nothing and assigns no
+issue, and `--source`, `--assign` and `--install` are ignored. It passes `--no-open`, `--no-agent` and any
+brief through to the same opener as a new worktree. It prints no [JSON document](#json-output); a
+non-interactive run refuses instead, so `--json` never reaches it.
 
 ## JSON output
 
@@ -346,7 +366,7 @@ describing it goes to stderr as usual:
 | `code` | Means | Exit |
 | --- | --- | --- |
 | `missing_value` | a value with no default was not given; `details` names it and the flag | `2` |
-| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github` number that is a pull request | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github` number that is a pull request, a branch name that is already taken | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |
 | `failed` | anything else | `1` |

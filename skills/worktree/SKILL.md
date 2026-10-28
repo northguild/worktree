@@ -209,6 +209,11 @@ Defaults when non-interactive:
   to run it says so and carries on. A failure keeps the worktree, starts nothing
   and exits `1`.
 - **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
+- **A branch name that is already taken** (a re-run of `branch`) is refused: exit
+  `2`, `invalid_value`, naming the existing worktree's path and
+  `worktree open <branch>`. A branch with no worktree, one checked out outside
+  `<repo>.worktrees/`, and a worktree whose directory was deleted are refused
+  the same way. On a terminal the first case asks whether to open it instead.
 - **Removal** has no default: `remove <branch> -f`.
 - **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, `git fetch` 60 s,
   `gh auth token` and the session listing 10 s, the install 10 min. A command
@@ -280,7 +285,7 @@ and exits non-zero. A `missing_value` error also carries
 | `code` | Means | Exit |
 |---|---|---|
 | `missing_value` | a value with no default was not given | `2` |
-| `invalid_value` | a value or flag combination was refused | `2` |
+| `invalid_value` | a value or flag combination was refused, including a `branch` name that is already taken | `2` |
 | `not_found` | something named does not exist | `2` |
 | `timeout` | a bounded call did not answer in time | `1` |
 | `failed` | anything else | `1` |

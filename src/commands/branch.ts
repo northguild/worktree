@@ -16,6 +16,7 @@ import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
+  gitFindBranchCheckout,
   gitGetConfigValue,
   gitGetLocalBranches,
   gitGetRemoteBranches,
@@ -69,7 +70,8 @@ Exit codes:
 1 failure, or the worktree was made but the install failed or the brief
 was not delivered
 2 usage: a value with no default is missing, a value is invalid, or the
---source branch does not exist (a missing issue exits 1)`;
+--source branch does not exist, or the branch name is already taken (a
+missing issue exits 1; declining to open an existing worktree exits 1)`;
   // One JSON document on stdout, everything human on stderr (D6).
   static override enableJsonFlag = true;
   static override examples = [
@@ -326,6 +328,67 @@ was not delivered
     }
   }
 
+  /**
+   * A name that already exists cannot be created again, and git's own message
+   * does not say which of four states it is in. The worktree list is asked
+   * first because it answers an existing worktree, a checkout elsewhere and a
+   * record whose directory is gone; the branch list only answers a branch with
+   * no worktree. Returns true when an existing worktree was reopened.
+   */
+  private async reopenOrRefuseTakenBranch(
+    branchName: string,
+    flags: { "no-open"?: boolean; "no-agent"?: boolean },
+    brief: string | undefined,
+  ): Promise<boolean> {
+    const checkout = await gitFindBranchCheckout(branchName);
+
+    if (!checkout) {
+      if ((await gitGetLocalBranches()).includes(branchName)) {
+        throw new InvalidValueError(
+          `Branch "${branchName}" already exists but has no worktree. Choose another branch name, or delete the branch with \`git branch -d ${branchName}\`.`,
+        );
+      }
+      return false;
+    }
+
+    if (!checkout.inWorktreesRoot) {
+      throw new InvalidValueError(
+        `Branch "${branchName}" is already checked out at ${checkout.path}, outside the worktrees directory. Choose another branch name.`,
+      );
+    }
+    if (!checkout.pathExists) {
+      throw new InvalidValueError(
+        `Branch "${branchName}" has a worktree record at ${checkout.path}, but that directory no longer exists. Run \`git worktree prune\` to clear it, then re-run.`,
+      );
+    }
+
+    const exists = `Branch "${branchName}" already has a worktree at ${checkout.path}.`;
+    // Opening unasked would start a second agent on a retried --agent run, and
+    // a non-interactive run cannot ask (D2, D3).
+    if (isNonInteractive()) {
+      throw new InvalidValueError(
+        `${exists} Run \`worktree open ${branchName}\` to open it, or choose another branch name.`,
+      );
+    }
+    const reopen = await askConfirm(
+      { message: `${exists} Open it instead?` },
+      { value: "whether to open the existing worktree", flag: "worktree open" },
+    );
+    if (!reopen) {
+      // Not a usage error: the user answered, so it exits 1 rather than 2.
+      this.error(
+        `Not opening the existing worktree for "${branchName}"; nothing was created.`,
+        { exit: 1 },
+      );
+    }
+    await this.openWorktreePath(checkout.path, {
+      open: !flags["no-open"],
+      agent: !flags["no-agent"],
+      brief,
+    });
+    return true;
+  }
+
   private async getJiraIssueBranchName(issueKeyFlag: string): Promise<{
     branchName: string;
     issue: BranchIssue;
@@ -571,7 +634,10 @@ was not delivered
     return { branchName, issue: derived?.issue ?? null };
   }
 
-  public async run(): Promise<BranchDocument> {
+  // `undefined` is the interactive reopen of a worktree that already exists: it
+  // creates nothing, so there is no document, and `--json` never reaches it
+  // because that run is non-interactive and refuses instead (D3, D6).
+  public async run(): Promise<BranchDocument | undefined> {
     const { args, flags } = await this.parse(Branch);
     if (
       [flags.github, flags.jira, flags.linear, flags.clickup].filter(Boolean)
@@ -656,6 +722,12 @@ was not delivered
       args.branchName,
       flags,
     );
+
+    // After the final name is known (the prompt may have edited it) and before
+    // anything is assigned, saved, fetched for a source or created (D1).
+    if (await this.reopenOrRefuseTakenBranch(branchName, flags, brief)) {
+      return undefined;
+    }
 
     // Decided before the worktree exists (D7), so the prompt cannot appear
     // after the creation spinners or behind a launched editor. Being assigned

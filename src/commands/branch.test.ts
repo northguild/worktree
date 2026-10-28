@@ -99,6 +99,10 @@ describe("branch command", () => {
     // these two, whichever value `confirm` happens to be left returning decides
     // it, which is order-dependent. config.test.ts guards gitSetConfigValue for
     // the same reason.
+    // Nothing collides unless a case says so; the lookup is git, which these
+    // cases are not about.
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
     vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
     vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
       login: "octocat",
@@ -840,12 +844,12 @@ describe("branch command", () => {
 
       const document = await branch.run();
 
-      expect(document.issue).toEqual({
+      expect(document?.issue).toEqual({
         provider: "linear",
         key: "ENG-123",
         url: "https://linear.app/acme/issue/ENG-123/add-dark-mode",
       });
-      expect(document.assigned).toBeNull();
+      expect(document?.assigned).toBeNull();
     });
 
     it("includes linear.apiKey in the config it verifies", async () => {
@@ -1090,12 +1094,12 @@ describe("branch command", () => {
 
       const document = await branch.run();
 
-      expect(document.issue).toEqual({
+      expect(document?.issue).toEqual({
         provider: "clickup",
         key: "9hx",
         url: "https://app.clickup.com/t/9hx",
       });
-      expect(document.assigned).toBeNull();
+      expect(document?.assigned).toBeNull();
     });
 
     it("reports the task's custom_id as the key, not the id that was typed (D9)", async () => {
@@ -1117,7 +1121,7 @@ describe("branch command", () => {
 
       const document = await branch.run();
 
-      expect(document.issue).toMatchObject({
+      expect(document?.issue).toMatchObject({
         provider: "clickup",
         key: "DEV-123",
       });
@@ -1141,7 +1145,7 @@ describe("branch command", () => {
 
       const document = await branch.run();
 
-      expect(document.issue).toEqual({
+      expect(document?.issue).toEqual({
         provider: "clickup",
         key: "DEV-123",
         url: "https://app.clickup.com/t/86abc",
@@ -2905,6 +2909,240 @@ describe("branch command", () => {
     function mockGitCreateWorktreeCalls() {
       return vi.mocked(git.gitCreateWorktree).mock.calls.length;
     }
+  });
+
+  // Expected values come from plan #121 section 1 (git's four states, observed
+  // with real git) and D2-D4: exit 2 and `invalid_value` for a refusal (the
+  // InvalidValueError contract), exit 1 for a declined reopen (the closed-issue
+  // decline), and no side effect before the check (D1).
+  describe("a branch name that is already taken", () => {
+    const worktreePath = "/repo.worktrees/feat";
+    const mockCreate = () => vi.spyOn(git, "gitCreateWorktree");
+    const run = (flags: Record<string, unknown> = {}) => {
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feat" },
+        flags: { github: undefined, ...flags },
+      });
+      return branch.run();
+    };
+    // In git, a branch checked out anywhere is also a local branch (section 1's
+    // table), so the fixture says so: only asking the worktree list first, then
+    // the branch list (section 4), keeps A, C and D from being read as B.
+    const checkout = (over: Partial<git.BranchCheckout> = {}) => {
+      vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main", "feat"]);
+      return vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue({
+        path: worktreePath,
+        pathExists: true,
+        inWorktreesRoot: true,
+        isCurrent: false,
+        ...over,
+      });
+    };
+    const expectNothingDone = () => {
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+      expect(mockRunInstall).not.toHaveBeenCalled();
+      expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
+      expect(git.gitSetConfigValue).not.toHaveBeenCalled();
+    };
+
+    const refusals: [string, () => void, string][] = [
+      [
+        "B: a branch with no worktree",
+        () => {
+          vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([
+            "main",
+            "feat",
+          ]);
+        },
+        'Branch "feat" already exists but has no worktree. Choose another branch name, or delete the branch with `git branch -d feat`.',
+      ],
+      [
+        "C: checked out outside the worktrees directory",
+        () => {
+          checkout({ path: "/repo", inWorktreesRoot: false });
+        },
+        'Branch "feat" is already checked out at /repo, outside the worktrees directory. Choose another branch name.',
+      ],
+      [
+        "D: a worktree whose directory is gone",
+        () => {
+          checkout({ pathExists: false });
+        },
+        'Branch "feat" has a worktree record at /repo.worktrees/feat, but that directory no longer exists. Run `git worktree prune` to clear it, then re-run.',
+      ],
+    ];
+
+    describe.each([
+      ["interactive", false],
+      ["non-interactive", true],
+    ])("when %s", (_mode, nonInteractive) => {
+      beforeEach(() => {
+        setNonInteractive(nonInteractive);
+        mockCreate().mockResolvedValue("/path/to/worktree");
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "defaultSourceBranch"
+                ? "origin/main"
+                : "",
+          ),
+        );
+      });
+
+      it.each(refusals)("refuses %s", async (_label, arrange, message) => {
+        arrange();
+
+        await expect(run()).rejects.toMatchObject({
+          name: "InvalidValueError",
+          message,
+          oclif: { exit: 2 },
+          code: "invalid_value",
+        });
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockOpenWorktreePath).not.toHaveBeenCalled();
+        expectNothingDone();
+      });
+    });
+
+    it("A, non-interactive: refuses and names the path and `worktree open`", async () => {
+      setNonInteractive(true);
+      checkout();
+      mockCreate();
+
+      await expect(run()).rejects.toMatchObject({
+        name: "InvalidValueError",
+        message:
+          'Branch "feat" already has a worktree at /repo.worktrees/feat. Run `worktree open feat` to open it, or choose another branch name.',
+        oclif: { exit: 2 },
+        code: "invalid_value",
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockOpenWorktreePath).not.toHaveBeenCalled();
+      expectNothingDone();
+    });
+
+    it("A, interactive: asks, and reopens the existing worktree when confirmed", async () => {
+      checkout();
+      mockCreate();
+      mockConfirm.mockResolvedValue(true);
+
+      const result = await run();
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message:
+          'Branch "feat" already has a worktree at /repo.worktrees/feat. Open it instead?',
+      });
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        worktreePath,
+        defaultOpenOptions,
+      );
+      expect(result).toBeUndefined();
+      expectNothingDone();
+    });
+
+    it("A, interactive: hands the run's own open, agent and brief to the opener", async () => {
+      checkout();
+      mockCreate();
+      mockConfirm.mockResolvedValue(true);
+
+      await run({ "no-open": true, agent: "implement it" });
+
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(worktreePath, {
+        open: false,
+        agent: true,
+        brief: "implement it",
+      });
+    });
+
+    it("A, interactive: exits 1 and creates nothing when declined", async () => {
+      checkout();
+      mockCreate();
+      mockConfirm.mockResolvedValue(false);
+
+      await expect(run()).rejects.toMatchObject({
+        message:
+          'Not opening the existing worktree for "feat"; nothing was created.',
+        oclif: { exit: 1 },
+      });
+      expect(mockOpenWorktreePath).not.toHaveBeenCalled();
+      expectNothingDone();
+    });
+
+    it("A, with --github: no assignment prompt or save before the check", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+        state: "open",
+      } as any);
+      setNonInteractive(true);
+      checkout();
+      mockCreate();
+
+      await expect(run({ github: "42" })).rejects.toMatchObject({
+        code: "invalid_value",
+      });
+      expectNothingDone();
+    });
+
+    it("A, interactive with --github: checks the edited name, before the assignment question", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+        state: "open",
+      } as any);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config"
+            ? "true"
+            : key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+        ),
+      );
+      // The derived name would be "42-add-dark-mode"; the person edits it.
+      mockInput.mockResolvedValue("feat");
+      mockConfirm.mockResolvedValue(true);
+      const find = checkout();
+      mockCreate();
+
+      await run({ github: "42" });
+
+      expect(find).toHaveBeenCalledWith("feat");
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message:
+          'Branch "feat" already has a worktree at /repo.worktrees/feat. Open it instead?',
+      });
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        worktreePath,
+        defaultOpenOptions,
+      );
+      expectNothingDone();
+    });
+
+    it("proceeds as before when nothing collides", async () => {
+      const create = mockCreate().mockResolvedValue("/path/to/worktree");
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(
+          key === "has-called-config"
+            ? "true"
+            : key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+        ),
+      );
+
+      await run();
+
+      expect(git.gitFindBranchCheckout).toHaveBeenCalledWith("feat");
+      expect(create).toHaveBeenCalledWith("feat", "origin/main");
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+        "/path/to/worktree",
+        defaultOpenOptions,
+      );
+    });
   });
 });
 
