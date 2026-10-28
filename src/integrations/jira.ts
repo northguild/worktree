@@ -135,11 +135,22 @@ const JIRA_REQUEST_TIMEOUT_MS = 15_000;
 async function fetchJira(
   path: string,
   credentials: JiraCredentials,
+  init: { method?: "GET" | "PUT"; body?: unknown } = {},
 ): Promise<Response> {
+  const headers: Record<string, string> = {
+    ...(getJiraAuthHeaders(credentials) as Record<string, string>),
+  };
+  const hasBody = init.body !== undefined;
+
+  if (hasBody) {
+    headers["Content-Type"] = "application/json";
+  }
+
   try {
     return await fetch(`https://${credentials.host}${path}`, {
-      method: "GET",
-      headers: getJiraAuthHeaders(credentials),
+      method: init.method ?? "GET",
+      headers,
+      ...(hasBody ? { body: JSON.stringify(init.body) } : {}),
       signal: AbortSignal.timeout(JIRA_REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
@@ -220,4 +231,106 @@ export async function validateJiraCredentials(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** `displayName` is the caller's own; `heldBy` is whoever has the issue. */
+export type JiraAssignment =
+  | { outcome: "assigned" | "already-yours"; displayName: string }
+  | { outcome: "held-by-other"; displayName: string; heldBy: string };
+
+interface JiraUser {
+  accountId?: string;
+  displayName?: string;
+}
+
+// D5: a failed assignment is named in the person's terms. The messages carry
+// the issue key and the API's own text, never a header.
+async function jiraAssignFailure(
+  response: Response,
+  issueKey: string,
+): Promise<Error> {
+  if (response.status === 401) {
+    return new Error(
+      "Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.",
+    );
+  }
+
+  if (response.status === 403) {
+    return new Error(
+      `Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of ${issueKey}.`,
+    );
+  }
+
+  if (response.status === 404) {
+    return new Error(`Jira: Issue ${issueKey} was not found.`);
+  }
+
+  const errorMessage = await response.text();
+  const detail = `${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
+
+  if (response.status === 400) {
+    return new Error(
+      `Jira: The account was not accepted as assignee for ${issueKey}. ${detail}`,
+    );
+  }
+
+  return new Error(`Jira: Failed to assign issue ${issueKey}. ${detail}`);
+}
+
+// D1/D2: assigns the issue to the caller unless someone else holds it. Reads
+// the caller and the current assignee together, then writes only when the issue
+// is free. Jira holds one assignee, so a write would replace a colleague's.
+export async function assignJiraIssue(
+  issueId: string,
+): Promise<JiraAssignment> {
+  const issueKey = getIssueKey(issueId);
+  const credentials = await resolveJiraCredentials();
+
+  const [myselfResponse, issueResponse] = await Promise.all([
+    fetchJira("/rest/api/3/myself", credentials),
+    fetchJira(`/rest/api/3/issue/${issueKey}?fields=assignee`, credentials),
+  ]);
+
+  if (!myselfResponse.ok) {
+    throw await jiraAssignFailure(myselfResponse, issueKey);
+  }
+
+  if (!issueResponse.ok) {
+    throw await jiraAssignFailure(issueResponse, issueKey);
+  }
+
+  const me = (await myselfResponse.json()) as JiraUser;
+  const issue = (await issueResponse.json()) as {
+    fields?: { assignee?: JiraUser | null };
+  };
+  const assignee = issue.fields?.assignee;
+  const displayName = me.displayName ?? "you";
+
+  if (!me.accountId) {
+    throw new Error("Jira: Could not determine the account for jira.email.");
+  }
+
+  if (assignee?.accountId === me.accountId) {
+    return { outcome: "already-yours", displayName };
+  }
+
+  if (assignee) {
+    return {
+      outcome: "held-by-other",
+      displayName,
+      heldBy: assignee.displayName ?? "someone else",
+    };
+  }
+
+  const path = `/rest/api/3/issue/${issueKey}/assignee`;
+  const putResponse = await fetchJira(path, credentials, {
+    method: "PUT",
+    body: { accountId: me.accountId },
+  });
+
+  if (!putResponse.ok) {
+    throw await jiraAssignFailure(putResponse, issueKey);
+  }
+
+  return { outcome: "assigned", displayName };
 }
