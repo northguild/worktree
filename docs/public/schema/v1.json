@@ -1,0 +1,385 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "defaultSourceBranch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "branchPrefix": {
+      "type": "object",
+      "properties": {
+        "feature": {
+          "type": "string"
+        },
+        "bugfix": {
+          "type": "string"
+        },
+        "chore": {
+          "type": "string"
+        }
+      }
+    },
+    "jira": {
+      "type": "object",
+      "properties": {
+        "branchType": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": ["string", "number"]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": ["string", "number"]
+                                }
+                              },
+                              "required": ["id"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": ["string", "number"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": ["string", "number"]
+                                  }
+                                },
+                                "required": ["id"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "description": "Field name or id mapped to the value, id object or list of either that must match. Every field must match."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["feature", "bugfix", "chore"]
+                  }
+                },
+                "required": ["when", "type"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "otherwise": {
+                    "type": "string",
+                    "enum": ["feature", "bugfix", "chore"]
+                  }
+                },
+                "required": ["otherwise"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Ordered rules; the first match wins. `- otherwise: <kind>` sets the kind for an issue no rule matched."
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "github": {
+      "type": "object",
+      "properties": {
+        "branchType": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": ["string", "number"]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": ["string", "number"]
+                                }
+                              },
+                              "required": ["id"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": ["string", "number"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": ["string", "number"]
+                                  }
+                                },
+                                "required": ["id"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "description": "Field name or id mapped to the value, id object or list of either that must match. Every field must match."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["feature", "bugfix", "chore"]
+                  }
+                },
+                "required": ["when", "type"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "otherwise": {
+                    "type": "string",
+                    "enum": ["feature", "bugfix", "chore"]
+                  }
+                },
+                "required": ["otherwise"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Ordered rules; the first match wins. `- otherwise: <kind>` sets the kind for an issue no rule matched."
+        }
+      }
+    },
+    "linear": {
+      "type": "object",
+      "properties": {
+        "branchType": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": ["string", "number"]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": ["string", "number"]
+                                }
+                              },
+                              "required": ["id"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": ["string", "number"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": ["string", "number"]
+                                  }
+                                },
+                                "required": ["id"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "description": "Field name or id mapped to the value, id object or list of either that must match. Every field must match."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["feature", "bugfix", "chore"]
+                  }
+                },
+                "required": ["when", "type"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "otherwise": {
+                    "type": "string",
+                    "enum": ["feature", "bugfix", "chore"]
+                  }
+                },
+                "required": ["otherwise"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Ordered rules; the first match wins. `- otherwise: <kind>` sets the kind for an issue no rule matched."
+        }
+      }
+    },
+    "clickup": {
+      "type": "object",
+      "properties": {
+        "branchType": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": ["string", "number"]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": ["string", "number"]
+                                }
+                              },
+                              "required": ["id"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": ["string", "number"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": ["string", "number"]
+                                  }
+                                },
+                                "required": ["id"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "description": "Field name or id mapped to the value, id object or list of either that must match. Every field must match."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["feature", "bugfix", "chore"]
+                  }
+                },
+                "required": ["when", "type"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "otherwise": {
+                    "type": "string",
+                    "enum": ["feature", "bugfix", "chore"]
+                  }
+                },
+                "required": ["otherwise"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Ordered rules; the first match wins. `- otherwise: <kind>` sets the kind for an issue no rule matched."
+        },
+        "workspaceId": {
+          "type": ["string", "number"]
+        }
+      }
+    },
+    "branchName": {
+      "type": "string"
+    },
+    "copy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "postCreate": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "title": ".worktree.yml",
+  "description": "Team configuration for @northguild/worktree, read from the repository's default branch.",
+  "$id": "https://northguild.github.io/worktree/schema/v1.json"
+}

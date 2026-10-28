@@ -11,7 +11,7 @@ import {
   isSessionWaiting,
   toRealPath,
 } from "./agent.js";
-import { run } from "./cli.js";
+import { run, runCapturing } from "./cli.js";
 import { isNonInteractive } from "./interaction.js";
 import { createSpinner, isProgressEnabled } from "./progress.js";
 import { askConfirm } from "./prompt.js";
@@ -147,19 +147,73 @@ export async function gitGetAbsoluteWorktreesPath() {
 // where to branch from — so someone who sets it to `origin/develop` would
 // otherwise silently change what counts as unpushed work.
 export async function gitGetComparisonBase() {
+  const originHead = await gitResolveOriginHead();
+  if (originHead) {
+    return originHead;
+  }
+  return await gitGetConfigValue("defaultSourceBranch");
+}
+
+// `origin/HEAD` as git resolves it, for the callers that need the repository's
+// own answer to "what is the default branch". "" when it is unset, or there is
+// no origin at all; the caller decides what that means.
+export async function gitResolveOriginHead() {
   try {
-    const originHead = await run("git", [
+    return await run("git", [
       "symbolic-ref",
       "--short",
       "refs/remotes/origin/HEAD",
     ]);
-    if (originHead) {
-      return originHead;
-    }
   } catch {
-    // Unset, or no origin at all. Either way the config key answers next.
+    // Unset, or no origin at all: both read as "git has no answer".
+    return "";
   }
-  return await gitGetConfigValue("defaultSourceBranch");
+}
+
+export type GitBlob =
+  | { status: "found"; content: string }
+  | { status: "absent-path" }
+  | { status: "absent-ref" };
+
+// Both a path missing at a ref and a ref that does not resolve exit 128; only
+// stderr tells them apart. Any other failure is thrown rather than read as an
+// absence, since "the file is not there" is a conclusion the caller acts on.
+const ABSENT_PATH_STDERR = /does not exist in|exists on disk, but not in/;
+const ABSENT_REF_STDERR = /invalid object name|unknown revision|bad revision/;
+
+export async function gitReadBlobAtRef(
+  ref: string,
+  filePath: string,
+): Promise<GitBlob> {
+  // Untrimmed: the caller cites line numbers in the file as committed.
+  const { stdout, stderr, exitCode } = await runCapturing(
+    "git",
+    ["show", `${ref}:${filePath}`],
+    { trim: false },
+  );
+  if (exitCode === 0) {
+    return { status: "found", content: stdout };
+  }
+  if (ABSENT_PATH_STDERR.test(stderr)) {
+    return { status: "absent-path" };
+  }
+  if (ABSENT_REF_STDERR.test(stderr)) {
+    return { status: "absent-ref" };
+  }
+  throw new Error(`Git: git show ${ref}:${filePath} failed: ${stderr}`);
+}
+
+export async function gitHasOriginRemote() {
+  const { exitCode } = await runCapturing("git", [
+    "remote",
+    "get-url",
+    "origin",
+  ]);
+  return exitCode === 0;
+}
+
+export async function gitGetTopLevelPath() {
+  return gitCmdShowTopLevel();
 }
 
 // The base defaults to `@{u}`, which is what every caller wanted while an

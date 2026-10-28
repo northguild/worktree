@@ -1,0 +1,514 @@
+import fs from "node:fs";
+import path from "node:path";
+import { LineCounter, parseDocument } from "yaml";
+import { z } from "zod";
+import { SECRET_CONFIG_NAMES } from "./constants.js";
+import {
+  gitGetConfigValue,
+  gitGetTopLevelPath,
+  gitHasOriginRemote,
+  gitReadBlobAtRef,
+  gitResolveOriginHead,
+} from "./git.js";
+import { InvalidValueError } from "./prompt.js";
+
+// Imports git.ts and is never imported by it (or by agent.ts): git.ts and
+// agent.ts already import each other (#59), and this file must not close
+// another loop.
+
+export const PROJECT_CONFIG_FILE = ".worktree.yml";
+export const PROJECT_CONFIG_SCHEMA_URL =
+  "https://northguild.github.io/worktree/schema/v1.json";
+/** Reads this file instead of the ref, to test an edit before it merges (D1). */
+const OVERRIDE_ENV = "WORKTREE_PROJECT_CONFIG";
+
+// ---------------------------------------------------------------------------
+// The schema (D3, D8, D9, D12, D14, D15). Defined once; the types and the
+// published JSON Schema both come from it.
+// ---------------------------------------------------------------------------
+
+export const BRANCH_KINDS = ["feature", "bugfix", "chore"] as const;
+
+const BRANCH_NAME_PLACEHOLDERS = new Set(["{prefix}", "{id}", "{slug}"]);
+
+// A field value is a name or an id. YAML turns an unquoted 10301 into a
+// number, so both spellings are accepted here and compared as text later.
+const scalar = z.union([z.string(), z.number()]);
+const idRef = z.strictObject({ id: scalar });
+const fieldValue = z.union([scalar, idRef]);
+const fieldMatch = z.union([fieldValue, z.array(fieldValue).min(1)]);
+
+const conditionalRule = z.strictObject({
+  when: z
+    .record(z.string(), fieldMatch)
+    .refine((when) => Object.keys(when).length > 0, {
+      message: "when must name at least one field",
+    })
+    .meta({
+      description:
+        "Field name or id mapped to the value, id object or list of either that must match. Every field must match.",
+    }),
+  type: z.enum(BRANCH_KINDS),
+});
+
+const otherwiseRule = z.strictObject({ otherwise: z.enum(BRANCH_KINDS) });
+
+const branchTypeRules = z
+  .array(z.union([conditionalRule, otherwiseRule]))
+  .superRefine((rules, ctx) => {
+    const otherwiseAt = rules.flatMap((rule, index) =>
+      "otherwise" in rule ? [index] : [],
+    );
+    const lastIndex = rules.length - 1;
+    if (
+      otherwiseAt.length > 1 ||
+      (otherwiseAt.length === 1 && otherwiseAt[0] !== lastIndex)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "`otherwise` may appear once, and only as the last rule",
+      });
+    }
+  })
+  .meta({
+    description:
+      "Ordered rules; the first match wins. `- otherwise: <kind>` sets the kind for an issue no rule matched.",
+  });
+
+const branchType = z.object({ branchType: branchTypeRules.optional() });
+
+const branchNameTemplate = z.string().superRefine((template, ctx) => {
+  for (const [token] of template.matchAll(/\{[^{}]*\}/g)) {
+    if (!BRANCH_NAME_PLACEHOLDERS.has(token)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${token} is not a placeholder; use {prefix}, {id} or {slug}`,
+      });
+    }
+  }
+});
+
+const copyPattern = z
+  .string()
+  .refine(
+    (pattern) =>
+      pattern.trim() !== "" &&
+      !pattern.startsWith("/") &&
+      !pattern.startsWith(":") &&
+      !pattern.split(/[\\/]/).includes(".."),
+    {
+      message:
+        "a copy pattern is a relative glob: no leading / or :, and no .. segment",
+    },
+  );
+
+const step = z.string().refine((value) => value.trim() !== "", {
+  message: "a step cannot be empty",
+});
+
+export const projectConfigSchema = z
+  .object({
+    defaultSourceBranch: z.string().min(1).optional(),
+    branchPrefix: z
+      .object({
+        feature: z.string().optional(),
+        bugfix: z.string().optional(),
+        chore: z.string().optional(),
+      })
+      .optional(),
+    jira: branchType.extend({ host: z.string().min(1).optional() }).optional(),
+    github: branchType.optional(),
+    linear: branchType.optional(),
+    clickup: branchType
+      .extend({
+        workspaceId: scalar
+          .refine((id) => /^\d+$/.test(String(id)), {
+            message: "workspace id must be digits only",
+          })
+          .optional(),
+      })
+      .optional(),
+    branchName: branchNameTemplate.optional(),
+    copy: z.array(copyPattern).optional(),
+    postCreate: z.array(step).optional(),
+  })
+  .meta({
+    title: ".worktree.yml",
+    description:
+      "Team configuration for @northguild/worktree, read from the repository's default branch.",
+  });
+
+export type ProjectConfig = z.infer<typeof projectConfigSchema>;
+export type BranchKind = (typeof BRANCH_KINDS)[number];
+export type BranchTypeRule = z.infer<typeof branchTypeRules>[number];
+
+/** What the editor's `$schema` comment points at; committed under docs/public. */
+export function projectConfigJsonSchema() {
+  return {
+    ...z.toJSONSchema(projectConfigSchema, {
+      target: "draft-2020-12",
+      io: "input",
+    }),
+    $id: PROJECT_CONFIG_SCHEMA_URL,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Key classes (D3)
+// ---------------------------------------------------------------------------
+
+// Sections that hold team keys, and which children they may hold.
+const TEAM_SECTIONS: Record<string, readonly string[]> = {
+  branchPrefix: ["feature", "bugfix", "chore"],
+  jira: ["host", "branchType"],
+  github: ["branchType"],
+  linear: ["branchType"],
+  clickup: ["workspaceId", "branchType"],
+};
+const TEAM_SCALARS = new Set([
+  "defaultSourceBranch",
+  "branchName",
+  "copy",
+  "postCreate",
+]);
+// Per-person keys: ignored in the file, with a warning that names where to set them.
+const PERSONAL_KEYS = new Set([
+  "opener",
+  "codeEditor",
+  "herdr.focus",
+  "herdr.agent",
+  "agent.command",
+  "jira.email",
+  "jira.autoAssign",
+  "github.autoAssign",
+]);
+const PERSONAL_SECTIONS = new Set(["herdr", "agent"]);
+const SECRET_KEYS = new Set<string>(SECRET_CONFIG_NAMES);
+
+// ---------------------------------------------------------------------------
+// Result and error types
+// ---------------------------------------------------------------------------
+
+export type ProjectConfigSource =
+  | { kind: "ref"; ref: string }
+  | { kind: "path"; path: string };
+
+export type NoProjectConfigReason = "no-ref" | "no-file" | "empty-file";
+
+export type ProjectConfigResult =
+  | {
+      status: "none";
+      reason: NoProjectConfigReason;
+      source?: ProjectConfigSource;
+      /** Said on stderr by the caller, once per run. */
+      warnings: string[];
+    }
+  | {
+      status: "loaded";
+      source: ProjectConfigSource;
+      config: ProjectConfig;
+      warnings: string[];
+    };
+
+/** A file that must stop the run: exit 2, `invalid_value` (D4). */
+export class ProjectConfigError extends InvalidValueError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message);
+    this.name = "ProjectConfigError";
+    this.cause = options?.cause;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reading (D1)
+// ---------------------------------------------------------------------------
+
+async function readOverride(file: string) {
+  const resolved = path.resolve(file);
+  try {
+    return { resolved, content: fs.readFileSync(resolved, "utf8") };
+  } catch (error) {
+    throw new ProjectConfigError(
+      `Cannot read ${OVERRIDE_ENV}=${resolved}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+// The ref project config is read from: origin/HEAD, else the personal
+// defaultSourceBranch. Never the file's own value, which would be circular.
+async function resolveRef() {
+  return (
+    (await gitResolveOriginHead()) ||
+    (await gitGetConfigValue("defaultSourceBranch"))
+  );
+}
+
+async function workingCopyWarning(ref: string, content: string) {
+  const working = path.join(await gitGetTopLevelPath(), PROJECT_CONFIG_FILE);
+  let workingContent: string;
+  try {
+    workingContent = fs.readFileSync(working, "utf8");
+  } catch {
+    // No copy of its own in this worktree: nothing to disagree with.
+    return [];
+  }
+  if (workingContent.trim() === content.trim()) {
+    return [];
+  }
+  return [
+    `${working} differs from ${PROJECT_CONFIG_FILE} at ${ref}, which is the copy in use. Only the merged copy applies; use ${OVERRIDE_ENV}=${working} to try your edit.`,
+  ];
+}
+
+/**
+ * Reads, parses and validates the project config. A file that cannot be used
+ * throws `ProjectConfigError` before the caller creates anything; "no config"
+ * is a result, not an error.
+ */
+export async function readProjectConfig(
+  env: Record<string, string | undefined> = process.env,
+): Promise<ProjectConfigResult> {
+  const warnings: string[] = [];
+  const override = env[OVERRIDE_ENV];
+
+  let source: ProjectConfigSource;
+  let content: string;
+  let label: string;
+
+  if (override) {
+    const { resolved, content: text } = await readOverride(override);
+    source = { kind: "path", path: resolved };
+    content = text;
+    label = resolved;
+    warnings.push(
+      `Reading project config from ${resolved} (${OVERRIDE_ENV}), not from the repository.`,
+    );
+  } else {
+    const ref = await resolveRef();
+    if (!ref) {
+      if (await gitHasOriginRemote()) {
+        warnings.push(
+          `No default branch is known, so ${PROJECT_CONFIG_FILE} was not read. Run \`git remote set-head origin --auto\`.`,
+        );
+      }
+      return { status: "none", reason: "no-ref", warnings };
+    }
+    const blob = await gitReadBlobAtRef(ref, PROJECT_CONFIG_FILE);
+    if (blob.status === "absent-ref") {
+      if (await gitHasOriginRemote()) {
+        warnings.push(
+          `${ref} does not resolve, so ${PROJECT_CONFIG_FILE} was not read. Run \`git remote set-head origin --auto\`.`,
+        );
+      }
+      return { status: "none", reason: "no-ref", warnings };
+    }
+    source = { kind: "ref", ref };
+    if (blob.status === "absent-path") {
+      return { status: "none", reason: "no-file", source, warnings };
+    }
+    content = blob.content;
+    label = `${PROJECT_CONFIG_FILE} at ${ref}`;
+    warnings.push(...(await workingCopyWarning(ref, content)));
+  }
+
+  const config = parseProjectConfig(content, label, source, warnings);
+  if (config === undefined) {
+    return { status: "none", reason: "empty-file", source, warnings };
+  }
+  return { status: "loaded", source, config, warnings };
+}
+
+let cached: Promise<ProjectConfigResult> | undefined;
+
+/** The per-run result: one read however many callers ask. */
+export function loadProjectConfig() {
+  cached ??= readProjectConfig();
+  return cached;
+}
+
+export function resetProjectConfigCache() {
+  cached = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Parsing and validation (D3, D4)
+// ---------------------------------------------------------------------------
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatKeyPath(keyPath: readonly PropertyKey[]) {
+  return keyPath.reduce<string>((text, segment) => {
+    if (typeof segment === "number") {
+      return `${text}[${segment}]`;
+    }
+    return text === "" ? String(segment) : `${text}.${String(segment)}`;
+  }, "");
+}
+
+// zod reports a failed union as one issue naming no field. The branch with the
+// fewest problems is the one the author was aiming at, so its issues are the
+// useful ones.
+function flattenIssues(issues: readonly z.core.$ZodIssue[]) {
+  const flat: z.core.$ZodIssue[] = [];
+  for (const issue of issues) {
+    if (issue.code === "invalid_union" && issue.errors.length > 0) {
+      const closest = issue.errors.reduce((best, candidate) =>
+        candidate.length < best.length ? candidate : best,
+      );
+      flat.push(
+        ...flattenIssues(closest).map((inner) => ({
+          ...inner,
+          path: [...issue.path, ...inner.path],
+        })),
+      );
+    } else {
+      flat.push(issue);
+    }
+  }
+  return flat;
+}
+
+/** `undefined` when the file holds no settings at all. */
+function parseProjectConfig(
+  content: string,
+  label: string,
+  source: ProjectConfigSource,
+  warnings: string[],
+): ProjectConfig | undefined {
+  const lineCounter = new LineCounter();
+  const document = parseDocument(content, { lineCounter });
+  const fail = (message: string): never => {
+    throw new ProjectConfigError(`Invalid ${label}: ${message}`);
+  };
+
+  const [yamlError] = document.errors;
+  if (yamlError) {
+    const line = yamlError.linePos?.[0].line;
+    const where = line === undefined ? "" : ` (line ${line})`;
+    return fail(`${yamlError.message.split("\n")[0]}${where}`);
+  }
+
+  // The nearest node that exists: a missing required key still has a parent.
+  const lineOf = (keyPath: readonly PropertyKey[]) => {
+    for (let depth = keyPath.length; depth >= 0; depth--) {
+      const node = document.getIn(keyPath.slice(0, depth), true);
+      const offset =
+        typeof node === "object" && node !== null && "range" in node
+          ? (node.range as [number, number, number] | null | undefined)?.[0]
+          : undefined;
+      if (offset !== undefined) {
+        return lineCounter.linePos(offset).line;
+      }
+    }
+    return 1;
+  };
+  const at = (keyPath: readonly PropertyKey[]) =>
+    `${formatKeyPath(keyPath)} (line ${lineOf(keyPath)})`;
+
+  const raw: unknown = document.toJS();
+  if (raw === null || raw === undefined) {
+    return undefined;
+  }
+  if (!isPlainObject(raw)) {
+    return fail("the file must be a mapping of keys to values");
+  }
+
+  const settings = classifyKeys(raw, at, source, label, fail, warnings);
+  const parsed = projectConfigSchema.safeParse(settings);
+  if (!parsed.success) {
+    const problems = flattenIssues(parsed.error.issues).map((issue) => {
+      const keyPath = issue.path;
+      const message =
+        issue.code === "unrecognized_keys"
+          ? `${issue.message} (${issue.keys.join(", ")})`
+          : issue.message;
+      return `${keyPath.length === 0 ? `(line ${lineOf(keyPath)})` : at(keyPath)}: ${message}`;
+    });
+    return fail(`\n  ${problems.join("\n  ")}`);
+  }
+  return parsed.data;
+}
+
+// Splits the raw mapping into what zod validates and what is refused or
+// ignored. Secrets stop the run; personal and unknown keys warn and are dropped.
+function classifyKeys(
+  raw: Record<string, unknown>,
+  at: (keyPath: readonly PropertyKey[]) => string,
+  source: ProjectConfigSource,
+  label: string,
+  fail: (message: string) => never,
+  warnings: string[],
+) {
+  const settings: Record<string, unknown> = {};
+  const secrets: string[] = [];
+
+  const warnPersonal = (key: string, keyPath: readonly PropertyKey[]) =>
+    warnings.push(
+      `${label}: ${at(keyPath)}: \`${key}\` is a personal setting and is ignored here. Set it with \`worktree config ${key}\`.`,
+    );
+  const warnUnknown = (key: string, keyPath: readonly PropertyKey[]) =>
+    warnings.push(
+      `${label}: ${at(keyPath)}: unknown key \`${key}\` is ignored. A newer version of worktree may know it.`,
+    );
+
+  for (const [key, value] of Object.entries(raw)) {
+    if (SECRET_KEYS.has(key)) {
+      secrets.push(at([key]));
+    } else if (TEAM_SCALARS.has(key)) {
+      settings[key] = value;
+    } else if (Object.hasOwn(TEAM_SECTIONS, key)) {
+      if (!isPlainObject(value)) {
+        settings[key] = value;
+        continue;
+      }
+      const kept: Record<string, unknown> = {};
+      for (const [child, childValue] of Object.entries(value)) {
+        const dotted = `${key}.${child}`;
+        if (SECRET_KEYS.has(dotted)) {
+          secrets.push(at([key, child]));
+        } else if (PERSONAL_KEYS.has(dotted)) {
+          warnPersonal(dotted, [key, child]);
+        } else if (TEAM_SECTIONS[key]?.includes(child)) {
+          kept[child] = childValue;
+        } else {
+          warnUnknown(dotted, [key, child]);
+        }
+      }
+      if (Object.keys(kept).length > 0 || Object.keys(value).length === 0) {
+        settings[key] = kept;
+      }
+    } else if (PERSONAL_KEYS.has(key)) {
+      warnPersonal(key, [key]);
+    } else if (PERSONAL_SECTIONS.has(key)) {
+      if (!isPlainObject(value)) {
+        warnPersonal(key, [key]);
+        continue;
+      }
+      for (const child of Object.keys(value)) {
+        const dotted = `${key}.${child}`;
+        if (PERSONAL_KEYS.has(dotted)) {
+          warnPersonal(dotted, [key, child]);
+        } else {
+          warnUnknown(dotted, [key, child]);
+        }
+      }
+    } else {
+      warnUnknown(key, [key]);
+    }
+  }
+
+  if (secrets.length > 0) {
+    // Never the value: it is the thing that leaked.
+    const where =
+      source.kind === "ref"
+        ? `${secrets.join(", ")} is a secret and does not belong in a committed file. It is now in the repository's history and must be rotated.`
+        : `${secrets.join(", ")} is a secret and does not belong in a project file. If this file was ever committed, the value is in the history and must be rotated.`;
+    fail(
+      `${where} Remove it and keep it in your own git config with \`worktree config <key>\`.`,
+    );
+  }
+  return settings;
+}
