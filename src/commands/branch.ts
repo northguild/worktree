@@ -402,7 +402,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     const key = issueKeyFlag.trim().toUpperCase();
     const spinner = createSpinner(`Fetching Jira issue ${key}`).start();
     try {
-      const branchName = await getJiraBranchNameFromIssue(issueKeyFlag);
+      const branchName = await getJiraBranchNameFromIssue(
+        issueKeyFlag,
+        (warning) => this.warn(warning),
+      );
       spinner.succeed();
       // Built from the configured host, never from the credentials beside it.
       const host = (await getTeamConfigValue("jira.host"))

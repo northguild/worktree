@@ -32,6 +32,12 @@ Supported issue-type prefix mapping:
 
 If a prefix key is not configured, no prefix is applied.
 
+This built-in mapping applies **only when no rules are set**. If `.worktree.yml` has a `jira.branchType`
+list, the rules decide the kind instead and the mapping above is not consulted: an issue no rule matches
+gets no prefix unless the list ends with `- otherwise: <kind>`. See
+[Branch-type rules](/docs/project-configuration#branch-type-rules) for the syntax, and for why to name
+fields and options by id.
+
 ## Assigning the issue
 
 `--assign` assigns the Jira issue to the account behind `jira.email` while the branch is created, and

@@ -76,8 +76,9 @@ not offer to run `worktree config` for a key the file supplies.
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.
 
-The file's format also reserves the keys `branchName`, `copy`, `postCreate` and a `branchType` list under
-each provider. This release checks them for mistakes but does not act on them yet.
+The file's format also reserves the keys `branchName`, `copy` and `postCreate`, and a `branchType` list
+under `github`, `linear` and `clickup`. This release checks them for mistakes but does not act on them yet.
+The `jira.branchType` list is live: see [Branch-type rules](#branch-type-rules).
 
 ### What the file may not hold
 
@@ -85,6 +86,59 @@ A credential in a committed file is in the repository's history for good. A secr
 value, stops the run with exit `2`, and the message says the value must be rotated. Personal keys are
 ignored rather than refused, because they are harmless there and an unrelated teammate's preference
 should not stop you.
+
+## Branch-type rules
+
+Which prefix a branch gets (`feat/`, `fix/`, `chore/`) depends on the kind of issue. By default `worktree`
+guesses from the issue type. `jira.branchType` replaces the guess with your team's own rules.
+
+```yaml
+jira:
+  host: https://acme.atlassian.net
+  # First matching rule wins. Ids, because people here use Jira in different languages.
+  branchType:
+    - when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance
+      type: chore
+    - when: { customfield_10359: { id: "10302" } }   # Work Category = Bug
+      type: bugfix
+    - when: { issuetype: { id: "10008" } }           # Issue Type = Bug
+      type: bugfix
+    - otherwise: feature
+```
+
+- **The first matching rule wins.** Rules are tried in order and the rest are not looked at.
+- **`type` is `feature`, `bugfix` or `chore`**, the three `branchPrefix` keys. The prefix comes from
+  `branchPrefix.<type>` as usual.
+- **`when` names one or more fields, and every one of them must match.** A list of values matches if any of
+  them does, and a field that holds a list (labels, components, a multi-select) matches if any element does.
+- **`- otherwise: <kind>` may appear once, last.** It sets the kind for an issue no rule matched. Without it,
+  an unmatched issue gets **no prefix**.
+- **With `jira.branchType` set, the built-in mapping is not used at all.** The rules replace it, so a rule
+  list without `otherwise` does not fall back to `feature`. Without `jira.branchType`, nothing changes.
+
+### Ids or names
+
+A field is named by its id (`customfield_10359`, `issuetype`) or by its display name (`Work Category`). A
+value is written as its name (`Maintenance`) or as `{ id: "10301" }`.
+
+- **Names compare case-insensitively; ids compare exactly.**
+- **Prefer ids in a shared file.** A display name changes when someone renames the field or when a teammate
+  uses Jira in another language, and the rule then silently stops matching. An id does not change.
+- **Quote numeric ids.** YAML reads an unquoted `10301` as a number. `worktree` accepts it and compares it as
+  text, but a quoted id is what Jira shows you.
+- **Two fields can share a display name.** A rule that names such a field by name stops the run with an
+  error naming both ids; use an id.
+- **Find an id** in Jira under *Settings, Issues, Custom fields*, or in the address of a field's page.
+
+### Mistakes in a rule
+
+A rule naming a field the issue does not have, such as a typo or a field from another project, warns on every
+run that gets as far as that rule, naming the field and the rule's position, and the rule does not match. The
+warning is in `warnings` of the `--json` document. A field that exists but is empty is not a mistake: it just
+matches nothing.
+
+With rules set, `worktree` asks Jira for field display names (`?expand=names`) on the issue request it was
+already making. Without rules the request is unchanged.
 
 ## A broken file stops the run
 

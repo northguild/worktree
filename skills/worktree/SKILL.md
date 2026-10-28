@@ -115,6 +115,15 @@ not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
 
+That is the built-in Jira mapping, and it applies only when no rules are set.
+A `jira.branchType` list in `.worktree.yml` replaces it: ordered rules, the first
+match wins, each `when:` names fields (by id, such as `customfield_10359`, or by
+name, case-insensitively) and values (by name or `{ id: "10301" }`), every field
+in a `when` must match, and `type:` is `feature`, `bugfix` or `chore`. `- otherwise:
+<kind>` closes the list; without it an unmatched issue gets no prefix. A rule
+naming a field the issue lacks warns (in `warnings` under `--json`) and does not
+match. Prefer ids in a shared file.
+
 Linear has no issue type, so its labels decide, compared case-insensitively
 and by exact name: a `bug` label → `branchPrefix.bugfix`; else a `chore` or
 `maintenance` label → `branchPrefix.chore`; otherwise (`Feature`,

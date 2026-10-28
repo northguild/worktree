@@ -228,6 +228,7 @@ worktree config jira.autoAssign true
 
 - Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
 - `jira.host` can come from `.worktree.yml`; a file's host receives the credentials of everyone who uses it, so see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials).
+- The prefix a Jira issue gets comes from its issue type, unless `.worktree.yml` has a `jira.branchType` list. The built-in mapping applies only when no rules are set; see [Branch-type rules](/docs/project-configuration#branch-type-rules).
 - Issue IDs are case-insensitive (both `dev-123` and `DEV-123` work).
 
 ## Linear Integration Notes

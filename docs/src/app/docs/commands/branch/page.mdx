@@ -178,6 +178,9 @@ Use the `--jira` flag to create a suggested branch name from an issue in your Ji
 	- `branchPrefix.feature` for issue types like `Feature`, `Story`, and most non-bug/chore types
 	- `branchPrefix.bugfix` for issue type `Bug`
 	- `branchPrefix.chore` for issue type `Task`
+- That mapping applies only when no `jira.branchType` rules are set. With rules in `.worktree.yml`, the rules
+  decide the kind, and an issue no rule matches gets no prefix unless the list ends with `otherwise`. See
+  [Branch-type rules](/docs/project-configuration#branch-type-rules).
 
 If no prefix is configured, `worktree` falls back to an empty prefix and still generates a valid branch name.
 

@@ -1,5 +1,13 @@
+import {
+  evaluateBranchTypeRules,
+  type FieldValue,
+  type IssueField,
+} from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
-import { getTeamConfigValue } from "../lib/project-config.js";
+import {
+  getTeamConfigValue,
+  loadProjectConfig,
+} from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
@@ -12,6 +20,8 @@ interface JiraCredentials {
 interface JiraIssue {
   id: string;
   key: string;
+  /** Field id to display name; present only when asked for with `expand=names`. */
+  names?: Record<string, string>;
   fields: {
     summary: string;
     issuetype: {
@@ -130,6 +140,48 @@ function getJiraBranchType(issue: JiraIssue) {
   return "feature" as const;
 }
 
+// D9: what a field holds, in the shape the rules compare. A select option is
+// its `value`; an issue type, component, priority or status its `name`; a user
+// its `displayName`; a cascading select both levels; a label or a number
+// itself. Anything else (rich text, dates, objects of an unknown shape) is
+// nothing, so a rule on it matches nothing rather than guessing.
+function normalizeJiraFieldValue(raw: unknown): FieldValue[] {
+  if (typeof raw === "string" || typeof raw === "number") {
+    return [{ name: String(raw) }];
+  }
+  if (Array.isArray(raw)) {
+    return raw.flatMap(normalizeJiraFieldValue);
+  }
+  if (typeof raw !== "object" || raw === null) {
+    return [];
+  }
+  const option = raw as Record<string, unknown>;
+  const label = [option.value, option.name, option.displayName].find(
+    (candidate) => typeof candidate === "string",
+  );
+  const identifier = option.id ?? option.accountId;
+  const own: FieldValue[] =
+    typeof label === "string" || identifier !== undefined
+      ? [
+          {
+            ...(typeof identifier === "string" || typeof identifier === "number"
+              ? { id: String(identifier) }
+              : {}),
+            ...(typeof label === "string" ? { name: label } : {}),
+          },
+        ]
+      : [];
+  return [...own, ...normalizeJiraFieldValue(option.child)];
+}
+
+export function getJiraIssueFields(issue: JiraIssue): IssueField[] {
+  return Object.entries(issue.fields).map(([id, raw]) => ({
+    id,
+    name: issue.names?.[id] ?? id,
+    values: normalizeJiraFieldValue(raw),
+  }));
+}
+
 const JIRA_REQUEST_TIMEOUT_MS = 15_000;
 
 // D5: every Jira request is bounded, and a timeout names the call. The path
@@ -166,12 +218,16 @@ async function fetchJira(
   }
 }
 
-export async function fetchJiraIssue(issueId: string): Promise<JiraIssue> {
+/** `names` asks Jira for field display names, which only the rules need (D9). */
+export async function fetchJiraIssue(
+  issueId: string,
+  options: { names?: boolean } = {},
+): Promise<JiraIssue> {
   const issueKey = getIssueKey(issueId);
   const credentials = await resolveJiraCredentials();
 
   const response = await fetchJira(
-    `/rest/api/3/issue/${issueKey}`,
+    `/rest/api/3/issue/${issueKey}${options.names ? "?expand=names" : ""}`,
     credentials,
   );
   const loginReason = response.headers?.get?.("x-seraph-loginreason");
@@ -206,20 +262,47 @@ export async function fetchJiraIssue(issueId: string): Promise<JiraIssue> {
   return data;
 }
 
+/**
+ * With `jira.branchType` in the project file the rules decide the kind (D10)
+ * and an issue no rule matches gets no prefix; without it the built-in mapping
+ * applies. Rule warnings go to `onWarning`.
+ */
 export async function getJiraBranchNameFromIssue(
   issueId: string,
+  onWarning: (warning: string) => void = () => {},
 ): Promise<string> {
-  const issue = await fetchJiraIssue(issueId);
-  const branchType = getJiraBranchType(issue);
+  const project = await loadProjectConfig();
+  const rules =
+    project.status === "loaded" ? project.config.jira?.branchType : undefined;
+  const issue = await fetchJiraIssue(issueId, { names: rules !== undefined });
+
+  let branchType: ReturnType<typeof getJiraBranchType> | undefined;
+  if (rules) {
+    const result = evaluateBranchTypeRules(
+      rules,
+      getJiraIssueFields(issue),
+      "jira.branchType",
+    );
+    for (const warning of result.warnings) {
+      onWarning(warning);
+    }
+    branchType = result.kind;
+  } else {
+    branchType = getJiraBranchType(issue);
+  }
 
   const prefixConfigName =
     branchType === "bugfix"
       ? "branchPrefix.bugfix"
       : branchType === "chore"
         ? "branchPrefix.chore"
-        : "branchPrefix.feature";
+        : branchType === "feature"
+          ? "branchPrefix.feature"
+          : undefined;
 
-  const prefix = await getTeamConfigValue(prefixConfigName);
+  const prefix = prefixConfigName
+    ? await getTeamConfigValue(prefixConfigName)
+    : "";
 
   return `${prefix}${issue.key}-${slugifyBranchTitle(issue.fields.summary)}`;
 }

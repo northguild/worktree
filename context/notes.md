@@ -51,3 +51,20 @@ Non-blocking Gate 2 observations, branch-local. Read by no command; `/feature-cl
 - `guides/jira-integration/page.mdx` item 1 says `jira.host` is used "with no prompt"; that holds for a file host
   only — with neither source set, `branch --jira` still offers `worktree config` (item 2). Reword to "a host
   from the file is used with no prompt".
+
+## From Phase 3
+
+- **Defect, branch-local:** `AmbiguousFieldError` extends `Error`, so a duplicate display name in a rule exits
+  `1` / `failed` through `branch`, where D4 maps a malformed rule to `2` / `invalid_value`; its message names
+  `jira.branchType` but not `.worktree.yml`. No test pins the exit through `branch`.
+- `jira.branchType: []` counts as "rules set" and gives every Jira issue no prefix; the plan is silent
+  (D15 treats an empty `postCreate` as unset).
+- Cascading-select `child` and the user `accountId`/`displayName` normalisation in `getJiraIssueFields` have no
+  test. Fixture shapes were checked against Jira Cloud's v3 OpenAPI spec (`IssueTypeDetails`, `UserDetails`,
+  `ProjectComponent`, `IssueBean.names`); multi-select arrays and cascading `child` are not in the spec — the §9
+  recorded-response gap. The fixture comment still says "from memory".
+- A field absent from `names` takes its id as its name, so a case-variant id matches case-insensitively.
+- `jira-integration/page.mdx` lines on "issue type" decide the prefix are qualified, not quite true with rules;
+  the `normalizeJiraFieldValue` comment says dates normalise to nothing (they are strings); the page's "Find an
+  id" covers field ids only, not option or issue-type ids (Phase 5's `--dry-run` may cover it).
+- `jira.ts` uses `raw as Record<string, unknown>` after narrowing third-party data.

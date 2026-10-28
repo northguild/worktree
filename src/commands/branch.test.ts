@@ -1024,6 +1024,38 @@ jira:
   });
 
   describe("--jira flag", () => {
+    it("keeps a rule warning from the Jira integration in the run's warnings", async () => {
+      vi.spyOn(
+        jiraIntegration,
+        "getJiraBranchNameFromIssue",
+      ).mockImplementation(async (_issueId, onWarning) => {
+        onWarning?.('Rule 1 of jira.branchType names the field "Nope".');
+        return "DEV-123-add-dark-mode";
+      });
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "defaultSourceBranch")
+          return Promise.resolve("origin/main");
+        if (key === "jira.host")
+          return Promise.resolve("example.atlassian.net");
+        if (key === "jira.email") return Promise.resolve("test@example.com");
+        if (key === "jira.apiToken") return Promise.resolve("token");
+        return Promise.resolve("");
+      });
+      mockInput.mockResolvedValue("DEV-123-add-dark-mode");
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { jira: "dev-123" },
+      });
+
+      await branch.run();
+
+      expect((branch as any).warnings).toContain(
+        'Rule 1 of jira.branchType names the field "Nope".',
+      );
+    });
+
     it("should pre-fill input with branch name derived from jira issue", async () => {
       vi.spyOn(jiraIntegration, "getJiraBranchNameFromIssue").mockResolvedValue(
         "feature/DEV-123-add-dark-mode",
@@ -1052,6 +1084,7 @@ jira:
 
       expect(jiraIntegration.getJiraBranchNameFromIssue).toHaveBeenCalledWith(
         "dev-123",
+        expect.any(Function),
       );
       expect(mockInput).toHaveBeenCalledWith({
         message: "Branch name",
