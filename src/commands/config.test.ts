@@ -115,6 +115,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("codeEditor");
       expect(mockConsoleLog).toHaveBeenCalledWith("defaultSourceBranch");
       expect(mockConsoleLog).toHaveBeenCalledWith("github.autoAssign");
+      expect(mockConsoleLog).toHaveBeenCalledWith("jira.autoAssign");
     });
 
     it("should handle --missing flag with no missing values", async () => {
@@ -1915,6 +1916,144 @@ describe("config command", () => {
       await config.run();
 
       expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    describe("jira.autoAssign prompt (D7)", () => {
+      const withStoredJiraAutoAssign = (stored: string) =>
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "jira.autoAssign") return Promise.resolve(stored);
+          return Promise.resolve("");
+        });
+
+      const parseJiraAutoAssignRun = (flags: Record<string, unknown>) => {
+        (config as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: {
+            list: false,
+            missing: false,
+            names: "jira.autoAssign",
+            ...flags,
+          },
+        });
+      };
+
+      it.each([
+        ["true", "true"],
+        ["false", "false"],
+        ["", ""],
+        ["maybe", ""],
+      ])("should preselect the choice for a stored jira.autoAssign of %j", async (stored, expected) => {
+        mockSelect.mockResolvedValue(expected);
+        withStoredJiraAutoAssign(stored);
+        parseJiraAutoAssignRun({ yes: false });
+
+        await config.run();
+
+        // `--names jira.autoAssign` prompts only this key: one select, no input.
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+        expect(mockSelect).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message: "Should `branch --jira` assign the issue to you?",
+            // D7: GitHub's three choices, "ask" being the empty value.
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              { name: "Ask me each time", value: "" },
+            ],
+            default: expected,
+          }),
+        );
+        expect(mockInput).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["Yes, always", "true"],
+        ["No, never", "false"],
+        ["Ask me each time", ""],
+      ])("should write the %s answer to jira.autoAssign as %j", async (_label, answer) => {
+        mockSelect.mockResolvedValue(answer);
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        withStoredJiraAutoAssign(answer === "true" ? "false" : "true");
+        parseJiraAutoAssignRun({ yes: false });
+
+        await config.run();
+
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "jira.autoAssign",
+          answer,
+        );
+      });
+
+      it.each([
+        ["false", "false"],
+        ["true", "true"],
+        ["", ""],
+      ])("should take a stored jira.autoAssign of %j without exiting 2 when non-interactive", async (stored, expected) => {
+        setNonInteractive(true);
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        withStoredJiraAutoAssign(stored);
+        parseJiraAutoAssignRun({ yes: true });
+
+        await config.run();
+
+        expect(mockSelect).not.toHaveBeenCalled();
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "jira.autoAssign",
+          expected,
+        );
+      });
+
+      it("should offer an unset jira.autoAssign on a --missing run", async () => {
+        mockSelect.mockResolvedValue("");
+        vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        parseJiraAutoAssignRun({ missing: true, yes: false });
+
+        await config.run();
+
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+      });
+
+      it("should not offer a settled jira.autoAssign on a --missing run", async () => {
+        withStoredJiraAutoAssign("false");
+        parseJiraAutoAssignRun({ missing: true, yes: false });
+
+        await config.run();
+
+        expect(mockSelect).not.toHaveBeenCalled();
+      });
+
+      it("should ask the Jira prompts in order, the select after the token", async () => {
+        mockInput
+          .mockResolvedValueOnce("https://x.atlassian.net")
+          .mockResolvedValueOnce("me@example.com")
+          .mockResolvedValueOnce("token");
+        mockSelect.mockResolvedValueOnce("true");
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        (config as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: {
+            list: false,
+            missing: true,
+            names: "jira.host,jira.email,jira.apiToken,jira.autoAssign",
+          },
+        });
+
+        await config.run();
+
+        expect(mockInput).toHaveBeenCalledTimes(3);
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "jira.autoAssign",
+          "true",
+        );
+      });
     });
 
     it("should not ask the GitHub confirm when no GitHub key is being prompted", async () => {

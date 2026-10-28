@@ -15,6 +15,7 @@ worktree branch --github <issue-number>
 worktree branch --github <issue-number> --assign
 worktree branch --github <issue-number> --no-assign
 worktree branch --jira <issue-id>
+worktree branch --jira <issue-id> --assign
 worktree branch --linear <issue-id>
 worktree branch --clickup <task-id>
 worktree branch <name> --agent "<prompt>"
@@ -92,39 +93,49 @@ worktree: no default for a GitHub token; pass `worktree config github.token <tok
 ### Assigning the issue to yourself
 
 `--assign` assigns the issue to the authenticated user as part of creating the branch, and `--no-assign`
-skips it for that one run. Without either flag the decision is made in this order:
+skips it for that one run. It works with `--github` and `--jira`; `--linear` and `--clickup` do not assign
+yet. Without either flag the decision is made in this order:
 
 1. `--assign` or `--no-assign`.
-2. [`github.autoAssign`](/docs/configuration#github-integration-notes): `true` assigns, `false` never does.
+2. The provider's key: [`github.autoAssign`](/docs/configuration#github-integration-notes) for `--github`,
+   `jira.autoAssign` for `--jira`. `true` assigns, `false` never does. The two keys are independent.
 3. A non-interactive run assigns. The default is not saved, so one unattended run does not settle the key.
-4. Otherwise you are asked once, and your answer is saved to `github.autoAssign` so the question is not repeated.
+4. Otherwise you are asked once, and your answer is saved to the provider's key so the question is not repeated.
 
 A configured `false` is respected in every mode; pass `--assign` to override it for one run.
 
 ```bash
 worktree branch --github 42 --assign
 worktree branch --github 42 --no-assign
+worktree branch --jira DEV-123 --assign
 worktree config github.autoAssign true    # always assign, stop asking
+worktree config jira.autoAssign true
 ```
 
-- **Assigning needs a token whose account has push access to the repository; a fine-grained token also
+- **For `--github`, assigning needs a token whose account has push access to the repository; a fine-grained token also
   needs the Issues (or Pull requests) permission set to Read and write.** Without that permission GitHub
   refuses the call (`403 Resource not accessible by personal access token`) and `worktree` warns with
   GitHub's message followed by the sentence above. Reading an issue needs neither, so a public repository that `--github` has always worked
   against without a token may ask for one the first time you assign — the resolution order above still
   applies, so an authenticated `gh` supplies it silently.
-- Success is confirmed against the API response rather than assumed. If the issue comes back without you on
+- **A Jira issue that someone else holds is left alone.** Jira keeps one assignee, so assigning would take the
+  issue off a colleague. `worktree` leaves it, warns with their name, and the document says `assigned: false`;
+  `--assign` does not override this, so reassign it in Jira if that is what you want. An issue that is already
+  yours is reported as such and nothing is written. Assigning in Jira needs the *Browse Projects* and
+  *Assign Issues* permissions on the issue's project; without them `worktree` warns and carries on. See
+  [Jira Issue Integration](/docs/guides/jira-integration#assigning-the-issue).
+- For `--github`, success is confirmed against the API response rather than assumed. If the issue comes back without you on
   it, `worktree` says so instead of reporting success — GitHub documents that it accepts an assignee change
   and ignores it when the account lacks push access. That case has not been tested against GitHub, and
   neither has whether an account with only the triage role can assign.
 - **A failed assignment never stops the branch.** The worktree is created either way; you get a warning, not
   an error.
 - The assignment happens before the worktree is created, so the question is never buried behind creation
-  output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees — so
-  retrying after a failed creation is harmless.
+  output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees, and a
+  Jira issue that is already yours is not written again — so retrying after a failed creation is harmless.
 - `--assign` and `--no-assign` both require one of `--github`, `--jira`, `--linear` or `--clickup`; on their own there is no issue to act
-  on. `--assign --jira`, `--assign --linear` and `--assign --clickup` warn that assignment is not supported for that
-  provider yet and carry on.
+  on. `--assign --linear` and `--assign --clickup` warn that assignment is not supported for that provider yet
+  and carry on.
 
 ## Installing dependencies
 
@@ -275,8 +286,8 @@ A run is non-interactive when stdin is not a terminal, `CI` is set (and is not e
 `--non-interactive` or `--yes` (`-y`) is given, or `--json` is given; every command accepts the two flags. It never prompts and never
 animates; progress goes to stderr as plain lines.
 
-- A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign` assigns the
-  issue (without saving the key); `false` or `--no-assign` still skips it.
+- A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign` or `jira.autoAssign` assigns
+  the issue (without saving the key); `false` or `--no-assign` still skips it.
 - A prompt with none fails at once, exit `2`, with one line on stderr:
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`).
@@ -286,7 +297,7 @@ animates; progress goes to stderr as plain lines.
 
 ## What It Does
 
-1. Assigns the issue to you, when creating from `--github` and assignment is enabled.
+1. Assigns the issue to you, when creating from `--github` or `--jira` and assignment is enabled.
 2. Creates a branch from your configured source branch.
 3. Adds a worktree under `<repo>.worktrees/<branch-name>`.
 4. Copies the gitignored env files into the new worktree — see
@@ -333,7 +344,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | --- | --- |
 | `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
 | `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}` or `{provider:"clickup", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
-| `assigned` | `true` or `false` once an assignment was attempted; `null` when none was (no issue, `--no-assign`, or a configured `false`) |
+| `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, or a Jira issue is held by someone else); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
 | `envFilesCopied` | the env files copied, relative to the repository root; `[]` when there were none |
 | `installed` | `{ran:true, command, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |

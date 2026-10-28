@@ -4,7 +4,10 @@ import {
   getClickUpBranchNameFromTask,
 } from "../integrations/clickup.js";
 import { assignGitHubIssue, fetchGitHubIssue } from "../integrations/github.js";
-import { getJiraBranchNameFromIssue } from "../integrations/jira.js";
+import {
+  assignJiraIssue,
+  getJiraBranchNameFromIssue,
+} from "../integrations/jira.js";
 import {
   fetchLinearIssue,
   getLinearBranchNameFromIssue,
@@ -45,13 +48,17 @@ export default class Branch extends BaseCommand {
   // the `--json` shape and exit codes, kept to key names and nullability.
   static override description = `Create a worktree branch
 
+--assign (or github.autoAssign / jira.autoAssign) assigns a --github or --jira
+issue to you; a Jira issue someone else holds is left alone.
+
 --json prints one document on stdout:
 path, branch, source, issue, assigned, envFilesCopied, installed, herdr,
 agent, warnings
 issue: {provider:"github", number, url|null}, {provider:"jira", key,
 url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
 url|null} or null
-assigned: boolean, or null if no assignment was attempted
+assigned: true if the issue is yours after the run, false if it is not (held
+by someone else, or the attempt failed), null if none was attempted
 installed: {ran:true, command, inferred, ok, reason?} or {ran:false, reason}
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
 agent: {name|null, kind|null, command[], prompted}, or null if none started
@@ -73,6 +80,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     "<%= config.bin %> <%= command.id %> --github 42",
     "<%= config.bin %> <%= command.id %> --github 42 --assign",
     "<%= config.bin %> <%= command.id %> --jira DEV-123",
+    "<%= config.bin %> <%= command.id %> --jira DEV-123 --assign",
     "<%= config.bin %> <%= command.id %> --linear ENG-123",
     "<%= config.bin %> <%= command.id %> --clickup 9hx",
     "<%= config.bin %> <%= command.id %> --clickup DEV-123",
@@ -133,7 +141,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     assign: Flags.boolean({
       allowNo: true,
       description:
-        "Assign the issue to you when creating a branch from --github (not supported for --jira, --linear or --clickup yet)",
+        "Assign the issue to you when creating a branch from --github or --jira (not supported for --linear or --clickup yet)",
     }),
     // Unset is meaningful: it defers to postCreate and the run's mode (D9), so
     // there is no `default`. `--no-install` is the one switch that wins over both.
@@ -456,25 +464,26 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
   }
 
   /**
-   * Flag, then config, then true when non-interactive, then prompt (D4, D8). The key is tri-state through unset
-   * (D3): `true` always assigns, `false` never does, and unset means ask.
+   * Flag, then `configKey`, then true when non-interactive, then prompt. Each
+   * provider has its own key (`github.autoAssign`, `jira.autoAssign`), tri-state
+   * through unset: `true` always assigns, `false` never does, and unset means ask.
    *
-   * The prompt persists its own answer (D5) and its text names the key it
+   * The prompt persists its own answer and its text names the key it
    * writes, because a declined answer is otherwise invisible and permanent —
    * the feature would simply stop offering itself with nothing to point at.
    *
    * A non-interactive run that reaches this point assigns, and does not save
-   * anything (D8): an agent that named an issue asked for it to be worked, and
+   * anything: an agent that named an issue asked for it to be worked, and
    * assigning is what says so. An explicit `false` never gets here, so it still
    * wins. The default is not persisted because one unattended run must not
    * settle the key for the human who runs this later.
    */
-  private async shouldAssignGithubIssue(assignFlag?: boolean) {
+  private async shouldAssignIssue(configKey: ConfigName, assignFlag?: boolean) {
     if (assignFlag !== undefined) {
       return assignFlag;
     }
 
-    const configured = await gitGetConfigValue("github.autoAssign");
+    const configured = await gitGetConfigValue(configKey);
     if (configured === "true") {
       return true;
     }
@@ -488,8 +497,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
     const answer = await askConfirm(
       {
-        message:
-          "Assign this issue to you? (saved as github.autoAssign; change it later with `worktree config github.autoAssign <true|false>`)",
+        message: `Assign this issue to you? (saved as ${configKey}; change it later with \`worktree config ${configKey} <true|false>\`)`,
       },
       {
         value: "whether to assign the issue",
@@ -503,10 +511,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // would reach BaseCommand.catch and cost the user the branch they asked
     // for, on a run they may well have answered "no" to.
     try {
-      await gitSetConfigValue("github.autoAssign", String(answer));
+      await gitSetConfigValue(configKey, String(answer));
     } catch (error) {
       this.warn(
-        `Could not save github.autoAssign, so you will be asked again next time. ${error instanceof Error ? error.message : String(error)}`,
+        `Could not save ${configKey}, so you will be asked again next time. ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
@@ -540,6 +548,37 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       this.recordWarning(message);
     } catch (error) {
       const message = `Could not assign issue #${issueNumber}. ${error instanceof Error ? error.message : String(error)}`;
+      spinner.warn(message);
+      this.recordWarning(message);
+    }
+    return false;
+  }
+
+  /**
+   * Same contract as `assignGithubIssue`: nothing here aborts `branch`. Jira
+   * holds one assignee, so `assignJiraIssue` never writes over a colleague's
+   * (D1); that outcome warns and reports `false`, as does every failure (D6).
+   * Errors from the integration carry the API's own text and never a header.
+   */
+  private async assignJiraIssue(issueIdFlag: string): Promise<boolean> {
+    const issueKey = issueIdFlag.trim().toUpperCase();
+    const spinner = createSpinner(`Assigning Jira issue ${issueKey}`).start();
+
+    try {
+      const result = await assignJiraIssue(issueIdFlag);
+      if (result.outcome !== "held-by-other") {
+        spinner.succeed(
+          result.outcome === "assigned"
+            ? `Assigned ${issueKey} to ${result.displayName}`
+            : `${issueKey} is already assigned to you`,
+        );
+        return true;
+      }
+      const message = `${issueKey} is already assigned to ${result.heldBy}, so it was left alone. Reassign it in Jira if it should be yours.`;
+      spinner.warn(message);
+      this.recordWarning(message);
+    } catch (error) {
+      const message = `Could not assign ${issueKey}. ${error instanceof Error ? error.message : String(error)}`;
       spinner.warn(message);
       this.recordWarning(message);
     }
@@ -697,15 +736,17 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // `null` until an assignment is attempted: "not attempted" and "failed"
     // are different facts for the document.
     let assigned: boolean | null = null;
-    if (flags.jira && flags.assign) {
-      this.warn("Assignment is not supported for Jira issues yet.");
-    } else if (flags.linear && flags.assign) {
+    if (flags.linear && flags.assign) {
       this.warn("Assignment is not supported for Linear issues yet.");
     } else if (flags.clickup && flags.assign) {
       this.warn("Assignment is not supported for ClickUp tasks yet.");
     } else if (flags.github) {
-      if (await this.shouldAssignGithubIssue(flags.assign)) {
+      if (await this.shouldAssignIssue("github.autoAssign", flags.assign)) {
         assigned = await this.assignGithubIssue(flags.github);
+      }
+    } else if (flags.jira) {
+      if (await this.shouldAssignIssue("jira.autoAssign", flags.assign)) {
+        assigned = await this.assignJiraIssue(flags.jira);
       }
     }
 

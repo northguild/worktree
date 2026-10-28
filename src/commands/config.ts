@@ -282,6 +282,35 @@ export default class Config extends BaseCommand {
           await gitSetConfigValue("jira.apiToken", jiraApiToken.trim());
         }
       }
+
+      if (shouldPrompt("jira.autoAssign")) {
+        // Same shape as `github.autoAssign` (D7): anything but an explicit
+        // "true" or "false" is normalised to the "ask me" choice.
+        const storedJiraAutoAssign = await gitGetConfigValue("jira.autoAssign");
+        const jiraAutoAssignDefault =
+          storedJiraAutoAssign === "true" || storedJiraAutoAssign === "false"
+            ? storedJiraAutoAssign
+            : "";
+        const jiraAutoAssign = await askSelect<"true" | "false" | "">(
+          {
+            message: "Should `branch --jira` assign the issue to you?",
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              // Tri-state through unset (D3): this is also the way to keep
+              // being asked at branch time.
+              { name: "Ask me each time", value: "" },
+            ],
+            default: jiraAutoAssignDefault,
+          },
+          {
+            value: "jira.autoAssign",
+            flag: "worktree config jira.autoAssign <true|false>",
+            fallback: jiraAutoAssignDefault,
+          },
+        );
+        await gitSetConfigValue("jira.autoAssign", jiraAutoAssign);
+      }
     }
 
     // Both GitHub keys sit behind one confirm, in the shape the Jira and Herdr

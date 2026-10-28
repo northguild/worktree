@@ -279,14 +279,14 @@ line, `worktree: no default for <value>; pass <flag>`.
 | `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
-| `--assign` / `--no-assign` | `branch` | assign the `--github` issue to you, or not |
+| `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not (a Jira issue someone else holds is left alone) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 ### Defaults when non-interactive
 
 - **Branch name** from `--github`: `<prefix><number>-<slug>`, the slug cut to 48 characters at the last dash.
   With no issue, the name is required.
-- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`, then assign. The default is never saved.
+- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or `jira.autoAssign`, then assign. The default is never saved.
 - **Install:** on. The command is `postCreate`, else inferred from the lockfile (`pnpm-lock.yaml`,
   `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing to run it says so and carries on. A failure keeps
   the worktree, starts nothing and exits `1`.
@@ -316,7 +316,7 @@ worktree branch --github 42 --json --agent-file brief.md
 ```
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, `{provider:"clickup",key,url}`, or `null`.
-- `assigned` is `null` when no assignment was attempted. `herdr` and `agent` are `null` when skipped, and
+- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), and `null` when no assignment was attempted. `herdr` and `agent` are `null` when skipped, and
   `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
 - `installed` is `{ran:false,reason}` when skipped. A failed install still prints the whole document, with
   `installed.ok` `false`, and exits `1`.
