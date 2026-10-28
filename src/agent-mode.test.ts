@@ -642,6 +642,38 @@ describe("agent mode, spawned", () => {
   });
 
   it(
+    "branch --github --dry-run --json prints one dry-run document and changes nothing",
+    async () => {
+      // D13: no assignee request, no install, no worktree, whatever the
+      // non-interactive defaults would have done on a real run.
+      const scenario = await createScenario();
+
+      const result = await scenario.run([
+        "branch",
+        "--github",
+        "7",
+        "--dry-run",
+        "--json",
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      expect(parseDocument(result.stdout)).toMatchObject({
+        dryRun: true,
+        branch: "7-add-agent-mode-to-the-cli",
+        match: { source: "built-in" },
+      });
+      expect(scenario.githubRequests()).not.toContain(
+        "POST /repos/acme/demo/issues/7/assignees",
+      );
+      expect(scenario.installCalls()).toEqual([]);
+      expect(
+        fs.existsSync(scenario.worktreePath("7-add-agent-mode-to-the-cli")),
+      ).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     "branch with no name exits 2 with missing_value on stdout and one stderr line",
     async () => {
       const scenario = await createScenario();

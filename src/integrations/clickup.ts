@@ -1,6 +1,9 @@
 import {
+  type BranchMatch,
+  type BranchNaming,
   evaluateBranchTypeRules,
   type IssueField,
+  matchOfResult,
 } from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
 import {
@@ -235,35 +238,44 @@ export function getClickUpTaskFields(task: ClickUpTask): IssueField[] {
 // project file the rules decide the kind (D10) and a task no rule matches gets
 // no prefix; without it the built-in mapping applies. Rule warnings go to
 // `onWarning`.
-export async function getClickUpBranchNameFromTask(
+export async function getClickUpBranchNaming(
   task: ClickUpTask,
   typedId: string,
   onWarning: (warning: string) => void = () => {},
-): Promise<string> {
+): Promise<BranchNaming> {
   const rules = await getBranchTypeRules("clickup");
+  const fields = getClickUpTaskFields(task);
 
   let kind: BranchKind | undefined;
+  let match: BranchMatch;
   if (rules) {
-    const result = evaluateBranchTypeRules(
-      rules,
-      getClickUpTaskFields(task),
-      "clickup.branchType",
-    );
+    const result = evaluateBranchTypeRules(rules, fields, "clickup.branchType");
     for (const warning of result.warnings) {
       onWarning(warning);
     }
     kind = result.kind;
+    match = matchOfResult(result);
   } else {
     kind = getClickUpBranchType(task.tags);
+    match = { source: "built-in" };
   }
 
   const parsed = parseClickUpTaskId(typedId);
   const segment =
     parsed.kind === "custom" ? parsed.id.toUpperCase() : `CU-${task.id}`;
 
-  return renderBranchName({
+  const branchName = await renderBranchName({
     prefix: await getBranchPrefix(kind),
     id: segment,
     slug: slugifyBranchTitle(task.name),
   });
+  return { branchName, kind, fields, match };
+}
+
+export async function getClickUpBranchNameFromTask(
+  task: ClickUpTask,
+  typedId: string,
+  onWarning: (warning: string) => void = () => {},
+): Promise<string> {
+  return (await getClickUpBranchNaming(task, typedId, onWarning)).branchName;
 }

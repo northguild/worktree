@@ -3683,6 +3683,341 @@ jira:
   });
 });
 
+// Phase 5 of the project-config plan (#181): D13. Expected values come from the
+// plan's Done-when line, the #181 example file (§4) and D9; none is read back
+// from the code under test.
+describe("branch command — --dry-run", () => {
+  const originalExitCode = process.exitCode;
+  let output: ReturnType<typeof captureOutput>;
+  const mockInput = vi.mocked(input);
+  const mockConfirm = vi.mocked(confirm);
+  const mockCopyEnvFiles = vi.mocked(copyEnvFilesFromRootPath);
+  const mockRunInstall = vi.mocked(runInstall);
+
+  // The example file of §4 for GitHub, plus prefixes.
+  const FILE = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+    - when: { Labels: [chore, maintenance] }
+      type: chore
+`;
+
+  function projectFile(content: string) {
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "found",
+      content,
+    });
+  }
+
+  function githubIssue(overrides: Record<string, unknown> = {}) {
+    return vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+      number: 8,
+      title: "Fix memory leak",
+      state: "open",
+      htmlUrl: "https://github.com/acme/demo/issues/8",
+      type: null,
+      labels: [{ id: 5, name: "Maintenance" }],
+      pullRequest: null,
+      ...overrides,
+    } as any);
+  }
+
+  // `run` itself: a dry run prints its own document, so there is no result.
+  async function runDry(
+    flags: Record<string, unknown>,
+    argv: string[] = [],
+    args: Record<string, unknown> = {},
+  ) {
+    const command = new Branch(argv, await loadConfig());
+    (command as any).parse = vi
+      .fn()
+      .mockResolvedValue({ args, flags: { "dry-run": true, ...flags } });
+    (command as any).parsed = true;
+    const open = vi.spyOn(command as any, "openWorktreePath");
+    const result = await command.run();
+    return { command, open, result };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    resetProjectConfigCache();
+    output = captureOutput();
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+      // autoAssign is unset, so a real run would ask whether to assign.
+      Promise.resolve(key === "has-called-config" ? "true" : ""),
+    );
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "absent-path",
+    });
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
+      login: "octocat",
+      assigned: true,
+    });
+    vi.spyOn(jiraIntegration, "assignJiraIssue").mockResolvedValue({
+      outcome: "assigned",
+      displayName: "Ada Lovelace",
+    });
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+  });
+
+  it("needs an issue to look at", async () => {
+    const dry = runDry({}, [], { branchName: "my/own-name" });
+
+    await expect(dry).rejects.toThrow(
+      "--dry-run requires one of --github, --jira, --linear or --clickup.",
+    );
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+  });
+
+  it("creates, assigns, saves and asks nothing", async () => {
+    projectFile(FILE);
+    githubIssue({ state: "closed", stateReason: "completed" });
+
+    const { open, result } = await runDry({ github: "8" });
+
+    expect(result).toBeUndefined();
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
+    expect(git.gitSetConfigValue).not.toHaveBeenCalled();
+    expect(mockInput).not.toHaveBeenCalled();
+    // A closed issue is a prompt in a real run; a dry run only says so.
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    expect(mockRunInstall).not.toHaveBeenCalled();
+    expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+    expect(output.stderr()).toContain("Issue #8 is closed as completed.");
+  });
+
+  it("assigns no Jira issue and asks Jira for names", async () => {
+    const naming = vi
+      .spyOn(jiraIntegration, "getJiraBranchNaming")
+      .mockResolvedValue({
+        branchName: "DEV-7-fix-login-bug",
+        kind: undefined,
+        fields: [],
+        match: { source: "none" },
+      });
+
+    await runDry({ jira: "dev-7" });
+
+    expect(naming).toHaveBeenCalledWith(
+      "dev-7",
+      expect.objectContaining({ dryRun: true }),
+    );
+    expect(jiraIntegration.assignJiraIssue).not.toHaveBeenCalled();
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("asks Linear for label ids, and ClickUp lists tags by name", async () => {
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+      Promise.resolve(
+        key === "linear.apiKey"
+          ? "lin_api_test"
+          : key === "clickup.apiToken"
+            ? "pk_test"
+            : "",
+      ),
+    );
+    const linear = vi
+      .spyOn(linearIntegration, "fetchLinearIssue")
+      .mockResolvedValue({
+        identifier: "ENG-1",
+        title: "Add dark mode",
+        url: null,
+        labels: ["Urgent"],
+        labelNodes: [{ id: "l1", name: "Urgent" }],
+      });
+    vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue({
+      id: "9hx",
+      customId: null,
+      name: "Fix login",
+      url: null,
+      tags: ["Hotfix"],
+    });
+
+    await runDry({ linear: "eng-1" });
+    expect(linear).toHaveBeenCalledWith("eng-1", { labelIds: true });
+    expect(output.stdout()).toContain('- when: { Labels: { id: "l1" } }');
+
+    await runDry({ clickup: "9hx" });
+    expect(output.stdout()).toContain(
+      "- when: { Tags: Hotfix }   # Tags = Hotfix",
+    );
+  });
+
+  it("ignores the agent flags, since it starts no agent", async () => {
+    // No agent.command is configured, which a real run with a brief refuses.
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    githubIssue();
+
+    await expect(
+      runDry({ github: "8", agent: "do the work" }),
+    ).resolves.toMatchObject({ result: undefined });
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+  });
+
+  describe("the human output", () => {
+    it("names the branch, the matching rule and each non-empty field with ids", async () => {
+      projectFile(FILE);
+      githubIssue();
+
+      await runDry({ github: "8" });
+
+      const text = output.stdout();
+      expect(text).toContain("Branch name: chore/8-fix-memory-leak");
+      expect(text).toContain(
+        "Rule: rule 2 of github.branchType: when: { Labels: [chore, maintenance] }, type: chore",
+      );
+      // Labels has a value; Type is empty on this issue and is not listed.
+      expect(text).toContain("Labels (id Labels)");
+      expect(text).toContain("Maintenance (id 5)");
+      expect(text).not.toContain("Type (id Type)");
+    });
+
+    it("prints a paste-ready line per value in the form of the plan", async () => {
+      githubIssue({ type: { id: 9, name: "Bug" } });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain(
+        '- when: { Labels: { id: "5" } }   # Labels = Maintenance',
+      );
+      expect(output.stdout()).toContain(
+        '- when: { Type: { id: "9" } }   # Type = Bug',
+      );
+    });
+
+    it("writes the Jira select option line exactly as #181 does", async () => {
+      vi.spyOn(jiraIntegration, "getJiraBranchNaming").mockResolvedValue({
+        branchName: "chore/DEV-7-fix-login-bug",
+        kind: "chore",
+        fields: [
+          {
+            id: "customfield_10359",
+            name: "Work Category",
+            values: [{ id: "10301", name: "Maintenance" }],
+          },
+          { id: "labels", name: "Labels", values: [] },
+        ],
+        match: {
+          source: "rule",
+          position: 1,
+          rule: { when: { customfield_10359: { id: "10301" } }, type: "chore" },
+        },
+      });
+
+      await runDry({ jira: "dev-7" });
+
+      expect(output.stdout()).toContain(
+        '- when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance',
+      );
+      expect(output.stdout()).toContain("Work Category (id customfield_10359)");
+      expect(output.stdout()).not.toContain("Labels (id labels)");
+    });
+
+    it("says built-in when the file has no rules for the provider", async () => {
+      githubIssue({ type: { id: 9, name: "Bug" } });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain("Rule: built-in");
+      expect(output.stdout()).toContain("Branch name: 8-fix-memory-leak");
+    });
+
+    it("says no rule matched when rules exist and none did", async () => {
+      projectFile(FILE);
+      githubIssue({ labels: [] });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain("Rule: none matched");
+    });
+
+    it("does not depend on colour to say any of it", async () => {
+      projectFile(FILE);
+      githubIssue();
+
+      await runDry({ github: "8" });
+
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: looking for ANSI escapes
+      expect(output.stdout()).not.toMatch(/\u001b\[/);
+    });
+  });
+
+  describe("with --json", () => {
+    it("prints exactly one document, its own and not the branch document", async () => {
+      projectFile(FILE);
+      githubIssue();
+
+      await runDry({ github: "8" }, ["--json"]);
+
+      expect(output.stdout().trim().split("\n")).toHaveLength(1);
+      expect(output.document()).toEqual({
+        dryRun: true,
+        branch: "chore/8-fix-memory-leak",
+        issue: {
+          provider: "github",
+          number: 8,
+          url: "https://github.com/acme/demo/issues/8",
+        },
+        kind: "chore",
+        match: {
+          source: "rule",
+          position: 2,
+          rule: "when: { Labels: [chore, maintenance] }, type: chore",
+        },
+        fields: [
+          {
+            id: "Labels",
+            name: "Labels",
+            values: [
+              {
+                id: "5",
+                name: "Maintenance",
+                when: '- when: { Labels: { id: "5" } }   # Labels = Maintenance',
+              },
+            ],
+          },
+        ],
+        warnings: [],
+      });
+    });
+
+    it("reports a rule warning in warnings", async () => {
+      projectFile(`${FILE.split("github:")[0]}github:
+  branchType:
+    - when: { Priority: High }
+      type: bugfix
+`);
+      githubIssue();
+
+      await runDry({ github: "8" }, ["--json"]);
+
+      expect(output.document().warnings).toEqual([
+        expect.stringContaining('names the field "Priority"'),
+      ]);
+    });
+  });
+});
+
 describe("branch command — --help", () => {
   it("documents the --json shape and the exit codes", () => {
     const help = Branch.description ?? "";
@@ -3702,6 +4037,14 @@ describe("branch command — --help", () => {
     expect(help).toContain("2 usage");
     expect(help).toContain('{provider:"linear", key, url|null}');
     expect(help).toContain('{provider:"clickup", key');
+  });
+
+  it("documents --dry-run in the flags, the description and its own --json document", () => {
+    expect(Branch.flags["dry-run"]).toBeDefined();
+    const help = Branch.description ?? "";
+    expect(help).toContain("--dry-run");
+    expect(help).toContain("paste-ready");
+    expect(help).toContain('{source:"rule", position, rule}');
   });
 
   // D1: `--clickup` is `-c`.

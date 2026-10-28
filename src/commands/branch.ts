@@ -1,22 +1,28 @@
 import { Args, Flags } from "@oclif/core";
 import {
   fetchClickUpTask,
-  getClickUpBranchNameFromTask,
+  getClickUpBranchNaming,
 } from "../integrations/clickup.js";
 import {
   assignGitHubIssue,
   fetchGitHubIssue,
-  getGitHubBranchNameFromIssue,
+  getGitHubBranchNaming,
 } from "../integrations/github.js";
 import {
   assignJiraIssue,
   getJiraBranchNameFromIssue,
+  getJiraBranchNaming,
 } from "../integrations/jira.js";
 import {
   fetchLinearIssue,
-  getLinearBranchNameFromIssue,
+  getLinearBranchNaming,
 } from "../integrations/linear.js";
 import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
+import {
+  type BranchNaming,
+  formatBranchTypeRule,
+  pasteReadyLine,
+} from "../lib/branch-type.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
@@ -42,11 +48,19 @@ import {
 } from "../lib/prompt.js";
 import type {
   BranchDocument,
+  BranchDryRunDocument,
   BranchIssue,
   ConfigName,
   OpenOutcome,
 } from "../lib/types.js";
 import { isValidBranchName } from "../lib/validators.js";
+
+/** A name derived from an issue; `naming` is set only on a dry run. */
+interface DerivedName {
+  branchName: string;
+  issue: BranchIssue;
+  naming?: BranchNaming;
+}
 
 export default class Branch extends BaseCommand {
   static override args = {
@@ -58,6 +72,11 @@ export default class Branch extends BaseCommand {
 
 --assign (or github.autoAssign / jira.autoAssign) assigns a --github or --jira
 issue to you; a Jira issue someone else holds is left alone.
+
+--dry-run (with --github, --jira, --linear or --clickup) fetches the issue and
+prints the branch name, the rule that chose its prefix and every field the issue
+has a value for, with a paste-ready .worktree.yml line per value. It creates
+nothing, assigns nothing, saves nothing and asks nothing.
 
 --json prints one document on stdout:
 path, branch, source, issue, assigned, envFilesCopied, installed, herdr,
@@ -71,6 +90,11 @@ installed: {ran:true, command, inferred, ok, reason?} or {ran:false, reason}
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
 agent: {name|null, kind|null, command[], prompted}, or null if none started
 agent.prompted is the delivery receipt for a brief.
+With --dry-run it prints one other document: dryRun, branch, issue, kind|null,
+match, fields, warnings
+match: {source:"rule", position, rule}, {source:"built-in"} or
+{source:"none"}
+fields: [{id, name, values:[{id|null, name|null, when}]}]
 On failure: {error:{code, message, details?}} on stdout.
 
 Exit codes:
@@ -97,6 +121,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     "<%= config.bin %> <%= command.id %> --github 42 --no-agent",
     "<%= config.bin %> <%= command.id %> my-new-branch --no-open",
     "<%= config.bin %> <%= command.id %> --github 42 --json",
+    "<%= config.bin %> <%= command.id %> --jira DEV-123 --dry-run",
   ];
 
   static override flags = {
@@ -150,6 +175,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       allowNo: true,
       description:
         "Assign the issue to you when creating a branch from --github or --jira (not supported for --linear or --clickup yet)",
+    }),
+    // D13: the way to write branchType rules against a real issue. It is a
+    // `branch` flag rather than a command so that the name it prints is the one
+    // a real run would give.
+    "dry-run": Flags.boolean({
+      description:
+        "With --github, --jira, --linear or --clickup: show the branch name, the rule that chose its prefix and the issue's fields, and create nothing",
     }),
     // Unset is meaningful: it defers to postCreate and the run's mode (D9), so
     // there is no `default`. `--no-install` is the one switch that wins over both.
@@ -242,17 +274,17 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
   }
 
   /** The name derived from the issue, and the issue the document reports. */
-  private async getGithubIssueBranchName(issueNumberFlag: string): Promise<{
-    branchName: string;
-    issue: BranchIssue;
-  }> {
+  private async getGithubIssueBranchName(
+    issueNumberFlag: string,
+    dryRun: boolean,
+  ): Promise<DerivedName> {
     const issueNumber = this.getGithubIssueNumber(issueNumberFlag);
     const spinner = createSpinner(
       `Fetching GitHub issue #${issueNumber}`,
     ).start();
     let fetched: {
       issue: Awaited<ReturnType<typeof fetchGitHubIssue>>;
-      branchName: string;
+      naming: BranchNaming;
     };
     try {
       const issue = await fetchGitHubIssue(issueNumber);
@@ -271,11 +303,11 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
           }`,
         );
       }
-      const branchName = await getGitHubBranchNameFromIssue(issue, (warning) =>
+      const naming = await getGitHubBranchNaming(issue, (warning) =>
         this.warn(warning),
       );
       spinner.succeed();
-      fetched = { issue, branchName };
+      fetched = { issue, naming };
     } catch (error) {
       spinner.fail();
       throw error;
@@ -283,12 +315,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
     // After the spinner has settled, so a declined prompt is not reported as a
     // failed fetch as well.
-    const { issue, branchName } = fetched;
+    const { issue, naming } = fetched;
     if (issue.state === "closed") {
-      await this.confirmClosedGithubIssue(issue);
+      await this.confirmClosedGithubIssue(issue, dryRun);
     }
     return {
-      branchName,
+      branchName: naming.branchName,
+      naming,
       issue: {
         provider: "github",
         number: issue.number,
@@ -302,15 +335,19 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
    * cannot ask carries on with the warning, so `--json` reports it in
    * `warnings`; declining ends the run before anything is created.
    */
-  private async confirmClosedGithubIssue(issue: {
-    number: number;
-    stateReason: string | null;
-  }) {
+  private async confirmClosedGithubIssue(
+    issue: {
+      number: number;
+      stateReason: string | null;
+    },
+    dryRun: boolean,
+  ) {
     const reason = issue.stateReason
       ? ` as ${issue.stateReason.replace(/_/g, " ")}`
       : "";
     const message = `Issue #${issue.number} is closed${reason}.`;
-    if (isNonInteractive()) {
+    // A dry run creates nothing, so there is nothing to confirm.
+    if (dryRun || isNonInteractive()) {
       this.warn(message);
       return;
     }
@@ -387,17 +424,20 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     return true;
   }
 
-  private async getJiraIssueBranchName(issueKeyFlag: string): Promise<{
-    branchName: string;
-    issue: BranchIssue;
-  }> {
+  private async getJiraIssueBranchName(
+    issueKeyFlag: string,
+    dryRun: boolean,
+  ): Promise<DerivedName> {
     const key = issueKeyFlag.trim().toUpperCase();
     const spinner = createSpinner(`Fetching Jira issue ${key}`).start();
     try {
-      const branchName = await getJiraBranchNameFromIssue(
-        issueKeyFlag,
-        (warning) => this.warn(warning),
-      );
+      const onWarning = (warning: string) => this.warn(warning);
+      const naming = dryRun
+        ? await getJiraBranchNaming(issueKeyFlag, { onWarning, dryRun })
+        : undefined;
+      const branchName =
+        naming?.branchName ??
+        (await getJiraBranchNameFromIssue(issueKeyFlag, onWarning));
       spinner.succeed();
       // Built from the configured host, never from the credentials beside it.
       const host = (await getTeamConfigValue("jira.host"))
@@ -406,6 +446,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         .replace(/\/+$/, "");
       return {
         branchName,
+        naming,
         issue: {
           provider: "jira",
           key,
@@ -418,21 +459,24 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
   }
 
-  private async getLinearIssueBranchName(issueIdFlag: string): Promise<{
-    branchName: string;
-    issue: BranchIssue;
-  }> {
+  private async getLinearIssueBranchName(
+    issueIdFlag: string,
+    dryRun: boolean,
+  ): Promise<DerivedName> {
     const key = issueIdFlag.trim().toUpperCase();
     const spinner = createSpinner(`Fetching Linear issue ${key}`).start();
     try {
       // One fetch gives both the name and the url the API reports (D9).
-      const issue = await fetchLinearIssue(issueIdFlag);
-      const branchName = await getLinearBranchNameFromIssue(issue, (warning) =>
+      const issue = dryRun
+        ? await fetchLinearIssue(issueIdFlag, { labelIds: true })
+        : await fetchLinearIssue(issueIdFlag);
+      const naming = await getLinearBranchNaming(issue, (warning) =>
         this.warn(warning),
       );
       spinner.succeed();
       return {
-        branchName,
+        branchName: naming.branchName,
+        naming,
         issue: { provider: "linear", key: issue.identifier, url: issue.url },
       };
     } catch (error) {
@@ -441,23 +485,21 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
   }
 
-  private async getClickUpTaskBranchName(taskIdFlag: string): Promise<{
-    branchName: string;
-    issue: BranchIssue;
-  }> {
+  private async getClickUpTaskBranchName(
+    taskIdFlag: string,
+  ): Promise<DerivedName> {
     const typedId = taskIdFlag.trim();
     const spinner = createSpinner(`Fetching ClickUp task ${typedId}`).start();
     try {
       // One fetch gives both the name and the url the API reports (D9).
       const task = await fetchClickUpTask(taskIdFlag);
-      const branchName = await getClickUpBranchNameFromTask(
-        task,
-        taskIdFlag,
-        (warning) => this.warn(warning),
+      const naming = await getClickUpBranchNaming(task, taskIdFlag, (warning) =>
+        this.warn(warning),
       );
       spinner.succeed();
       return {
-        branchName,
+        branchName: naming.branchName,
+        naming,
         issue: {
           provider: "clickup",
           key: task.customId ?? task.id,
@@ -592,6 +634,106 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     return false;
   }
 
+  /** The name for whichever issue flag was given; `undefined` when none was. */
+  private async deriveFromIssue(
+    flags: {
+      github?: string;
+      jira?: string;
+      linear?: string;
+      clickup?: string;
+    },
+    dryRun: boolean,
+  ): Promise<DerivedName | undefined> {
+    if (flags.github) {
+      return this.getGithubIssueBranchName(flags.github, dryRun);
+    }
+    if (flags.jira) {
+      return this.getJiraIssueBranchName(flags.jira, dryRun);
+    }
+    if (flags.linear) {
+      return this.getLinearIssueBranchName(flags.linear, dryRun);
+    }
+    if (flags.clickup) {
+      return this.getClickUpTaskBranchName(flags.clickup);
+    }
+    return undefined;
+  }
+
+  /**
+   * D13: the name, the rule behind its prefix and every field the issue has a
+   * value for, with a line per value to paste into `.worktree.yml`. Everything
+   * is said in words (`Rule:`, `id`), so none of it depends on colour.
+   */
+  private reportDryRun(derived: DerivedName): void {
+    const { branchName, issue } = derived;
+    const naming = derived.naming;
+    if (!naming) {
+      // deriveFromIssue returns a naming for every provider on a dry run.
+      throw new Error("A dry run needs the naming the integration computed.");
+    }
+    const listName = `${issue.provider}.branchType`;
+    const fields = naming.fields
+      .filter((field) => field.values.length > 0)
+      .map((field) => ({
+        id: field.id,
+        name: field.name,
+        values: field.values.map((value) => ({
+          id: value.id ?? null,
+          name: value.name ?? null,
+          when: pasteReadyLine(field, value),
+        })),
+      }));
+    const match: BranchDryRunDocument["match"] =
+      naming.match.source === "rule"
+        ? {
+            source: "rule",
+            position: naming.match.position,
+            rule: formatBranchTypeRule(naming.match.rule),
+          }
+        : naming.match;
+
+    this.log("Dry run: nothing was created, assigned or saved.");
+    this.log(`Branch name: ${branchName}`);
+    this.log(
+      match.source === "rule"
+        ? `Rule: rule ${match.position} of ${listName}: ${match.rule}`
+        : match.source === "built-in"
+          ? `Rule: built-in mapping (the project file has no ${listName})`
+          : `Rule: none matched in ${listName}, so the name has no prefix`,
+    );
+    this.log(
+      fields.length > 0
+        ? `Fields with a value (${fields.length}), each with a line to paste into ${listName}:`
+        : "The issue has no field with a value.",
+    );
+    for (const field of fields) {
+      this.log(`  ${field.name} (id ${field.id})`);
+      for (const value of field.values) {
+        const label = value.name ?? "(no name)";
+        this.log(
+          `    ${value.id === null ? label : `${label} (id ${value.id})`}`,
+        );
+        this.log(`      ${value.when}`);
+      }
+    }
+
+    // Printed here rather than returned: `run` returns the `branch` document,
+    // and a dry run's is another shape. `log` is silent under --json, so this
+    // is the only thing on stdout.
+    if (this.jsonEnabled()) {
+      const document: BranchDryRunDocument = {
+        dryRun: true,
+        branch: branchName,
+        issue,
+        kind: naming.kind ?? null,
+        match,
+        fields,
+        warnings: this.warnings,
+      };
+      this.logJson(document);
+    }
+  }
+
   private async getBranchName(
     branchNameArg?: string,
     flags?: {
@@ -612,15 +754,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       return { branchName: branchNameArg, issue: null };
     }
 
-    const derived = flags?.github
-      ? await this.getGithubIssueBranchName(flags.github)
-      : flags?.jira
-        ? await this.getJiraIssueBranchName(flags.jira)
-        : flags?.linear
-          ? await this.getLinearIssueBranchName(flags.linear)
-          : flags?.clickup
-            ? await this.getClickUpTaskBranchName(flags.clickup)
-            : undefined;
+    const derived = await this.deriveFromIssue(flags ?? {}, false);
     const defaultValue = derived?.branchName ?? "";
 
     const branchName = await askInput(
@@ -670,27 +804,45 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       );
     }
 
-    // Read before anything is created: an empty or oversized brief is a usage
-    // error, and it should not leave a worktree behind.
-    let brief: string | undefined;
-    try {
-      brief = await readAgentBrief({
-        agent: flags.agent,
-        agentFile: flags["agent-file"],
-        agentStdin: flags["agent-stdin"],
-      });
-    } catch (error) {
-      this.error(error instanceof Error ? error.message : String(error));
+    // D13: a dry run looks at one issue's name; with none there is nothing to
+    // evaluate the rules against.
+    const dryRun = flags["dry-run"] === true;
+    if (
+      dryRun &&
+      !flags.github &&
+      !flags.jira &&
+      !flags.linear &&
+      !flags.clickup
+    ) {
+      this.error(
+        "--dry-run requires one of --github, --jira, --linear or --clickup.",
+      );
     }
 
-    // Also before anything is created (#75): a brief with no agent configured
-    // to take it is a missing value, and finding that out after the tree exists
-    // would leave an exit 0 with `agent: null`, or an error with no `path`.
-    await this.assertBriefHasAnAgent({
-      open: !flags["no-open"],
-      agent: !flags["no-agent"],
-      brief,
-    });
+    // Read before anything is created: an empty or oversized brief is a usage
+    // error, and it should not leave a worktree behind. A dry run starts no
+    // agent, so the agent flags are ignored there.
+    let brief: string | undefined;
+    if (!dryRun) {
+      try {
+        brief = await readAgentBrief({
+          agent: flags.agent,
+          agentFile: flags["agent-file"],
+          agentStdin: flags["agent-stdin"],
+        });
+      } catch (error) {
+        this.error(error instanceof Error ? error.message : String(error));
+      }
+
+      // Also before anything is created (#75): a brief with no agent configured
+      // to take it is a missing value, and finding that out after the tree exists
+      // would leave an exit 0 with `agent: null`, or an error with no `path`.
+      await this.assertBriefHasAnAgent({
+        open: !flags["no-open"],
+        agent: !flags["no-agent"],
+        brief,
+      });
+    }
 
     // D7: the one fetch of this run, before the project file is read from
     // origin/HEAD, so a team change merged an hour ago applies to this branch.
@@ -723,7 +875,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
 
     // If there is no source flag provided, make sure defaultSourceBranch is configured
-    await this.verifyConfig(configNames);
+    // A dry run asks nothing, and `verifyConfig` offers to run `config`.
+    if (!dryRun) {
+      await this.verifyConfig(configNames);
+    }
 
     // The key has no default and the fetch needs it, so a run still without one
     // after the offer is a missing value, and it ends before a tree exists.
@@ -739,6 +894,16 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         "`worktree config clickup.apiToken <token>`",
       );
     }
+    // Stops after naming (§4): no assignment, source, worktree or opener.
+    if (dryRun) {
+      const derived = await this.deriveFromIssue(flags, true);
+      if (!derived) {
+        throw new Error("--dry-run reached the fetch without an issue flag.");
+      }
+      this.reportDryRun(derived);
+      return undefined;
+    }
+
     const { branchName, issue } = await this.getBranchName(
       args.branchName,
       flags,

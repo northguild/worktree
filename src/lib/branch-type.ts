@@ -115,3 +115,86 @@ export function evaluateBranchTypeRules(
 
   return { kind: undefined, rule: undefined, position: undefined, warnings };
 }
+
+// ---------------------------------------------------------------------------
+// What a dry run shows (D13)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a name got the prefix it did: a rule of the project file, the built-in
+ * mapping (no rules for the provider), or nothing (rules, none matched).
+ */
+export type BranchMatch =
+  | { source: "rule"; position: number; rule: BranchTypeRule }
+  | { source: "built-in" }
+  | { source: "none" };
+
+/** A branch name with everything that decided it, for `branch --dry-run`. */
+export interface BranchNaming {
+  branchName: string;
+  kind: BranchKind | undefined;
+  fields: IssueField[];
+  match: BranchMatch;
+}
+
+export function matchOfResult(result: BranchTypeResult): BranchMatch {
+  return result.rule && result.position !== undefined
+    ? { source: "rule", position: result.position, rule: result.rule }
+    : { source: "none" };
+}
+
+// A bare word is written bare, as in the #181 example (`Type: Bug`); anything
+// YAML could read as another type or as structure is double-quoted. JSON
+// string syntax is valid YAML, so JSON.stringify does the quoting.
+const YAML_RESERVED_WORDS = new Set([
+  "true",
+  "false",
+  "null",
+  "yes",
+  "no",
+  "on",
+  "off",
+  "y",
+  "n",
+]);
+
+function yamlScalar(text: string) {
+  return /^[A-Za-z][\w.-]*$/.test(text) &&
+    !YAML_RESERVED_WORDS.has(text.toLowerCase())
+    ? text
+    : JSON.stringify(text);
+}
+
+function formatWhenValue(value: WhenValue): string {
+  return typeof value === "object"
+    ? `{ id: ${JSON.stringify(String(value.id))} }`
+    : yamlScalar(String(value));
+}
+
+/** A rule as the file writes it, for naming the one that matched. */
+export function formatBranchTypeRule(rule: BranchTypeRule) {
+  if ("otherwise" in rule) {
+    return `otherwise: ${rule.otherwise}`;
+  }
+  const conditions = Object.entries(rule.when).map(([key, wanted]) => {
+    const text = Array.isArray(wanted)
+      ? `[${wanted.map(formatWhenValue).join(", ")}]`
+      : formatWhenValue(wanted);
+    return `${yamlScalar(key)}: ${text}`;
+  });
+  return `when: { ${conditions.join(", ")} }, type: ${rule.type}`;
+}
+
+/**
+ * One line to paste into a `branchType` list: the value by id when it has one
+ * (ids survive a renamed option and another language), by name when it does
+ * not, with the names as a comment.
+ */
+export function pasteReadyLine(field: IssueField, value: FieldValue) {
+  const wanted =
+    value.id !== undefined
+      ? formatWhenValue({ id: value.id })
+      : yamlScalar(value.name ?? "");
+  const label = value.name ?? value.id ?? "";
+  return `- when: { ${yamlScalar(field.id)}: ${wanted} }   # ${field.name} = ${label}`;
+}

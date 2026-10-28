@@ -1,6 +1,9 @@
 import {
+  type BranchMatch,
+  type BranchNaming,
   evaluateBranchTypeRules,
   type IssueField,
+  matchOfResult,
 } from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
 import {
@@ -171,10 +174,19 @@ function parseLinearIssue(
   };
 }
 
-export async function fetchLinearIssue(issueId: string): Promise<LinearIssue> {
+/**
+ * `labelIds` asks for each label's id even with no rules: a dry run exists to
+ * show them (D9, D13).
+ */
+export async function fetchLinearIssue(
+  issueId: string,
+  options: { labelIds?: boolean } = {},
+): Promise<LinearIssue> {
   const identifier = getIssueIdentifier(issueId);
   const apiKey = await resolveLinearApiKey();
-  const withLabelIds = (await getBranchTypeRules("linear")) !== undefined;
+  const withLabelIds =
+    options.labelIds === true ||
+    (await getBranchTypeRules("linear")) !== undefined;
 
   const response = await fetchLinear(
     withLabelIds ? ISSUE_QUERY_WITH_LABEL_IDS : ISSUE_QUERY,
@@ -264,32 +276,40 @@ export function getLinearIssueFields(issue: LinearIssue): IssueField[] {
 // project file the rules decide the kind (D10) and an issue no rule matches
 // gets no prefix; without it the built-in mapping applies. Rule warnings go to
 // `onWarning`.
-export async function getLinearBranchNameFromIssue(
+export async function getLinearBranchNaming(
   issue: LinearIssue,
   onWarning: (warning: string) => void = () => {},
-): Promise<string> {
+): Promise<BranchNaming> {
   const rules = await getBranchTypeRules("linear");
+  const fields = getLinearIssueFields(issue);
 
   let kind: BranchKind | undefined;
+  let match: BranchMatch;
   if (rules) {
-    const result = evaluateBranchTypeRules(
-      rules,
-      getLinearIssueFields(issue),
-      "linear.branchType",
-    );
+    const result = evaluateBranchTypeRules(rules, fields, "linear.branchType");
     for (const warning of result.warnings) {
       onWarning(warning);
     }
     kind = result.kind;
+    match = matchOfResult(result);
   } else {
     kind = getLinearBranchType(issue.labels);
+    match = { source: "built-in" };
   }
 
-  return renderBranchName({
+  const branchName = await renderBranchName({
     prefix: await getBranchPrefix(kind),
     id: issue.identifier,
     slug: slugifyBranchTitle(issue.title),
   });
+  return { branchName, kind, fields, match };
+}
+
+export async function getLinearBranchNameFromIssue(
+  issue: LinearIssue,
+  onWarning: (warning: string) => void = () => {},
+): Promise<string> {
+  return (await getLinearBranchNaming(issue, onWarning)).branchName;
 }
 
 export async function validateLinearCredentials(): Promise<boolean> {

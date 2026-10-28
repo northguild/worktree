@@ -81,3 +81,23 @@ Non-blocking Gate 2 observations, branch-local. Read by no command; `/feature-cl
   (same as Phase 3's Jira path).
 - GitHub guide steps 1 and 4 ("Read issue number and title", "based on issue type") leave out labels, which
   are now read and can decide the prefix under rules; the *Prefix mapping* paragraph covers it.
+
+## From Phase 5
+
+- **Defect, branch-local:** a dry run does not pass the derived name through `isValidBranchName`, so a
+  `branchName` template that renders an invalid name prints as `Branch name: …` on a dry run while a real run
+  refuses it.
+- The branch page's Jira dry-run example shows two fields; a real issue lists every non-empty one (summary,
+  status, priority, …), and the JSON example lists one. Mark both as shortened or make them agree.
+- `branch.ts`'s dry-run help paragraph has an 80-column line that leaves "issue" alone on its own line in
+  `--help`.
+- `getGitHubIssueFields` guards `issue.labels ?? []` though the type declares it required and the parser
+  normalises it; only older `as any` fixtures in `branch.test.ts` omit it. Fix the fixtures, or compute fields
+  only with rules or a dry run.
+- The `branch.ts` comment "`log` is silent under --json" is wrong (it goes to stderr); behaviour is right.
+- `getGitHubBranchNameFromIssue`, `getLinearBranchNameFromIssue` and `getClickUpBranchNameFromTask` now have
+  no production caller; Jira's two-path call in `branch.ts` could be one call with `{ onWarning, dryRun }`.
+- Not pinned: the `--dry-run` usage error's exit 2 / `invalid_value`, and no `git config` write in a
+  non-interactive dry run. Phases 7 and 8 should pin that a dry run runs no approval and no nudge.
+- `BranchDryRunMatch`'s kind spells out `"feature" | "bugfix" | "chore"` instead of reusing `BranchKind`.
+- The human rule-text format is the coder's own, pinned to the formatter.

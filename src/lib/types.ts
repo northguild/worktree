@@ -170,6 +170,40 @@ export interface BranchDocument {
   warnings: string[];
 }
 
+/** Why a dry run's name got its prefix: a rule, the built-in mapping, or nothing. */
+export type BranchDryRunMatch =
+  | { source: "rule"; position: number; rule: string }
+  | { source: "built-in" }
+  | { source: "none" };
+
+export interface BranchDryRunValue {
+  id: string | null;
+  name: string | null;
+  /** The line to paste into a `branchType` list in `.worktree.yml`. */
+  when: string;
+}
+
+export interface BranchDryRunField {
+  id: string;
+  name: string;
+  values: BranchDryRunValue[];
+}
+
+/**
+ * What `branch --dry-run --json` prints instead of the `branch` document: the
+ * name and why, and every field the issue has a value for. `kind` is `null`
+ * when no prefix applies.
+ */
+export interface BranchDryRunDocument {
+  dryRun: true;
+  branch: string;
+  issue: BranchIssue;
+  kind: "feature" | "bugfix" | "chore" | null;
+  match: BranchDryRunMatch;
+  fields: BranchDryRunField[];
+  warnings: string[];
+}
+
 export interface WorktreeListAgentDocument {
   name: string;
   sessionId: string | null;

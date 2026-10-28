@@ -148,8 +148,8 @@ simply does not match a `Type` rule; that is not a mistake and does not warn.
 Linear and ClickUp keep falling back to `feature` without rules; with rules, an issue none of them matches
 gets no prefix unless the list ends with `otherwise`.
 
-With `linear.branchType` set, `worktree` asks Linear for each label's `id` as well as its name, so a rule can
-match `{ id: "..." }`. Without rules the Linear request is unchanged.
+With `linear.branchType` set, or on a dry run, `worktree` asks Linear for each label's `id` as well as its
+name, so a rule can match `{ id: "..." }`. Otherwise the Linear request is unchanged.
 
 ### Ids or names
 
@@ -163,7 +163,33 @@ value is written as its name (`Maintenance`) or as `{ id: "10301" }`.
   text, but a quoted id is what Jira shows you.
 - **Two fields can share a display name.** A rule that names such a field by name stops the run with an
   error naming both ids; use an id.
-- **Find an id** in Jira under *Settings, Issues, Custom fields*, or in the address of a field's page.
+- **Find an id** with a [dry run](#writing-rules-with-a-dry-run), which lists every field and value of a real
+  issue with its id, for every provider. In Jira you can also read a field's id under *Settings, Issues,
+  Custom fields*, or in the address of a field's page.
+
+### Writing rules with a dry run
+
+Rules are easiest to write against a real issue. `worktree branch --dry-run` takes one issue flag, fetches the
+issue and prints what a real run would name the branch and why, without creating anything:
+
+```bash
+worktree branch --jira DEV-123 --dry-run
+worktree branch --github 42 --dry-run
+worktree branch --linear ENG-123 --dry-run
+worktree branch --clickup 9hx --dry-run
+```
+
+1. Run it on an issue of the kind you want a rule for.
+2. Read the `Rule:` line: it says whether a rule, the built-in mapping or nothing chose the prefix.
+3. Find the field and value in the list. Each has its id and name, and a ready line such as
+   `- when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance`.
+4. Paste the line under the provider's `branchType`, add `type: chore` (or `bugfix`, `feature`) beneath it,
+   and run the dry run again. Its `Rule:` line now names your rule by position.
+
+A value with an id is written by id. A value without one, such as a ClickUp tag, is written by name. Fields
+the issue holds no value for are left out of the list; a rule on one of them would never match this issue.
+`worktree branch --dry-run --json` prints the same as one document; its
+[shape](/docs/commands/branch#previewing-a-branch-name) is on the branch page.
 
 ### Mistakes in a rule
 
@@ -172,8 +198,8 @@ run that gets as far as that rule, naming the field and the rule's position, and
 warning is in `warnings` of the `--json` document. A field that exists but is empty is not a mistake: it just
 matches nothing.
 
-With rules set, `worktree` asks Jira for field display names (`?expand=names`) on the issue request it was
-already making. Without rules the request is unchanged.
+With rules set, or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
+request it was already making. Otherwise the request is unchanged.
 
 ## Branch name template
 

@@ -288,6 +288,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not (a Jira issue someone else holds is left alone) |
+| `--dry-run` | `branch` | with an issue flag: print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 ### Defaults when non-interactive

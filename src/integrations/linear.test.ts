@@ -5,6 +5,7 @@ import { expectCommands } from "../test-setup.js";
 import {
   fetchLinearIssue,
   getLinearBranchNameFromIssue,
+  getLinearBranchNaming,
   getLinearBranchType,
   resolveLinearApiKey,
   validateLinearCredentials,
@@ -558,6 +559,30 @@ describe("Linear integration", () => {
       expect(issue.labels).toEqual(["Housekeeping"]);
     });
 
+    // D9/D13: a dry run exists to show ids, so it asks for them with no rules.
+    it("asks for each label's id on a dry run even with no rules", async () => {
+      stubProjectFile(PREFIXES);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
+      );
+      const fetchSpy = stubFetch(
+        respond(
+          200,
+          issuePayload({
+            labels: { nodes: [{ id: "lbl-1", name: "Feature" }] },
+          }),
+        ),
+      );
+
+      const issue = await fetchLinearIssue("eng-123", { labelIds: true });
+
+      const body = JSON.parse(
+        (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string,
+      );
+      expect(body.query).toContain("nodes {\n        id\n        name");
+      expect(issue.labelNodes).toEqual([{ id: "lbl-1", name: "Feature" }]);
+    });
+
     it("refuses an answer whose label has no id when the id was asked for", async () => {
       withRules(LABEL_RULES);
       stubFetch(respond(200, issuePayload()));
@@ -688,5 +713,42 @@ describe("Linear integration", () => {
 
       await expect(validateLinearCredentials()).resolves.toBe(false);
     });
+  });
+});
+
+// Phase 5 (#181): Linear's rule field is `Labels`, with ids (D9).
+describe("getLinearBranchNaming", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("names the rule that matched a label by id, and lists the label with its id", async () => {
+    resetProjectConfigCache();
+    stubProjectFile(`branchPrefix:
+  chore: chore/
+linear:
+  branchType:
+    - when: { Labels: { id: "lbl-chore" } }
+      type: chore
+`);
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+    const naming = await getLinearBranchNaming({
+      identifier: "ENG-42",
+      title: "Tidy",
+      url: null,
+      labels: ["Housekeeping"],
+      labelNodes: [{ id: "lbl-chore", name: "Housekeeping" }],
+    });
+
+    expect(naming.branchName).toBe("chore/ENG-42-tidy");
+    expect(naming.match).toMatchObject({ source: "rule", position: 1 });
+    expect(naming.fields).toEqual([
+      {
+        id: "Labels",
+        name: "Labels",
+        values: [{ id: "lbl-chore", name: "Housekeeping" }],
+      },
+    ]);
   });
 });

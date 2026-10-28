@@ -128,6 +128,9 @@ shape and replace their built-in mapping the same way: GitHub rules match `Type`
 with no type no prefix; `- otherwise: feature` in `github.branchType` opts in. `branchName: "{prefix}{id}-{slug}"`
 in the file sets the shape of an issue-derived name (default as shown, today's names); a template that makes
 an invalid branch name is refused, and a name typed as the argument is never templated.
+To write rules against a real issue, run `worktree branch --<provider> <id> --dry-run`: it prints the name,
+the rule that chose the prefix and each non-empty field with its id and a paste-ready `- when: { … }` line, and
+creates, assigns, saves and asks nothing (`--json` prints its own document, with `match` and `fields`).
 
 Linear has no issue type, so its labels decide, compared case-insensitively
 and by exact name: a `bug` label → `branchPrefix.bugfix`; else a `chore` or
@@ -163,6 +166,7 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 131,071 bytes
 worktree branch feature/x --no-agent                # open, but start no agent
 worktree branch feature/x --no-open                 # print the path, open nothing
+worktree branch --jira DEV-123 --dry-run            # show the name, the matching rule and the fields; create nothing
 worktree checkout feature/fix-login-timeout -a "find the cause of the timeout"
 ```
 
@@ -211,6 +215,7 @@ Flags for agent mode:
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
+| `--dry-run` | `branch` | with an issue flag: print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 Defaults when non-interactive:

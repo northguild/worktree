@@ -18,6 +18,7 @@ worktree branch --jira <issue-id>
 worktree branch --jira <issue-id> --assign
 worktree branch --linear <issue-id>
 worktree branch --clickup <task-id>
+worktree branch --jira <issue-id> --dry-run
 worktree branch <name> --agent "<prompt>"
 worktree branch <name> --agent-file <path>
 worktree branch <name> --agent-stdin
@@ -43,6 +44,8 @@ worktree branch --linear ENG-123
 worktree branch --linear eng-123
 worktree branch --clickup 9hx
 worktree branch --clickup DEV-123
+worktree branch --jira DEV-123 --dry-run
+worktree branch --github 42 --dry-run --json
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent "implement the issue"
 worktree branch --github 42 --agent-file brief.md
@@ -139,6 +142,63 @@ worktree config jira.autoAssign true
 - `--assign` and `--no-assign` both require one of `--github`, `--jira`, `--linear` or `--clickup`; on their own there is no issue to act
   on. `--assign --linear` and `--assign --clickup` warn that assignment is not supported for that provider yet
   and carry on.
+
+## Previewing a branch name
+
+`--dry-run` shows what `branch` would name a branch, and why, without making it. Pass it with one of
+`--github`, `--jira`, `--linear` or `--clickup`: it fetches that issue, applies the
+[`branchType` rules](/docs/project-configuration#branch-type-rules) and the
+[`branchName` template](/docs/project-configuration#branch-name-template), and stops after naming. On its own
+it is refused with exit `2`, because with no issue there is nothing to evaluate the rules against.
+
+```bash
+worktree branch --jira DEV-123 --dry-run
+```
+
+```text
+Dry run: nothing was created, assigned or saved.
+Branch name: chore/DEV-123-tidy-the-billing-job
+Rule: rule 1 of jira.branchType: when: { customfield_10359: { id: "10301" } }, type: chore
+Fields with a value (2), each with a line to paste into jira.branchType:
+  Work Category (id customfield_10359)
+    Maintenance (id 10301)
+      - when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance
+  Issue Type (id issuetype)
+    Task (id 10009)
+      - when: { issuetype: { id: "10009" } }   # Issue Type = Task
+```
+
+- **Nothing is changed.** A dry run creates no worktree, assigns no issue, writes no git config, runs no
+  install or `postCreate` step, starts no agent, opens nothing and asks no question. A closed `--github`
+  issue is a warning instead of a prompt. `--agent`, `--agent-file`, `--agent-stdin`, `--source`, `--assign`,
+  `--install` and `--no-open` flags are accepted and ignored.
+- **The `Rule:` line** names the rule that chose the prefix by its position in the list and its text. It
+  reads `built-in mapping` when the file has no rules for that provider, and `none matched` when it has rules
+  and none matched, so the name has no prefix.
+- **Every field the issue has a value for** is listed with its id and its name as your account sees it, and
+  each of its values with its id where it has one. Empty fields are left out. Each value comes with a line to
+  paste into a `branchType` list; see
+  [Writing rules with a dry run](/docs/project-configuration#writing-rules-with-a-dry-run).
+- **Jira field names** come from `?expand=names` on the issue request, which a dry run always asks for. The
+  paste-ready lines name ids, which is what a shared file should use.
+
+With `--json` a dry run prints one document, not the [`branch` document](#json-output):
+
+```json
+{"dryRun":true,"branch":"chore/DEV-123-tidy-the-billing-job","issue":{"provider":"jira","key":"DEV-123","url":"https://acme.atlassian.net/browse/DEV-123"},
+ "kind":"chore","match":{"source":"rule","position":1,"rule":"when: { customfield_10359: { id: \"10301\" } }, type: chore"},
+ "fields":[{"id":"customfield_10359","name":"Work Category","values":[{"id":"10301","name":"Maintenance","when":"- when: { customfield_10359: { id: \"10301\" } }   # Work Category = Maintenance"}]}],
+ "warnings":[]}
+```
+
+| Key | Value |
+| --- | --- |
+| `dryRun` | always `true` |
+| `branch`, `issue` | the name `branch` would give, and the issue it came from, as in the `branch` document |
+| `kind` | `feature`, `bugfix` or `chore`; `null` when no prefix applies |
+| `match` | `{source:"rule", position, rule}` for the rule that matched, `{source:"built-in"}` or `{source:"none"}` |
+| `fields` | the non-empty fields: `{id, name, values:[{id, name, when}]}`. `id` or `name` is `null` where the value has none (a GitHub label has both; a ClickUp tag has a name only); `when` is the paste-ready line |
+| `warnings` | the same as in the `branch` document, such as a rule naming a field the issue does not have |
 
 ## Installing dependencies
 
@@ -306,6 +366,9 @@ animates; progress goes to stderr as plain lines.
 - Missing config is not offered to `config`: `defaultSourceBranch` unset in both your git config and `.worktree.yml` warns and falls back to `origin/main`.
 
 ## What It Does
+
+With `--dry-run`, steps 2 to 8 do not happen: the command stops after naming, see
+[Previewing a branch name](#previewing-a-branch-name).
 
 1. Fetches from `origin` once, then reads the team's [`.worktree.yml`](/docs/project-configuration) from the
    default branch. A file that cannot be used stops the command here, with exit `2`, before anything is created.

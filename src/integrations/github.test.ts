@@ -12,6 +12,7 @@ import {
   type GitHubIssueApiResponse,
   type GitHubIssueTypeApiResponse,
   getGitHubBranchNameFromIssue,
+  getGitHubBranchNaming,
   parseGitHubRepositoryFromRemote,
 } from "./github.js";
 
@@ -1068,5 +1069,81 @@ describe("getGitHubBranchNameFromIssue", () => {
         "fix/fix-login-bug-42",
       );
     });
+  });
+});
+
+// Phase 5 (#181): what `branch --dry-run` shows for a GitHub issue. The fields
+// are `Type` and `Labels` (D9, docs.github.com *Get an issue*).
+describe("getGitHubBranchNaming", () => {
+  const FILE = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+    - when: { Labels: [chore, maintenance] }
+      type: chore
+`;
+  const NO_RULES = FILE.split("github:")[0];
+  const labelled = {
+    number: 42,
+    title: "Fix login bug",
+    type: null,
+    labels: [{ id: 5, name: "Maintenance" }],
+  } as unknown as GitHubIssue;
+
+  function projectFile(content: string) {
+    resetProjectConfigCache();
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "found",
+      content,
+    });
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("names the second rule when the label matches it", async () => {
+    projectFile(FILE);
+
+    const naming = await getGitHubBranchNaming(labelled);
+
+    expect(naming.branchName).toBe("chore/42-fix-login-bug");
+    expect(naming.match).toMatchObject({ source: "rule", position: 2 });
+    expect(naming.fields).toContainEqual({
+      id: "Labels",
+      name: "Labels",
+      values: [{ id: "5", name: "Maintenance" }],
+    });
+  });
+
+  it("reports the built-in mapping when the file has no github rules", async () => {
+    projectFile(NO_RULES);
+
+    const naming = await getGitHubBranchNaming({
+      ...labelled,
+      type: { id: 9, name: "Bug" },
+    } as unknown as GitHubIssue);
+
+    expect(naming.match).toEqual({ source: "built-in" });
+    expect(naming.kind).toBe("bugfix");
+  });
+
+  it("reports no rule when rules exist and none matched", async () => {
+    projectFile(FILE);
+
+    const naming = await getGitHubBranchNaming({
+      ...labelled,
+      labels: [],
+    } as unknown as GitHubIssue);
+
+    expect(naming.match).toEqual({ source: "none" });
+    expect(naming.branchName).toBe("42-fix-login-bug");
   });
 });

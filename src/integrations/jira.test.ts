@@ -8,6 +8,7 @@ import {
   assignJiraIssue,
   fetchJiraIssue,
   getJiraBranchNameFromIssue,
+  getJiraBranchNaming,
   validateJiraCredentials,
 } from "./jira.js";
 
@@ -1087,5 +1088,118 @@ jira:
       );
       await expect(failure).rejects.not.toThrow(/api-token/);
     });
+  });
+});
+
+// Phase 5 (#181): what `branch --dry-run` shows. Expected values come from the
+// plan's example file (§4) and D9/D13: the request asks for display names on a
+// dry run even with no rules, and the match names the rule by its position.
+describe("getJiraBranchNaming", () => {
+  const EXAMPLE_FILE = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+  branchType:
+    - when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance
+      type: chore
+    - when: { issuetype: { id: "10008" } }           # Issue Type = Bug
+      type: bugfix
+`;
+  const NO_RULES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+`;
+
+  function stubJira(file: string, issue: unknown) {
+    resetProjectConfigCache();
+    stubProjectFile(file);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+          name
+        ] ?? "",
+      ),
+    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(issue),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    return fetchSpy;
+  }
+
+  const issue = {
+    id: "10001",
+    key: "DEV-7",
+    names: {
+      customfield_10359: "Work Category",
+      issuetype: "Issue Type",
+      summary: "Summary",
+    },
+    fields: {
+      summary: "Fix login bug",
+      customfield_10359: { value: "Maintenance", id: "10301" },
+      issuetype: { id: "10008", name: "Bug" },
+    },
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("asks for display names on a dry run even when no rules are set (D9)", async () => {
+    const fetchSpy = stubJira(NO_RULES, issue);
+
+    const naming = await getJiraBranchNaming("dev-7", { dryRun: true });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://acme.atlassian.net/rest/api/3/issue/DEV-7?expand=names",
+      expect.anything(),
+    );
+    expect(naming.match).toEqual({ source: "built-in" });
+    expect(naming.fields).toContainEqual({
+      id: "customfield_10359",
+      name: "Work Category",
+      values: [{ id: "10301", name: "Maintenance" }],
+    });
+  });
+
+  it("names the rule that matched by its position", async () => {
+    stubJira(EXAMPLE_FILE, issue);
+
+    const naming = await getJiraBranchNaming("dev-7", { dryRun: true });
+
+    expect(naming.branchName).toBe("chore/DEV-7-fix-login-bug");
+    expect(naming.kind).toBe("chore");
+    expect(naming.match).toEqual({
+      source: "rule",
+      position: 1,
+      rule: {
+        when: { customfield_10359: { id: "10301" } },
+        type: "chore",
+      },
+    });
+  });
+
+  it("says no rule matched when rules exist and none did", async () => {
+    stubJira(EXAMPLE_FILE, {
+      ...issue,
+      fields: {
+        summary: "Fix login bug",
+        issuetype: { id: "10007", name: "Story" },
+      },
+    });
+
+    const naming = await getJiraBranchNaming("dev-7", { dryRun: true });
+
+    expect(naming.match).toEqual({ source: "none" });
+    expect(naming.kind).toBeUndefined();
+    expect(naming.branchName).toBe("DEV-7-fix-login-bug");
   });
 });

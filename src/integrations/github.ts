@@ -1,6 +1,9 @@
 import {
+  type BranchMatch,
+  type BranchNaming,
   evaluateBranchTypeRules,
   type IssueField,
+  matchOfResult,
 } from "../lib/branch-type.js";
 import { commandExists, run } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
@@ -510,7 +513,7 @@ export function getGitHubIssueFields(issue: GitHubIssue): IssueField[] {
     {
       id: "Labels",
       name: "Labels",
-      values: issue.labels.map((label) => ({
+      values: (issue.labels ?? []).map((label) => ({
         ...(label.id === undefined ? {} : { id: String(label.id) }),
         name: label.name,
       })),
@@ -540,30 +543,38 @@ function getBuiltInGitHubBranchKind(
  * and an issue no rule matches gets no prefix unless a rule says `otherwise`;
  * without it the built-in mapping applies. Rule warnings go to `onWarning`.
  */
-export async function getGitHubBranchNameFromIssue(
+export async function getGitHubBranchNaming(
   issue: GitHubIssue,
   onWarning: (warning: string) => void = () => {},
-): Promise<string> {
+): Promise<BranchNaming> {
   const rules = await getBranchTypeRules("github");
+  const fields = getGitHubIssueFields(issue);
 
   let kind: BranchKind | undefined;
+  let match: BranchMatch;
   if (rules) {
-    const result = evaluateBranchTypeRules(
-      rules,
-      getGitHubIssueFields(issue),
-      "github.branchType",
-    );
+    const result = evaluateBranchTypeRules(rules, fields, "github.branchType");
     for (const warning of result.warnings) {
       onWarning(warning);
     }
     kind = result.kind;
+    match = matchOfResult(result);
   } else {
     kind = getBuiltInGitHubBranchKind(issue.type?.name);
+    match = { source: "built-in" };
   }
 
-  return renderBranchName({
+  const branchName = await renderBranchName({
     prefix: await getBranchPrefix(kind),
     id: String(issue.number),
     slug: slugifyBranchTitle(issue.title),
   });
+  return { branchName, kind, fields, match };
+}
+
+export async function getGitHubBranchNameFromIssue(
+  issue: GitHubIssue,
+  onWarning: (warning: string) => void = () => {},
+): Promise<string> {
+  return (await getGitHubBranchNaming(issue, onWarning)).branchName;
 }

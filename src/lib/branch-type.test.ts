@@ -1,7 +1,9 @@
 import {
   type BranchTypeRule,
   evaluateBranchTypeRules,
+  formatBranchTypeRule,
   type IssueField,
+  pasteReadyLine,
 } from "./branch-type.js";
 
 // Expected values come from the plan's D8-D11 and the #181 example file, not
@@ -195,6 +197,76 @@ describe("evaluateBranchTypeRules", () => {
 
     expect(evaluateBranchTypeRules(rules, [workCategory, twin]).kind).toBe(
       "bugfix",
+    );
+  });
+});
+
+// Phase 5 (#181): the paste-ready lines of `branch --dry-run`. The form is the
+// plan's Done-when line and the #181 example file, character for character:
+// `- when: { <fieldId>: { id: "<optionId>" } }   # <Field name> = <Option name>`.
+describe("pasteReadyLine", () => {
+  it("writes a select option by id with the names as the comment", () => {
+    expect(
+      pasteReadyLine(workCategory, { id: "10301", name: "Maintenance" }),
+    ).toBe(
+      '- when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance',
+    );
+  });
+
+  it("writes an issue type by id", () => {
+    expect(pasteReadyLine(issueType, { id: "10008", name: "Bug" })).toBe(
+      '- when: { issuetype: { id: "10008" } }   # Issue Type = Bug',
+    );
+  });
+
+  it("writes a value with no id by name, as the example's `Type: Bug`", () => {
+    const type: IssueField = { id: "Type", name: "Type", values: [] };
+    expect(pasteReadyLine(type, { name: "Bug" })).toBe(
+      "- when: { Type: Bug }   # Type = Bug",
+    );
+  });
+
+  it("quotes a name YAML would read as something else", () => {
+    // YAML 1.2 core schema: `yes`-like words stay strings, but a name with a
+    // colon-space, a leading digit-only form or an apostrophe must be quoted.
+    expect(pasteReadyLine(labels, { name: "needs: review" })).toBe(
+      '- when: { labels: "needs: review" }   # Labels = needs: review',
+    );
+    expect(pasteReadyLine(labels, { name: "true" })).toBe(
+      '- when: { labels: "true" }   # Labels = true',
+    );
+    expect(pasteReadyLine(labels, { name: "10301" })).toBe(
+      '- when: { labels: "10301" }   # Labels = 10301',
+    );
+  });
+
+  it("falls back to the id as the comment when the value has no name", () => {
+    expect(pasteReadyLine(workCategory, { id: "7" })).toBe(
+      '- when: { customfield_10359: { id: "7" } }   # Work Category = 7',
+    );
+  });
+});
+
+describe("formatBranchTypeRule", () => {
+  it("shows a conditional rule as the file writes it", () => {
+    expect(
+      formatBranchTypeRule(
+        when({ customfield_10359: { id: "10301" } }, "chore"),
+      ),
+    ).toBe('when: { customfield_10359: { id: "10301" } }, type: chore');
+  });
+
+  it("shows a list of values and several fields", () => {
+    expect(
+      formatBranchTypeRule(
+        when({ Labels: ["chore", "maintenance"], Type: "Bug" }, "bugfix"),
+      ),
+    ).toBe("when: { Labels: [chore, maintenance], Type: Bug }, type: bugfix");
+  });
+
+  it("shows an otherwise rule", () => {
+    expect(formatBranchTypeRule({ otherwise: "feature" })).toBe(
+      "otherwise: feature",
     );
   });
 });

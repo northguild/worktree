@@ -5,6 +5,7 @@ import { expectCommands } from "../test-setup.js";
 import {
   fetchClickUpTask,
   getClickUpBranchNameFromTask,
+  getClickUpBranchNaming,
   getClickUpBranchType,
   parseClickUpTaskId,
   resolveClickUpToken,
@@ -719,5 +720,36 @@ describe("ClickUp integration", () => {
 
       expect(name).toBe("feature/CU-9hx-issue");
     });
+  });
+});
+
+// Phase 5 (#181): ClickUp tags have a name and no id (developer.clickup.com,
+// *Get Task*), so a dry run shows them by name.
+describe("getClickUpBranchNaming", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows tags by name and reports the built-in mapping with no rules", async () => {
+    resetProjectConfigCache();
+    stubProjectFile("branchPrefix:\n  bugfix: fix/\n");
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+    const naming = await getClickUpBranchNaming(
+      {
+        id: "9hx",
+        customId: null,
+        name: "Fix login",
+        url: null,
+        tags: ["Bug"],
+      },
+      "9hx",
+    );
+
+    expect(naming.fields).toEqual([
+      { id: "Tags", name: "Tags", values: [{ name: "Bug" }] },
+    ]);
+    expect(naming.match).toEqual({ source: "built-in" });
+    expect(naming.branchName).toBe("fix/CU-9hx-fix-login");
   });
 });

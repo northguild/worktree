@@ -1,7 +1,10 @@
 import {
+  type BranchMatch,
+  type BranchNaming,
   evaluateBranchTypeRules,
   type FieldValue,
   type IssueField,
+  matchOfResult,
 } from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
 import {
@@ -266,38 +269,41 @@ export async function fetchJiraIssue(
 /**
  * With `jira.branchType` in the project file the rules decide the kind (D10)
  * and an issue no rule matches gets no prefix; without it the built-in mapping
- * applies. Rule warnings go to `onWarning`.
+ * applies. Rule warnings go to `onWarning`. A dry run asks Jira for display
+ * names even with no rules (D9), because showing them is its job.
  */
-export async function getJiraBranchNameFromIssue(
+export async function getJiraBranchNaming(
   issueId: string,
-  onWarning: (warning: string) => void = () => {},
-): Promise<string> {
+  options: { onWarning?: (warning: string) => void; dryRun?: boolean } = {},
+): Promise<BranchNaming> {
   const project = await loadProjectConfig();
   const rules =
     project.status === "loaded" ? project.config.jira?.branchType : undefined;
-  const issue = await fetchJiraIssue(issueId, { names: rules !== undefined });
+  const issue = await fetchJiraIssue(issueId, {
+    names: rules !== undefined || options.dryRun === true,
+  });
+  const fields = getJiraIssueFields(issue);
 
-  let branchType: ReturnType<typeof getJiraBranchType> | undefined;
+  let kind: ReturnType<typeof getJiraBranchType> | undefined;
+  let match: BranchMatch;
   if (rules) {
-    const result = evaluateBranchTypeRules(
-      rules,
-      getJiraIssueFields(issue),
-      "jira.branchType",
-    );
+    const result = evaluateBranchTypeRules(rules, fields, "jira.branchType");
     for (const warning of result.warnings) {
-      onWarning(warning);
+      options.onWarning?.(warning);
     }
-    branchType = result.kind;
+    kind = result.kind;
+    match = matchOfResult(result);
   } else {
-    branchType = getJiraBranchType(issue);
+    kind = getJiraBranchType(issue);
+    match = { source: "built-in" };
   }
 
   const prefixConfigName =
-    branchType === "bugfix"
+    kind === "bugfix"
       ? "branchPrefix.bugfix"
-      : branchType === "chore"
+      : kind === "chore"
         ? "branchPrefix.chore"
-        : branchType === "feature"
+        : kind === "feature"
           ? "branchPrefix.feature"
           : undefined;
 
@@ -305,11 +311,19 @@ export async function getJiraBranchNameFromIssue(
     ? await getTeamConfigValue(prefixConfigName)
     : "";
 
-  return renderBranchName({
+  const branchName = await renderBranchName({
     prefix,
     id: issue.key,
     slug: slugifyBranchTitle(issue.fields.summary),
   });
+  return { branchName, kind, fields, match };
+}
+
+export async function getJiraBranchNameFromIssue(
+  issueId: string,
+  onWarning: (warning: string) => void = () => {},
+): Promise<string> {
+  return (await getJiraBranchNaming(issueId, { onWarning })).branchName;
 }
 
 export async function validateJiraCredentials(): Promise<boolean> {
