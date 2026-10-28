@@ -1479,6 +1479,66 @@ describe("branch command", () => {
       });
     });
 
+    describe("the decision is shared across providers", () => {
+      // Phase 4 calls this with "jira.autoAssign"; proving the seam here keeps
+      // that phase from re-deriving flag, config, non-interactive and prompt.
+      const decide = (flag?: boolean) =>
+        (branch as any).shouldAssignIssue("jira.autoAssign", flag);
+
+      function configured(values: Record<string, string>) {
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+          Promise.resolve(values[key] ?? ""),
+        );
+      }
+
+      it("honours the flag, then the given key, and ignores github.autoAssign", async () => {
+        configured({ "jira.autoAssign": "false", "github.autoAssign": "true" });
+        expect(await decide(true)).toBe(true);
+        expect(await decide()).toBe(false);
+
+        configured({ "jira.autoAssign": "true", "github.autoAssign": "false" });
+        expect(await decide()).toBe(true);
+      });
+
+      it("assigns without saving when non-interactive and unset", async () => {
+        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        configured({});
+        setNonInteractive(true);
+
+        expect(await decide()).toBe(true);
+        expect(mockSet).not.toHaveBeenCalled();
+      });
+
+      it("prompts naming the key and saves the answer under it", async () => {
+        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        configured({});
+        mockConfirm.mockResolvedValue(false);
+
+        expect(await decide()).toBe(false);
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Assign this issue to you? (saved as jira.autoAssign; change it later with `worktree config jira.autoAssign <true|false>`)",
+        });
+        expect(mockSet).toHaveBeenCalledWith("jira.autoAssign", "false");
+      });
+
+      it("names the given key when saving the answer fails", async () => {
+        vi.spyOn(git, "gitSetConfigValue").mockRejectedValue(
+          new Error("config file is locked"),
+        );
+        const mockWarn = vi
+          .spyOn(branch, "warn")
+          .mockImplementation((input: any) => input);
+        configured({});
+        mockConfirm.mockResolvedValue(true);
+
+        expect(await decide()).toBe(true);
+        expect(mockWarn).toHaveBeenCalledWith(
+          "Could not save jira.autoAssign, so you will be asked again next time. config file is locked",
+        );
+      });
+    });
+
     describe("the worktree is the deliverable", () => {
       it("still creates and opens the worktree when the assignment throws", async () => {
         vi.spyOn(githubIntegration, "assignGitHubIssue").mockRejectedValue(

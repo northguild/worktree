@@ -393,25 +393,26 @@ was not delivered
   }
 
   /**
-   * Flag, then config, then true when non-interactive, then prompt (D4, D8). The key is tri-state through unset
-   * (D3): `true` always assigns, `false` never does, and unset means ask.
+   * Flag, then `configKey`, then true when non-interactive, then prompt. Each
+   * provider has its own key (`github.autoAssign`, `jira.autoAssign`), tri-state
+   * through unset: `true` always assigns, `false` never does, and unset means ask.
    *
-   * The prompt persists its own answer (D5) and its text names the key it
+   * The prompt persists its own answer and its text names the key it
    * writes, because a declined answer is otherwise invisible and permanent —
    * the feature would simply stop offering itself with nothing to point at.
    *
    * A non-interactive run that reaches this point assigns, and does not save
-   * anything (D8): an agent that named an issue asked for it to be worked, and
+   * anything: an agent that named an issue asked for it to be worked, and
    * assigning is what says so. An explicit `false` never gets here, so it still
    * wins. The default is not persisted because one unattended run must not
    * settle the key for the human who runs this later.
    */
-  private async shouldAssignGithubIssue(assignFlag?: boolean) {
+  private async shouldAssignIssue(configKey: ConfigName, assignFlag?: boolean) {
     if (assignFlag !== undefined) {
       return assignFlag;
     }
 
-    const configured = await gitGetConfigValue("github.autoAssign");
+    const configured = await gitGetConfigValue(configKey);
     if (configured === "true") {
       return true;
     }
@@ -425,8 +426,7 @@ was not delivered
 
     const answer = await askConfirm(
       {
-        message:
-          "Assign this issue to you? (saved as github.autoAssign; change it later with `worktree config github.autoAssign <true|false>`)",
+        message: `Assign this issue to you? (saved as ${configKey}; change it later with \`worktree config ${configKey} <true|false>\`)`,
       },
       {
         value: "whether to assign the issue",
@@ -440,10 +440,10 @@ was not delivered
     // would reach BaseCommand.catch and cost the user the branch they asked
     // for, on a run they may well have answered "no" to.
     try {
-      await gitSetConfigValue("github.autoAssign", String(answer));
+      await gitSetConfigValue(configKey, String(answer));
     } catch (error) {
       this.warn(
-        `Could not save github.autoAssign, so you will be asked again next time. ${error instanceof Error ? error.message : String(error)}`,
+        `Could not save ${configKey}, so you will be asked again next time. ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
@@ -632,7 +632,7 @@ was not delivered
     } else if (flags.clickup && flags.assign) {
       this.warn("Assignment is not supported for ClickUp tasks yet.");
     } else if (flags.github) {
-      if (await this.shouldAssignGithubIssue(flags.assign)) {
+      if (await this.shouldAssignIssue("github.autoAssign", flags.assign)) {
         assigned = await this.assignGithubIssue(flags.github);
       }
     }
