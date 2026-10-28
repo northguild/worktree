@@ -20,6 +20,7 @@ title: Configuration
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
+- `jira.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
 - `linear.apiKey` (Linear personal API key, example: `lin_api_...`)
 - `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
 - `clickup.workspaceId` (optional; your ClickUp Workspace id, a number, needed only for custom task ids like `DEV-123`)
@@ -216,7 +217,13 @@ worktree config github.autoAssign true
 ## Jira Integration Notes
 
 - `worktree branch --jira <issue-id>` reads issues from your configured Jira workspace.
-- All three Jira config keys (`jira.host`, `jira.email`, `jira.apiToken`) are required.
+- All three Jira connection keys (`jira.host`, `jira.email`, `jira.apiToken`) are required.
+- `jira.autoAssign` is optional and decides whether `--jira` also assigns the issue to you. It has three states, like `github.autoAssign`: `true` always assigns unless someone else already holds the issue, which is then left with them, `false` never assigns, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it assigns and saves nothing. `worktree branch --assign` and `--no-assign` override the key for a single run. To set it directly:
+
+```bash
+worktree config jira.autoAssign true
+```
+
 - Branch prefix keys are optional. If missing, `worktree` uses no prefix.
 - Issue IDs are case-insensitive (both `dev-123` and `DEV-123` work).
 

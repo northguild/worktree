@@ -354,6 +354,24 @@ describe("isValidConfigValue — the opener keys", () => {
   );
 });
 
+describe("isValidConfigValue — jira.autoAssign", () => {
+  // Same contract as github.autoAssign (D3): `isValidBoolean` accepts the
+  // lowercase words "true" and "false" and nothing else.
+  it.each`
+    value      | expected                         | description
+    ${"true"}  | ${true}                          | ${"always assign"}
+    ${"false"} | ${true}                          | ${"never assign"}
+    ${"maybe"} | ${"Value must be true or false"} | ${"a non-boolean value"}
+    ${"True"}  | ${"Value must be true or false"} | ${"a capitalised boolean"}
+    ${""}      | ${"Value must be true or false"} | ${"an empty value passed to the setter"}
+  `(
+    'should return $expected for "$value" ($description)',
+    async ({ value, expected }) => {
+      expect(await isValidConfigValue("jira.autoAssign", value)).toBe(expected);
+    },
+  );
+});
+
 describe("isValidConfigValue — github.autoAssign", () => {
   it.each`
     value      | expected                         | description
@@ -451,6 +469,21 @@ describe("validateConfigValue", () => {
   it("should resolve for a well-shaped herdr.agent", async () => {
     await expect(
       validateConfigValue("herdr.agent", "claude"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("should throw InvalidConfigValueError for a non-boolean jira.autoAssign", async () => {
+    await expect(
+      validateConfigValue("jira.autoAssign", "maybe"),
+    ).rejects.toThrow(InvalidConfigValueError);
+  });
+
+  it("should resolve for a boolean jira.autoAssign", async () => {
+    await expect(
+      validateConfigValue("jira.autoAssign", "true"),
+    ).resolves.toBeUndefined();
+    await expect(
+      validateConfigValue("jira.autoAssign", "false"),
     ).resolves.toBeUndefined();
   });
 

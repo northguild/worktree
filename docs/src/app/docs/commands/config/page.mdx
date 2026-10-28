@@ -45,6 +45,7 @@ worktree config opener
 worktree config agent.command "claude --bg"
 worktree config postCreate "pnpm install"
 worktree config github.autoAssign true
+worktree config jira.autoAssign true
 worktree config --list
 worktree config --list --missing
 worktree config --missing
@@ -87,6 +88,18 @@ rather than clearing it. A pasted value is stored without surrounding whitespace
 `clickup.workspaceId` is optional and only matters for custom task ids such as `DEV-123`: an empty answer skips it and writes nothing, a non-interactive run skips it rather than failing, and under `--missing` pressing Enter skips its prompt too.
 A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey` and `clickup.apiToken`) with a value that is only
 whitespace is refused with exit `2`, and nothing is stored.
+
+## Jira Integration Keys
+
+- `jira.host`, `jira.email` and `jira.apiToken` for Jira API access.
+- `jira.autoAssign` whether `--jira` also assigns the issue to you: `true` always, `false` never, unset
+  means you are asked once and your answer is saved. See
+  [Configuration](/docs/configuration#jira-integration-notes).
+
+The Jira keys are asked together behind one confirm. The `jira.autoAssign` prompt is asked after the token
+and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
+The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct
+`worktree config jira.autoAssign` accepts only `true` or `false`.
 
 ## Agent Key
 

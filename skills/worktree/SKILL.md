@@ -388,6 +388,7 @@ under `northguild.worktree.*`.
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
+| `jira.autoAssign` | `true` or `false` | whether `--jira` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `linear.apiKey` | `lin_api_...` | `--linear` flag |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
