@@ -104,6 +104,10 @@ describe("branch command", () => {
       login: "octocat",
       assigned: true,
     });
+    vi.spyOn(jiraIntegration, "assignJiraIssue").mockResolvedValue({
+      outcome: "assigned",
+      displayName: "Ada Lovelace",
+    });
   });
 
   describe("basic functionality", () => {
@@ -1696,6 +1700,9 @@ describe("branch command", () => {
         const mockAssign = vi
           .spyOn(githubIntegration, "assignGitHubIssue")
           .mockResolvedValue({ login: "octocat", assigned: true });
+        const mockAssignJira = vi
+          .spyOn(jiraIntegration, "assignJiraIssue")
+          .mockResolvedValue({ outcome: "assigned", displayName: "Me" });
         const mockSetConfigValue = vi
           .spyOn(git, "gitSetConfigValue")
           .mockResolvedValue();
@@ -1711,6 +1718,7 @@ describe("branch command", () => {
         await branch.run();
 
         expect(mockAssign).not.toHaveBeenCalled();
+        expect(mockAssignJira).not.toHaveBeenCalled();
         // Not "no confirm at all" — verifyConfig asks its own missing-config
         // question on this path. Only the assignment one must be absent.
         const asked = mockConfirm.mock.calls.map(
@@ -1725,35 +1733,261 @@ describe("branch command", () => {
         );
       });
 
-      it("warns and continues for --jira --assign", async () => {
-        vi.spyOn(
-          jiraIntegration,
-          "getJiraBranchNameFromIssue",
-        ).mockResolvedValue("DEV-123-add-dark-mode");
-        const mockAssign = vi
-          .spyOn(githubIntegration, "assignGitHubIssue")
-          .mockResolvedValue({ login: "octocat", assigned: true });
-        const mockWarn = vi
-          .spyOn(branch, "warn")
-          .mockImplementation((input: any) => input);
-        mockInput.mockResolvedValue("DEV-123-add-dark-mode");
-        const mockGitCreateWorktree = vi
-          .spyOn(git, "gitCreateWorktree")
-          .mockResolvedValue("/path/to/worktree");
+      describe("Jira assignment", () => {
+        // One place to set up a --jira run whose only variable is the
+        // assignment decision, as githubRun does for GitHub.
+        function jiraRun(
+          flags: Record<string, unknown>,
+          configValues: Record<string, string> = {},
+        ) {
+          vi.spyOn(
+            jiraIntegration,
+            "getJiraBranchNameFromIssue",
+          ).mockResolvedValue("DEV-123-add-dark-mode");
+          vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+            (key: string) => {
+              if (key === "has-called-config") return Promise.resolve("true");
+              if (key === "defaultSourceBranch")
+                return Promise.resolve("origin/main");
+              if (key === "jira.host")
+                return Promise.resolve("example.atlassian.net");
+              if (key === "jira.email")
+                return Promise.resolve("test@example.com");
+              if (key === "jira.apiToken") return Promise.resolve("token");
+              return Promise.resolve(configValues[key] ?? "");
+            },
+          );
+          mockInput.mockResolvedValue("DEV-123-add-dark-mode");
+          vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+            "/path/to/worktree",
+          );
 
-        (branch as any).parse = vi.fn().mockResolvedValue({
-          args: {},
-          flags: { jira: "DEV-123", assign: true },
+          (branch as any).parse = vi.fn().mockResolvedValue({
+            args: {},
+            flags: { jira: "dev-123", ...flags },
+          });
+        }
+
+        const spyAssign = (
+          result: Awaited<ReturnType<typeof jiraIntegration.assignJiraIssue>>,
+        ) =>
+          vi
+            .spyOn(jiraIntegration, "assignJiraIssue")
+            .mockResolvedValue(result);
+        const assignedToMe = {
+          outcome: "assigned",
+          displayName: "Ada Lovelace",
+        } as const;
+        const lastSpinner = () => vi.mocked(ora).mock.results.at(-1)?.value;
+
+        it("assigns on --assign and reports assigned: true", async () => {
+          const mockAssign = spyAssign(assignedToMe);
+          const mockGithubAssign = vi.spyOn(
+            githubIntegration,
+            "assignGitHubIssue",
+          );
+          jiraRun({ assign: true });
+
+          const document = await branch.run();
+
+          // The key is passed as typed; assignJiraIssue normalises it itself.
+          expect(mockAssign).toHaveBeenCalledWith("dev-123");
+          expect(mockGithubAssign).not.toHaveBeenCalled();
+          // D6: `true` means the issue is the caller's after this run.
+          expect(document.assigned).toBe(true);
+          expect(lastSpinner().succeed).toHaveBeenCalledWith(
+            "Assigned DEV-123 to Ada Lovelace",
+          );
         });
 
-        await branch.run();
+        it("reports already-yours as success, with assigned: true", async () => {
+          spyAssign({ outcome: "already-yours", displayName: "Ada Lovelace" });
+          jiraRun({ assign: true });
 
-        // D2 reserves the flag name for Jira; only the GitHub path is built.
-        expect(mockWarn).toHaveBeenCalledWith(
-          "Assignment is not supported for Jira issues yet.",
-        );
-        expect(mockAssign).not.toHaveBeenCalled();
-        expect(mockGitCreateWorktree).toHaveBeenCalled();
+          const document = await branch.run();
+
+          expect(document.assigned).toBe(true);
+          expect(lastSpinner().succeed).toHaveBeenCalledWith(
+            "DEV-123 is already assigned to you",
+          );
+        });
+
+        it("does not call Jira on --no-assign, and reports assigned: null", async () => {
+          const mockAssign = spyAssign(assignedToMe);
+          jiraRun({ assign: false }, { "jira.autoAssign": "true" });
+
+          const document = await branch.run();
+
+          expect(mockAssign).not.toHaveBeenCalled();
+          expect(document.assigned).toBeNull();
+        });
+
+        it("assigns when jira.autoAssign is true and no flag is given", async () => {
+          const mockAssign = spyAssign(assignedToMe);
+          jiraRun({}, { "jira.autoAssign": "true" });
+
+          await branch.run();
+
+          expect(mockAssign).toHaveBeenCalledWith("dev-123");
+          expect(mockConfirm).not.toHaveBeenCalled();
+        });
+
+        it("does not assign when jira.autoAssign is false and no flag is given", async () => {
+          const mockAssign = spyAssign(assignedToMe);
+          jiraRun({}, { "jira.autoAssign": "false" });
+
+          const document = await branch.run();
+
+          expect(mockAssign).not.toHaveBeenCalled();
+          expect(document.assigned).toBeNull();
+        });
+
+        it("ignores github.autoAssign for a Jira run", async () => {
+          const mockAssign = spyAssign(assignedToMe);
+          jiraRun(
+            {},
+            { "github.autoAssign": "true", "jira.autoAssign": "false" },
+          );
+
+          await branch.run();
+
+          expect(mockAssign).not.toHaveBeenCalled();
+        });
+
+        it("asks when the key is unset, assigns on yes and saves it under jira.autoAssign", async () => {
+          const mockAssign = spyAssign(assignedToMe);
+          const mockSet = vi
+            .spyOn(git, "gitSetConfigValue")
+            .mockResolvedValue();
+          mockConfirm.mockResolvedValue(true);
+          jiraRun({});
+
+          await branch.run();
+
+          expect(mockConfirm).toHaveBeenCalledWith({
+            message:
+              "Assign this issue to you? (saved as jira.autoAssign; change it later with `worktree config jira.autoAssign <true|false>`)",
+          });
+          expect(mockAssign).toHaveBeenCalledWith("dev-123");
+          expect(mockSet).toHaveBeenCalledWith("jira.autoAssign", "true");
+        });
+
+        it("assigns without asking or saving when non-interactive and unset", async () => {
+          const mockAssign = spyAssign(assignedToMe);
+          const mockSet = vi
+            .spyOn(git, "gitSetConfigValue")
+            .mockResolvedValue();
+          jiraRun({});
+          setNonInteractive(true);
+
+          await branch.run();
+
+          expect(mockAssign).toHaveBeenCalledWith("dev-123");
+          expect(mockConfirm).not.toHaveBeenCalled();
+          expect(mockSet).not.toHaveBeenCalledWith(
+            "jira.autoAssign",
+            expect.anything(),
+          );
+        });
+
+        it("leaves an issue held by someone else alone: a warning naming them, assigned: false, worktree created", async () => {
+          // D1: held-by-other means no write; the holder is named so the
+          // person knows whose work it is.
+          spyAssign({
+            outcome: "held-by-other",
+            displayName: "Ada Lovelace",
+            heldBy: "Grace Hopper",
+          });
+          jiraRun({ assign: true });
+          const mockGitCreateWorktree = vi
+            .spyOn(git, "gitCreateWorktree")
+            .mockResolvedValue("/path/to/worktree");
+
+          const document = await branch.run();
+
+          expect(document.assigned).toBe(false);
+          expect(document.path).toBe("/path/to/worktree");
+          expect(mockGitCreateWorktree).toHaveBeenCalled();
+          const spinner = lastSpinner();
+          expect(spinner.warn).toHaveBeenCalledWith(
+            "DEV-123 is already assigned to Grace Hopper, so it was left alone. Reassign it in Jira if it should be yours.",
+          );
+          expect(spinner.fail).not.toHaveBeenCalled();
+          expect(spinner.succeed).not.toHaveBeenCalled();
+          expect(document.warnings).toContain(
+            "DEV-123 is already assigned to Grace Hopper, so it was left alone. Reassign it in Jira if it should be yours.",
+          );
+        });
+
+        it("still creates the worktree when the assignment is rejected", async () => {
+          vi.spyOn(jiraIntegration, "assignJiraIssue").mockRejectedValue(
+            new Error(
+              "Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of DEV-123.",
+            ),
+          );
+          jiraRun({ assign: true });
+          const mockGitCreateWorktree = vi
+            .spyOn(git, "gitCreateWorktree")
+            .mockResolvedValue("/path/to/worktree");
+
+          const document = await branch.run();
+
+          expect(document.path).toBe("/path/to/worktree");
+          expect(document.assigned).toBe(false);
+          expect(mockGitCreateWorktree).toHaveBeenCalled();
+          expect(mockOpenWorktreePath).toHaveBeenCalled();
+          const spinner = lastSpinner();
+          expect(spinner.warn).toHaveBeenCalledWith(
+            "Could not assign DEV-123. Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of DEV-123.",
+          );
+          expect(spinner.fail).not.toHaveBeenCalled();
+          expect(document.warnings).toContain(
+            "Could not assign DEV-123. Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of DEV-123.",
+          );
+        });
+
+        it("assigns before the worktree is created", async () => {
+          const calls: string[] = [];
+          vi.spyOn(jiraIntegration, "assignJiraIssue").mockImplementation(
+            async () => {
+              calls.push("assign");
+              return assignedToMe;
+            },
+          );
+          jiraRun({ assign: true });
+          vi.spyOn(git, "gitCreateWorktree").mockImplementation(async () => {
+            calls.push("createWorktree");
+            return "/path/to/worktree";
+          });
+
+          await branch.run();
+
+          expect(calls).toEqual(["assign", "createWorktree"]);
+        });
+
+        it("keeps the --json document's keys unchanged", async () => {
+          spyAssign(assignedToMe);
+          jiraRun({ assign: true });
+
+          const document = await branch.run();
+
+          // The ten keys the command's description documents for --json; D6
+          // changes a value's meaning, never the shape.
+          expect(Object.keys(document).sort()).toEqual(
+            [
+              "path",
+              "branch",
+              "source",
+              "issue",
+              "assigned",
+              "envFilesCopied",
+              "installed",
+              "herdr",
+              "agent",
+              "warnings",
+            ].sort(),
+          );
+        });
       });
 
       it.each([

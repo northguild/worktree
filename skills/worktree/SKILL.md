@@ -79,6 +79,11 @@ worktree branch --github 42 --no-assign
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
 
+# Assign a Jira issue to yourself; one held by someone else is left alone
+# (a warning names them, `assigned` is false). Needs Browse Projects and
+# Assign Issues on the project. --no-assign skips it for one run.
+worktree branch --jira DEV-123 --assign
+
 # Linear — requires linear.apiKey in config
 worktree branch --linear ENG-123
 worktree branch --linear eng-123
@@ -90,19 +95,20 @@ worktree branch --clickup DEV-123
 ```
 
 `--github`, `--jira`, `--linear` and `--clickup` are mutually exclusive. `--assign` and
-`--no-assign` need one of the four; `--assign --linear` (as `--assign --jira`
-and `--assign --clickup`) skips the assignment with a warning, because
-assignment is not supported for them yet. `--linear` alone warns nothing.
+`--no-assign` need one of the four; `--assign --linear` (as `--assign --clickup`)
+skips the assignment with a warning, because assignment is not supported for
+them yet. `--linear` alone warns nothing.
 
-With neither flag, `github.autoAssign` decides whether the issue is
-assigned: `true` always, `false` never, and unset means you are asked once
-and the answer is saved to the key (a non-interactive run assigns instead, and
-saves nothing). A failed assignment warns and the
-worktree is still created.
+With neither flag, `github.autoAssign` (for `--github`) or `jira.autoAssign`
+(for `--jira`) decides whether the issue is assigned: `true` always, `false`
+never, and unset means you are asked once and the answer is saved to the key
+(a non-interactive run assigns instead, and saves nothing). A failed
+assignment warns and the worktree is still created. A Jira issue that
+someone else holds is never reassigned, even with `--assign`.
 
 The generated branch name is pre-filled in an interactive prompt and
 editable before confirmation. A non-interactive run takes the pre-filled name
-without asking. With `github.autoAssign` unset it assigns the issue and does
+without asking. With `github.autoAssign` or `jira.autoAssign` unset it assigns the issue and does
 not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are applied when configured:
 - `Feature` / `Story` → `branchPrefix.feature`
 - `Bug` → `branchPrefix.bugfix`
@@ -189,15 +195,15 @@ Flags for agent mode:
 | `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
-| `--assign` / `--no-assign` | `branch` | assign the `--github` issue to you, or not |
+| `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 Defaults when non-interactive:
 
 - **Branch name** from `--github`: `<prefix><number>-<slug>`, the slug cut to
   48 characters at the last dash. With no issue, the branch name is required.
-- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`, then
-  assign. The default is never saved.
+- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or
+  `jira.autoAssign`, then assign. The default is never saved.
 - **Install:** on. The command is `postCreate`, else inferred from the lockfile
   (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing
   to run it says so and carries on. A failure keeps the worktree, starts nothing
@@ -226,7 +232,7 @@ document:
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`,
   `{provider:"clickup",key,url}`, or `null`; `url` can itself be `null`.
-- `assigned` is `null` when no assignment was attempted.
+- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), `null` when no assignment was attempted.
 - `herdr` and `agent` are `null` when skipped. `agent.command` leaves the brief
   out. `agent.name` is `null` where this CLI named nothing: a detached
   start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a

@@ -32,6 +32,30 @@ Supported issue-type prefix mapping:
 
 If a prefix key is not configured, no prefix is applied.
 
+## Assigning the issue
+
+`--assign` assigns the Jira issue to the account behind `jira.email` while the branch is created, and
+`--no-assign` skips it for one run. With neither, `jira.autoAssign` decides: `true` always assigns, `false`
+never does, and unset asks once and saves your answer. A non-interactive run (`--json`, `--yes`, CI) with the
+key unset assigns and saves nothing. This key is separate from `github.autoAssign`.
+
+```bash
+worktree branch --jira DEV-123 --assign
+worktree branch --jira DEV-123 --no-assign
+worktree config jira.autoAssign true
+```
+
+- **An issue someone else holds is never reassigned.** Jira keeps one assignee, so writing yours would remove
+  a colleague who may be working it. `worktree` warns with their name, leaves the issue as it is and creates the
+  branch; `--assign` does not override this. An issue already assigned to you is reported as such and nothing
+  is written. In the `--json` document, `assigned` is `true` when the issue is assigned now or was already
+  yours, and `false` when someone else holds it.
+- **The account needs the *Browse Projects* and *Assign Issues* permissions** on the issue's project. Without
+  them, or when the issue is not found or Jira does not accept the account, `worktree` warns with what Jira
+  said.
+- **A failed assignment never stops the branch.** The worktree is created either way, and `assigned` is `false`.
+- The assignment happens before the worktree is created, so a prompt is never buried behind creation output.
+
 ## Authentication Resolution
 
 Authentication is resolved in this order:

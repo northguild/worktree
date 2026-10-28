@@ -21,3 +21,10 @@ Branch-local, non-blocking observations from the gates. `/feature-close` deletes
 
 - The shared-decision tests reach the private `shouldAssignIssue` through `(branch as any)`, as the rest of `branch.test.ts` does; `branch["shouldAssignIssue"]` would keep the key type-checked but Biome's `useLiteralKeys` flags it.
 - Phase 3's coder reported not loading the standards its `Standards:` line lists; the reviewer checked the diff against them.
+
+## Phase 4 — `branch --jira` assigns
+
+- `branch/page.mdx`'s `assigned` row lists `null` cases as "(no issue, `--no-assign`, or a configured `false`)", which omits a declined prompt and `--assign` with Linear or ClickUp; its `warnings` row says "a failed assignment", which undersells the held-by-other warning.
+- The Jira guide's intro mentions only branch names, and its `--missing --names` setup list leaves out `jira.autoAssign`.
+- `commands/config/page.mdx` says `true` "always" assigns without the held-by-other exception; it links to the configuration notes, which state it.
+- For `/feature-close`'s release note: on upgrade an existing Jira user sees `--jira` prompt once (interactive) or assign (non-interactive) while `jira.autoAssign` is unset, by D3.
