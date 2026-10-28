@@ -1798,7 +1798,7 @@ describe("branch command", () => {
           expect(mockAssign).toHaveBeenCalledWith("dev-123");
           expect(mockGithubAssign).not.toHaveBeenCalled();
           // D6: `true` means the issue is the caller's after this run.
-          expect(document.assigned).toBe(true);
+          expect(document?.assigned).toBe(true);
           expect(lastSpinner().succeed).toHaveBeenCalledWith(
             "Assigned DEV-123 to Ada Lovelace",
           );
@@ -1810,7 +1810,7 @@ describe("branch command", () => {
 
           const document = await branch.run();
 
-          expect(document.assigned).toBe(true);
+          expect(document?.assigned).toBe(true);
           expect(lastSpinner().succeed).toHaveBeenCalledWith(
             "DEV-123 is already assigned to you",
           );
@@ -1823,7 +1823,7 @@ describe("branch command", () => {
           const document = await branch.run();
 
           expect(mockAssign).not.toHaveBeenCalled();
-          expect(document.assigned).toBeNull();
+          expect(document?.assigned).toBeNull();
         });
 
         it("assigns when jira.autoAssign is true and no flag is given", async () => {
@@ -1843,7 +1843,7 @@ describe("branch command", () => {
           const document = await branch.run();
 
           expect(mockAssign).not.toHaveBeenCalled();
-          expect(document.assigned).toBeNull();
+          expect(document?.assigned).toBeNull();
         });
 
         it("ignores github.autoAssign for a Jira run", async () => {
@@ -1909,8 +1909,8 @@ describe("branch command", () => {
 
           const document = await branch.run();
 
-          expect(document.assigned).toBe(false);
-          expect(document.path).toBe("/path/to/worktree");
+          expect(document?.assigned).toBe(false);
+          expect(document?.path).toBe("/path/to/worktree");
           expect(mockGitCreateWorktree).toHaveBeenCalled();
           const spinner = lastSpinner();
           expect(spinner.warn).toHaveBeenCalledWith(
@@ -1918,7 +1918,7 @@ describe("branch command", () => {
           );
           expect(spinner.fail).not.toHaveBeenCalled();
           expect(spinner.succeed).not.toHaveBeenCalled();
-          expect(document.warnings).toContain(
+          expect(document?.warnings).toContain(
             "DEV-123 is already assigned to Grace Hopper, so it was left alone. Reassign it in Jira if it should be yours.",
           );
         });
@@ -1936,8 +1936,8 @@ describe("branch command", () => {
 
           const document = await branch.run();
 
-          expect(document.path).toBe("/path/to/worktree");
-          expect(document.assigned).toBe(false);
+          expect(document?.path).toBe("/path/to/worktree");
+          expect(document?.assigned).toBe(false);
           expect(mockGitCreateWorktree).toHaveBeenCalled();
           expect(mockOpenWorktreePath).toHaveBeenCalled();
           const spinner = lastSpinner();
@@ -1945,7 +1945,7 @@ describe("branch command", () => {
             "Could not assign DEV-123. Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of DEV-123.",
           );
           expect(spinner.fail).not.toHaveBeenCalled();
-          expect(document.warnings).toContain(
+          expect(document?.warnings).toContain(
             "Could not assign DEV-123. Jira: Your account lacks the Browse Projects or Assign Issues permission on the project of DEV-123.",
           );
         });
@@ -1977,7 +1977,7 @@ describe("branch command", () => {
 
           // The ten keys the command's description documents for --json; D6
           // changes a value's meaning, never the shape.
-          expect(Object.keys(document).sort()).toEqual(
+          expect(Object.keys(document ?? {}).sort()).toEqual(
             [
               "path",
               "branch",
