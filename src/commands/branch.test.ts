@@ -4072,6 +4072,51 @@ branchType:
       ]);
     });
 
+    // An id belongs to one provider, so the shared list gets the name.
+    it("offers by-name lines for Type and Labels when the shared list decided", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: bugfix\n");
+      githubIssue({ type: { id: 9, name: "Bug" } });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain(
+        "each with a line to paste into branchType:",
+      );
+      expect(output.stdout()).toContain("- when: { Type: Bug }   # Type = Bug");
+      expect(output.stdout()).toContain(
+        "- when: { Labels: Maintenance }   # Labels = Maintenance",
+      );
+      expect(output.stdout()).not.toContain("{ id:");
+    });
+
+    it("keeps the id lines when the provider's own list decided", async () => {
+      projectFile(FILE);
+      githubIssue({ type: { id: 9, name: "Bug" } });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain(
+        '- when: { Type: { id: "9" } }   # Type = Bug',
+      );
+      expect(output.stdout()).toContain(
+        '- when: { Labels: { id: "5" } }   # Labels = Maintenance',
+      );
+    });
+
+    it("gives the --json the same by-name line under the shared list", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: bugfix\n");
+      githubIssue({ type: { id: 9, name: "Bug" } });
+
+      await runDry({ github: "8" }, ["--json"]);
+
+      const doc = output.document() as any;
+      expect(doc.fields.map((f: any) => f.values[0].when)).toEqual([
+        "- when: { Type: Bug }   # Type = Bug",
+        "- when: { Labels: Maintenance }   # Labels = Maintenance",
+      ]);
+      expect(doc.fields[0].values[0].id).toBe("9");
+    });
+
     it("says no rule matched when rules exist and none did", async () => {
       projectFile(FILE);
       githubIssue({ labels: [] });

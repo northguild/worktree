@@ -201,11 +201,21 @@ export function formatBranchTypeRule(rule: BranchTypeRule) {
 /**
  * One line to paste into a `branchType` list: the value by id when it has one
  * (ids survive a renamed option and another language), by name when it does
- * not, with the names as a comment.
+ * not, with the names as a comment. For the shared list (`shared`), the
+ * portable `Type` and `Labels` fields use the name too, because an id belongs
+ * to one provider and fails silently on the others.
  */
-export function pasteReadyLine(field: IssueField, value: FieldValue) {
+export function pasteReadyLine(
+  field: IssueField,
+  value: FieldValue,
+  shared = false,
+) {
+  const byName =
+    shared &&
+    value.name !== undefined &&
+    (field.id === "Type" || field.id === "Labels");
   const wanted =
-    value.id !== undefined
+    value.id !== undefined && !byName
       ? formatWhenValue({ id: value.id })
       : yamlScalar(value.name ?? "");
   const label = value.name ?? value.id ?? "";

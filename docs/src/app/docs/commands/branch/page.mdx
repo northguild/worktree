@@ -181,7 +181,7 @@ Fields with a value (2), each with a line to paste into jira.branchType:
   paste into a `branchType` list; see
   [Writing rules with a dry run](/docs/project-configuration#writing-rules-with-a-dry-run).
 - **Jira field names** come from `?expand=names` on the issue request, which a dry run always asks for. The
-  paste-ready lines name ids, which is what a shared file should use.
+  paste-ready lines name ids, except that `Type` and `Labels` are by name when the shared `branchType` list decided, because an id belongs to one provider.
 
 With `--json` a dry run prints one document, not the [`branch` document](#json-output):
 

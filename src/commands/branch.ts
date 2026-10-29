@@ -687,9 +687,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
     // The list that decided (D7): the provider's own, else the shared one;
     // with neither, the name a person would write one under.
-    const listName =
-      (await getBranchTypeRules(issue.provider))?.listName ??
-      `${issue.provider}.branchType`;
+    const inForce = await getBranchTypeRules(issue.provider);
+    const listName = inForce?.listName ?? `${issue.provider}.branchType`;
     const fields = naming.fields
       .filter((field) => field.values.length > 0)
       .map((field) => ({
@@ -698,7 +697,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         values: field.values.map((value) => ({
           id: value.id ?? null,
           name: value.name ?? null,
-          when: pasteReadyLine(field, value),
+          when: pasteReadyLine(field, value, inForce?.shared === true),
         })),
       }));
     const match: BranchDryRunDocument["match"] =
