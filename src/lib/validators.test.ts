@@ -459,6 +459,60 @@ describe("isValidConfigValue clickup.workspaceId", () => {
   });
 });
 
+// Expected values come from GitHub's documented rules, not from the validator:
+// a repository name is at most 100 characters of ASCII letters, digits, `.`, `-`
+// and `_` (https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository),
+// and a username is at most 39 characters
+// (https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication).
+// Alphanumeric or single hyphens, not starting or ending with one, is what the
+// sign-up form states for an owner.
+describe("isValidConfigValue github.repository", () => {
+  it.each([
+    "acme/widgets",
+    "a/b",
+    "acme-corp/my.repo_name-2",
+    "Acme/Widgets",
+    "acme/.github",
+    "acme/foo..bar",
+    `${"x".repeat(39)}/${"y".repeat(100)}`,
+  ])("accepts %j", async (value) => {
+    expect(await isValidConfigValue("github.repository", value)).toBe(true);
+  });
+
+  it.each([
+    ["an empty value", ""],
+    ["whitespace only", "   "],
+    ["no slash", "acme"],
+    ["a third segment", "acme/widgets/extra"],
+    ["a URL", "https://github.com/acme/widgets"],
+    ["an SSH remote", "git@github.com:acme/widgets"],
+    ["a dot-dot repository", "acme/.."],
+    ["a dot repository", "acme/."],
+    ["a dot-dot owner", "../widgets"],
+    ["a trailing .git", "acme/widgets.git"],
+    ["a trailing .GIT", "acme/widgets.GIT"],
+    ["an empty owner", "/widgets"],
+    ["an empty repository", "acme/"],
+    ["a leading space", " acme/widgets"],
+    ["a trailing space", "acme/widgets "],
+    ["an inner space", "acme/wid gets"],
+    ["a newline", "acme/widgets\n"],
+    ["a query string", "acme/widgets?x=1"],
+    ["a percent escape", "acme/wid%2Fgets"],
+    ["an owner starting with a hyphen", "-acme/widgets"],
+    ["an owner ending with a hyphen", "acme-/widgets"],
+    ["an owner with consecutive hyphens", "ac--me/widgets"],
+    ["an owner with an underscore", "ac_me/widgets"],
+    ["an owner over 39 characters", `${"x".repeat(40)}/widgets`],
+    ["a repository over 100 characters", `acme/${"y".repeat(101)}`],
+    ["a non-ASCII letter", "acme/wídgets"],
+  ])("refuses %s", async (_label, value) => {
+    expect(await isValidConfigValue("github.repository", value)).toEqual(
+      expect.stringContaining("owner/repo"),
+    );
+  });
+});
+
 describe("validateConfigValue", () => {
   it("names InvalidConfigValueError as itself, and exits 2 as an invalid value", () => {
     const error = new InvalidConfigValueError("Invalid email address");

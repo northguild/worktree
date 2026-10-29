@@ -126,6 +126,42 @@ export function isValidWorkspaceId(value: string): true | string {
   return /^\d+$/.test(value.trim()) || "Workspace id must be digits only";
 }
 
+// `owner/repo`, and nothing else, because the value goes into a
+// `/repos/${owner}/${name}/...` request path. Rules, from GitHub's docs:
+// - repository: "must not exceed 100 characters, and can only contain ASCII
+//   letters, digits, and the characters ., -, and _"
+//   https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository
+// - owner: at most 39 characters
+//   https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication
+//   Alphanumeric or single hyphens, not starting or ending with one, is the
+//   rule GitHub's sign-up form states; no docs page we could fetch repeats it.
+// `.` and `..` are path segments and a `.git` suffix is how a clone URL ends,
+// so none of them is a repository name.
+const GITHUB_OWNER = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
+const GITHUB_REPOSITORY_NAME = /^[A-Za-z0-9._-]+$/;
+
+export function isValidGitHubRepository(value: string): true | string {
+  const shape = "Repository must be owner/repo, for example acme/widgets";
+  const parts = value.split("/");
+  if (parts.length !== 2) {
+    return shape;
+  }
+  const [owner, name] = parts;
+  if (owner.length > 39 || !GITHUB_OWNER.test(owner)) {
+    return `${shape} (the owner is letters, digits and single hyphens, up to 39 characters)`;
+  }
+  if (
+    name.length > 100 ||
+    !GITHUB_REPOSITORY_NAME.test(name) ||
+    name === "." ||
+    name === ".." ||
+    /\.git$/i.test(name)
+  ) {
+    return `${shape} (the name is letters, digits, ., - and _, up to 100 characters, not ending in .git)`;
+  }
+  return true;
+}
+
 export async function isValidConfigValue(
   configName: string,
   value: string,
@@ -154,6 +190,8 @@ export async function isValidConfigValue(
       return isValidToken(value);
     case "clickup.workspaceId":
       return isValidWorkspaceId(value);
+    case "github.repository":
+      return isValidGitHubRepository(value);
     case "agent.command":
     // Executed in every new worktree, so it is held to the same check as the
     // other command line: its head has to be a program that exists.
