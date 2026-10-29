@@ -131,14 +131,26 @@ export function isValidWorkspaceId(value: string): true | string {
 // - repository: "must not exceed 100 characters, and can only contain ASCII
 //   letters, digits, and the characters ., -, and _"
 //   https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository
-// - owner: at most 39 characters
+// - owner: "can only contain alphanumeric characters and dashes", "can't start
+//   or end with a dash" nor hold "two consecutive dashes"; a managed user's
+//   ends in "an underscore and your enterprise's shortcode" (`mona-cat_octo`),
+//   and "including underscore and short code, must not exceed 39 characters"
 //   https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication
-//   Alphanumeric or single hyphens, not starting or ending with one, is the
-//   rule GitHub's sign-up form states; no docs page we could fetch repeats it.
 // `.` and `..` are path segments and a `.git` suffix is how a clone URL ends,
 // so none of them is a repository name.
-const GITHUB_OWNER = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
-const GITHUB_REPOSITORY_NAME = /^[A-Za-z0-9._-]+$/;
+const OWNER = "[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:_[A-Za-z0-9]+)?";
+const REPOSITORY_NAME = "[A-Za-z0-9._-]+";
+const GITHUB_OWNER = new RegExp(`^${OWNER}$`);
+const GITHUB_REPOSITORY_NAME = new RegExp(`^${REPOSITORY_NAME}$`);
+
+/**
+ * The characters alone, for the published JSON Schema, which cannot hold the
+ * length limits or the `.`, `..` and `.git` names; isValidGitHubRepository has
+ * those too.
+ */
+export const GITHUB_REPOSITORY_PATTERN = new RegExp(
+  `^${OWNER}/${REPOSITORY_NAME}$`,
+);
 
 export function isValidGitHubRepository(value: string): true | string {
   const shape = "Repository must be owner/repo, for example acme/widgets";
@@ -148,7 +160,7 @@ export function isValidGitHubRepository(value: string): true | string {
   }
   const [owner, name] = parts;
   if (owner.length > 39 || !GITHUB_OWNER.test(owner)) {
-    return `${shape} (the owner is letters, digits and single hyphens, up to 39 characters)`;
+    return `${shape} (the owner is letters, digits and single hyphens, optionally ending in _ and a shortcode, up to 39 characters)`;
   }
   if (
     name.length > 100 ||

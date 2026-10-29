@@ -15,7 +15,10 @@ import {
 import { isNonInteractive } from "./interaction.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
-import { isValidGitHubRepository } from "./validators.js";
+import {
+  GITHUB_REPOSITORY_PATTERN,
+  isValidGitHubRepository,
+} from "./validators.js";
 
 // Imports git.ts and is never imported by it (or by agent.ts): git.ts and
 // agent.ts already import each other (#59), and this file must not close
@@ -131,10 +134,21 @@ export const projectConfigSchema = z
     jira: branchType.extend({ host: z.string().min(1).optional() }).optional(),
     github: branchType
       .extend({
+        // The pattern is for the published schema, so an editor flags a bad
+        // value; the refine adds what a pattern cannot hold. `abort` keeps a
+        // value both refuse to one message.
         repository: z
           .string()
+          .regex(GITHUB_REPOSITORY_PATTERN, {
+            message: "repository must be owner/repo, for example acme/widgets",
+            abort: true,
+          })
           .refine((value) => isValidGitHubRepository(value) === true, {
             message: "repository must be owner/repo, for example acme/widgets",
+          })
+          .meta({
+            description:
+              "The owner/repo that --github reads issues from and --assign assigns in, for example acme/widgets. Only needed when that is not the upstream remote, or origin without one.",
           })
           .optional(),
       })

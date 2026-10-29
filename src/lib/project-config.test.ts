@@ -726,6 +726,23 @@ describe("the published JSON Schema (D5, D6)", () => {
 
     expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual(generated);
   });
+
+  // The editor flags what the pattern refuses; lengths and the ., .. and .git
+  // names are left to the load.
+  it("gives github.repository a pattern an editor can check", () => {
+    const { github } = projectConfigJsonSchema().properties as Record<
+      string,
+      { properties: Record<string, { pattern: string }> }
+    >;
+    const pattern = new RegExp(github.properties.repository.pattern);
+
+    expect(pattern.test("acme/widgets")).toBe(true);
+    expect(pattern.test("mona-cat_octo/widgets")).toBe(true);
+    expect(pattern.test("acme")).toBe(false);
+    expect(pattern.test("acme/widgets/extra")).toBe(false);
+    expect(pattern.test("https://github.com/acme/widgets")).toBe(false);
+    expect(pattern.test("acme/wid gets")).toBe(false);
+  });
 });
 
 // D12: placeholders {prefix}, {id}, {slug}; the default is today's name. The
@@ -1174,6 +1191,21 @@ describe("github.repository in the file (#119)", () => {
     const error = await failure(`github:\n  repository: ${value}\n`);
 
     expect(error.message).toContain("github.repository");
+  });
+
+  // The pattern and the refine both refuse a bad shape; the file says so once.
+  it("names a value the pattern refuses once, not twice", async () => {
+    const error = await failure("github:\n  repository: acme\n");
+
+    expect(error.message.match(/must be owner\/repo/g)).toHaveLength(1);
+  });
+
+  it("loads a managed user's fork, whose owner ends in _ and a shortcode", async () => {
+    const config = await loads(
+      "github:\n  repository: mona-cat_octo/widgets\n",
+    );
+
+    expect(config.github?.repository).toBe("mona-cat_octo/widgets");
   });
 
   it("is written by renderProjectFile and loads as written", async () => {

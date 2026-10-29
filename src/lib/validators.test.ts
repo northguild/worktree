@@ -462,10 +462,10 @@ describe("isValidConfigValue clickup.workspaceId", () => {
 // Expected values come from GitHub's documented rules, not from the validator:
 // a repository name is at most 100 characters of ASCII letters, digits, `.`, `-`
 // and `_` (https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository),
-// and a username is at most 39 characters
+// and a username is at most 39 characters of letters, digits and single dashes,
+// not starting or ending with one; a managed user's ends in `_` and the
+// enterprise's shortcode, within those 39
 // (https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication).
-// Alphanumeric or single hyphens, not starting or ending with one, is what the
-// sign-up form states for an owner.
 describe("isValidConfigValue github.repository", () => {
   it.each([
     "acme/widgets",
@@ -475,6 +475,9 @@ describe("isValidConfigValue github.repository", () => {
     "acme/.github",
     "acme/foo..bar",
     `${"x".repeat(39)}/${"y".repeat(100)}`,
+    "mona-cat_octo/widgets",
+    "octo_admin/widgets",
+    `${"x".repeat(34)}_octo/widgets`,
   ])("accepts %j", async (value) => {
     expect(await isValidConfigValue("github.repository", value)).toBe(true);
   });
@@ -502,7 +505,12 @@ describe("isValidConfigValue github.repository", () => {
     ["an owner starting with a hyphen", "-acme/widgets"],
     ["an owner ending with a hyphen", "acme-/widgets"],
     ["an owner with consecutive hyphens", "ac--me/widgets"],
-    ["an owner with an underscore", "ac_me/widgets"],
+    ["an owner starting with an underscore", "_acme/widgets"],
+    ["an owner ending with an underscore", "acme_/widgets"],
+    ["an owner with two underscores", "mona_cat_octo/widgets"],
+    ["a hyphen before the shortcode", "mona-_octo/widgets"],
+    ["a hyphen in the shortcode", "mona_oc-to/widgets"],
+    ["a managed owner over 39 characters", `${"x".repeat(35)}_octo/widgets`],
     ["an owner over 39 characters", `${"x".repeat(40)}/widgets`],
     ["a repository over 100 characters", `acme/${"y".repeat(101)}`],
     ["a non-ASCII letter", "acme/wídgets"],

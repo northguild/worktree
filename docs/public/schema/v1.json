@@ -191,7 +191,9 @@
           "description": "Ordered rules; the first match wins. `- otherwise: <kind>` sets the kind for an issue no rule matched."
         },
         "repository": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:_[A-Za-z0-9]+)?\\/[A-Za-z0-9._-]+$",
+          "description": "The owner/repo that --github reads issues from and --assign assigns in, for example acme/widgets. Only needed when that is not the upstream remote, or origin without one."
         }
       }
     },
