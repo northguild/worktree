@@ -139,23 +139,29 @@ function hasErrorCode(body: LinearGraphqlResponse, code: string): boolean {
 
 // The classification every Linear answer goes through: auth, rate limit,
 // non-2xx and an unreadable body. Each caller words its own non-2xx and
-// malformed-body messages; auth and rate limit read the same everywhere.
+// malformed-body messages; auth and rate limit read the same everywhere,
+// except that a caller may follow the auth message with a hint of its own.
 async function readLinearAnswer(
   response: Response,
   messages: {
     failed: (body: LinearGraphqlResponse | undefined) => string;
     unexpected: string;
+    authHint?: string;
   },
 ): Promise<LinearGraphqlResponse> {
+  const authFailed = messages.authHint
+    ? `${AUTH_FAILED_MESSAGE} ${messages.authHint}`
+    : AUTH_FAILED_MESSAGE;
+
   if (response.status === 401 || response.status === 403) {
-    throw new Error(AUTH_FAILED_MESSAGE);
+    throw new Error(authFailed);
   }
 
   const body = await readBody(response);
 
   // Linear can report bad auth in the body of a 200 or a 4xx answer.
   if (body && hasErrorCode(body, "AUTHENTICATION_ERROR")) {
-    throw new Error(AUTH_FAILED_MESSAGE);
+    throw new Error(authFailed);
   }
 
   // Linear answers a rate-limited GraphQL request with HTTP 400 and the code
@@ -491,10 +497,13 @@ export async function startLinearIssue(issueId: string): Promise<LinearStart> {
     { id: identifier, stateId: target.id },
     apiKey,
   );
+  // The same key has just read the issue, so an auth refusal here is most
+  // likely a key without the Write permission or the team's access.
   const writeBody = await readLinearAnswer(writeResponse, {
     failed: (body) =>
       `Linear: Failed to move issue ${identifier}. ${failureDetail(writeResponse, body, WRITE_PERMISSION_HINT)}`,
     unexpected: `Linear: Unexpected response moving issue ${identifier}.`,
+    authHint: WRITE_PERMISSION_HINT,
   });
 
   const messages = errorMessages(writeBody);

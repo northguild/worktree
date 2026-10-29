@@ -1056,7 +1056,22 @@ describe("startLinearIssue", () => {
         }),
       );
 
-      expect(message).toContain("Authentication failed");
+      expect(message).toBe(
+        "Linear: Authentication failed. Please verify linear.apiKey in your config. Moving an issue needs a key with the Write permission and access to the issue's team.",
+      );
+    });
+
+    it.each([
+      401, 403,
+    ])("follows the authentication message with the permission hint on an HTTP %i write", async (status) => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(status, {}),
+      );
+
+      expect(message).toBe(
+        "Linear: Authentication failed. Please verify linear.apiKey in your config. Moving an issue needs a key with the Write permission and access to the issue's team.",
+      );
     });
 
     it("reuses the rate-limit message on HTTP 429", async () => {
