@@ -137,6 +137,46 @@ function hasErrorCode(body: LinearGraphqlResponse, code: string): boolean {
   );
 }
 
+// The classification every Linear answer goes through: auth, rate limit,
+// non-2xx and an unreadable body. Each caller words its own non-2xx and
+// malformed-body messages; auth and rate limit read the same everywhere.
+async function readLinearAnswer(
+  response: Response,
+  messages: {
+    failed: (body: LinearGraphqlResponse | undefined) => string;
+    unexpected: string;
+  },
+): Promise<LinearGraphqlResponse> {
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(AUTH_FAILED_MESSAGE);
+  }
+
+  const body = await readBody(response);
+
+  // Linear can report bad auth in the body of a 200 or a 4xx answer.
+  if (body && hasErrorCode(body, "AUTHENTICATION_ERROR")) {
+    throw new Error(AUTH_FAILED_MESSAGE);
+  }
+
+  // Linear answers a rate-limited GraphQL request with HTTP 400 and the code
+  // in the body (https://linear.app/developers/rate-limiting); 429 is kept too.
+  if (response.status === 429 || (body && hasErrorCode(body, "RATELIMITED"))) {
+    throw new Error(
+      "Linear: Rate limited. Linear limits requests per API key; wait a moment and try again.",
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(messages.failed(body));
+  }
+
+  if (!body) {
+    throw new Error(messages.unexpected);
+  }
+
+  return body;
+}
+
 function parseLinearIssue(
   issue: unknown,
   withLabelIds: boolean,
@@ -194,34 +234,11 @@ export async function fetchLinearIssue(
     apiKey,
   );
 
-  if (response.status === 401 || response.status === 403) {
-    throw new Error(AUTH_FAILED_MESSAGE);
-  }
-
-  const body = await readBody(response);
-
-  // Linear can report bad auth in the body of a 200 or a 4xx answer.
-  if (body && hasErrorCode(body, "AUTHENTICATION_ERROR")) {
-    throw new Error(AUTH_FAILED_MESSAGE);
-  }
-
-  // Linear answers a rate-limited GraphQL request with HTTP 400 and the code
-  // in the body (https://linear.app/developers/rate-limiting); 429 is kept too.
-  if (response.status === 429 || (body && hasErrorCode(body, "RATELIMITED"))) {
-    throw new Error(
-      "Linear: Rate limited. Linear limits requests per API key; wait a moment and try again.",
-    );
-  }
-
-  if (!response.ok) {
-    throw new Error(
+  const body = await readLinearAnswer(response, {
+    failed: () =>
       `Linear: Failed to fetch issue ${identifier}. ${response.status} ${response.statusText}`.trimEnd(),
-    );
-  }
-
-  if (!body) {
-    throw new Error(`Linear: Unexpected response for issue ${identifier}.`);
-  }
+    unexpected: `Linear: Unexpected response for issue ${identifier}.`,
+  });
 
   const rawIssue = isRecord(body.data) ? body.data.issue : undefined;
 
@@ -332,4 +349,201 @@ export async function validateLinearCredentials(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export type LinearStart =
+  | { outcome: "started"; from: string; to: string }
+  | { outcome: "already-started"; state: string }
+  | { outcome: "left-alone"; state: string; type: string }
+  | { outcome: "no-started-state"; state: string };
+
+// D1: the read asks for the team's started states in the same request.
+const START_READ_QUERY = `query IssueToStart($id: String!) {
+  issue(id: $id) {
+    identifier
+    state { id name type }
+    team {
+      states(filter: { type: { eq: "started" } }) {
+        nodes { id name position }
+      }
+    }
+  }
+}`;
+
+// D3: the answer carries the state the issue is in, so the move is confirmed.
+const START_WRITE_MUTATION = `mutation StartIssue($id: String!, $stateId: String!) {
+  issueUpdate(id: $id, input: { stateId: $stateId }) {
+    success
+    issue { state { id name type } }
+  }
+}`;
+
+const WRITE_PERMISSION_HINT =
+  "Moving an issue needs a key with the Write permission and access to the issue's team.";
+
+interface LinearState {
+  id: string;
+  name: string;
+  type: string;
+}
+
+function parseState(value: unknown): LinearState | undefined {
+  if (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.type === "string"
+  ) {
+    return { id: value.id, name: value.name, type: value.type };
+  }
+  return undefined;
+}
+
+function errorMessages(body: LinearGraphqlResponse | undefined): string[] {
+  return (Array.isArray(body?.errors) ? body.errors : [])
+    .map((error) => error?.message)
+    .filter((message): message is string => typeof message === "string");
+}
+
+// The started state with the lowest position; a tie keeps the first node.
+function lowestStartedState(
+  nodes: unknown[],
+): { id: string; name: string } | null | undefined {
+  let lowest: { id: string; name: string; position: number } | undefined;
+
+  for (const node of nodes) {
+    if (
+      !isRecord(node) ||
+      typeof node.id !== "string" ||
+      typeof node.name !== "string" ||
+      typeof node.position !== "number"
+    ) {
+      return undefined;
+    }
+    if (!lowest || node.position < lowest.position) {
+      lowest = { id: node.id, name: node.name, position: node.position };
+    }
+  }
+
+  return lowest ?? null;
+}
+
+/**
+ * D1-D3, D7: moves a backlog or unstarted issue to its team's first started
+ * state, and confirms the move from the answer. Throws a `Linear:` error on
+ * every failure; the caller turns it into a warning.
+ */
+export async function startLinearIssue(issueId: string): Promise<LinearStart> {
+  const identifier = getIssueIdentifier(issueId);
+  const apiKey = await resolveLinearApiKey();
+
+  const readResponse = await fetchLinear(
+    START_READ_QUERY,
+    { id: identifier },
+    apiKey,
+  );
+  const readAnswer = await readLinearAnswer(readResponse, {
+    failed: (body) =>
+      `Linear: Failed to fetch issue ${identifier}. ${failureDetail(readResponse, body)}`,
+    unexpected: `Linear: Unexpected response for issue ${identifier}.`,
+  });
+
+  const rawIssue = isRecord(readAnswer.data)
+    ? readAnswer.data.issue
+    : undefined;
+
+  if (rawIssue === undefined || rawIssue === null) {
+    throw new Error(
+      `Linear: Unable to find issue ${identifier}.${withMessages(readAnswer)}`,
+    );
+  }
+
+  const unexpected = `Linear: Unexpected response for issue ${identifier}.`;
+  const team = isRecord(rawIssue) ? rawIssue.team : undefined;
+  const states = isRecord(team) ? team.states : undefined;
+  const nodes = isRecord(states) ? states.nodes : undefined;
+  const current = isRecord(rawIssue) ? parseState(rawIssue.state) : undefined;
+
+  if (!current || !Array.isArray(nodes)) {
+    throw new Error(unexpected);
+  }
+
+  const target = lowestStartedState(nodes);
+
+  if (target === undefined) {
+    throw new Error(unexpected);
+  }
+
+  if (current.type === "started") {
+    return { outcome: "already-started", state: current.name };
+  }
+
+  if (current.type !== "backlog" && current.type !== "unstarted") {
+    return { outcome: "left-alone", state: current.name, type: current.type };
+  }
+
+  if (target === null) {
+    return { outcome: "no-started-state", state: current.name };
+  }
+
+  const writeResponse = await fetchLinear(
+    START_WRITE_MUTATION,
+    { id: identifier, stateId: target.id },
+    apiKey,
+  );
+  const writeBody = await readLinearAnswer(writeResponse, {
+    failed: (body) =>
+      `Linear: Failed to move issue ${identifier}. ${failureDetail(writeResponse, body, WRITE_PERMISSION_HINT)}`,
+    unexpected: `Linear: Unexpected response moving issue ${identifier}.`,
+  });
+
+  const messages = errorMessages(writeBody);
+  if (messages.length > 0) {
+    throw new Error(
+      `Linear: Failed to move issue ${identifier}. ${sentence(messages.join(", "))} ${WRITE_PERMISSION_HINT}`,
+    );
+  }
+
+  const update = isRecord(writeBody.data)
+    ? writeBody.data.issueUpdate
+    : undefined;
+  const moved =
+    isRecord(update) && update.success === true && isRecord(update.issue)
+      ? parseState(update.issue.state)
+      : undefined;
+
+  if (!moved || moved.id !== target.id) {
+    throw new Error(
+      `Linear: The answer did not confirm moving issue ${identifier} to "${target.name}".`,
+    );
+  }
+
+  return { outcome: "started", from: current.name, to: moved.name };
+}
+
+function sentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+// Keeps the HTTP status (as fetchLinearIssue does) and Linear's own text; the
+// hint is added only when Linear's answer carried errors and it was not a 5xx.
+function failureDetail(
+  response: Response,
+  body: LinearGraphqlResponse | undefined,
+  hint?: string,
+): string {
+  const messages = errorMessages(body);
+  const parts = [`${response.status} ${response.statusText}`.trimEnd()];
+  if (messages.length > 0) {
+    parts.push(messages.join(", "));
+    if (hint !== undefined && response.status < 500) {
+      parts.push(hint);
+    }
+  }
+  return parts.map(sentence).join(" ");
+}
+
+function withMessages(body: LinearGraphqlResponse | undefined): string {
+  const messages = errorMessages(body);
+  return messages.length > 0 ? ` ${messages.join(", ")}` : "";
 }
