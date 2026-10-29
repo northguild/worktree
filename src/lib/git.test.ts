@@ -2410,20 +2410,19 @@ describe("what the removal helpers report", () => {
         .mockResolvedValueOnce("")
         .mockRejectedValueOnce(
           Object.assign(new Error("Command failed: git branch -D"), {
-            stderr:
-              "error: cannot delete branch 'feature/test' used by worktree\n",
+            stderr: `error: cannot delete branch '${branchName}' used by worktree\n`,
           }),
         );
 
       await expect(
         gitNukeWorktree({ branchName, path: onePath }),
       ).rejects.toThrow(
-        `Could not remove the worktree ${branchName}: error: cannot delete branch 'feature/test' used by worktree`,
+        `Could not remove the worktree ${branchName}: error: cannot delete branch '${branchName}' used by worktree`,
       );
       expect(mockRun).toHaveBeenCalledTimes(3);
-      expect(spinnerMocks.succeed).not.toHaveBeenCalledWith(
-        `Worktree ${branchName} was removed.`,
-      );
+      // Any `succeed`, whatever its text, would claim the removal went through.
+      expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+      expect(spinnerMocks.stop).toHaveBeenCalled();
     });
 
     it("falls back to Node's message when git printed nothing", async () => {
