@@ -234,7 +234,7 @@ worktree config jira.autoAssign true
 
 - Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
 - `jira.host` can come from `.worktree.yml`; a file's host receives the credentials of everyone who uses it, so see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials).
-- The prefix a Jira issue gets comes from its issue type, unless `.worktree.yml` has a `jira.branchType` list. The built-in mapping applies only when no rules are set; see [Branch-type rules](/docs/project-configuration#branch-type-rules).
+- The prefix a Jira issue gets comes from its issue type, unless `.worktree.yml` has a `jira.branchType` list or a shared top-level `branchType` list. The built-in mapping applies only when no rules are set; see [Branch-type rules](/docs/project-configuration#branch-type-rules).
 - Issue IDs are case-insensitive (both `dev-123` and `DEV-123` work).
 
 ## Linear Integration Notes
@@ -243,7 +243,7 @@ worktree config jira.autoAssign true
 - `linear.apiKey` is the only Linear config key, and it is required.
 - Linear has no issue type, so the branch prefix comes from the issue's labels: `bug` uses `branchPrefix.bugfix`,
   `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`. A `linear.branchType`
-  list in `.worktree.yml` replaces this mapping; see [Branch-type rules](/docs/project-configuration#branch-type-rules).
+  list, or a shared top-level `branchType` list, in `.worktree.yml` replaces this mapping; see [Branch-type rules](/docs/project-configuration#branch-type-rules).
 - Issue identifiers are case-insensitive (both `eng-123` and `ENG-123` work).
 
 ## ClickUp Integration Notes
@@ -253,7 +253,7 @@ worktree config jira.autoAssign true
   such as `DEV-123`; a short id such as `9hx` never needs it. An empty answer to its prompt skips it.
 - The branch prefix comes from the task's tags: `bug` uses `branchPrefix.bugfix`,
   `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`. A `clickup.branchType`
-  list in `.worktree.yml` replaces this mapping; see [Branch-type rules](/docs/project-configuration#branch-type-rules).
+  list, or a shared top-level `branchType` list, in `.worktree.yml` replaces this mapping; see [Branch-type rules](/docs/project-configuration#branch-type-rules).
 - A short id is case-sensitive and typed without `CU-` (`9hx`); the branch name gains `CU-`. A custom id is
   sent to ClickUp as typed and upper-cased in the branch name (`dev-123` gives `DEV-123` in the name).
 
@@ -266,4 +266,4 @@ the first version from your own git config.
 
 Some things stay personal, so agree on them in conversation rather than in the file: the editor command, and
 which labels (Linear) or tags (ClickUp) mean bug and chore work, since the label or tag decides the prefix,
-unless the file's `linear.branchType` or `clickup.branchType` rules say so for the whole team.
+unless the file's `linear.branchType`, `clickup.branchType` or shared `branchType` rules say so for the whole team.

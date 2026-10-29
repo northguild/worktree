@@ -221,35 +221,40 @@ export function getClickUpBranchType(tags: string[]) {
 }
 
 // D9: ClickUp's rule field in v1 is `Tags`, by name only (a tag has no id).
+// D3, D4: the portable `Labels` is added beside it, never in place of it, with
+// the same values.
 export function getClickUpTaskFields(task: ClickUpTask): IssueField[] {
+  const values = task.tags.map((name) => ({ name }));
   return [
-    {
-      id: "Tags",
-      name: "Tags",
-      values: task.tags.map((name) => ({ name })),
-    },
+    { id: "Tags", name: "Tags", values },
+    { id: "Labels", name: "Labels", values },
   ];
 }
 
 // Takes the task already fetched so a caller can keep its url from the same
 // request. D6: `CU-<id>` for a short id, the custom id upper-cased otherwise;
 // it is told apart by the shape the user typed, not by `custom_id`, so the
-// branch carries the id that was asked for. With `clickup.branchType` in the
-// project file the rules decide the kind (D10) and a task no rule matches gets
-// no prefix; without it the built-in mapping applies. Rule warnings go to
-// `onWarning`.
+// branch carries the id that was asked for. With `clickup.branchType` (else the
+// shared `branchType`) in the project file the rules decide the kind (D10) and
+// a task no rule matches gets no prefix; without either the built-in mapping
+// applies. Rule warnings go to `onWarning`.
 export async function getClickUpBranchNaming(
   task: ClickUpTask,
   typedId: string,
   onWarning: (warning: string) => void = () => {},
+  dryRun = false,
 ): Promise<BranchNaming> {
-  const rules = await getBranchTypeRules("clickup");
+  const list = await getBranchTypeRules("clickup");
   const fields = getClickUpTaskFields(task);
 
   let kind: BranchKind | undefined;
   let match: BranchMatch;
-  if (rules) {
-    const result = evaluateBranchTypeRules(rules, fields, "clickup.branchType");
+  if (list) {
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
+      // A dry run is where rules are written and checked, so a misspelt field
+      // in the shared list still warns there (D5 holds for real runs).
+      shared: list.shared && !dryRun,
+    });
     for (const warning of result.warnings) {
       onWarning(warning);
     }

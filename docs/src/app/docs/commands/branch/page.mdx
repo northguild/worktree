@@ -74,7 +74,7 @@ Use the `--github` flag to create a suggested branch name from an issue in the c
 	- `branchPrefix.feature` for issue type `Feature`
 	- `branchPrefix.bugfix` for issue type `Bug`
 	- `branchPrefix.chore` for issue type `Task`
-- An issue with no type, or any other type, gets no prefix. A `github.branchType` list in `.worktree.yml`
+- An issue with no type, or any other type, gets no prefix. A `github.branchType` list, or a shared top-level `branchType` list, in `.worktree.yml`
   replaces that mapping (matching the issue's `Type` and `Labels`), and `- otherwise: feature` at its end opts
   an unmatched issue in to a prefix. See [Branch-type rules](/docs/project-configuration#branch-type-rules).
 
@@ -172,15 +172,16 @@ Fields with a value (2), each with a line to paste into jira.branchType:
   install or `postCreate` step, starts no agent, opens nothing and asks no question. A closed `--github`
   issue is a warning instead of a prompt. `--agent`, `--agent-file`, `--agent-stdin`, `--source`, `--assign`,
   `--install` and `--no-open` flags are accepted and ignored.
-- **The `Rule:` line** names the rule that chose the prefix by its position in the list and its text. It
-  reads `built-in mapping` when the file has no rules for that provider, and `none matched` when it has rules
+- **The `Rule:` line** names the rule that chose the prefix by its position in the list and its text, and
+  names the list: `jira.branchType`, or `branchType` when the shared list decided. It
+  reads `built-in mapping` when the file has neither a rule list for that provider nor a shared `branchType`, and `none matched` when it has rules
   and none matched, so the name has no prefix.
 - **Every field the issue has a value for** is listed with its id and its name as your account sees it, and
   each of its values with its id where it has one. Empty fields are left out. Each value comes with a line to
   paste into a `branchType` list; see
   [Writing rules with a dry run](/docs/project-configuration#writing-rules-with-a-dry-run).
 - **Jira field names** come from `?expand=names` on the issue request, which a dry run always asks for. The
-  paste-ready lines name ids, which is what a shared file should use.
+  paste-ready lines name ids, except that `Type` and `Labels` are by name when the shared `branchType` list decided, because an id belongs to one provider.
 
 With `--json` a dry run prints one document, not the [`branch` document](#json-output):
 
@@ -249,7 +250,7 @@ Use the `--jira` flag to create a suggested branch name from an issue in your Ji
 	- `branchPrefix.feature` for issue types like `Feature`, `Story`, and most non-bug/chore types
 	- `branchPrefix.bugfix` for issue type `Bug`
 	- `branchPrefix.chore` for issue type `Task`
-- That mapping applies only when no `jira.branchType` rules are set. With rules in `.worktree.yml`, the rules
+- That mapping applies only when no `jira.branchType` (or shared `branchType`) rules are set. With rules in `.worktree.yml`, the rules
   decide the kind, and an issue no rule matches gets no prefix unless the list ends with `otherwise`. See
   [Branch-type rules](/docs/project-configuration#branch-type-rules).
 
@@ -272,7 +273,7 @@ cannot be combined with `--github`, `--jira` or `--clickup`. See the [Linear gui
 	- `branchPrefix.bugfix` for a `bug` label
 	- `branchPrefix.chore` for a `chore` or `maintenance` label, when there is no `bug` label
 	- `branchPrefix.feature` for anything else, including no label
-- That mapping applies only when no `linear.branchType` rules are set; with rules, the rules decide and an
+- That mapping applies only when no `linear.branchType` (or shared `branchType`) rules are set; with rules, the rules decide and an
   unmatched issue gets no prefix unless the list ends with `otherwise`.
 
 If no prefix is configured, `worktree` falls back to an empty prefix and still generates a valid branch name.
@@ -296,7 +297,7 @@ cannot be combined with `--github`, `--jira` or `--linear`. See the [ClickUp gui
 	- `branchPrefix.bugfix` for a `bug` tag
 	- `branchPrefix.chore` for a `chore` or `maintenance` tag, when there is no `bug` tag
 	- `branchPrefix.feature` for anything else, including no tag
-- That mapping applies only when no `clickup.branchType` rules are set; with rules, the rules decide and an
+- That mapping applies only when no `clickup.branchType` (or shared `branchType`) rules are set; with rules, the rules decide and an
   unmatched task gets no prefix unless the list ends with `otherwise`.
 
 ClickUp authentication requires one configuration key, `northguild.worktree.clickup.apiToken`, your ClickUp personal

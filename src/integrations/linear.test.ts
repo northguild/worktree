@@ -752,3 +752,147 @@ linear:
     ]);
   });
 });
+
+// The shared top-level `branchType` list (#128, D1). Expected names come from
+// the plan's Phase 1 "Done when" and the built-in mapping above (a `Bug` label
+// is `fix/`, a Linear issue with no matching label is `feat/`).
+describe("the shared branchType list for Linear", () => {
+  const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+  const SHARED = `branchType:
+  - when: { Labels: chore }
+    type: chore
+`;
+  const OWN = `linear:
+  branchType:
+    - when: { Labels: chore }
+      type: feature
+`;
+
+  const linearIssue = (labels: string[]) => ({
+    identifier: "ENG-42",
+    title: "Tidy",
+    url: null,
+    labels,
+  });
+
+  function projectFile(content: string) {
+    resetProjectConfigCache();
+    stubProjectFile(content);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
+    );
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("neither list: today's built-in mapping", async () => {
+    projectFile(PREFIXES);
+
+    expect(
+      (await getLinearBranchNaming(linearIssue(["Bug", "chore"]))).branchName,
+    ).toBe("fix/ENG-42-tidy");
+  });
+
+  it("shared list only: a rule-matched issue gets its rule's prefix", async () => {
+    projectFile(PREFIXES + SHARED);
+
+    const naming = await getLinearBranchNaming(linearIssue(["chore"]));
+
+    expect(naming.branchName).toBe("chore/ENG-42-tidy");
+    expect(naming.match).toMatchObject({ source: "rule", position: 1 });
+  });
+
+  it("shared list only: it replaces the built-in mapping, with no fall-through on no match", async () => {
+    projectFile(PREFIXES + SHARED);
+
+    const naming = await getLinearBranchNaming(linearIssue(["Bug"]));
+
+    expect(naming.branchName).toBe("ENG-42-tidy");
+    expect(naming.match).toEqual({ source: "none" });
+  });
+
+  it("both lists: the provider's wins", async () => {
+    projectFile(PREFIXES + OWN + SHARED);
+
+    expect(
+      (await getLinearBranchNaming(linearIssue(["chore"]))).branchName,
+    ).toBe("feat/ENG-42-tidy");
+  });
+
+  const PORTABLE = `branchType:
+  - when: { Type: Bug }
+    type: bugfix
+  - when: { Labels: bug }
+    type: bugfix
+`;
+
+  // Plan Phase 2 "Done when": the portable list gives fix/ on a `bug` label.
+  it("the portable list gives fix/ on a bug-labelled issue, and a Type rule is silent here", async () => {
+    projectFile(PREFIXES + PORTABLE);
+    const warnings: string[] = [];
+
+    const naming = await getLinearBranchNaming(linearIssue(["bug"]), (w) =>
+      warnings.push(w),
+    );
+
+    expect(naming.branchName).toBe("fix/ENG-42-tidy");
+    expect(naming.match).toMatchObject({ source: "rule", position: 2 });
+    expect(warnings).toEqual([]);
+  });
+
+  // Finding 2: a dry run is where rules are checked, so a misspelt field in the
+  // shared list warns there, and only there.
+  it("a shared rule naming an absent field warns on a dry run and not on a real run", async () => {
+    projectFile(
+      `${PREFIXES}branchType:\n  - when: { Lables: bug }\n    type: bugfix\n`,
+    );
+    const real: string[] = [];
+    const dry: string[] = [];
+
+    await getLinearBranchNaming(linearIssue(["bug"]), (w) => real.push(w));
+    await getLinearBranchNaming(linearIssue(["bug"]), (w) => dry.push(w), true);
+
+    expect(real).toEqual([]);
+    expect(dry).toHaveLength(1);
+    expect(dry[0]).toContain("Rule 1 of branchType names");
+  });
+
+  // D5: Linear has no Type, so a provider list naming it is still a mistake.
+  it("a linear.branchType naming Type still warns", async () => {
+    projectFile(
+      `${PREFIXES}linear:\n  branchType:\n    - when: { Type: Bug }\n      type: bugfix\n`,
+    );
+    const warnings: string[] = [];
+
+    await getLinearBranchNaming(linearIssue(["bug"]), (w) => warnings.push(w));
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Rule 1 of linear.branchType");
+  });
+
+  it("asks for each label's id when only the shared list is set", async () => {
+    projectFile(PREFIXES + SHARED);
+    const fetchSpy = stubFetch(
+      respond(
+        200,
+        issuePayload({
+          labels: { nodes: [{ id: "lbl-chore", name: "Housekeeping" }] },
+        }),
+      ),
+    );
+
+    await fetchLinearIssue("eng-123");
+
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.query).toContain("nodes {\n        id\n        name");
+  });
+});

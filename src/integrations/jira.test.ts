@@ -9,6 +9,7 @@ import {
   fetchJiraIssue,
   getJiraBranchNameFromIssue,
   getJiraBranchNaming,
+  getJiraIssueFields,
   validateJiraCredentials,
 } from "./jira.js";
 
@@ -54,6 +55,9 @@ function stubNoProjectFile() {
     reason: "no-ref",
     warnings: [],
   });
+  // getBranchTypeRules reads the file through its own binding, which the spy
+  // above does not reach.
+  vi.spyOn(projectConfig, "getBranchTypeRules").mockResolvedValue(undefined);
 }
 
 describe("Jira integration", () => {
@@ -1201,5 +1205,263 @@ jira:
     expect(naming.match).toEqual({ source: "none" });
     expect(naming.kind).toBeUndefined();
     expect(naming.branchName).toBe("DEV-7-fix-login-bug");
+  });
+});
+
+// The shared top-level `branchType` list (#128, D1, D6). Expected names come
+// from the plan's Phase 1 "Done when" and the built-in mapping above (a Bug is
+// `fix/`, a Story is `feat/`); the issue type id 10008 is the #181 example's.
+describe("the shared branchType list for Jira", () => {
+  const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+`;
+  const SHARED = `branchType:
+  - when: { issuetype: { id: "10008" } }
+    type: chore
+`;
+  const OWN = `  branchType:
+    - when: { issuetype: { id: "10008" } }
+      type: feature
+`;
+
+  const issueOfType = (id: string, name: string) => ({
+    id: "10001",
+    key: "DEV-7",
+    names: { issuetype: "Issue Type" },
+    fields: { summary: "Fix login bug", issuetype: { id, name } },
+  });
+  const bug = issueOfType("10008", "Bug");
+  const story = issueOfType("10001", "Story");
+
+  function stubJira(file: string, issue: unknown) {
+    resetProjectConfigCache();
+    stubProjectFile(file);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+          name
+        ] ?? "",
+      ),
+    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(issue),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    return fetchSpy;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("neither list: today's built-in mapping, and no names requested", async () => {
+    const fetchSpy = stubJira(PREFIXES, bug);
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.branchName).toBe("fix/DEV-7-fix-login-bug");
+    expect(naming.match).toEqual({ source: "built-in" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://acme.atlassian.net/rest/api/3/issue/DEV-7",
+      expect.anything(),
+    );
+  });
+
+  it("shared list only: it decides, and field names are requested (D6)", async () => {
+    const fetchSpy = stubJira(PREFIXES + SHARED, bug);
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.branchName).toBe("chore/DEV-7-fix-login-bug");
+    expect(naming.match).toMatchObject({ source: "rule", position: 1 });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://acme.atlassian.net/rest/api/3/issue/DEV-7?expand=names",
+      expect.anything(),
+    );
+  });
+
+  it("shared list only: it replaces the built-in mapping, with no fall-through on no match", async () => {
+    stubJira(PREFIXES + SHARED, story);
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.branchName).toBe("DEV-7-fix-login-bug");
+    expect(naming.match).toEqual({ source: "none" });
+  });
+
+  const PORTABLE = `branchType:
+  - when: { Type: Bug }
+    type: bugfix
+  - when: { Labels: bug }
+    type: bugfix
+`;
+
+  // Plan Phase 2 "Done when": the portable list gives fix/ on a Jira Bug.
+  it("the portable Type rule gives fix/ on a Bug, with no warning", async () => {
+    stubJira(PREFIXES + PORTABLE, bug);
+    const warnings: string[] = [];
+
+    const naming = await getJiraBranchNaming("dev-7", {
+      onWarning: (w) => warnings.push(w),
+    });
+
+    expect(naming.branchName).toBe("fix/DEV-7-fix-login-bug");
+    expect(naming.match).toMatchObject({ source: "rule", position: 1 });
+    expect(warnings).toEqual([]);
+  });
+
+  it("the portable Labels rule matches Jira's own labels field", async () => {
+    stubJira(PREFIXES + PORTABLE, {
+      ...story,
+      names: { issuetype: "Issue Type", labels: "Labels" },
+      fields: { ...story.fields, labels: ["bug"] },
+    });
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.branchName).toBe("fix/DEV-7-fix-login-bug");
+    expect(naming.match).toMatchObject({ position: 2 });
+  });
+
+  it("a jira.branchType on issuetype keeps matching, and the alias is listed beside it in the dry run", async () => {
+    stubJira(
+      `${PREFIXES}  branchType:\n    - when: { "Issue Type": Bug }\n      type: chore\n`,
+      bug,
+    );
+
+    const naming = await getJiraBranchNaming("dev-7", { dryRun: true });
+
+    expect(naming.kind).toBe("chore");
+    expect(naming.fields.map((field) => field.id)).toEqual([
+      "summary",
+      "issuetype",
+      "Type",
+    ]);
+    expect(naming.fields.at(-1)?.values).toEqual([
+      { id: "10008", name: "Bug" },
+    ]);
+  });
+
+  // D4 / plan §5: a real custom field called "Type" is never shadowed.
+  it("does not shadow a custom field already named Type, and does not throw ambiguity", async () => {
+    stubJira(
+      PREFIXES +
+        "branchType:\n  - when: { Type: Epic }\n    type: feature\n  - when: { Type: Bug }\n    type: bugfix\n",
+      {
+        ...bug,
+        names: { issuetype: "Issue Type", customfield_9: "Type" },
+        fields: { ...bug.fields, customfield_9: { value: "Epic" } },
+      },
+    );
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.kind).toBe("feature");
+    expect(naming.fields.filter((field) => field.name === "Type")).toHaveLength(
+      1,
+    );
+  });
+
+  // N1 / D5: the shared list's rule 1 names an absent field and must not warn
+  // before rule 2 matches.
+  it("a shared rule naming an absent field does not warn", async () => {
+    stubJira(
+      `${PREFIXES}branchType:\n  - when: { Sprint: "1" }\n    type: chore\n  - when: { Type: Bug }\n    type: bugfix\n`,
+      bug,
+    );
+    const warnings: string[] = [];
+
+    const naming = await getJiraBranchNaming("dev-7", {
+      onWarning: (w) => warnings.push(w),
+    });
+
+    expect(naming.match).toMatchObject({ position: 2 });
+    expect(warnings).toEqual([]);
+  });
+
+  // Finding 2: a dry run is where rules are checked, so a misspelt field in the
+  // shared list warns there, and only there.
+  it("a shared rule naming an absent field warns on a dry run", async () => {
+    stubJira(
+      `${PREFIXES}branchType:\n  - when: { Sprint: "1" }\n    type: chore\n  - when: { Type: Bug }\n    type: bugfix\n`,
+      bug,
+    );
+    const warnings: string[] = [];
+
+    await getJiraBranchNaming("dev-7", {
+      onWarning: (w) => warnings.push(w),
+      dryRun: true,
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Rule 1 of branchType names");
+  });
+
+  // N2: the `labels` id is stable, its display name is localized.
+  it("the portable Labels matches on a localized Jira, where labels is named Etiketten", async () => {
+    stubJira(PREFIXES + PORTABLE, {
+      ...story,
+      names: { issuetype: "Vorgangstyp", labels: "Etiketten" },
+      fields: { ...story.fields, labels: ["bug"] },
+    });
+
+    expect((await getJiraBranchNaming("dev-7")).match).toMatchObject({
+      position: 2,
+    });
+  });
+
+  it("adds no Labels alias when the field is already named Labels", () => {
+    const fields = getJiraIssueFields({
+      ...story,
+      names: { issuetype: "Issue Type", labels: "Labels" },
+      fields: { ...story.fields, labels: ["bug"] },
+    } as never);
+
+    expect(fields.filter((field) => field.name === "Labels")).toHaveLength(1);
+  });
+
+  it("does not shadow a custom field already named Labels", () => {
+    const fields = getJiraIssueFields({
+      ...story,
+      names: { labels: "Etiketten", customfield_9: "Labels" },
+      fields: { labels: ["bug"], customfield_9: { value: "x" } },
+    } as never);
+
+    expect(fields.filter((field) => field.name === "Labels")).toEqual([
+      { id: "customfield_9", name: "Labels", values: [{ name: "x" }] },
+    ]);
+  });
+
+  it("does not add Type when a field already has that id", () => {
+    const fields = getJiraIssueFields({
+      ...bug,
+      fields: { ...bug.fields, Type: "x" },
+    } as never);
+
+    expect(fields.filter((field) => field.id === "Type")).toHaveLength(1);
+  });
+
+  it("adds no Type when the issue has no issuetype", () => {
+    const fields = getJiraIssueFields({
+      id: "1",
+      key: "DEV-7",
+      fields: { summary: "x" },
+    } as never);
+
+    expect(fields.map((field) => field.id)).toEqual(["summary"]);
+  });
+
+  it("both lists: the provider's wins", async () => {
+    stubJira(PREFIXES + OWN + SHARED, bug);
+
+    expect((await getJiraBranchNaming("dev-7")).branchName).toBe(
+      "feat/DEV-7-fix-login-bug",
+    );
   });
 });

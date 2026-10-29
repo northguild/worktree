@@ -749,7 +749,7 @@ describe("getBranchTypeRules and getBranchPrefix", () => {
   it("reads one provider's rules from the example file", async () => {
     fromOriginMain(EXAMPLE);
 
-    expect(await getBranchTypeRules("github")).toEqual([
+    expect((await getBranchTypeRules("github"))?.rules).toEqual([
       { when: { Type: "Bug" }, type: "bugfix" },
       { when: { Labels: ["chore", "maintenance"] }, type: "chore" },
     ]);
@@ -758,6 +758,62 @@ describe("getBranchTypeRules and getBranchPrefix", () => {
 
   it("has no rules without a project file", async () => {
     expect(await getBranchTypeRules("clickup")).toBeUndefined();
+  });
+
+  // D1 (provider list, then shared list), D7 (listName words the dry run).
+  it("names the provider's own list when it sets one", async () => {
+    fromOriginMain(EXAMPLE);
+
+    expect(await getBranchTypeRules("github")).toMatchObject({
+      listName: "github.branchType",
+    });
+  });
+
+  it("falls back to the shared list, named branchType", async () => {
+    fromOriginMain("branchType:\n  - otherwise: feature\n");
+
+    for (const provider of ["jira", "github", "linear", "clickup"] as const) {
+      expect(await getBranchTypeRules(provider)).toEqual({
+        rules: [{ otherwise: "feature" }],
+        listName: "branchType",
+        shared: true,
+      });
+    }
+  });
+
+  it("prefers the provider's list over the shared one, for that provider only", async () => {
+    fromOriginMain(
+      "branchType:\n  - otherwise: chore\ngithub:\n  branchType:\n    - otherwise: bugfix\n",
+    );
+
+    expect(await getBranchTypeRules("github")).toEqual({
+      rules: [{ otherwise: "bugfix" }],
+      listName: "github.branchType",
+      shared: false,
+    });
+    expect(await getBranchTypeRules("linear")).toEqual({
+      rules: [{ otherwise: "chore" }],
+      listName: "branchType",
+      shared: true,
+    });
+  });
+
+  it("rejects a bad rule in the shared list like any other", async () => {
+    const error = await failure("branchType:\n  - otherwise: epic\n");
+
+    expect(error.message).toContain("branchType[0]");
+  });
+
+  it("lists the shared list in --list", async () => {
+    fromOriginMain("branchType:\n  - otherwise: feature\n");
+    const loaded = await loadProjectConfig();
+    if (loaded.status !== "loaded") {
+      throw new Error("expected a loaded file");
+    }
+
+    expect(summariseProjectFile(loaded.config)).toContain(
+      "branchType: 1 rule (.worktree.yml)",
+    );
   });
 
   it.each([

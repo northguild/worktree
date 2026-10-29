@@ -85,12 +85,15 @@ function findField(key: string, fields: IssueField[], where: string) {
  * First matching rule wins. A rule with a `when` matches when every field in
  * it matches; a list of values matches when any one does. `otherwise` matches
  * whatever is left. No match and no `otherwise` is no kind, so no prefix.
- * `listName` (such as `jira.branchType`) only words the warnings.
+ * `listName` (such as `jira.branchType`) only words the warnings. `shared`
+ * marks the top-level list (D5): written for several providers, so a field
+ * this issue lacks is not worth a warning there. The ambiguity error stays.
  */
 export function evaluateBranchTypeRules(
   rules: readonly BranchTypeRule[],
   fields: IssueField[],
   listName = "branchType",
+  { shared = false }: { shared?: boolean } = {},
 ): BranchTypeResult {
   const warnings: string[] = [];
 
@@ -105,9 +108,11 @@ export function evaluateBranchTypeRules(
     for (const [key, wanted] of Object.entries(rule.when)) {
       const field = findField(key, fields, where);
       if (!field) {
-        warnings.push(
-          `${where} names the field "${showVisibly(key)}", which this issue does not have, so the rule did not match. Check the spelling, or use the field's id.`,
-        );
+        if (!shared) {
+          warnings.push(
+            `${where} names the field "${showVisibly(key)}", which this issue does not have, so the rule did not match. Check the spelling, or use the field's id.`,
+          );
+        }
         allMatch = false;
         continue;
       }
@@ -196,11 +201,21 @@ export function formatBranchTypeRule(rule: BranchTypeRule) {
 /**
  * One line to paste into a `branchType` list: the value by id when it has one
  * (ids survive a renamed option and another language), by name when it does
- * not, with the names as a comment.
+ * not, with the names as a comment. For the shared list (`shared`), the
+ * portable `Type` and `Labels` fields use the name too, because an id belongs
+ * to one provider and fails silently on the others.
  */
-export function pasteReadyLine(field: IssueField, value: FieldValue) {
+export function pasteReadyLine(
+  field: IssueField,
+  value: FieldValue,
+  shared = false,
+) {
+  const byName =
+    shared &&
+    value.name !== undefined &&
+    (field.id === "Type" || field.id === "Labels");
   const wanted =
-    value.id !== undefined
+    value.id !== undefined && !byName
       ? formatWhenValue({ id: value.id })
       : yamlScalar(value.name ?? "");
   const label = value.name ?? value.id ?? "";

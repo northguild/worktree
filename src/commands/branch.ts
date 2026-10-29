@@ -38,6 +38,7 @@ import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
 import {
   ensurePostCreateApproved,
+  getBranchTypeRules,
   getTeamConfigValue,
   loadProjectConfig,
   offerProjectConfig,
@@ -308,8 +309,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
           }`,
         );
       }
-      const naming = await getGitHubBranchNaming(issue, (warning) =>
-        this.warn(warning),
+      const naming = await getGitHubBranchNaming(
+        issue,
+        (warning) => this.warn(warning),
+        dryRun,
       );
       spinner.succeed();
       fetched = { issue, naming };
@@ -475,8 +478,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       const issue = dryRun
         ? await fetchLinearIssue(issueIdFlag, { labelIds: true })
         : await fetchLinearIssue(issueIdFlag);
-      const naming = await getLinearBranchNaming(issue, (warning) =>
-        this.warn(warning),
+      const naming = await getLinearBranchNaming(
+        issue,
+        (warning) => this.warn(warning),
+        dryRun,
       );
       spinner.succeed();
       return {
@@ -492,14 +497,18 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
   private async getClickUpTaskBranchName(
     taskIdFlag: string,
+    dryRun: boolean,
   ): Promise<DerivedName> {
     const typedId = taskIdFlag.trim();
     const spinner = createSpinner(`Fetching ClickUp task ${typedId}`).start();
     try {
       // One fetch gives both the name and the url the API reports (D9).
       const task = await fetchClickUpTask(taskIdFlag);
-      const naming = await getClickUpBranchNaming(task, taskIdFlag, (warning) =>
-        this.warn(warning),
+      const naming = await getClickUpBranchNaming(
+        task,
+        taskIdFlag,
+        (warning) => this.warn(warning),
+        dryRun,
       );
       spinner.succeed();
       return {
@@ -659,7 +668,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       return this.getLinearIssueBranchName(flags.linear, dryRun);
     }
     if (flags.clickup) {
-      return this.getClickUpTaskBranchName(flags.clickup);
+      return this.getClickUpTaskBranchName(flags.clickup, dryRun);
     }
     return undefined;
   }
@@ -669,14 +678,17 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
    * value for, with a line per value to paste into `.worktree.yml`. Everything
    * is said in words (`Rule:`, `id`), so none of it depends on colour.
    */
-  private reportDryRun(derived: DerivedName): void {
+  private async reportDryRun(derived: DerivedName): Promise<void> {
     const { branchName, issue } = derived;
     const naming = derived.naming;
     if (!naming) {
       // deriveFromIssue returns a naming for every provider on a dry run.
       throw new Error("A dry run needs the naming the integration computed.");
     }
-    const listName = `${issue.provider}.branchType`;
+    // The list that decided (D7): the provider's own, else the shared one;
+    // with neither, the name a person would write one under.
+    const inForce = await getBranchTypeRules(issue.provider);
+    const listName = inForce?.listName ?? `${issue.provider}.branchType`;
     const fields = naming.fields
       .filter((field) => field.values.length > 0)
       .map((field) => ({
@@ -685,7 +697,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         values: field.values.map((value) => ({
           id: value.id ?? null,
           name: value.name ?? null,
-          when: pasteReadyLine(field, value),
+          when: pasteReadyLine(field, value, inForce?.shared === true),
         })),
       }));
     const match: BranchDryRunDocument["match"] =
@@ -703,7 +715,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       match.source === "rule"
         ? `Rule: rule ${match.position} of ${listName}: ${match.rule}`
         : match.source === "built-in"
-          ? `Rule: built-in mapping (the project file has no ${listName})`
+          ? `Rule: built-in mapping (the project file has no ${issue.provider}.branchType or shared branchType)`
           : `Rule: none matched in ${listName}, so the name has no prefix`,
     );
     this.log(
@@ -905,7 +917,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       if (!derived) {
         throw new Error("--dry-run reached the fetch without an issue flag.");
       }
-      this.reportDryRun(derived);
+      await this.reportDryRun(derived);
       return undefined;
     }
 

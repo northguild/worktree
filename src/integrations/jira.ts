@@ -8,8 +8,8 @@ import {
 } from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
 import {
+  getBranchTypeRules,
   getTeamConfigValue,
-  loadProjectConfig,
   renderBranchName,
 } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
@@ -178,12 +178,31 @@ function normalizeJiraFieldValue(raw: unknown): FieldValue[] {
   return [...own, ...normalizeJiraFieldValue(option.child)];
 }
 
+// The portable names (D3, D4): `Type` and `Labels` are added beside `issuetype`
+// and `labels`, found by id since the display name only arrives with
+// `expand=names` and is localized. Each is skipped when a field of that name or
+// id exists, so a real custom field is never shadowed or made ambiguous, and an
+// English Jira, whose `labels` is already named Labels, gets no second one.
 export function getJiraIssueFields(issue: JiraIssue): IssueField[] {
-  return Object.entries(issue.fields).map(([id, raw]) => ({
+  const fields = Object.entries(issue.fields).map(([id, raw]) => ({
     id,
     name: issue.names?.[id] ?? id,
     values: normalizeJiraFieldValue(raw),
   }));
+  const aliases = [
+    { alias: "Type", native: "issuetype" },
+    { alias: "Labels", native: "labels" },
+  ].flatMap(({ alias, native }) => {
+    const source = fields.find((field) => field.id === native);
+    const taken = fields.some(
+      (field) =>
+        field.id === alias || field.name.toLowerCase() === alias.toLowerCase(),
+    );
+    return source && !taken
+      ? [{ id: alias, name: alias, values: source.values }]
+      : [];
+  });
+  return [...fields, ...aliases];
 }
 
 const JIRA_REQUEST_TIMEOUT_MS = 15_000;
@@ -267,27 +286,30 @@ export async function fetchJiraIssue(
 }
 
 /**
- * With `jira.branchType` in the project file the rules decide the kind (D10)
- * and an issue no rule matches gets no prefix; without it the built-in mapping
- * applies. Rule warnings go to `onWarning`. A dry run asks Jira for display
- * names even with no rules (D9), because showing them is its job.
+ * With `jira.branchType` (else the shared `branchType`) in the project file the
+ * rules decide the kind (D10) and an issue no rule matches gets no prefix;
+ * without either the built-in mapping applies. Rule warnings go to
+ * `onWarning`. A dry run asks Jira for display names even with no rules (D9),
+ * because showing them is its job.
  */
 export async function getJiraBranchNaming(
   issueId: string,
   options: { onWarning?: (warning: string) => void; dryRun?: boolean } = {},
 ): Promise<BranchNaming> {
-  const project = await loadProjectConfig();
-  const rules =
-    project.status === "loaded" ? project.config.jira?.branchType : undefined;
+  const list = await getBranchTypeRules("jira");
   const issue = await fetchJiraIssue(issueId, {
-    names: rules !== undefined || options.dryRun === true,
+    names: list !== undefined || options.dryRun === true,
   });
   const fields = getJiraIssueFields(issue);
 
   let kind: ReturnType<typeof getJiraBranchType> | undefined;
   let match: BranchMatch;
-  if (rules) {
-    const result = evaluateBranchTypeRules(rules, fields, "jira.branchType");
+  if (list) {
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
+      // A dry run is where rules are written and checked, so a misspelt field
+      // in the shared list still warns there (D5 holds for real runs).
+      shared: list.shared && options.dryRun !== true,
+    });
     for (const warning of result.warnings) {
       options.onWarning?.(warning);
     }
