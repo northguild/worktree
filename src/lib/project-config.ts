@@ -192,6 +192,7 @@ const PERSONAL_KEYS = new Set([
   "jira.email",
   "jira.autoAssign",
   "github.autoAssign",
+  "linear.autoStart",
 ]);
 const PERSONAL_SECTIONS = new Set(["herdr", "agent"]);
 const SECRET_KEYS = new Set<string>(SECRET_CONFIG_NAMES);

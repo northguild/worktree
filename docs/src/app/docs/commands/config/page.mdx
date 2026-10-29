@@ -97,6 +97,7 @@ worktree config agent.command "claude --bg"
 worktree config postCreate "pnpm install"
 worktree config github.autoAssign true
 worktree config jira.autoAssign true
+worktree config linear.autoStart true
 worktree config --list
 worktree config --list --missing
 worktree config --missing
@@ -158,6 +159,18 @@ The Jira keys are asked together behind one confirm. The `jira.autoAssign` promp
 and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
 The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct
 `worktree config jira.autoAssign` accepts only `true` or `false`.
+
+## Linear Integration Keys
+
+- `linear.apiKey` for Linear API access.
+- `linear.autoStart` whether `--linear` also moves the issue to a started state once the worktree exists:
+  `true` always (an issue already started, or in triage, completed, canceled or duplicate, is left where it is), `false` never, unset means you are asked once and your answer is saved. See
+  [Configuration](/docs/configuration#linear-integration-notes).
+
+The Linear keys are asked together behind one confirm. The `linear.autoStart` prompt is asked after the key
+and has three choices: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so
+`--missing` goes on offering the prompt until you settle it. A direct `worktree config linear.autoStart`
+accepts only `true` or `false`.
 
 ## Agent Key
 

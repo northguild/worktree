@@ -18,3 +18,16 @@ Branch-local and advisory. Nothing reads this file; `/feature-close` deletes it.
   and an issue is used. Same as `fetchLinearIssue`.
 - `fetchLinearIssue` still builds its error-message list inline, while `errorMessages` / `withMessages` now
   do the same for `startLinearIssue`. Left alone to keep the extraction behaviour-preserving.
+
+## Phase 2 — `linear.autoStart`
+
+- `configuration/page.mdx:245`'s parenthetical leaves out "already started", which
+  `commands/config/page.mdx:167` includes. Not wrong, but the two pages word D1 differently.
+- D10's "in the Linear group" is not pinned: the declined-group test (`config.test.ts`, "skips the key
+  prompt when the group is declined") would still pass if the select moved outside the Linear block.
+  `expect(mockSelect).not.toHaveBeenCalled()` there would pin it.
+- Uneven wrapping: `skills/worktree/SKILL.md:428-430` leaves a short middle line, and
+  `commands/config/page.mdx:167` runs past the page's width.
+- The new config tests use `(config as any).parse`, the file's existing pattern.
+- The select's wording ("Should `branch --linear` move the issue to started once the worktree exists?") is
+  the implementation's own; it belongs with §9's names question.

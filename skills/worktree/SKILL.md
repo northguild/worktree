@@ -425,7 +425,8 @@ flag, then git config (any scope), then the file, then the built-in default. The
 file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
 that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
-`herdr.*`, `agent.command`, `jira.email`, `*.autoAssign`) in the file is ignored
+`herdr.*`, `agent.command`, `jira.email`, `*.autoAssign`,
+`linear.autoStart`) in the file is ignored
 with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
 `clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
 `2` (`invalid_value`) before anything is created. An unknown key only warns. A
@@ -469,6 +470,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
 | `jira.autoAssign` | `true` or `false` | whether `--jira` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `linear.apiKey` | `lin_api_...` | `--linear` flag |
+| `linear.autoStart` | `true` or `false` | whether `--linear` moves the issue to a started state once the worktree exists; unset means ask (start when non-interactive); moving needs a key with the Write permission |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
 | `branchPrefix.feature` | `feature/` | auto-prefix on Feature issues, on Linear issues with no bug, chore or maintenance label, and on ClickUp tasks with no such tag |
@@ -605,7 +607,7 @@ worktree config linear.apiKey lin_api_...
 worktree branch --linear ENG-123
 ```
 
-`linear.apiKey` is the only Linear key. Without it `branch --linear` exits `2`
+`linear.apiKey` is the only required Linear key. Without it `branch --linear` exits `2`
 (`missing_value`) before any worktree is created, and a non-interactive run
 never prompts for it.
 
