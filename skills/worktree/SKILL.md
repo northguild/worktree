@@ -92,6 +92,11 @@ worktree branch --jira DEV-123 --assign
 worktree branch --linear ENG-123
 worktree branch --linear eng-123
 
+# Linear — move the issue to its team's started state once the worktree exists
+# (needs a key with the Write permission). --no-start skips it for one run.
+worktree branch --linear ENG-123 --start
+worktree branch --linear ENG-123 --no-start
+
 # ClickUp — requires clickup.apiToken in config; a custom id (DEV-123) also
 # needs clickup.workspaceId. A short id is typed without CU- (CU-9hx is refused)
 worktree branch --clickup 9hx
@@ -101,7 +106,20 @@ worktree branch --clickup DEV-123
 `--github`, `--jira`, `--linear` and `--clickup` are mutually exclusive. `--assign` and
 `--no-assign` need one of the four; `--assign --linear` (as `--assign --clickup`)
 skips the assignment with a warning, because assignment is not supported for
-them yet. `--linear` alone warns nothing.
+them yet. `--linear` alone warns nothing about assignment.
+
+`--start` and `--no-start` also need one of the four (exit `2` otherwise), and only `--linear`
+acts on them: with `--github` they warn that it is not supported, with `--jira` or
+`--clickup` that it is not supported yet, and the run carries on. With neither flag,
+`linear.autoStart` decides whether a `--linear` issue is moved to its team's started
+state: `true` always, `false` never, and unset means you are asked once ("Move this
+issue to started?") and the answer is saved to the key. A non-interactive run starts and
+saves nothing. Only an issue in a backlog or unstarted state moves. One in triage,
+completed, canceled or duplicate, or on a team with no started state, is left where it is
+and a warning names the state. One that is already started is reported as it is, with
+`started: true` and no warning. The move happens after the worktree exists, never on a dry run or
+when an existing worktree is reopened, and a failure (a key without the Write
+permission, say) warns and never changes the exit code.
 
 With neither flag, `github.autoAssign` (for `--github`) or `jira.autoAssign`
 (for `--jira`) decides whether the issue is assigned: `true` always, `false`
@@ -150,7 +168,8 @@ live Workspace), unless `clickup.branchType` rules are set. A short id such as `
 
 **Issue content is used for the branch name and nothing else.** `--github`,
 `--jira`, `--linear` and `--clickup` read the issue's number or key, its title (Jira:
-summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--github` also reads whether the
+summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
+workflow state and its team's started states (names, types and positions, never the description); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
 refused, naming `worktree checkout <branch>` when its branch is on this
 repository and its name is only letters, digits, `_`, `.`, `/` and `-`, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
@@ -218,7 +237,8 @@ Flags for agent mode:
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
-| `--dry-run` | `branch` | with an issue flag: print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
+| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state once the worktree exists, or not; only a backlog or unstarted issue moves, and a `--start` with no issue flag exits `2` |
+| `--dry-run` | `branch` | with an issue flag: print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 Defaults when non-interactive:
@@ -227,6 +247,10 @@ Defaults when non-interactive:
   48 characters at the last dash. With no issue, the branch name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or
   `jira.autoAssign`, then assign. The default is never saved.
+- **Start (Linear):** `--start`/`--no-start`, then `linear.autoStart`, then start: a
+  non-interactive `--linear` run moves a backlog or unstarted issue to started unless
+  `--no-start` or `linear.autoStart false`. The default is never saved, and a failed
+  move warns and changes no exit code.
 - **Install:** on. The command is your `postCreate`, else the steps under
   `postCreate` in `.worktree.yml` (run in order, the first failure stops the
   rest), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`,
@@ -258,7 +282,7 @@ document:
 
 ```json
 {"path":"/abs/repo.worktrees/42-fix-login","branch":"42-fix-login","source":"origin/main",
- "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,
+ "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,"started":null,
  "envFilesCopied":["docs/.env.local"],
  "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
@@ -269,6 +293,7 @@ document:
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`,
   `{provider:"clickup",key,url}`, or `null`; `url` can itself be `null`.
 - `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), `null` when no assignment was attempted.
+- `started` is `true` when the `--linear` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, its team has no started state, or the attempt failed), `null` when none was attempted.
 - `herdr` and `agent` are `null` when skipped. `agent.command` leaves the brief
   out. `agent.name` is `null` where this CLI named nothing: a detached
   start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a

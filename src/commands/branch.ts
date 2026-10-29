@@ -16,6 +16,7 @@ import {
 import {
   fetchLinearIssue,
   getLinearBranchNaming,
+  startLinearIssue,
 } from "../integrations/linear.js";
 import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import {
@@ -75,19 +76,28 @@ export default class Branch extends BaseCommand {
 --assign (or github.autoAssign / jira.autoAssign) assigns a --github or --jira
 issue to you; a Jira issue someone else holds is left alone.
 
+--start (or linear.autoStart) moves a --linear issue in a backlog or unstarted
+state to its team's first started state once the worktree exists; other states
+are left where they are. --no-start never does. Without either, a terminal is
+asked once and a non-interactive run starts. It needs a key with the Write
+permission.
+
 --dry-run (with --github, --jira, --linear or --clickup) fetches the issue and
 prints the branch name, the rule that chose its prefix and every field the issue
 has a value for, with a paste-ready .worktree.yml line per value. It creates
-nothing, assigns nothing, saves nothing and asks nothing.
+nothing, assigns nothing, moves nothing, saves nothing and asks nothing.
 
 --json prints one document on stdout:
-path, branch, source, issue, assigned, envFilesCopied, installed, herdr,
-agent, warnings
+path, branch, source, issue, assigned, started, envFilesCopied, installed,
+herdr, agent, warnings
 issue: {provider:"github", number, url|null}, {provider:"jira", key,
 url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
 url|null} or null
 assigned: true if the issue is yours after the run, false if it is not (held
 by someone else, or the attempt failed), null if none was attempted
+started: true if the Linear issue is in a started state after the run (moved
+or already there), false if it is not (left alone, its team has no started
+state, or the attempt failed), null if none was attempted
 installed: {ran:true, command, steps[], from, inferred, ok, reason?} or
 {ran:false, reason}
 command is the step that failed, else the last that ran; steps are the ones
@@ -119,6 +129,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     "<%= config.bin %> <%= command.id %> --jira DEV-123",
     "<%= config.bin %> <%= command.id %> --jira DEV-123 --assign",
     "<%= config.bin %> <%= command.id %> --linear ENG-123",
+    "<%= config.bin %> <%= command.id %> --linear ENG-123 --no-start",
     "<%= config.bin %> <%= command.id %> --clickup 9hx",
     "<%= config.bin %> <%= command.id %> --clickup DEV-123",
     '<%= config.bin %> <%= command.id %> --github 42 --agent "implement the issue"',
@@ -180,6 +191,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       allowNo: true,
       description:
         "Assign the issue to you when creating a branch from --github or --jira (not supported for --linear or --clickup yet)",
+    }),
+    // Source-agnostic like `--assign` (D4), so #125 and #131 add no flag. Unset
+    // is meaningful (the key, then the mode), so there is no `default`.
+    start: Flags.boolean({
+      allowNo: true,
+      description:
+        "Move the issue to its team's first started state once the worktree exists, when it is in a backlog or unstarted state (--linear only; not supported for --github, and not yet for --jira or --clickup)",
     }),
     // D13: the way to write branchType rules against a real issue. It is a
     // `branch` flag rather than a command so that the name it prints is the one
@@ -661,6 +679,50 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     return false;
   }
 
+  /**
+   * Same contract as `assignGithubIssue`: nothing here aborts `branch` (D7).
+   * `startLinearIssue` throws a `Linear:` error on every failure and leaves
+   * the state alone unless it confirmed the move, so every path that is not
+   * "in a started state now" reports `false`. Messages never carry a header.
+   */
+  private async startLinearIssue(issueIdFlag: string): Promise<boolean> {
+    const issueKey = issueIdFlag.trim().toUpperCase();
+    const spinner = createSpinner(
+      `Moving Linear issue ${issueKey} to started`,
+    ).start();
+
+    try {
+      const result = await startLinearIssue(issueIdFlag);
+      switch (result.outcome) {
+        case "started":
+          spinner.succeed(
+            `Moved ${issueKey} from ${result.from} to ${result.to}`,
+          );
+          return true;
+        case "already-started":
+          spinner.succeed(`${issueKey} is already started (${result.state})`);
+          return true;
+        case "left-alone": {
+          const message = `${issueKey} is in ${result.state} (a ${result.type} state), so it was not moved to started.`;
+          spinner.warn(message);
+          this.recordWarning(message);
+          return false;
+        }
+        case "no-started-state": {
+          const message = `${issueKey} was not moved to started: its team has no started state (it is in ${result.state}).`;
+          spinner.warn(message);
+          this.recordWarning(message);
+          return false;
+        }
+      }
+    } catch (error) {
+      const message = `Could not move ${issueKey} to started. ${error instanceof Error ? error.message : String(error)}`;
+      spinner.warn(message);
+      this.recordWarning(message);
+      return false;
+    }
+  }
+
   /** The name for whichever issue flag was given; `undefined` when none was. */
   private async deriveFromIssue(
     flags: {
@@ -831,6 +893,19 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       );
     }
 
+    // Same shape as the check above, for the same reason (D5).
+    if (
+      flags.start !== undefined &&
+      !flags.github &&
+      !flags.jira &&
+      !flags.linear &&
+      !flags.clickup
+    ) {
+      this.error(
+        "--start/--no-start requires one of --github, --jira, --linear or --clickup.",
+      );
+    }
+
     // D13: a dry run looks at one issue's name; with none there is nothing to
     // evaluate the rules against.
     const dryRun = flags["dry-run"] === true;
@@ -970,10 +1045,38 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       }
     }
 
+    // Decided here for the same reason (D6), written once the tree exists.
+    let startLinear = false;
+    if (flags.start !== undefined && flags.github) {
+      this.warn(
+        "Moving an issue to started is not supported for GitHub issues.",
+      );
+    } else if (flags.start !== undefined && flags.jira) {
+      this.warn(
+        "Moving an issue to started is not supported for Jira issues yet.",
+      );
+    } else if (flags.start !== undefined && flags.clickup) {
+      this.warn(
+        "Moving an issue to started is not supported for ClickUp tasks yet.",
+      );
+    } else if (flags.linear) {
+      startLinear = await this.shouldStartIssue(
+        "linear.autoStart",
+        flags.start,
+      );
+    }
+
     const sourceBranch = await this.getSourceBranch(flags.source);
     const projectPath = await gitCreateWorktree(branchName, sourceBranch, {
       fetch: false,
     });
+    // An issue moves only once a worktree exists for it (D6), and before the
+    // env files, install and opener so a later failure still leaves the tree
+    // the work started in.
+    let started: boolean | null = null;
+    if (startLinear && flags.linear) {
+      started = await this.startLinearIssue(flags.linear);
+    }
     // Env files first: the agent starts working immediately, so it has to find a
     // worktree that is already complete. The editor stays last so its "Worktree
     // created" fallback remains the final line.
@@ -1008,6 +1111,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         sourceBranch,
         issue,
         assigned,
+        started,
         envFilesCopied,
         installed,
       });
@@ -1036,6 +1140,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       sourceBranch,
       issue,
       assigned,
+      started,
       envFilesCopied,
       installed,
       outcome,
@@ -1048,6 +1153,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     sourceBranch,
     issue,
     assigned,
+    started,
     envFilesCopied,
     installed,
     outcome,
@@ -1057,6 +1163,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     sourceBranch: string;
     issue: BranchIssue | null;
     assigned: boolean | null;
+    started: boolean | null;
     envFilesCopied: string[];
     installed: InstallResult;
     outcome?: OpenOutcome;
@@ -1067,6 +1174,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       source: sourceBranch,
       issue,
       assigned,
+      started,
       envFilesCopied,
       installed,
       herdr: outcome?.herdr ?? null,

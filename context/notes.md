@@ -43,3 +43,16 @@ Branch-local and advisory. Nothing reads this file; `/feature-close` deletes it.
   addition. Both are what D9 asked for.
 - The start prompt text "Move this issue to started?" is pinned by the seam test; docs that quote it should
   quote it exactly.
+
+## Phase 4 — `branch --linear` starts the issue
+
+- `branch.ts` has a private `startLinearIssue(issueIdFlag)` that calls the imported `startLinearIssue`.
+  Correct (a bare identifier is the module import) but easy to misread; a name like
+  `moveLinearIssueToStarted` would remove the ambiguity.
+- The left-alone, no-started-state and thrown-failure warning strings are the implementation's own wording
+  of D7's "which state and why", so their assertions pin the code to itself.
+- The no-leak test injects a 20+ character `lin_api_` string into the stubbed error, so it proves the
+  `recordWarning` redaction route rather than "the stored key"; the configured `lin_api_test` is too short
+  to match the redaction pattern.
+- The left-alone and no-started-state warnings give the reason but no next step
+  (`typescript/error-handling.md` asks errors to explain one). They are outcomes rather than errors.

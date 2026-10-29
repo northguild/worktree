@@ -292,6 +292,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not (a Jira issue someone else holds is left alone) |
+| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state once the worktree exists, or not; only a backlog or unstarted issue moves, and it needs a key with the Write permission (a `--start` with no issue flag exits `2`) |
 | `--dry-run` | `branch` | with an issue flag: print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
@@ -300,6 +301,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 - **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to 48 characters at the last dash.
   With no issue, the name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or `jira.autoAssign`, then assign. The default is never saved.
+- **Start (Linear):** `--start`/`--no-start`, then `linear.autoStart`, then start: a non-interactive `--linear` run moves a backlog or unstarted issue to started unless `--no-start` or `linear.autoStart false`. The default is never saved, and a failed move warns and changes no exit code.
 - **Install:** on. The command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml`, else
   inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). Steps from the
   file need your approval first; unapproved, a non-interactive run exits `2` (`missing_value`) before anything is
@@ -322,7 +324,7 @@ worktree branch --github 42 --json --agent-file brief.md
 
 ```json
 {"path":"/abs/repo.worktrees/42-fix-login","branch":"42-fix-login","source":"origin/main",
- "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,
+ "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,"started":null,
  "envFilesCopied":["docs/.env.local"],
  "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
@@ -331,7 +333,7 @@ worktree branch --github 42 --json --agent-file brief.md
 ```
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, `{provider:"clickup",key,url}`, or `null`.
-- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), and `null` when no assignment was attempted. `herdr` and `agent` are `null` when skipped, and
+- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), and `null` when no assignment was attempted. `started` is `true` when the `--linear` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, its team has no started state, or the attempt failed), and `null` when none was attempted. `herdr` and `agent` are `null` when skipped, and
   `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
 - `installed` is `{ran:false,reason}` when skipped. `steps` are the commands that ran, in order; `command` is the
   one that failed, else the last that ran; `from` is `"git-config"`, `"project"` or `"lockfile"`. A failed install still prints the whole document, with

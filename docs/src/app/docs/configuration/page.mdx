@@ -242,7 +242,7 @@ worktree config jira.autoAssign true
 
 - `worktree branch --linear <issue-id>` reads issues from the Linear workspace your key belongs to.
 - `linear.apiKey` is required.
-- `linear.autoStart` is optional and decides whether `--linear` also moves the issue to a started state once the worktree exists. It has three states, like `jira.autoAssign`: `true` always starts (an issue in triage, completed, canceled or duplicate is left where it is), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it starts and saves nothing. Moving an issue needs a key with the Write permission and access to the issue's team. To set it directly:
+- `linear.autoStart` is optional and decides whether `--linear` also moves the issue to a started state once the worktree exists. It has three states, like `jira.autoAssign`: `true` always starts (an issue that is already started, or is in triage, completed, canceled or duplicate, is left where it is), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it starts and saves nothing. Moving an issue needs a key with the Write permission and access to the issue's team. See [Moving the issue to started](/docs/commands/branch#moving-the-issue-to-started) for the order the decision is made in. To set it directly:
 
 ```bash
 worktree config linear.autoStart true
