@@ -139,6 +139,8 @@ export const projectConfigSchema = z
           .optional(),
       })
       .optional(),
+    // The shared list: rules for every provider that has none of its own (D1).
+    branchType: branchTypeRules.optional(),
     branchName: branchNameTemplate.optional(),
     copy: z.array(copyPattern).optional(),
     postCreate: z.array(step).optional(),
@@ -178,6 +180,7 @@ const TEAM_SECTIONS: Record<string, readonly string[]> = {
 };
 const TEAM_SCALARS = new Set([
   "defaultSourceBranch",
+  "branchType",
   "branchName",
   "copy",
   "postCreate",
@@ -415,14 +418,24 @@ export async function getTeamConfigValue(name: TeamConfigKey) {
 // What the issue integrations share (D8, D12)
 // ---------------------------------------------------------------------------
 
-/** `<provider>.branchType` from the project file, when it sets one. */
+/**
+ * The rules that decide a provider's kind, with the name of the list they came
+ * from (D1, D7): the provider's own `branchType`, else the shared top-level
+ * one, else `undefined` and the provider's built-in mapping applies.
+ */
 export async function getBranchTypeRules(
-  provider: "github" | "linear" | "clickup",
+  provider: "jira" | "github" | "linear" | "clickup",
 ) {
   const project = await loadProjectConfig();
-  return project.status === "loaded"
-    ? project.config[provider]?.branchType
-    : undefined;
+  if (project.status !== "loaded") {
+    return undefined;
+  }
+  const own = project.config[provider]?.branchType;
+  if (own) {
+    return { rules: own, listName: `${provider}.branchType` };
+  }
+  const shared = project.config.branchType;
+  return shared ? { rules: shared, listName: "branchType" } : undefined;
 }
 
 /** The configured prefix for a kind; no kind is no prefix (D8). */
@@ -843,6 +856,11 @@ export function summariseProjectFile(config: ProjectConfig) {
         `${provider}.branchType: ${count(rules.length, "rule")} ${MARKER}`,
       );
     }
+  }
+  if (config.branchType) {
+    lines.push(
+      `branchType: ${count(config.branchType.length, "rule")} ${MARKER}`,
+    );
   }
   if (config.branchName !== undefined) {
     lines.push(`branchName=${showVisibly(config.branchName)} ${MARKER}`);

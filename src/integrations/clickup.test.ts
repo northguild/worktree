@@ -753,3 +753,78 @@ describe("getClickUpBranchNaming", () => {
     expect(naming.branchName).toBe("fix/CU-9hx-fix-login");
   });
 });
+
+// The shared top-level `branchType` list (#128, D1). Expected names come from
+// the plan's Phase 1 "Done when" and the built-in mapping above (a `Bug` tag
+// is `fix/`, the id segment is `CU-<id>`).
+describe("the shared branchType list for ClickUp", () => {
+  const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+  const SHARED = `branchType:
+  - when: { Tags: chore }
+    type: chore
+`;
+  const OWN = `clickup:
+  branchType:
+    - when: { Tags: chore }
+      type: feature
+`;
+
+  const clickUpTask = (tags: string[]) => ({
+    id: "9hx",
+    customId: null,
+    name: "Tidy",
+    url: null,
+    tags,
+  });
+
+  function projectFile(content: string) {
+    resetProjectConfigCache();
+    stubProjectFile(content);
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("neither list: today's built-in mapping", async () => {
+    projectFile(PREFIXES);
+
+    expect(
+      (await getClickUpBranchNaming(clickUpTask(["Bug", "chore"]), "9hx"))
+        .branchName,
+    ).toBe("fix/CU-9hx-tidy");
+  });
+
+  it("shared list only: a rule-matched task gets its rule's prefix, and an otherwise covers the rest", async () => {
+    projectFile(`${PREFIXES + SHARED}  - otherwise: feature\n`);
+
+    const matched = await getClickUpBranchNaming(clickUpTask(["chore"]), "9hx");
+    const rest = await getClickUpBranchNaming(clickUpTask([]), "9hx");
+
+    expect(matched.branchName).toBe("chore/CU-9hx-tidy");
+    expect(matched.match).toMatchObject({ source: "rule", position: 1 });
+    expect(rest.branchName).toBe("feat/CU-9hx-tidy");
+  });
+
+  it("shared list only: it replaces the built-in mapping, with no fall-through on no match", async () => {
+    projectFile(PREFIXES + SHARED);
+
+    const naming = await getClickUpBranchNaming(clickUpTask(["Bug"]), "9hx");
+
+    expect(naming.branchName).toBe("CU-9hx-tidy");
+    expect(naming.match).toEqual({ source: "none" });
+  });
+
+  it("both lists: the provider's wins", async () => {
+    projectFile(PREFIXES + OWN + SHARED);
+
+    expect(
+      (await getClickUpBranchNaming(clickUpTask(["chore"]), "9hx")).branchName,
+    ).toBe("feat/CU-9hx-tidy");
+  });
+});

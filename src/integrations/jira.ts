@@ -8,8 +8,8 @@ import {
 } from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
 import {
+  getBranchTypeRules,
   getTeamConfigValue,
-  loadProjectConfig,
   renderBranchName,
 } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
@@ -267,27 +267,26 @@ export async function fetchJiraIssue(
 }
 
 /**
- * With `jira.branchType` in the project file the rules decide the kind (D10)
- * and an issue no rule matches gets no prefix; without it the built-in mapping
- * applies. Rule warnings go to `onWarning`. A dry run asks Jira for display
- * names even with no rules (D9), because showing them is its job.
+ * With `jira.branchType` (else the shared `branchType`) in the project file the
+ * rules decide the kind (D10) and an issue no rule matches gets no prefix;
+ * without either the built-in mapping applies. Rule warnings go to
+ * `onWarning`. A dry run asks Jira for display names even with no rules (D9),
+ * because showing them is its job.
  */
 export async function getJiraBranchNaming(
   issueId: string,
   options: { onWarning?: (warning: string) => void; dryRun?: boolean } = {},
 ): Promise<BranchNaming> {
-  const project = await loadProjectConfig();
-  const rules =
-    project.status === "loaded" ? project.config.jira?.branchType : undefined;
+  const list = await getBranchTypeRules("jira");
   const issue = await fetchJiraIssue(issueId, {
-    names: rules !== undefined || options.dryRun === true,
+    names: list !== undefined || options.dryRun === true,
   });
   const fields = getJiraIssueFields(issue);
 
   let kind: ReturnType<typeof getJiraBranchType> | undefined;
   let match: BranchMatch;
-  if (rules) {
-    const result = evaluateBranchTypeRules(rules, fields, "jira.branchType");
+  if (list) {
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName);
     for (const warning of result.warnings) {
       options.onWarning?.(warning);
     }

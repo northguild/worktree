@@ -39,7 +39,7 @@ If a prefix key is not configured, no prefix is applied.
 
 An issue with no type, or with a type other than these three, gets no prefix, whatever its labels say. That
 default stays as it is so that branch names people already get do not change. To choose the prefix yourself,
-add a `github.branchType` list to `.worktree.yml`. It can match the issue's `Type` and its `Labels` (by name or
+add a `github.branchType` list to `.worktree.yml`, or a shared top-level `branchType` list. It can match the issue's `Type` and its `Labels` (by name or
 by `{ id: ... }`), and ending it with `- otherwise: feature` gives the issues no rule matches a prefix:
 
 ```yaml
@@ -52,7 +52,9 @@ github:
     - otherwise: feature
 ```
 
-With rules set, the built-in mapping above is not used. See
+To write the rules once for every provider you use, put the same list at the top level instead (`branchType:` rather
+than `github:` and `branchType:`). A `github.branchType` list still wins over it for GitHub issues, and either way
+the built-in mapping above is not used. See
 [Branch-type rules](/docs/project-configuration#branch-type-rules) for how rules match, and
 [Branch name template](/docs/project-configuration#branch-name-template) to change the shape of the name.
 

@@ -54,8 +54,8 @@ The prefix comes from the task's tags, which are compared by exact name, ignorin
 When a task carries several of these tags, `bug` wins. A tag such as `bugfix` is not `bug`, so it does not match.
 If a prefix key is not configured, no prefix is applied.
 
-That mapping applies only when no `clickup.branchType` rules are set. A `clickup.branchType` list in
-`.worktree.yml` replaces it: the rules can match the task's `Tags` by name (a ClickUp tag has no id), and a task
+That mapping applies only when no `clickup.branchType` rules (or shared top-level `branchType` rules) are set. A
+`clickup.branchType` list, or the shared list, in `.worktree.yml` replaces it: the rules can match the task's `Tags` by name (a ClickUp tag has no id), and a task
 no rule matches gets no prefix unless the list ends with `- otherwise: <kind>`. See
 [Branch-type rules](/docs/project-configuration#branch-type-rules) and
 [Branch name template](/docs/project-configuration#branch-name-template).

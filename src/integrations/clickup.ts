@@ -234,22 +234,22 @@ export function getClickUpTaskFields(task: ClickUpTask): IssueField[] {
 // Takes the task already fetched so a caller can keep its url from the same
 // request. D6: `CU-<id>` for a short id, the custom id upper-cased otherwise;
 // it is told apart by the shape the user typed, not by `custom_id`, so the
-// branch carries the id that was asked for. With `clickup.branchType` in the
-// project file the rules decide the kind (D10) and a task no rule matches gets
-// no prefix; without it the built-in mapping applies. Rule warnings go to
-// `onWarning`.
+// branch carries the id that was asked for. With `clickup.branchType` (else the
+// shared `branchType`) in the project file the rules decide the kind (D10) and
+// a task no rule matches gets no prefix; without either the built-in mapping
+// applies. Rule warnings go to `onWarning`.
 export async function getClickUpBranchNaming(
   task: ClickUpTask,
   typedId: string,
   onWarning: (warning: string) => void = () => {},
 ): Promise<BranchNaming> {
-  const rules = await getBranchTypeRules("clickup");
+  const list = await getBranchTypeRules("clickup");
   const fields = getClickUpTaskFields(task);
 
   let kind: BranchKind | undefined;
   let match: BranchMatch;
-  if (rules) {
-    const result = evaluateBranchTypeRules(rules, fields, "clickup.branchType");
+  if (list) {
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName);
     for (const warning of result.warnings) {
       onWarning(warning);
     }

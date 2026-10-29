@@ -3965,6 +3965,39 @@ github:
       expect(text).not.toContain("Type (id Type)");
     });
 
+    // D7: the text names the list that decided; the plan's `rule N of branchType`.
+    it("names the shared list when it decided", async () => {
+      projectFile(`branchPrefix:
+  chore: chore/
+branchType:
+  - when: { Type: Bug }
+    type: bugfix
+  - when: { Labels: [chore, maintenance] }
+    type: chore
+`);
+      githubIssue();
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain(
+        "Rule: rule 2 of branchType: when: { Labels: [chore, maintenance] }, type: chore",
+      );
+      expect(output.stdout()).toContain(
+        "each with a line to paste into branchType:",
+      );
+    });
+
+    it("says none matched in the shared list when nothing did", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: bugfix\n");
+      githubIssue();
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain(
+        "Rule: none matched in branchType, so the name has no prefix",
+      );
+    });
+
     it("prints a paste-ready line per value in the form of the plan", async () => {
       githubIssue({ type: { id: 9, name: "Bug" } });
 

@@ -1147,3 +1147,112 @@ github:
     expect(naming.branchName).toBe("42-fix-login-bug");
   });
 });
+
+// The shared top-level `branchType` list (#128, D1): the provider's own list,
+// else the shared one, else the built-in mapping. The expected names come from
+// the plan's Phase 1 "Done when" and from the built-in mapping the existing
+// tests above pin (Bug type is `fix/`, no type is no prefix).
+describe("the shared branchType list for GitHub", () => {
+  const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+  const SHARED = `branchType:
+  - when: { Labels: chore }
+    type: chore
+`;
+  const OWN = `github:
+  branchType:
+    - when: { Labels: chore }
+      type: feature
+`;
+
+  function issue(
+    overrides: { type?: string; labels?: string[] } = {},
+  ): GitHubIssue {
+    return {
+      number: 42,
+      title: "Fix login bug",
+      type: overrides.type ? { id: 9, name: overrides.type } : null,
+      labels: (overrides.labels ?? []).map((name, id) => ({ id, name })),
+    } as unknown as GitHubIssue;
+  }
+
+  function projectFile(content: string, personal: Record<string, string> = {}) {
+    resetProjectConfigCache();
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "found",
+      content,
+    });
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(personal[name] ?? ""),
+    );
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("neither list: today's built-in mapping", async () => {
+    projectFile(PREFIXES);
+
+    expect(
+      (await getGitHubBranchNaming(issue({ type: "Bug", labels: ["chore"] })))
+        .branchName,
+    ).toBe("fix/42-fix-login-bug");
+  });
+
+  it("shared list only: it decides, and ends in otherwise: feature for an untyped issue (#118)", async () => {
+    projectFile(`${PREFIXES + SHARED}  - otherwise: feature\n`);
+
+    const naming = await getGitHubBranchNaming(issue());
+
+    expect(naming.branchName).toBe("feat/42-fix-login-bug");
+    expect(naming.match).toMatchObject({ source: "rule", position: 2 });
+    expect(
+      (await getGitHubBranchNaming(issue({ labels: ["chore"] }))).kind,
+    ).toBe("chore");
+  });
+
+  it("shared list only: it replaces the built-in mapping, with no fall-through on no match", async () => {
+    projectFile(PREFIXES + SHARED);
+
+    const naming = await getGitHubBranchNaming(issue({ type: "Bug" }));
+
+    expect(naming.branchName).toBe("42-fix-login-bug");
+    expect(naming.match).toEqual({ source: "none" });
+  });
+
+  it("both lists: the provider's wins", async () => {
+    projectFile(PREFIXES + OWN + SHARED);
+
+    expect(
+      (await getGitHubBranchNaming(issue({ labels: ["chore"] }))).branchName,
+    ).toBe("feat/42-fix-login-bug");
+  });
+
+  it("warns by the name of the list that was used", async () => {
+    projectFile(
+      `${PREFIXES}branchType:\n  - when: { Priority: High }\n    type: bugfix\n`,
+    );
+    const warnings: string[] = [];
+
+    await getGitHubBranchNaming(issue(), (w) => warnings.push(w));
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Rule 1 of branchType names");
+  });
+
+  // getBranchPrefix(kind) runs after the kind is decided, so a personal
+  // `northguild.worktree.branchPrefix.*` still wins over the file's prefix.
+  it("a personal branchPrefix still decides the prefix text for the shared list's kind", async () => {
+    projectFile(PREFIXES + SHARED, { "branchPrefix.chore": "mine/" });
+
+    expect(
+      (await getGitHubBranchNaming(issue({ labels: ["chore"] }))).branchName,
+    ).toBe("mine/42-fix-login-bug");
+  });
+});

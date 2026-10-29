@@ -76,7 +76,7 @@ not offer to run `worktree config` for a key the file supplies.
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.
 
-The `branchType` lists under `jira`, `github`, `linear` and `clickup` are live: see
+The `branchType` lists under `jira`, `github`, `linear` and `clickup`, and the shared top-level `branchType`, are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
 `copy`, see [Copy files](#copy-files), and `postCreate`, see [Post-create steps](#post-create-steps).
 
@@ -92,7 +92,8 @@ should not stop you.
 Which prefix a branch gets (`feat/`, `fix/`, `chore/`) depends on the kind of issue. By default `worktree`
 guesses from the issue (Jira and GitHub from the issue type, Linear from labels, ClickUp from tags). A
 `branchType` list under `jira`, `github`, `linear` or `clickup` replaces that provider's guess with your
-team's own rules.
+team's own rules, and a top-level `branchType` list does the same for every provider that has no list of its
+own.
 
 ```yaml
 jira:
@@ -115,9 +116,40 @@ jira:
   them does, and a field that holds a list (labels, components, a multi-select) matches if any element does.
 - **`- otherwise: <kind>` may appear once, last.** It sets the kind for an issue no rule matched. Without it,
   an unmatched issue gets **no prefix**.
-- **With a provider's `branchType` set, that provider's built-in mapping is not used at all.** The rules
-  replace it, so a rule list without `otherwise` does not fall back to `feature`. A provider without a
-  `branchType` list keeps its built-in mapping, and nothing changes for it.
+- **With a `branchType` list in force for a provider, that provider's built-in mapping is not used at all.**
+  The rules replace it, so a rule list without `otherwise` does not fall back to `feature`. A provider with no
+  list at all keeps its built-in mapping, and nothing changes for it.
+
+### One list for every provider
+
+A `branchType` list at the top of the file, with the same rules as the lists above, is the **shared list**.
+Write it once and it applies to Jira, GitHub, Linear and ClickUp alike:
+
+```yaml
+branchType:
+  - when: { Labels: [chore, maintenance] }
+    type: chore
+  - otherwise: feature
+```
+
+For each run, the first of these that exists decides the kind:
+
+1. the provider's own list (`jira.branchType`, `github.branchType`, `linear.branchType` or `clickup.branchType`);
+2. the shared `branchType` list;
+3. the provider's built-in mapping.
+
+A provider's own list is the escape hatch for fields that only that provider has, such as a Jira custom field.
+It wins over the shared list for that provider, and the shared list still applies to the others.
+
+**The shared list replaces the built-in mapping; it does not sit on top of it.** An issue that none of its
+rules matches gets no prefix unless the list ends with `- otherwise: <kind>`, exactly as with a provider's own
+list. In a file that uses several providers, a shared list therefore turns off the built-in mapping for every
+provider that has no list of its own: a Linear team that adds a shared list for GitHub's sake loses Linear's
+`bug` and `chore` label guess unless the list says `otherwise`. `worktree branch --dry-run` prints which list
+decided (`rule 2 of branchType`, or `none matched in branchType`).
+
+A shared rule names fields by what each provider offers (see below), so write it against fields that exist for
+the providers you use.
 
 ### Fields per provider
 
@@ -141,14 +173,14 @@ github:
 ```
 
 GitHub's built-in mapping gives an issue with no type, or a type other than `Feature`, `Bug` or `Task`, no
-prefix, and that stays true unless you opt in. A `github.branchType` list that ends with
-`- otherwise: feature` gives every issue the rules do not match the `feature` prefix. An issue with no type
+prefix, and that stays true unless you opt in. A `github.branchType` list, or a shared `branchType` list, that
+ends with `- otherwise: feature` gives every issue the rules do not match the `feature` prefix. An issue with no type
 simply does not match a `Type` rule; that is not a mistake and does not warn.
 
 Linear and ClickUp keep falling back to `feature` without rules; with rules, an issue none of them matches
 gets no prefix unless the list ends with `otherwise`.
 
-With `linear.branchType` set, or on a dry run, `worktree` asks Linear for each label's `id` as well as its
+With a Linear list in force (`linear.branchType` or the shared one), or on a dry run, `worktree` asks Linear for each label's `id` as well as its
 name, so a rule can match `{ id: "..." }`. Otherwise the Linear request is unchanged.
 
 ### Ids or names

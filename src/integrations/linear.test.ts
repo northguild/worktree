@@ -752,3 +752,96 @@ linear:
     ]);
   });
 });
+
+// The shared top-level `branchType` list (#128, D1). Expected names come from
+// the plan's Phase 1 "Done when" and the built-in mapping above (a `Bug` label
+// is `fix/`, a Linear issue with no matching label is `feat/`).
+describe("the shared branchType list for Linear", () => {
+  const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+  const SHARED = `branchType:
+  - when: { Labels: chore }
+    type: chore
+`;
+  const OWN = `linear:
+  branchType:
+    - when: { Labels: chore }
+      type: feature
+`;
+
+  const linearIssue = (labels: string[]) => ({
+    identifier: "ENG-42",
+    title: "Tidy",
+    url: null,
+    labels,
+  });
+
+  function projectFile(content: string) {
+    resetProjectConfigCache();
+    stubProjectFile(content);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
+    );
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("neither list: today's built-in mapping", async () => {
+    projectFile(PREFIXES);
+
+    expect(
+      (await getLinearBranchNaming(linearIssue(["Bug", "chore"]))).branchName,
+    ).toBe("fix/ENG-42-tidy");
+  });
+
+  it("shared list only: a rule-matched issue gets its rule's prefix", async () => {
+    projectFile(PREFIXES + SHARED);
+
+    const naming = await getLinearBranchNaming(linearIssue(["chore"]));
+
+    expect(naming.branchName).toBe("chore/ENG-42-tidy");
+    expect(naming.match).toMatchObject({ source: "rule", position: 1 });
+  });
+
+  it("shared list only: it replaces the built-in mapping, with no fall-through on no match", async () => {
+    projectFile(PREFIXES + SHARED);
+
+    const naming = await getLinearBranchNaming(linearIssue(["Bug"]));
+
+    expect(naming.branchName).toBe("ENG-42-tidy");
+    expect(naming.match).toEqual({ source: "none" });
+  });
+
+  it("both lists: the provider's wins", async () => {
+    projectFile(PREFIXES + OWN + SHARED);
+
+    expect(
+      (await getLinearBranchNaming(linearIssue(["chore"]))).branchName,
+    ).toBe("feat/ENG-42-tidy");
+  });
+
+  it("asks for each label's id when only the shared list is set", async () => {
+    projectFile(PREFIXES + SHARED);
+    const fetchSpy = stubFetch(
+      respond(
+        200,
+        issuePayload({
+          labels: { nodes: [{ id: "lbl-chore", name: "Housekeeping" }] },
+        }),
+      ),
+    );
+
+    await fetchLinearIssue("eng-123");
+
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.query).toContain("nodes {\n        id\n        name");
+  });
+});

@@ -38,6 +38,7 @@ import { isNonInteractive } from "../lib/interaction.js";
 import { createSpinner } from "../lib/progress.js";
 import {
   ensurePostCreateApproved,
+  getBranchTypeRules,
   getTeamConfigValue,
   loadProjectConfig,
   offerProjectConfig,
@@ -669,14 +670,18 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
    * value for, with a line per value to paste into `.worktree.yml`. Everything
    * is said in words (`Rule:`, `id`), so none of it depends on colour.
    */
-  private reportDryRun(derived: DerivedName): void {
+  private async reportDryRun(derived: DerivedName): Promise<void> {
     const { branchName, issue } = derived;
     const naming = derived.naming;
     if (!naming) {
       // deriveFromIssue returns a naming for every provider on a dry run.
       throw new Error("A dry run needs the naming the integration computed.");
     }
-    const listName = `${issue.provider}.branchType`;
+    // The list that decided (D7): the provider's own, else the shared one;
+    // with neither, the name a person would write one under.
+    const listName =
+      (await getBranchTypeRules(issue.provider))?.listName ??
+      `${issue.provider}.branchType`;
     const fields = naming.fields
       .filter((field) => field.values.length > 0)
       .map((field) => ({
@@ -905,7 +910,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       if (!derived) {
         throw new Error("--dry-run reached the fetch without an issue flag.");
       }
-      this.reportDryRun(derived);
+      await this.reportDryRun(derived);
       return undefined;
     }
 

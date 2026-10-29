@@ -54,6 +54,9 @@ function stubNoProjectFile() {
     reason: "no-ref",
     warnings: [],
   });
+  // getBranchTypeRules reads the file through its own binding, which the spy
+  // above does not reach.
+  vi.spyOn(projectConfig, "getBranchTypeRules").mockResolvedValue(undefined);
 }
 
 describe("Jira integration", () => {
@@ -1201,5 +1204,101 @@ jira:
     expect(naming.match).toEqual({ source: "none" });
     expect(naming.kind).toBeUndefined();
     expect(naming.branchName).toBe("DEV-7-fix-login-bug");
+  });
+});
+
+// The shared top-level `branchType` list (#128, D1, D6). Expected names come
+// from the plan's Phase 1 "Done when" and the built-in mapping above (a Bug is
+// `fix/`, a Story is `feat/`); the issue type id 10008 is the #181 example's.
+describe("the shared branchType list for Jira", () => {
+  const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+`;
+  const SHARED = `branchType:
+  - when: { issuetype: { id: "10008" } }
+    type: chore
+`;
+  const OWN = `  branchType:
+    - when: { issuetype: { id: "10008" } }
+      type: feature
+`;
+
+  const issueOfType = (id: string, name: string) => ({
+    id: "10001",
+    key: "DEV-7",
+    names: { issuetype: "Issue Type" },
+    fields: { summary: "Fix login bug", issuetype: { id, name } },
+  });
+  const bug = issueOfType("10008", "Bug");
+  const story = issueOfType("10001", "Story");
+
+  function stubJira(file: string, issue: unknown) {
+    resetProjectConfigCache();
+    stubProjectFile(file);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+          name
+        ] ?? "",
+      ),
+    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(issue),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    return fetchSpy;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("neither list: today's built-in mapping, and no names requested", async () => {
+    const fetchSpy = stubJira(PREFIXES, bug);
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.branchName).toBe("fix/DEV-7-fix-login-bug");
+    expect(naming.match).toEqual({ source: "built-in" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://acme.atlassian.net/rest/api/3/issue/DEV-7",
+      expect.anything(),
+    );
+  });
+
+  it("shared list only: it decides, and field names are requested (D6)", async () => {
+    const fetchSpy = stubJira(PREFIXES + SHARED, bug);
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.branchName).toBe("chore/DEV-7-fix-login-bug");
+    expect(naming.match).toMatchObject({ source: "rule", position: 1 });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://acme.atlassian.net/rest/api/3/issue/DEV-7?expand=names",
+      expect.anything(),
+    );
+  });
+
+  it("shared list only: it replaces the built-in mapping, with no fall-through on no match", async () => {
+    stubJira(PREFIXES + SHARED, story);
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.branchName).toBe("DEV-7-fix-login-bug");
+    expect(naming.match).toEqual({ source: "none" });
+  });
+
+  it("both lists: the provider's wins", async () => {
+    stubJira(PREFIXES + OWN + SHARED, bug);
+
+    expect((await getJiraBranchNaming("dev-7")).branchName).toBe(
+      "feat/DEV-7-fix-login-bug",
+    );
   });
 });
