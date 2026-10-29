@@ -571,7 +571,7 @@ describe("GitHub integration", () => {
   it("resolves the authenticated login from a configured token", async () => {
     // fetchGitHubLogin needs a token and nothing else — it never reads the
     // origin remote, so the config lookup is the only run() call it makes.
-    vi.spyOn(cli, "run").mockResolvedValueOnce("ghp_test_token");
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("ghp_test_token");
 
     const fetchSpy = vi
       .fn()
@@ -579,6 +579,20 @@ describe("GitHub integration", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     await expect(fetchGitHubLogin()).resolves.toBe("baldurpan");
+    // The configured token is read from git config and `gh auth token` is never
+    // run (GitHub issue integration guide: an existing github.token first). The
+    // count alone is not enough: `commandExists` is mocked true, so a `gh` first
+    // lookup would also make one `run` call and consume the queued value.
+    expect(runSpy).toHaveBeenCalledWith("git", [
+      "config",
+      "northguild.worktree.github.token",
+    ]);
+    expect(runSpy).not.toHaveBeenCalledWith(
+      "gh",
+      ["auth", "token"],
+      expect.anything(),
+    );
+    expect(runSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy).toHaveBeenCalledWith("https://api.github.com/user", {
       headers: {
         Accept: "application/vnd.github+json",
