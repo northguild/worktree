@@ -521,7 +521,7 @@ export function getGitHubIssueFields(issue: GitHubIssue): IssueField[] {
   ];
 }
 
-// Today's mapping, used only when the project file has no `github.branchType`.
+// Today's mapping, used only when the project file has neither `github.branchType` nor `branchType`.
 // An issue of any other type, or none, gets no prefix (D10, #118).
 function getBuiltInGitHubBranchKind(
   typeName: string | undefined,
@@ -539,21 +539,26 @@ function getBuiltInGitHubBranchKind(
 }
 
 /**
- * With `github.branchType` in the project file the rules decide the kind (D10)
- * and an issue no rule matches gets no prefix unless a rule says `otherwise`;
- * without it the built-in mapping applies. Rule warnings go to `onWarning`.
+ * With `github.branchType` (else the shared `branchType`) in the project file
+ * the rules decide the kind (D10) and an issue no rule matches gets no prefix
+ * unless a rule says `otherwise`; without either the built-in mapping applies. Rule warnings go to `onWarning`.
  */
 export async function getGitHubBranchNaming(
   issue: GitHubIssue,
   onWarning: (warning: string) => void = () => {},
+  dryRun = false,
 ): Promise<BranchNaming> {
-  const rules = await getBranchTypeRules("github");
+  const list = await getBranchTypeRules("github");
   const fields = getGitHubIssueFields(issue);
 
   let kind: BranchKind | undefined;
   let match: BranchMatch;
-  if (rules) {
-    const result = evaluateBranchTypeRules(rules, fields, "github.branchType");
+  if (list) {
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
+      // A dry run is where rules are written and checked, so a misspelt field
+      // in the shared list still warns there (D5 holds for real runs).
+      shared: list.shared && !dryRun,
+    });
     for (const warning of result.warnings) {
       onWarning(warning);
     }

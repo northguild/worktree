@@ -136,33 +136,39 @@ not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
 
-That is the built-in Jira mapping, and it applies only when no rules are set.
+That is the built-in Jira mapping, and it applies only when no rules are set (neither `jira.branchType` nor the shared `branchType`).
 A `jira.branchType` list in `.worktree.yml` replaces it: ordered rules, the first
 match wins, each `when:` names fields (by id, such as `customfield_10359`, or by
 name, case-insensitively) and values (by name or `{ id: "10301" }`), every field
 in a `when` must match, and `type:` is `feature`, `bugfix` or `chore`. `- otherwise:
 <kind>` closes the list; without it an unmatched issue gets no prefix. A rule
 naming a field the issue lacks warns (in `warnings` under `--json`) and does not
-match. Prefer ids in a shared file. `github`, `linear` and `clickup` take a `branchType` list of the same
+match; a rule in the shared list does not warn on a real run, but a dry run still prints the warning so a misspelt field shows up. Prefer ids in a provider's own list; in the shared list match `Type` and `Labels` by name. `github`, `linear` and `clickup` take a `branchType` list of the same
 shape and replace their built-in mapping the same way: GitHub rules match `Type` and `Labels`, Linear
-`Labels` (by name or id), ClickUp `Tags` (by name only; a tag has no id). GitHub's built-in gives an issue
-with no type no prefix; `- otherwise: feature` in `github.branchType` opts in. `branchName: "{prefix}{id}-{slug}"`
+`Labels` (by name or id), ClickUp `Tags` (by name only; a tag has no id). `Type` and `Labels` are
+portable: Jira also answers to `Type` (its issue type, beside `issuetype`) and `Labels` (beside `labels`, which a localized Jira does not display as "Labels") and ClickUp to `Labels` (its tags,
+beside `Tags`), so one shared list reads the same everywhere. A top-level `branchType` list is
+shared by every provider that has no list of its own; per run the order is the provider's own list, then the
+shared list, then the provider's built-in mapping, and a shared list replaces the built-in mapping (no
+fall-through on no match, so a list set for one provider's sake turns it off for the others unless it ends
+in `otherwise`). GitHub's built-in gives an issue with no type no prefix; `- otherwise: feature` in
+`github.branchType` or in the shared `branchType` opts in. `branchName: "{prefix}{id}-{slug}"`
 in the file sets the shape of an issue-derived name (default as shown, today's names); a template that makes
 an invalid branch name is refused, and a name typed as the argument is never templated.
 To write rules against a real issue, run `worktree branch --<provider> <id> --dry-run`: it prints the name,
-the rule that chose the prefix and each non-empty field with its id and a paste-ready `- when: { … }` line, and
+the rule that chose the prefix and each non-empty field with its id and a paste-ready `- when: { … }` line (by name for `Type` and `Labels` when the shared list decided), and
 creates, assigns, saves and asks nothing (`--json` prints its own document, with `match` and `fields`).
 
 Linear has no issue type, so its labels decide, compared case-insensitively
 and by exact name: a `bug` label → `branchPrefix.bugfix`; else a `chore` or
 `maintenance` label → `branchPrefix.chore`; otherwise (`Feature`,
 `Improvement`, no label) `branchPrefix.feature`. A bug label wins over the
-others. That is the built-in Linear mapping and applies only when no `linear.branchType` rules are set.
+others. That is the built-in Linear mapping and applies only when no `linear.branchType` (or shared `branchType`) rules are set.
 The name is the prefix, the upper-cased identifier and the slugged title, such as `fix/ENG-123-fix-login`.
 
 ClickUp's tags decide the same way, with the same `bug`, `chore` and
 `maintenance` rule (a guess carried over from Linear, not confirmed against a
-live Workspace), unless `clickup.branchType` rules are set. A short id such as `9hx` becomes `CU-9hx` in the name
+live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) are set. A short id such as `9hx` becomes `CU-9hx` in the name
 (`feature/CU-9hx-fix-login`); a custom id is upper-cased in the name only, and sent to ClickUp as typed
 (`fix/DEV-123-fix-login`).
 

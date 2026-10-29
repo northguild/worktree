@@ -58,7 +58,7 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
 
   A value only the file supplies carries `(.worktree.yml)`. A value in your git config that differs from the
   file's carries `(overrides .worktree.yml: <the file's value>)`. Keys only the file can set follow, one line
-  each: `jira.branchType: 4 rules`, `branchName=<template>`, `copy: 1 pattern` and `postCreate: 2 steps`,
+  each: `jira.branchType: 4 rules`, `branchType: 2 rules` (the shared list), `branchName=<template>`, `copy: 1 pattern` and `postCreate: 2 steps`,
   each marked `(.worktree.yml)`. A value the file supplies is not missing, so `--list --missing` leaves it
   out. Secrets stay masked as `<key>=***`.
 
@@ -135,7 +135,7 @@ regardless, so a machine can be configured before Herdr is installed.
 - `branchPrefix.chore` optional prefix used for `Task` issues.
 
 These prefixes are chosen by each provider's built-in mapping (GitHub and Jira by issue type, Linear by label,
-ClickUp by tag). A `branchType` list for that provider in `.worktree.yml` replaces the mapping; see
+ClickUp by tag). A `branchType` list for that provider, or the shared top-level one, in `.worktree.yml` replaces the mapping; see
 [Branch-type rules](/docs/project-configuration#branch-type-rules).
 
 `github.token` and `github.autoAssign` are asked together behind one confirm, so declining costs a single

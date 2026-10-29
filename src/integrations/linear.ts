@@ -54,8 +54,8 @@ ${labelFields}
 
 const ISSUE_QUERY = issueQuery("        name");
 
-// D9: the label id is asked for only when `linear.branchType` rules exist, so
-// a run without them sends the request it always sent. `id` is a field of
+// D9: the label id is asked for only when `linear.branchType` or the shared
+// `branchType` rules exist, so a run without them sends the request it always sent. `id` is a field of
 // Linear's `IssueLabel` type (https://studio.apollographql.com/public/Linear-API/variant/current/schema/reference/objects/IssueLabel).
 const ISSUE_QUERY_WITH_LABEL_IDS = issueQuery("        id\n        name");
 
@@ -295,21 +295,26 @@ export function getLinearIssueFields(issue: LinearIssue): IssueField[] {
 }
 
 // Takes the issue already fetched so a caller can keep its url from the same
-// request. D6: the same shape as Jira's name. With `linear.branchType` in the
-// project file the rules decide the kind (D10) and an issue no rule matches
-// gets no prefix; without it the built-in mapping applies. Rule warnings go to
-// `onWarning`.
+// request. D6: the same shape as Jira's name. With `linear.branchType` (else
+// the shared `branchType`) in the project file the rules decide the kind (D10)
+// and an issue no rule matches gets no prefix; without either the built-in
+// mapping applies. Rule warnings go to `onWarning`.
 export async function getLinearBranchNaming(
   issue: LinearIssue,
   onWarning: (warning: string) => void = () => {},
+  dryRun = false,
 ): Promise<BranchNaming> {
-  const rules = await getBranchTypeRules("linear");
+  const list = await getBranchTypeRules("linear");
   const fields = getLinearIssueFields(issue);
 
   let kind: BranchKind | undefined;
   let match: BranchMatch;
-  if (rules) {
-    const result = evaluateBranchTypeRules(rules, fields, "linear.branchType");
+  if (list) {
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
+      // A dry run is where rules are written and checked, so a misspelt field
+      // in the shared list still warns there (D5 holds for real runs).
+      shared: list.shared && !dryRun,
+    });
     for (const warning of result.warnings) {
       onWarning(warning);
     }

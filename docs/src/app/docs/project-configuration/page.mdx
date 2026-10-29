@@ -76,7 +76,7 @@ not offer to run `worktree config` for a key the file supplies.
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.
 
-The `branchType` lists under `jira`, `github`, `linear` and `clickup` are live: see
+The `branchType` lists under `jira`, `github`, `linear` and `clickup`, and the shared top-level `branchType`, are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
 `copy`, see [Copy files](#copy-files), and `postCreate`, see [Post-create steps](#post-create-steps).
 
@@ -92,7 +92,8 @@ should not stop you.
 Which prefix a branch gets (`feat/`, `fix/`, `chore/`) depends on the kind of issue. By default `worktree`
 guesses from the issue (Jira and GitHub from the issue type, Linear from labels, ClickUp from tags). A
 `branchType` list under `jira`, `github`, `linear` or `clickup` replaces that provider's guess with your
-team's own rules.
+team's own rules, and a top-level `branchType` list does the same for every provider that has no list of its
+own.
 
 ```yaml
 jira:
@@ -115,21 +116,63 @@ jira:
   them does, and a field that holds a list (labels, components, a multi-select) matches if any element does.
 - **`- otherwise: <kind>` may appear once, last.** It sets the kind for an issue no rule matched. Without it,
   an unmatched issue gets **no prefix**.
-- **With a provider's `branchType` set, that provider's built-in mapping is not used at all.** The rules
-  replace it, so a rule list without `otherwise` does not fall back to `feature`. A provider without a
-  `branchType` list keeps its built-in mapping, and nothing changes for it.
+- **With a `branchType` list in force for a provider, that provider's built-in mapping is not used at all.**
+  The rules replace it, so a rule list without `otherwise` does not fall back to `feature`. A provider with no
+  list at all keeps its built-in mapping, and nothing changes for it.
+
+### One list for every provider
+
+A `branchType` list at the top of the file, with the same rules as the lists above, is the **shared list**.
+Write it once and it applies to Jira, GitHub, Linear and ClickUp alike:
+
+```yaml
+branchType:
+  - when: { Labels: [chore, maintenance] }
+    type: chore
+  - otherwise: feature
+```
+
+For each run, the first of these that exists decides the kind:
+
+1. the provider's own list (`jira.branchType`, `github.branchType`, `linear.branchType` or `clickup.branchType`);
+2. the shared `branchType` list;
+3. the provider's built-in mapping.
+
+A provider's own list is the escape hatch for fields that only that provider has, such as a Jira custom field.
+It wins over the shared list for that provider, and the shared list still applies to the others.
+
+**The shared list replaces the built-in mapping; it does not sit on top of it.** An issue that none of its
+rules matches gets no prefix unless the list ends with `- otherwise: <kind>`, exactly as with a provider's own
+list. In a file that uses several providers, a shared list therefore turns off the built-in mapping for every
+provider that has no list of its own: a Linear team that adds a shared list for GitHub's sake loses Linear's
+`bug` and `chore` label guess unless the list says `otherwise`. `worktree branch --dry-run` prints which list
+decided (`rule 2 of branchType`, or `none matched in branchType`).
+
+A shared rule names fields by what every provider offers: the portable `Type` and `Labels` (see below). A shared
+rule that names a field an issue does not have, such as a `Type` rule on a Linear issue, does not match and does not
+warn on a real run, because a shared file is written for several providers on purpose. A provider's own list
+still warns, and so does a shared list on a dry run, so a misspelt field such as `Lables` shows up while you
+write the rules. In a shared list match `Type` and `Labels` by name: an id belongs to one provider, so a rule
+pasted from a dry run with an id only ever matches that provider, and fails silently on the others. Keep
+id-based rules for a provider's own list.
 
 ### Fields per provider
 
 Each provider offers the fields below to `when`. Jira offers every field on the issue; the others offer one or
-two.
+two. `Type` and `Labels` are the **portable names**: a rule written against them reads the same on every provider
+that has the thing, which is what lets one shared list work everywhere.
 
 | Provider | Fields | Ids |
 |---|---|---|
-| Jira | every field on the issue | yes |
+| Jira | every field on the issue, plus `Type` (the issue type, the same value as `issuetype`) and `Labels` (the same value as `labels`) | yes |
 | GitHub | `Type` (the issue type) and `Labels` | yes, for both |
-| Linear | `Labels` | yes |
-| ClickUp | `Tags` | no: a ClickUp tag has no id, so match it by name |
+| Linear | `Labels` (no `Type`: Linear has no issue type) | yes |
+| ClickUp | `Tags`, and `Labels` (the same tags) | no: a ClickUp tag has no id, so match it by name |
+
+Jira's `Type` and `Labels` and ClickUp's `Labels` are added beside the native field, never in place of it, so a
+list that names `issuetype`, `labels`, `Issue Type` or `Tags` keeps working. Jira's `Labels` matters on a Jira
+set to another language, where the `labels` field is not displayed as "Labels". A Jira field that is already
+called `Type` or `Labels` is used as it is, and no alias is added. A dry run lists the alias with its own paste-ready line (by name when the shared list decided).
 
 ```yaml
 github:
@@ -141,14 +184,14 @@ github:
 ```
 
 GitHub's built-in mapping gives an issue with no type, or a type other than `Feature`, `Bug` or `Task`, no
-prefix, and that stays true unless you opt in. A `github.branchType` list that ends with
-`- otherwise: feature` gives every issue the rules do not match the `feature` prefix. An issue with no type
+prefix, and that stays true unless you opt in. A `github.branchType` list, or a shared `branchType` list, that
+ends with `- otherwise: feature` gives every issue the rules do not match the `feature` prefix. An issue with no type
 simply does not match a `Type` rule; that is not a mistake and does not warn.
 
 Linear and ClickUp keep falling back to `feature` without rules; with rules, an issue none of them matches
 gets no prefix unless the list ends with `otherwise`.
 
-With `linear.branchType` set, or on a dry run, `worktree` asks Linear for each label's `id` as well as its
+With a Linear list in force (`linear.branchType` or the shared one), or on a dry run, `worktree` asks Linear for each label's `id` as well as its
 name, so a rule can match `{ id: "..." }`. Otherwise the Linear request is unchanged.
 
 ### Ids or names
@@ -157,8 +200,10 @@ A field is named by its id (`customfield_10359`, `issuetype`) or by its display 
 value is written as its name (`Maintenance`) or as `{ id: "10301" }`.
 
 - **Names compare case-insensitively; ids compare exactly.**
-- **Prefer ids in a shared file.** A display name changes when someone renames the field or when a teammate
-  uses Jira in another language, and the rule then silently stops matching. An id does not change.
+- **Prefer ids in a provider's own list.** A display name changes when someone renames the field or when a
+  teammate uses Jira in another language, and the rule then silently stops matching. An id does not change.
+  The shared `branchType` list is the exception: its `Type` and `Labels` rules match by name, because an id
+  belongs to one provider.
 - **Quote numeric ids.** YAML reads an unquoted `10301` as a number. `worktree` accepts it and compares it as
   text, but a quoted id is what Jira shows you.
 - **Two fields can share a display name.** A rule that names such a field by name stops the run, and a dry
@@ -193,12 +238,14 @@ the issue holds no value for are left out of the list; a rule on one of them wou
 
 ### Mistakes in a rule
 
-A rule naming a field the issue does not have, such as a typo or a field from another project, warns on every
-run that gets as far as that rule, naming the field and the rule's position, and the rule does not match. The
-warning is in `warnings` of the `--json` document. A field that exists but is empty is not a mistake: it just
+A rule in a provider's own list naming a field the issue does not have, such as a typo or a field from another
+project, warns on every run that gets as far as that rule, naming the field and the rule's position, and the rule
+does not match. The warning is in `warnings` of the `--json` document. A rule in the shared `branchType` list does
+not warn on a real run, since it is written for several providers; on a dry run it warns too, so a misspelt
+field shows up. A field that exists but is empty is not a mistake: it just
 matches nothing.
 
-With rules set, or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
+With rules set (a Jira list or the shared one), or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
 request it was already making. Otherwise the request is unchanged.
 
 ## Branch name template
