@@ -447,6 +447,10 @@ jira:
     - when: { Labels: Urgent }
       type: bugfix
 `);
+        vi.spyOn(linearIntegration, "startLinearIssue").mockResolvedValue({
+          outcome: "already-started",
+          state: "In Progress",
+        });
         vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue({
           identifier: "ENG-1",
           title: "Add dark mode",
@@ -1334,6 +1338,17 @@ jira:
       });
     }
 
+    // `linear.autoStart` is unset in every case here, which under D4 attempts a
+    // start. These cases are about naming, so the write is stubbed explicitly
+    // rather than the key being set to `false`, which would hide that default.
+    beforeEach(() => {
+      vi.spyOn(linearIntegration, "startLinearIssue").mockResolvedValue({
+        outcome: "started",
+        from: "Todo",
+        to: "In Progress",
+      });
+    });
+
     it("pre-fills the derived name, with the prefix for the labels", async () => {
       stubConfig();
       const fetchSpy = vi
@@ -1458,6 +1473,383 @@ jira:
       );
       expect(mockAssign).not.toHaveBeenCalled();
       expect(mockGitCreateWorktree).toHaveBeenCalled();
+    });
+
+    describe("starting the issue", () => {
+      // Expected values come from the plan, not from the code: precedence and
+      // the document's `started` from D4 and D8, the order of the write from
+      // D6 (after gitCreateWorktree, before env files and install), the
+      // warnings from D7 (a failure names the issue and the reason, exit 0).
+      const started = {
+        outcome: "started",
+        from: "Todo",
+        to: "In Progress",
+      } as const;
+      let calls: string[];
+      let mockStart: ReturnType<typeof vi.spyOn>;
+      let mockCreate: ReturnType<typeof vi.spyOn>;
+
+      function config(values: Record<string, string> = {}) {
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+          Promise.resolve(
+            {
+              "has-called-config": "true",
+              defaultSourceBranch: "origin/main",
+              "linear.apiKey": "lin_api_test",
+              "clickup.apiToken": "pk_test",
+              "branchPrefix.feature": "feature/",
+              ...values,
+            }[key] ?? "",
+          ),
+        );
+      }
+
+      beforeEach(() => {
+        calls = [];
+        config();
+        vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue(
+          linearIssue,
+        );
+        mockInput.mockImplementation(async (c: any) => c.default);
+        mockCreate = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockImplementation(async () => {
+            calls.push("create");
+            return "/path/to/worktree";
+          });
+        mockCopyEnvFiles.mockImplementation(async () => {
+          calls.push("env");
+          return [];
+        });
+        mockStart = vi
+          .spyOn(linearIntegration, "startLinearIssue")
+          .mockImplementation(async () => {
+            calls.push("start");
+            return started;
+          });
+        vi.spyOn(branch, "warn").mockImplementation((input: any) => input);
+      });
+
+      async function go(flags: Record<string, unknown>) {
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { linear: "ENG-123", ...flags },
+        });
+        return branch.run();
+      }
+
+      it("--start moves the issue right after the worktree exists, before the env files", async () => {
+        const document = await go({ start: true });
+
+        expect(mockStart).toHaveBeenCalledWith("ENG-123");
+        expect(calls).toEqual(["create", "start", "env"]);
+        expect(document?.started).toBe(true);
+      });
+
+      it("never moves the issue when the creation fails", async () => {
+        mockCreate.mockRejectedValue(new Error("git failed"));
+
+        await expect(go({ start: true })).rejects.toThrow("git failed");
+
+        expect(mockStart).not.toHaveBeenCalled();
+      });
+
+      it("--no-start makes no call and reports null", async () => {
+        const document = await go({ start: false });
+
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(document?.started).toBeNull();
+      });
+
+      it("linear.autoStart true starts without asking", async () => {
+        config({ "linear.autoStart": "true" });
+
+        const document = await go({});
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockStart).toHaveBeenCalledTimes(1);
+        expect(document?.started).toBe(true);
+      });
+
+      it("linear.autoStart false never starts, and --start still wins over it", async () => {
+        config({ "linear.autoStart": "false" });
+
+        expect((await go({}))?.started).toBeNull();
+        expect(mockStart).not.toHaveBeenCalled();
+
+        expect((await go({ start: true }))?.started).toBe(true);
+        expect(mockStart).toHaveBeenCalledTimes(1);
+      });
+
+      it("asks once when the key is unset and saves the answer under the key", async () => {
+        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        mockConfirm.mockResolvedValue(true);
+
+        const document = await go({});
+
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Move this issue to started? (saved as linear.autoStart; change it later with `worktree config linear.autoStart <true|false>`)",
+        });
+        expect(mockSet).toHaveBeenCalledWith("linear.autoStart", "true");
+        expect(document?.started).toBe(true);
+      });
+
+      it("a declined prompt moves nothing and reports null", async () => {
+        mockConfirm.mockResolvedValue(false);
+
+        const document = await go({});
+
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(document?.started).toBeNull();
+      });
+
+      it("asks before the worktree is created", async () => {
+        mockConfirm.mockImplementation(async () => {
+          calls.push("ask");
+          return true;
+        });
+
+        await go({});
+
+        expect(calls.slice(0, 2)).toEqual(["ask", "create"]);
+      });
+
+      it("a non-interactive run with the key unset starts and saves nothing", async () => {
+        setNonInteractive(true);
+        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+
+        const document = await go({});
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockSet).not.toHaveBeenCalled();
+        expect(mockStart).toHaveBeenCalledTimes(1);
+        expect(document?.started).toBe(true);
+      });
+
+      it("already-started reports true", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "already-started",
+          state: "In Review",
+        });
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(true);
+        expect(document?.warnings).toEqual([]);
+      });
+
+      it.each([
+        [
+          "left-alone",
+          { outcome: "left-alone", state: "Triage", type: "triage" },
+          "ENG-123 is in Triage (a triage state), so it was not moved to started.",
+        ],
+        [
+          "no-started-state",
+          { outcome: "no-started-state", state: "Todo" },
+          "ENG-123 was not moved to started: its team has no started state (it is in Todo).",
+        ],
+      ])("%s warns with the issue and the reason, and reports false", async (_label, result, message) => {
+        mockStart.mockResolvedValue(result as any);
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([message]);
+        expect(mockCreate).toHaveBeenCalled();
+      });
+
+      it("a thrown failure warns, reports false, exits 0 and keeps the worktree", async () => {
+        const originalExitCode = process.exitCode;
+        process.exitCode = undefined;
+        mockStart.mockRejectedValue(
+          new Error(
+            "Linear: You do not have permission. Moving an issue needs a key with the Write permission and access to the issue's team.",
+          ),
+        );
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([
+          "Could not move ENG-123 to started. Linear: You do not have permission. Moving an issue needs a key with the Write permission and access to the issue's team.",
+        ]);
+        expect(document?.path).toBe("/path/to/worktree");
+        expect(process.exitCode).toBeUndefined();
+        expect(calls).toContain("env");
+        process.exitCode = originalExitCode;
+      });
+
+      it("never lets the stored key into the warnings", async () => {
+        mockStart.mockRejectedValue(
+          new Error("Linear: rejected the key lin_api_test1234567890abcdef"),
+        );
+
+        const document = await go({ start: true });
+
+        expect(JSON.stringify(document?.warnings)).not.toContain(
+          "lin_api_test1234567890abcdef",
+        );
+      });
+
+      it("carries started on the document of a failed install", async () => {
+        mockRunInstall.mockResolvedValue({
+          ran: true,
+          command: "npm ci",
+          steps: ["npm ci"],
+          from: "lockfile",
+          inferred: true,
+          ok: false,
+          reason: "exited with code 1",
+        });
+        const originalExitCode = process.exitCode;
+        const command = new Branch(["--json"], await loadConfig());
+        (command as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { linear: "ENG-123", start: true },
+        });
+        (command as any).parsed = true;
+        const output = captureOutput();
+
+        try {
+          await (command as any)._run();
+          expect(output.document()).toMatchObject({
+            installed: { ran: true, ok: false },
+            started: true,
+          });
+          expect(calls).toEqual(["create", "start", "env"]);
+        } finally {
+          output.restore();
+          process.exitCode = originalExitCode;
+        }
+      });
+
+      it("does not move the issue when the branch already has a worktree", async () => {
+        vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue({
+          path: "/repo.worktrees/feature/ENG-123-add-dark-mode",
+          pathExists: true,
+          inWorktreesRoot: true,
+          isCurrent: false,
+        });
+        mockConfirm.mockResolvedValue(true);
+
+        const result = await go({ start: true });
+
+        expect(result).toBeUndefined();
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(mockCreate).not.toHaveBeenCalled();
+      });
+
+      it("--start with none of the issue flags is a usage error", async () => {
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: { branchName: "my-branch" },
+          flags: { start: true },
+        });
+
+        await expect(branch.run()).rejects.toThrow(
+          "--start/--no-start requires one of --github, --jira, --linear or --clickup.",
+        );
+        await expect(branch.run()).rejects.toMatchObject({
+          oclif: { exit: 2 },
+        });
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(mockCreate).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        [
+          "github",
+          "42",
+          "Moving an issue to started is not supported for GitHub issues.",
+        ],
+        [
+          "jira",
+          "DEV-1",
+          "Moving an issue to started is not supported for Jira issues yet.",
+        ],
+        [
+          "clickup",
+          "9hx",
+          "Moving an issue to started is not supported for ClickUp tasks yet.",
+        ],
+      ])("--start with --%s warns and carries on", async (provider, id, message) => {
+        vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
+        vi.spyOn(branch as any, "getBranchName").mockResolvedValue({
+          branchName: "feature/x",
+          issue: null,
+        });
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { [provider]: id, start: true, assign: false },
+        });
+
+        await branch.run();
+
+        expect(branch.warn).toHaveBeenCalledWith(message);
+        expect(mockCreate).toHaveBeenCalled();
+        expect(mockStart).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["github", "42"],
+        ["jira", "DEV-1"],
+        ["clickup", "9hx"],
+      ])("--no-start with --%s warns nothing and carries on", async (provider, id) => {
+        vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
+        vi.spyOn(branch as any, "getBranchName").mockResolvedValue({
+          branchName: "feature/x",
+          issue: null,
+        });
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { [provider]: id, start: false, assign: false },
+        });
+
+        await branch.run();
+
+        expect(branch.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining("Moving an issue to started"),
+        );
+        expect(mockCreate).toHaveBeenCalled();
+        expect(mockStart).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["github", "42"],
+        ["jira", "DEV-1"],
+      ])("a plain --%s run never reads linear.autoStart or asks", async (provider, id) => {
+        vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
+        vi.spyOn(branch as any, "getBranchName").mockResolvedValue({
+          branchName: "feature/x",
+          issue: null,
+        });
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { [provider]: id, assign: false },
+        });
+        const getConfig = vi.mocked(git.gitGetConfigValue);
+        getConfig.mockClear();
+
+        await branch.run();
+
+        expect(getConfig).not.toHaveBeenCalledWith("linear.autoStart");
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockStart).not.toHaveBeenCalled();
+      });
+
+      it("a dry run never calls it and never asks", async () => {
+        const dryRun = vi
+          .spyOn(branch as any, "reportDryRun")
+          .mockReturnValue(undefined);
+
+        await go({ "dry-run": true, start: true });
+
+        expect(dryRun).toHaveBeenCalled();
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockCreate).not.toHaveBeenCalled();
+      });
     });
 
     describe("with --json", () => {
@@ -2111,6 +2503,48 @@ jira:
       });
     });
 
+    describe("the start decision shares the assign precedence", () => {
+      // Expected values: D4 (flag, then key true/false, then non-interactive
+      // true unsaved, then a prompt that saves under the key and names it).
+      const decide = (flag?: boolean) =>
+        (branch as any).shouldStartIssue("linear.autoStart", flag);
+
+      function configured(values: Record<string, string>) {
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+          Promise.resolve(values[key] ?? ""),
+        );
+      }
+
+      it("honours the flag, then the key, and non-interactive starts without saving", async () => {
+        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        configured({ "linear.autoStart": "false" });
+        expect(await decide(true)).toBe(true);
+        expect(await decide()).toBe(false);
+
+        configured({ "linear.autoStart": "true" });
+        expect(await decide(false)).toBe(false);
+        expect(await decide()).toBe(true);
+
+        configured({});
+        setNonInteractive(true);
+        expect(await decide()).toBe(true);
+        expect(mockSet).not.toHaveBeenCalled();
+      });
+
+      it("prompts naming the key and saves the answer under it", async () => {
+        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        configured({});
+        mockConfirm.mockResolvedValue(false);
+
+        expect(await decide()).toBe(false);
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Move this issue to started? (saved as linear.autoStart; change it later with `worktree config linear.autoStart <true|false>`)",
+        });
+        expect(mockSet).toHaveBeenCalledWith("linear.autoStart", "false");
+      });
+    });
+
     describe("the worktree is the deliverable", () => {
       it("still creates and opens the worktree when the assignment throws", async () => {
         vi.spyOn(githubIntegration, "assignGitHubIssue").mockRejectedValue(
@@ -2548,13 +2982,13 @@ jira:
           expect(calls).toEqual(["assign", "createWorktree"]);
         });
 
-        it("keeps the --json document's keys unchanged", async () => {
+        it("keeps the --json document's existing keys", async () => {
           spyAssign(assignedToMe);
           jiraRun({ assign: true });
 
           const document = await branch.run();
 
-          // The ten keys the command's description documents for --json; D6
+          // The keys the command's description documents for --json; D6
           // changes a value's meaning, never the shape.
           expect(Object.keys(document ?? {}).sort()).toEqual(
             [
@@ -2563,6 +2997,7 @@ jira:
               "source",
               "issue",
               "assigned",
+              "started",
               "envFilesCopied",
               "installed",
               "herdr",
@@ -3277,6 +3712,7 @@ jira:
           "issue",
           "path",
           "source",
+          "started",
           "warnings",
         ].sort(),
       );
@@ -3290,6 +3726,7 @@ jira:
           url: "https://github.com/acme/demo/issues/42",
         },
         assigned: true,
+        started: null,
         envFilesCopied: ["docs/.env.local"],
         installed: {
           ran: true,
@@ -4216,6 +4653,8 @@ describe("branch command — --help", () => {
       "herdr",
       "issue",
       "assigned",
+      "started",
+      "--start",
     ]) {
       expect(help).toContain(key);
     }

@@ -207,6 +207,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("defaultSourceBranch");
       expect(mockConsoleLog).toHaveBeenCalledWith("github.autoAssign");
       expect(mockConsoleLog).toHaveBeenCalledWith("jira.autoAssign");
+      expect(mockConsoleLog).toHaveBeenCalledWith("linear.autoStart");
     });
 
     it("should handle --missing flag with no missing values", async () => {
@@ -2143,6 +2144,155 @@ describe("config command", () => {
         expect(mockSetConfigValue).toHaveBeenCalledWith(
           "jira.autoAssign",
           "true",
+        );
+      });
+    });
+
+    describe("linear.autoStart prompt (D10)", () => {
+      const withStored = (stored: string) =>
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "linear.autoStart") return Promise.resolve(stored);
+          return Promise.resolve("");
+        });
+
+      const parseRun = (flags: Record<string, unknown>) => {
+        (config as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: {
+            list: false,
+            missing: false,
+            names: "linear.autoStart",
+            ...flags,
+          },
+        });
+      };
+
+      it.each([
+        ["true", "true"],
+        ["false", "false"],
+        ["", ""],
+        ["maybe", ""],
+      ])("should preselect the choice for a stored linear.autoStart of %j", async (stored, expected) => {
+        mockSelect.mockResolvedValue(expected);
+        withStored(stored);
+        parseRun({ yes: false });
+
+        await config.run();
+
+        // `--names linear.autoStart` prompts only this key: one select, no input.
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+        expect(mockSelect).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message:
+              "Should `branch --linear` move the issue to started once the worktree exists?",
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              { name: "Ask me each time", value: "" },
+            ],
+            default: expected,
+          }),
+        );
+        expect(mockInput).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["Yes, always", "true"],
+        ["No, never", "false"],
+        ["Ask me each time", ""],
+      ])("should write the %s answer to linear.autoStart as %j", async (_label, answer) => {
+        mockSelect.mockResolvedValue(answer);
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        withStored(answer === "true" ? "false" : "true");
+        parseRun({ yes: false });
+
+        await config.run();
+
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "linear.autoStart",
+          answer,
+        );
+      });
+
+      it.each([
+        ["false", "false"],
+        ["true", "true"],
+        ["", ""],
+      ])("should take a stored linear.autoStart of %j without exiting 2 when non-interactive", async (stored, expected) => {
+        setNonInteractive(true);
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        withStored(stored);
+        parseRun({ yes: true });
+
+        await config.run();
+
+        expect(mockSelect).not.toHaveBeenCalled();
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "linear.autoStart",
+          expected,
+        );
+      });
+
+      it("should offer an unset linear.autoStart on a --missing run", async () => {
+        mockSelect.mockResolvedValue("");
+        vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        parseRun({ missing: true, yes: false });
+
+        await config.run();
+
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+      });
+
+      it("should not offer a settled linear.autoStart on a --missing run", async () => {
+        withStored("false");
+        parseRun({ missing: true, yes: false });
+
+        await config.run();
+
+        expect(mockSelect).not.toHaveBeenCalled();
+      });
+
+      it("should ask the Linear prompts in order, the select after the key", async () => {
+        mockInput.mockResolvedValueOnce("lin_api_x");
+        mockSelect.mockResolvedValueOnce("true");
+        const mockSetConfigValue = vi
+          .spyOn(git, "gitSetConfigValue")
+          .mockResolvedValue();
+        parseRun({ missing: true, names: "linear.apiKey,linear.autoStart" });
+
+        await config.run();
+
+        expect(mockInput).toHaveBeenCalledTimes(1);
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+        expect(mockInput.mock.invocationCallOrder[0]).toBeLessThan(
+          mockSelect.mock.invocationCallOrder[0],
+        );
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "linear.autoStart",
+          "true",
+        );
+      });
+
+      it("should ask the select after the key on a bare run", async () => {
+        mockConfirm.mockImplementation(
+          async ({ message }) =>
+            message === "Do you want to configure Linear integration?",
+        );
+        mockInput.mockResolvedValueOnce("lin_api_x");
+        mockSelect.mockResolvedValueOnce("true");
+        vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        parseRun({ missing: false, names: undefined });
+
+        await config.run();
+
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+        expect(mockInput.mock.invocationCallOrder[0]).toBeLessThan(
+          mockSelect.mock.invocationCallOrder[0],
         );
       });
     });

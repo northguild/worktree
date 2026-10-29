@@ -506,8 +506,8 @@ export default class Config extends BaseCommand {
       }
     }
 
-    // One key, so the group is one confirm and one prompt (D2). Like the Jira
-    // group, nothing is validated against Linear here: the key is checked when
+    // One confirm for the group, then the key and the start select. Like the
+    // Jira group, nothing is validated against Linear here: the key is checked when
     // `branch --linear` first uses it.
     if (
       hasLinearPrompt &&
@@ -543,6 +543,36 @@ export default class Config extends BaseCommand {
         if (linearApiKey.trim()) {
           await gitSetConfigValue("linear.apiKey", linearApiKey.trim());
         }
+      }
+
+      if (shouldPrompt("linear.autoStart")) {
+        // Same shape as `github.autoAssign` (D10): anything but an explicit
+        // "true" or "false" is normalised to the "ask me" choice.
+        const storedLinearAutoStart =
+          await gitGetConfigValue("linear.autoStart");
+        const linearAutoStartDefault =
+          storedLinearAutoStart === "true" || storedLinearAutoStart === "false"
+            ? storedLinearAutoStart
+            : "";
+        const linearAutoStart = await askSelect<"true" | "false" | "">(
+          {
+            message:
+              "Should `branch --linear` move the issue to started once the worktree exists?",
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              // Tri-state through unset (D4): also the way to keep being asked.
+              { name: "Ask me each time", value: "" },
+            ],
+            default: linearAutoStartDefault,
+          },
+          {
+            value: "linear.autoStart",
+            flag: "worktree config linear.autoStart <true|false>",
+            fallback: linearAutoStartDefault,
+          },
+        );
+        await gitSetConfigValue("linear.autoStart", linearAutoStart);
       }
     }
 

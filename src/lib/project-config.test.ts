@@ -468,6 +468,7 @@ describe("readProjectConfig: keys outside the file's classes (D3, D4)", () => {
     ["jira.email", "jira:\n  email: a@b.co\n"],
     ["github.autoAssign", "github:\n  autoAssign: true\n"],
     ["jira.autoAssign", "jira:\n  autoAssign: true\n"],
+    ["linear.autoStart", "linear:\n  autoStart: true\n"],
   ])("warns that %s is personal and ignores it", async (key, yaml) => {
     fromOriginMain(`copy: [a]\n${yaml}`);
 
@@ -1238,6 +1239,7 @@ const PERSONAL_VALUES: Record<string, string> = {
   "jira.email": "personal-email-value",
   "jira.autoAssign": "personal-jira-assign-value",
   "github.autoAssign": "personal-github-assign-value",
+  "linear.autoStart": "personal-linear-start-value",
 };
 const TEAM_VALUES: Record<string, string> = {
   defaultSourceBranch: "origin/main",

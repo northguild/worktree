@@ -28,6 +28,7 @@ config.
 - `jira.apiToken` (Jira API token)
 - `jira.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
 - `linear.apiKey` (Linear personal API key, example: `lin_api_...`)
+- `linear.autoStart` (`true` or `false`, unset means you are asked, or the issue is started when non-interactive)
 - `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
 - `clickup.workspaceId` (optional; your ClickUp Workspace id, a number, needed only for custom task ids like `DEV-123`)
 - `branchPrefix.feature` (example: `feature/`)
@@ -240,7 +241,13 @@ worktree config jira.autoAssign true
 ## Linear Integration Notes
 
 - `worktree branch --linear <issue-id>` reads issues from the Linear workspace your key belongs to.
-- `linear.apiKey` is the only Linear config key, and it is required.
+- `linear.apiKey` is required.
+- `linear.autoStart` is optional and decides whether `--linear` also moves the issue to a started state once the worktree exists. It has three states, like `jira.autoAssign`: `true` always starts (an issue that is already started, or is in triage, completed, canceled or duplicate, is left where it is), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it starts and saves nothing. Moving an issue needs a key with the Write permission and access to the issue's team. See [Moving the issue to started](/docs/commands/branch#moving-the-issue-to-started) for the order the decision is made in. To set it directly:
+
+```bash
+worktree config linear.autoStart true
+```
+
 - Linear has no issue type, so the branch prefix comes from the issue's labels: `bug` uses `branchPrefix.bugfix`,
   `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`. A `linear.branchType`
   list, or a shared top-level `branchType` list, in `.worktree.yml` replaces this mapping; see [Branch-type rules](/docs/project-configuration#branch-type-rules).

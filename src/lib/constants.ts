@@ -7,6 +7,7 @@ export const CONFIG_NAMES = [
   "jira.apiToken",
   "jira.autoAssign",
   "linear.apiKey",
+  "linear.autoStart",
   "clickup.apiToken",
   "clickup.workspaceId",
   "github.token",

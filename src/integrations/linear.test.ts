@@ -8,6 +8,7 @@ import {
   getLinearBranchNaming,
   getLinearBranchType,
   resolveLinearApiKey,
+  startLinearIssue,
   validateLinearCredentials,
 } from "./linear.js";
 
@@ -750,6 +751,380 @@ linear:
         values: [{ id: "lbl-chore", name: "Housekeeping" }],
       },
     ]);
+  });
+});
+
+// Linear's schema: Issue.state, Issue.team, Team.states(filter:) and
+// IssuePayload (https://linear.app/developers/graphql).
+function stateNode(id: string, name: string, position: number) {
+  return { id, name, position };
+}
+
+function startReadPayload(
+  state: { id: string; name: string; type: string },
+  nodes: unknown[] = [stateNode("s-1", "In Progress", 1)],
+) {
+  return {
+    data: {
+      issue: {
+        identifier: "ENG-123",
+        state,
+        team: { states: { nodes } },
+      },
+    },
+  };
+}
+
+function writePayload(
+  success: boolean,
+  state: { id: string; name: string; type: string },
+) {
+  return { data: { issueUpdate: { success, issue: { state } } } };
+}
+
+const TODO = { id: "t-1", name: "Todo", type: "unstarted" };
+const BACKLOG = { id: "b-1", name: "Backlog", type: "backlog" };
+
+function stubFetchSequence(...responses: unknown[]) {
+  const fetchSpy = vi.fn();
+  for (const response of responses) {
+    fetchSpy.mockResolvedValueOnce(response);
+  }
+  vi.stubGlobal("fetch", fetchSpy);
+  return fetchSpy;
+}
+
+describe("startLinearIssue", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProjectConfigCache();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const requestBody = (fetchSpy: ReturnType<typeof vi.fn>, call: number) =>
+    JSON.parse(fetchSpy.mock.calls[call][1].body);
+
+  it("sends a read and a write with the bare key and variables only", async () => {
+    stubKey();
+    const fetchSpy = stubFetchSequence(
+      respond(200, startReadPayload(TODO)),
+      respond(
+        200,
+        writePayload(true, { id: "s-1", name: "In Progress", type: "started" }),
+      ),
+    );
+
+    await startLinearIssue("eng-123");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    for (const call of fetchSpy.mock.calls) {
+      expect(call[0]).toBe("https://api.linear.app/graphql");
+      expect(call[1].method).toBe("POST");
+      expect(call[1].headers.Authorization).toBe(API_KEY);
+    }
+    const read = requestBody(fetchSpy, 0);
+    expect(read.variables).toEqual({ id: "ENG-123" });
+    expect(read.query).not.toContain("ENG-123");
+    expect(read.query).toContain("state { id name type }");
+    expect(read.query).toContain("nodes { id name position }");
+    expect(read.query).toContain('states(filter: { type: { eq: "started" } })');
+    const write = requestBody(fetchSpy, 1);
+    expect(write.variables).toEqual({ id: "ENG-123", stateId: "s-1" });
+    expect(write.query).not.toContain("ENG-123");
+    expect(write.query).toContain(
+      "issueUpdate(id: $id, input: { stateId: $stateId })",
+    );
+    expect(write.query).toContain("success");
+    expect(write.query).toContain("issue { state { id name type } }");
+  });
+
+  it.each([
+    ["backlog", BACKLOG],
+    ["unstarted", TODO],
+  ])("moves a %s issue to the lowest-position started state", async (_name, from) => {
+    stubKey();
+    const fetchSpy = stubFetchSequence(
+      respond(
+        200,
+        startReadPayload(from, [
+          stateNode("s-3", "Third", 30),
+          stateNode("s-1", "First", 10),
+          stateNode("s-2", "Second", 20),
+        ]),
+      ),
+      respond(
+        200,
+        writePayload(true, { id: "s-1", name: "First", type: "started" }),
+      ),
+    );
+
+    await expect(startLinearIssue("ENG-123")).resolves.toEqual({
+      outcome: "started",
+      from: from.name,
+      to: "First",
+    });
+    expect(requestBody(fetchSpy, 1).variables.stateId).toBe("s-1");
+  });
+
+  it("takes the first node on a position tie", async () => {
+    stubKey();
+    const fetchSpy = stubFetchSequence(
+      respond(
+        200,
+        startReadPayload(TODO, [
+          stateNode("s-a", "A", 5),
+          stateNode("s-b", "B", 5),
+        ]),
+      ),
+      respond(
+        200,
+        writePayload(true, { id: "s-a", name: "A", type: "started" }),
+      ),
+    );
+
+    await startLinearIssue("ENG-123");
+
+    expect(requestBody(fetchSpy, 1).variables.stateId).toBe("s-a");
+  });
+
+  it("reports an issue already started and sends no mutation", async () => {
+    stubKey();
+    const fetchSpy = stubFetchSequence(
+      respond(
+        200,
+        startReadPayload({ id: "r-1", name: "In Review", type: "started" }),
+      ),
+    );
+
+    await expect(startLinearIssue("ENG-123")).resolves.toEqual({
+      outcome: "already-started",
+      state: "In Review",
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "triage",
+    "completed",
+    "canceled",
+    "duplicate",
+  ])("leaves a %s issue alone and sends no mutation", async (type) => {
+    stubKey();
+    const fetchSpy = stubFetchSequence(
+      respond(200, startReadPayload({ id: "x-1", name: "Some state", type })),
+    );
+
+    await expect(startLinearIssue("ENG-123")).resolves.toEqual({
+      outcome: "left-alone",
+      state: "Some state",
+      type,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a team with no started state and sends no mutation", async () => {
+    stubKey();
+    const fetchSpy = stubFetchSequence(
+      respond(200, startReadPayload(TODO, [])),
+    );
+
+    await expect(startLinearIssue("ENG-123")).resolves.toEqual({
+      outcome: "no-started-state",
+      state: "Todo",
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  describe("failures", () => {
+    const started = { id: "s-1", name: "In Progress", type: "started" };
+
+    async function failure(...responses: unknown[]) {
+      stubKey();
+      stubFetchSequence(...responses);
+      const error = await startLinearIssue("ENG-123").catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      const { message } = error as Error;
+      expect(message).toMatch(/^Linear:/);
+      expect(message).not.toContain(API_KEY);
+      return message;
+    }
+
+    it("refuses an invalid id before any request", async () => {
+      const fetchSpy = stubFetchSequence();
+
+      await expect(startLinearIssue("not an id")).rejects.toThrow(
+        'Linear: Invalid issue id "not an id".',
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("fails on success false", async () => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(200, writePayload(false, started)),
+      );
+
+      expect(message).toContain("did not confirm");
+    });
+
+    it("fails when the returned state is not the chosen one", async () => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(
+          200,
+          writePayload(true, { id: "other", name: "Other", type: "started" }),
+        ),
+      );
+
+      expect(message).toContain("did not confirm");
+    });
+
+    it("fails on GraphQL errors on the read", async () => {
+      const message = await failure(
+        respond(200, { data: null, errors: [{ message: "Entity not found" }] }),
+      );
+
+      expect(message).toBe(
+        "Linear: Unable to find issue ENG-123. Entity not found",
+      );
+    });
+
+    it("fails on GraphQL errors on the write, with the permission hint", async () => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(200, { data: null, errors: [{ message: "forbidden" }] }),
+      );
+
+      expect(message).toContain("forbidden");
+      expect(message).toContain("Write permission");
+      expect(message).toContain("access to the issue's team");
+    });
+
+    it("carries Linear's message and the hint on a non-2xx write", async () => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(400, { errors: [{ message: "Not allowed" }] }),
+      );
+
+      expect(message).toContain("Not allowed");
+      expect(message).toContain("Write permission");
+    });
+
+    it("keeps the HTTP status on a non-2xx write with no body, without the hint", async () => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(500, {}),
+      );
+
+      expect(message).toBe("Linear: Failed to move issue ENG-123. 500.");
+    });
+
+    it("keeps the HTTP status on a non-2xx read with no body", async () => {
+      const message = await failure(respond(502, {}));
+
+      expect(message).toBe("Linear: Failed to fetch issue ENG-123. 502.");
+    });
+
+    it("separates Linear's text from the hint with a full stop", async () => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(200, { data: null, errors: [{ message: "forbidden" }] }),
+      );
+
+      expect(message).toBe(
+        "Linear: Failed to move issue ENG-123. forbidden. Moving an issue needs a key with the Write permission and access to the issue's team.",
+      );
+    });
+
+    it("reuses the authentication message on HTTP 401", async () => {
+      const message = await failure(respond(401, {}));
+
+      expect(message).toBe(
+        "Linear: Authentication failed. Please verify linear.apiKey in your config.",
+      );
+    });
+
+    it("reuses the authentication message on AUTHENTICATION_ERROR", async () => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(200, {
+          errors: [{ extensions: { code: "AUTHENTICATION_ERROR" } }],
+        }),
+      );
+
+      expect(message).toBe(
+        "Linear: Authentication failed. Please verify linear.apiKey in your config. Moving an issue needs a key with the Write permission and access to the issue's team.",
+      );
+    });
+
+    it.each([
+      401, 403,
+    ])("follows the authentication message with the permission hint on an HTTP %i write", async (status) => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(status, {}),
+      );
+
+      expect(message).toBe(
+        "Linear: Authentication failed. Please verify linear.apiKey in your config. Moving an issue needs a key with the Write permission and access to the issue's team.",
+      );
+    });
+
+    it("reuses the rate-limit message on HTTP 429", async () => {
+      const message = await failure(respond(429, {}));
+
+      expect(message).toContain("Rate limited");
+    });
+
+    it("reuses the rate-limit message on RATELIMITED", async () => {
+      const message = await failure(
+        respond(200, startReadPayload(TODO)),
+        respond(400, { errors: [{ extensions: { code: "RATELIMITED" } }] }),
+      );
+
+      expect(message).toContain("Rate limited");
+    });
+
+    it("names Linear when the mutation times out", async () => {
+      stubKey();
+      const timeout = Object.assign(new Error("aborted"), {
+        name: "TimeoutError",
+      });
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(respond(200, startReadPayload(TODO)))
+        .mockRejectedValueOnce(timeout);
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const error = await startLinearIssue("ENG-123").catch((e: unknown) => e);
+
+      expect((error as Error).message).toBe(
+        "Linear: the request did not answer within 15s.",
+      );
+    });
+
+    it("fails on a malformed body", async () => {
+      const message = await failure(
+        respond(200, { data: { issue: { identifier: "ENG-123" } } }),
+      );
+
+      expect(message).toBe("Linear: Unexpected response for issue ENG-123.");
+    });
+
+    it("fails on a started node without a numeric position", async () => {
+      const message = await failure(
+        respond(
+          200,
+          startReadPayload(TODO, [{ id: "s-1", name: "X", position: "1" }]),
+        ),
+      );
+
+      expect(message).toContain("Unexpected response");
+    });
   });
 });
 

@@ -21,7 +21,8 @@ The generated branch name is shown as the default in the prompt, so you can acce
 
 `--linear` cannot be combined with `--github`, `--jira` or `--clickup`. `--assign` does not work with `--linear`:
 assigning a Linear issue is not supported yet, so the flag warns `Assignment is not supported for Linear issues yet.`
-and the worktree is still created.
+and the worktree is still created. Moving the issue to a started state is supported, see
+[Moving the issue to started](#moving-the-issue-to-started).
 
 ## How Branch Names Are Built
 
@@ -63,7 +64,38 @@ field carries only the provider, the identifier and the URL) and never passed to
 With `--json`, `issue` is `{"provider":"linear","key":"ENG-123","url":"https://linear.app/..."}`. The `url` is the
 one Linear returns, and is `null` only if Linear sent none.
 
+When the issue is moved to started (below), `worktree` also reads the issue's current workflow state (its id, name
+and type) and its team's started states (id, name and position). That is workflow metadata: still no description,
+no comments, and nothing from it reaches an agent. The state names are printed.
+
 Requests to Linear are cut off after 15 seconds.
+
+## Moving the issue to started
+
+`worktree branch --linear ENG-123` can also move the issue to the team's started state (In Progress, in a default
+workflow) once the worktree exists, so the board says the work has begun.
+
+```bash
+worktree branch --linear ENG-123 --start       # move it, whatever linear.autoStart says
+worktree branch --linear ENG-123 --no-start    # leave it, this run only
+worktree config linear.autoStart true          # always move it, stop asking
+```
+
+Without a flag, [`linear.autoStart`](/docs/configuration#linear-integration-notes) decides: `true` moves, `false`
+never does, and unset means you are asked once ("Move this issue to started?") and the answer is saved to the key.
+**A non-interactive run, including `--json` and an agent's run, moves the issue by default**, without saving
+anything; pass `--no-start` or set `linear.autoStart false` to keep it read-only.
+
+- **Only an issue that has not begun moves.** One in a backlog or unstarted state goes to the team's started state
+  with the lowest position. One that is already started (In Review, say) stays, and so do triage, completed, canceled
+  and duplicate issues, and a team with no started state. Each is said in words with the state's name, and with
+  `--json` `started` is `true` (moved, or already started), `false` (left alone, no started state, or the attempt
+  failed) or `null` (not attempted).
+- **A failed move never fails the run.** The worktree is still created, and a warning carries Linear's message.
+- **It needs a key with the Write permission** and access to the issue's team. A read-only key, or one limited to
+  other teams, is refused by Linear, and the warning says so.
+- **Nothing happens on a dry run** or when an existing worktree is reopened. See
+  [`branch`](/docs/commands/branch#moving-the-issue-to-started) for the order of the run.
 
 ## Authentication Resolution
 
@@ -94,6 +126,10 @@ An empty answer to the key prompt keeps the key already stored rather than clear
 1. In Linear, open Settings -> Security & access -> Personal API keys
 2. Click "New API key" and give it a label
 3. Copy the key and use it with `worktree config linear.apiKey`
+
+Reading an issue needs only a key that can see it. To let `worktree` [move the issue to started](#moving-the-issue-to-started),
+create the key with the Write permission and access to the teams you work in; without it the move warns and the
+worktree is still created.
 
 The key is stored locally in git config and never sent anywhere except to Linear. `worktree` never prints it:
 any `lin_api_` key that would reach the output is replaced first. The key is checked the first time `--linear`
