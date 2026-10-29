@@ -1234,16 +1234,35 @@ describe("the shared branchType list for GitHub", () => {
     ).toBe("feat/42-fix-login-bug");
   });
 
-  it("warns by the name of the list that was used", async () => {
+  // D5: only a provider's own list warns about an absent field.
+  it("warns by the name of the provider's list, and not at all for the shared one", async () => {
+    const rule = "  - when: { Priority: High }\n    type: bugfix\n";
+    const warnings: string[] = [];
+
+    projectFile(`${PREFIXES}github:\n  branchType:\n${rule}`);
+    await getGitHubBranchNaming(issue(), (w) => warnings.push(w));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Rule 1 of github.branchType names");
+
+    warnings.length = 0;
+    projectFile(`${PREFIXES}branchType:\n${rule}`);
+    await getGitHubBranchNaming(issue(), (w) => warnings.push(w));
+    expect(warnings).toEqual([]);
+  });
+
+  // Plan Phase 2 "Done when": one portable list, `fix/` on a bug-typed issue.
+  it("the portable Type rule gives fix/ on a bug-typed issue, with no warning", async () => {
     projectFile(
-      `${PREFIXES}branchType:\n  - when: { Priority: High }\n    type: bugfix\n`,
+      `${PREFIXES}branchType:\n  - when: { Type: Bug }\n    type: bugfix\n`,
     );
     const warnings: string[] = [];
 
-    await getGitHubBranchNaming(issue(), (w) => warnings.push(w));
+    const naming = await getGitHubBranchNaming(issue({ type: "Bug" }), (w) =>
+      warnings.push(w),
+    );
 
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("Rule 1 of branchType names");
+    expect(naming.branchName).toBe("fix/42-fix-login-bug");
+    expect(warnings).toEqual([]);
   });
 
   // getBranchPrefix(kind) runs after the kind is decided, so a personal

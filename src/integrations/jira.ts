@@ -178,12 +178,31 @@ function normalizeJiraFieldValue(raw: unknown): FieldValue[] {
   return [...own, ...normalizeJiraFieldValue(option.child)];
 }
 
+// The portable names (D3, D4): `Type` and `Labels` are added beside `issuetype`
+// and `labels`, found by id since the display name only arrives with
+// `expand=names` and is localized. Each is skipped when a field of that name or
+// id exists, so a real custom field is never shadowed or made ambiguous, and an
+// English Jira, whose `labels` is already named Labels, gets no second one.
 export function getJiraIssueFields(issue: JiraIssue): IssueField[] {
-  return Object.entries(issue.fields).map(([id, raw]) => ({
+  const fields = Object.entries(issue.fields).map(([id, raw]) => ({
     id,
     name: issue.names?.[id] ?? id,
     values: normalizeJiraFieldValue(raw),
   }));
+  const aliases = [
+    { alias: "Type", native: "issuetype" },
+    { alias: "Labels", native: "labels" },
+  ].flatMap(({ alias, native }) => {
+    const source = fields.find((field) => field.id === native);
+    const taken = fields.some(
+      (field) =>
+        field.id === alias || field.name.toLowerCase() === alias.toLowerCase(),
+    );
+    return source && !taken
+      ? [{ id: alias, name: alias, values: source.values }]
+      : [];
+  });
+  return [...fields, ...aliases];
 }
 
 const JIRA_REQUEST_TIMEOUT_MS = 15_000;
@@ -286,7 +305,9 @@ export async function getJiraBranchNaming(
   let kind: ReturnType<typeof getJiraBranchType> | undefined;
   let match: BranchMatch;
   if (list) {
-    const result = evaluateBranchTypeRules(list.rules, fields, list.listName);
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
+      shared: list.shared,
+    });
     for (const warning of result.warnings) {
       options.onWarning?.(warning);
     }

@@ -286,7 +286,9 @@ export async function getLinearBranchNaming(
   let kind: BranchKind | undefined;
   let match: BranchMatch;
   if (list) {
-    const result = evaluateBranchTypeRules(list.rules, fields, list.listName);
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
+      shared: list.shared,
+    });
     for (const warning of result.warnings) {
       onWarning(warning);
     }

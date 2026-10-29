@@ -148,20 +148,27 @@ provider that has no list of its own: a Linear team that adds a shared list for 
 `bug` and `chore` label guess unless the list says `otherwise`. `worktree branch --dry-run` prints which list
 decided (`rule 2 of branchType`, or `none matched in branchType`).
 
-A shared rule names fields by what each provider offers (see below), so write it against fields that exist for
-the providers you use.
+A shared rule names fields by what every provider offers: the portable `Type` and `Labels` (see below). A shared
+rule that names a field an issue does not have, such as a `Type` rule on a Linear issue, does not match and does not
+warn, because a shared file is written for several providers on purpose. A provider's own list still warns.
 
 ### Fields per provider
 
 Each provider offers the fields below to `when`. Jira offers every field on the issue; the others offer one or
-two.
+two. `Type` and `Labels` are the **portable names**: a rule written against them reads the same on every provider
+that has the thing, which is what lets one shared list work everywhere.
 
 | Provider | Fields | Ids |
 |---|---|---|
-| Jira | every field on the issue | yes |
+| Jira | every field on the issue, plus `Type` (the issue type, the same value as `issuetype`) and `Labels` (the same value as `labels`) | yes |
 | GitHub | `Type` (the issue type) and `Labels` | yes, for both |
-| Linear | `Labels` | yes |
-| ClickUp | `Tags` | no: a ClickUp tag has no id, so match it by name |
+| Linear | `Labels` (no `Type`: Linear has no issue type) | yes |
+| ClickUp | `Tags`, and `Labels` (the same tags) | no: a ClickUp tag has no id, so match it by name |
+
+Jira's `Type` and `Labels` and ClickUp's `Labels` are added beside the native field, never in place of it, so a
+list that names `issuetype`, `labels`, `Issue Type` or `Tags` keeps working. Jira's `Labels` matters on a Jira
+set to another language, where the `labels` field is not displayed as "Labels". A Jira field that is already
+called `Type` or `Labels` is used as it is, and no alias is added. A dry run lists the alias with its own paste-ready line.
 
 ```yaml
 github:
@@ -225,12 +232,13 @@ the issue holds no value for are left out of the list; a rule on one of them wou
 
 ### Mistakes in a rule
 
-A rule naming a field the issue does not have, such as a typo or a field from another project, warns on every
-run that gets as far as that rule, naming the field and the rule's position, and the rule does not match. The
-warning is in `warnings` of the `--json` document. A field that exists but is empty is not a mistake: it just
+A rule in a provider's own list naming a field the issue does not have, such as a typo or a field from another
+project, warns on every run that gets as far as that rule, naming the field and the rule's position, and the rule
+does not match. The warning is in `warnings` of the `--json` document. A rule in the shared `branchType` list does
+not warn, since it is written for several providers. A field that exists but is empty is not a mistake: it just
 matches nothing.
 
-With rules set, or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
+With rules set (a Jira list or the shared one), or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
 request it was already making. Otherwise the request is unchanged.
 
 ## Branch name template

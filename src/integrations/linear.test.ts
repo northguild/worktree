@@ -826,6 +826,40 @@ describe("the shared branchType list for Linear", () => {
     ).toBe("feat/ENG-42-tidy");
   });
 
+  const PORTABLE = `branchType:
+  - when: { Type: Bug }
+    type: bugfix
+  - when: { Labels: bug }
+    type: bugfix
+`;
+
+  // Plan Phase 2 "Done when": the portable list gives fix/ on a `bug` label.
+  it("the portable list gives fix/ on a bug-labelled issue, and a Type rule is silent here", async () => {
+    projectFile(PREFIXES + PORTABLE);
+    const warnings: string[] = [];
+
+    const naming = await getLinearBranchNaming(linearIssue(["bug"]), (w) =>
+      warnings.push(w),
+    );
+
+    expect(naming.branchName).toBe("fix/ENG-42-tidy");
+    expect(naming.match).toMatchObject({ source: "rule", position: 2 });
+    expect(warnings).toEqual([]);
+  });
+
+  // D5: Linear has no Type, so a provider list naming it is still a mistake.
+  it("a linear.branchType naming Type still warns", async () => {
+    projectFile(
+      `${PREFIXES}linear:\n  branchType:\n    - when: { Type: Bug }\n      type: bugfix\n`,
+    );
+    const warnings: string[] = [];
+
+    await getLinearBranchNaming(linearIssue(["bug"]), (w) => warnings.push(w));
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Rule 1 of linear.branchType");
+  });
+
   it("asks for each label's id when only the shared list is set", async () => {
     projectFile(PREFIXES + SHARED);
     const fetchSpy = stubFetch(

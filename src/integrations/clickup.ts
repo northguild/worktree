@@ -221,13 +221,13 @@ export function getClickUpBranchType(tags: string[]) {
 }
 
 // D9: ClickUp's rule field in v1 is `Tags`, by name only (a tag has no id).
+// D3, D4: the portable `Labels` is added beside it, never in place of it, with
+// the same values.
 export function getClickUpTaskFields(task: ClickUpTask): IssueField[] {
+  const values = task.tags.map((name) => ({ name }));
   return [
-    {
-      id: "Tags",
-      name: "Tags",
-      values: task.tags.map((name) => ({ name })),
-    },
+    { id: "Tags", name: "Tags", values },
+    { id: "Labels", name: "Labels", values },
   ];
 }
 
@@ -249,7 +249,9 @@ export async function getClickUpBranchNaming(
   let kind: BranchKind | undefined;
   let match: BranchMatch;
   if (list) {
-    const result = evaluateBranchTypeRules(list.rules, fields, list.listName);
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
+      shared: list.shared,
+    });
     for (const warning of result.warnings) {
       onWarning(warning);
     }

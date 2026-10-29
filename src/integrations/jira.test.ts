@@ -9,6 +9,7 @@ import {
   fetchJiraIssue,
   getJiraBranchNameFromIssue,
   getJiraBranchNaming,
+  getJiraIssueFields,
   validateJiraCredentials,
 } from "./jira.js";
 
@@ -1292,6 +1293,150 @@ jira:
 
     expect(naming.branchName).toBe("DEV-7-fix-login-bug");
     expect(naming.match).toEqual({ source: "none" });
+  });
+
+  const PORTABLE = `branchType:
+  - when: { Type: Bug }
+    type: bugfix
+  - when: { Labels: bug }
+    type: bugfix
+`;
+
+  // Plan Phase 2 "Done when": the portable list gives fix/ on a Jira Bug.
+  it("the portable Type rule gives fix/ on a Bug, with no warning", async () => {
+    stubJira(PREFIXES + PORTABLE, bug);
+    const warnings: string[] = [];
+
+    const naming = await getJiraBranchNaming("dev-7", {
+      onWarning: (w) => warnings.push(w),
+    });
+
+    expect(naming.branchName).toBe("fix/DEV-7-fix-login-bug");
+    expect(naming.match).toMatchObject({ source: "rule", position: 1 });
+    expect(warnings).toEqual([]);
+  });
+
+  it("the portable Labels rule matches Jira's own labels field", async () => {
+    stubJira(PREFIXES + PORTABLE, {
+      ...story,
+      names: { issuetype: "Issue Type", labels: "Labels" },
+      fields: { ...story.fields, labels: ["bug"] },
+    });
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.branchName).toBe("fix/DEV-7-fix-login-bug");
+    expect(naming.match).toMatchObject({ position: 2 });
+  });
+
+  it("a jira.branchType on issuetype keeps matching, and the alias is listed beside it in the dry run", async () => {
+    stubJira(
+      `${PREFIXES}  branchType:\n    - when: { "Issue Type": Bug }\n      type: chore\n`,
+      bug,
+    );
+
+    const naming = await getJiraBranchNaming("dev-7", { dryRun: true });
+
+    expect(naming.kind).toBe("chore");
+    expect(naming.fields.map((field) => field.id)).toEqual([
+      "summary",
+      "issuetype",
+      "Type",
+    ]);
+    expect(naming.fields.at(-1)?.values).toEqual([
+      { id: "10008", name: "Bug" },
+    ]);
+  });
+
+  // D4 / plan §5: a real custom field called "Type" is never shadowed.
+  it("does not shadow a custom field already named Type, and does not throw ambiguity", async () => {
+    stubJira(
+      PREFIXES +
+        "branchType:\n  - when: { Type: Epic }\n    type: feature\n  - when: { Type: Bug }\n    type: bugfix\n",
+      {
+        ...bug,
+        names: { issuetype: "Issue Type", customfield_9: "Type" },
+        fields: { ...bug.fields, customfield_9: { value: "Epic" } },
+      },
+    );
+
+    const naming = await getJiraBranchNaming("dev-7");
+
+    expect(naming.kind).toBe("feature");
+    expect(naming.fields.filter((field) => field.name === "Type")).toHaveLength(
+      1,
+    );
+  });
+
+  // N1 / D5: the shared list's rule 1 names an absent field and must not warn
+  // before rule 2 matches.
+  it("a shared rule naming an absent field does not warn", async () => {
+    stubJira(
+      `${PREFIXES}branchType:\n  - when: { Sprint: "1" }\n    type: chore\n  - when: { Type: Bug }\n    type: bugfix\n`,
+      bug,
+    );
+    const warnings: string[] = [];
+
+    const naming = await getJiraBranchNaming("dev-7", {
+      onWarning: (w) => warnings.push(w),
+    });
+
+    expect(naming.match).toMatchObject({ position: 2 });
+    expect(warnings).toEqual([]);
+  });
+
+  // N2: the `labels` id is stable, its display name is localized.
+  it("the portable Labels matches on a localized Jira, where labels is named Etiketten", async () => {
+    stubJira(PREFIXES + PORTABLE, {
+      ...story,
+      names: { issuetype: "Vorgangstyp", labels: "Etiketten" },
+      fields: { ...story.fields, labels: ["bug"] },
+    });
+
+    expect((await getJiraBranchNaming("dev-7")).match).toMatchObject({
+      position: 2,
+    });
+  });
+
+  it("adds no Labels alias when the field is already named Labels", () => {
+    const fields = getJiraIssueFields({
+      ...story,
+      names: { issuetype: "Issue Type", labels: "Labels" },
+      fields: { ...story.fields, labels: ["bug"] },
+    } as never);
+
+    expect(fields.filter((field) => field.name === "Labels")).toHaveLength(1);
+  });
+
+  it("does not shadow a custom field already named Labels", () => {
+    const fields = getJiraIssueFields({
+      ...story,
+      names: { labels: "Etiketten", customfield_9: "Labels" },
+      fields: { labels: ["bug"], customfield_9: { value: "x" } },
+    } as never);
+
+    expect(fields.filter((field) => field.name === "Labels")).toEqual([
+      { id: "customfield_9", name: "Labels", values: [{ name: "x" }] },
+    ]);
+  });
+
+  it("does not add Type when a field already has that id", () => {
+    const fields = getJiraIssueFields({
+      ...bug,
+      fields: { ...bug.fields, Type: "x" },
+    } as never);
+
+    expect(fields.filter((field) => field.id === "Type")).toHaveLength(1);
+  });
+
+  it("adds no Type when the issue has no issuetype", () => {
+    const fields = getJiraIssueFields({
+      id: "1",
+      key: "DEV-7",
+      fields: { summary: "x" },
+    } as never);
+
+    expect(fields.map((field) => field.id)).toEqual(["summary"]);
   });
 
   it("both lists: the provider's wins", async () => {

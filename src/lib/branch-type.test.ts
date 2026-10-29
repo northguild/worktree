@@ -167,6 +167,36 @@ describe("evaluateBranchTypeRules", () => {
     expect(result.warnings[0]).toContain('"Work Categroy"');
   });
 
+  // D5: a shared file is written for several providers on purpose, so a field
+  // one of them lacks is not a mistake there.
+  it("does not warn about an absent field when the rules are the shared list", () => {
+    const rules = [
+      when({ Nonexistent: "x" }, "chore"),
+      when({ "Issue Type": "Bug" }, "bugfix"),
+    ];
+
+    const result = evaluateBranchTypeRules(rules, [issueType], "branchType", {
+      shared: true,
+    });
+
+    expect(result.kind).toBe("bugfix");
+    expect(result.position).toBe(2);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("still fails on an ambiguous display name in the shared list", () => {
+    const twin: IssueField = { ...issueType, id: "customfield_1" };
+
+    expect(() =>
+      evaluateBranchTypeRules(
+        [when({ "Issue Type": "Bug" }, "bugfix")],
+        [issueType, twin],
+        "branchType",
+        { shared: true },
+      ),
+    ).toThrow(AmbiguousFieldError);
+  });
+
   it("does not evaluate, and so does not warn about, rules after the first match", () => {
     const rules = [
       when({ "Issue Type": "Bug" }, "bugfix"),

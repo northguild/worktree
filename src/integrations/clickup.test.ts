@@ -746,8 +746,11 @@ describe("getClickUpBranchNaming", () => {
       "9hx",
     );
 
+    // The portable `Labels` (D3) sits beside `Tags`, never in place of it (D4),
+    // so the dry run shows both and a `when` line can be pasted from either.
     expect(naming.fields).toEqual([
       { id: "Tags", name: "Tags", values: [{ name: "Bug" }] },
+      { id: "Labels", name: "Labels", values: [{ name: "Bug" }] },
     ]);
     expect(naming.match).toEqual({ source: "built-in" });
     expect(naming.branchName).toBe("fix/CU-9hx-fix-login");
@@ -809,6 +812,45 @@ describe("the shared branchType list for ClickUp", () => {
     expect(matched.branchName).toBe("chore/CU-9hx-tidy");
     expect(matched.match).toMatchObject({ source: "rule", position: 1 });
     expect(rest.branchName).toBe("feat/CU-9hx-tidy");
+  });
+
+  const PORTABLE = `branchType:
+  - when: { Type: Bug }
+    type: bugfix
+  - when: { Labels: bug }
+    type: bugfix
+`;
+
+  // Plan Phase 2 "Done when": the portable list gives fix/ on a `bug` tag, and
+  // ClickUp has no Type, which the shared list may name without a warning.
+  it("the portable Labels rule gives fix/ on a bug-tagged task, with no warning", async () => {
+    projectFile(PREFIXES + PORTABLE);
+    const warnings: string[] = [];
+
+    const naming = await getClickUpBranchNaming(
+      clickUpTask(["bug"]),
+      "9hx",
+      (w) => warnings.push(w),
+    );
+
+    expect(naming.branchName).toBe("fix/CU-9hx-tidy");
+    expect(warnings).toEqual([]);
+  });
+
+  it("a clickup.branchType keeps matching on Tags, and a Labels rule matches the same tags", async () => {
+    projectFile(
+      `${PREFIXES}clickup:\n  branchType:\n    - when: { Tags: bug }\n      type: bugfix\n`,
+    );
+    expect(
+      (await getClickUpBranchNaming(clickUpTask(["bug"]), "9hx")).kind,
+    ).toBe("bugfix");
+
+    projectFile(
+      `${PREFIXES}clickup:\n  branchType:\n    - when: { Labels: bug }\n      type: bugfix\n`,
+    );
+    expect(
+      (await getClickUpBranchNaming(clickUpTask(["bug"]), "9hx")).kind,
+    ).toBe("bugfix");
   });
 
   it("shared list only: it replaces the built-in mapping, with no fall-through on no match", async () => {

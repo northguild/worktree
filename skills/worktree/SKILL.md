@@ -125,9 +125,11 @@ name, case-insensitively) and values (by name or `{ id: "10301" }`), every field
 in a `when` must match, and `type:` is `feature`, `bugfix` or `chore`. `- otherwise:
 <kind>` closes the list; without it an unmatched issue gets no prefix. A rule
 naming a field the issue lacks warns (in `warnings` under `--json`) and does not
-match. Prefer ids in a shared file. `github`, `linear` and `clickup` take a `branchType` list of the same
+match; a rule in the shared list does not warn. Prefer ids in a shared file. `github`, `linear` and `clickup` take a `branchType` list of the same
 shape and replace their built-in mapping the same way: GitHub rules match `Type` and `Labels`, Linear
-`Labels` (by name or id), ClickUp `Tags` (by name only; a tag has no id). A top-level `branchType` list is
+`Labels` (by name or id), ClickUp `Tags` (by name only; a tag has no id). `Type` and `Labels` are
+portable: Jira also answers to `Type` (its issue type, beside `issuetype`) and `Labels` (beside `labels`, which a localized Jira does not display as "Labels") and ClickUp to `Labels` (its tags,
+beside `Tags`), so one shared list reads the same everywhere. A top-level `branchType` list is
 shared by every provider that has no list of its own; per run the order is the provider's own list, then the
 shared list, then the provider's built-in mapping, and a shared list replaces the built-in mapping (no
 fall-through on no match, so a list set for one provider's sake turns it off for the others unless it ends

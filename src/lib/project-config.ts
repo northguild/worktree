@@ -421,7 +421,8 @@ export async function getTeamConfigValue(name: TeamConfigKey) {
 /**
  * The rules that decide a provider's kind, with the name of the list they came
  * from (D1, D7): the provider's own `branchType`, else the shared top-level
- * one, else `undefined` and the provider's built-in mapping applies.
+ * one, else `undefined` and the provider's built-in mapping applies. `shared`
+ * says the rules are the shared list, whose absent-field rules do not warn (D5).
  */
 export async function getBranchTypeRules(
   provider: "jira" | "github" | "linear" | "clickup",
@@ -432,10 +433,16 @@ export async function getBranchTypeRules(
   }
   const own = project.config[provider]?.branchType;
   if (own) {
-    return { rules: own, listName: `${provider}.branchType` };
+    return {
+      rules: own,
+      listName: `${provider}.branchType`,
+      shared: false,
+    };
   }
   const shared = project.config.branchType;
-  return shared ? { rules: shared, listName: "branchType" } : undefined;
+  return shared
+    ? { rules: shared, listName: "branchType", shared: true }
+    : undefined;
 }
 
 /** The configured prefix for a kind; no kind is no prefix (D8). */

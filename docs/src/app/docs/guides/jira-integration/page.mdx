@@ -36,7 +36,7 @@ This built-in mapping applies **only when no rules are set**. If `.worktree.yml`
 list (or a shared top-level `branchType` list, which `jira.branchType` wins over), the rules decide the kind instead and the mapping above is not consulted: an issue no rule matches
 gets no prefix unless the list ends with `- otherwise: <kind>`. See
 [Branch-type rules](/docs/project-configuration#branch-type-rules) for the syntax, and for why to name
-fields and options by id.
+fields and options by id. A shared list can name the issue type as `Type`, which Jira answers beside `issuetype`.
 
 ## Assigning the issue
 

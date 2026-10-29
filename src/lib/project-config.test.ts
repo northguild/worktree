@@ -776,6 +776,7 @@ describe("getBranchTypeRules and getBranchPrefix", () => {
       expect(await getBranchTypeRules(provider)).toEqual({
         rules: [{ otherwise: "feature" }],
         listName: "branchType",
+        shared: true,
       });
     }
   });
@@ -788,10 +789,12 @@ describe("getBranchTypeRules and getBranchPrefix", () => {
     expect(await getBranchTypeRules("github")).toEqual({
       rules: [{ otherwise: "bugfix" }],
       listName: "github.branchType",
+      shared: false,
     });
     expect(await getBranchTypeRules("linear")).toEqual({
       rules: [{ otherwise: "chore" }],
       listName: "branchType",
+      shared: true,
     });
   });
 
