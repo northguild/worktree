@@ -1250,6 +1250,23 @@ describe("the shared branchType list for GitHub", () => {
     expect(warnings).toEqual([]);
   });
 
+  // Finding 2: a dry run is where rules are checked, so a misspelt field in the
+  // shared list warns there, and only there.
+  it("a shared rule naming an absent field warns on a dry run and not on a real run", async () => {
+    projectFile(
+      `${PREFIXES}branchType:\n  - when: { Lables: bug }\n    type: bugfix\n`,
+    );
+    const real: string[] = [];
+    const dry: string[] = [];
+
+    await getGitHubBranchNaming(issue(), (w) => real.push(w));
+    await getGitHubBranchNaming(issue(), (w) => dry.push(w), true);
+
+    expect(real).toEqual([]);
+    expect(dry).toHaveLength(1);
+    expect(dry[0]).toContain("Rule 1 of branchType names");
+  });
+
   // Plan Phase 2 "Done when": one portable list, `fix/` on a bug-typed issue.
   it("the portable Type rule gives fix/ on a bug-typed issue, with no warning", async () => {
     projectFile(

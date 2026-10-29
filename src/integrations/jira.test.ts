@@ -1385,6 +1385,24 @@ jira:
     expect(warnings).toEqual([]);
   });
 
+  // Finding 2: a dry run is where rules are checked, so a misspelt field in the
+  // shared list warns there, and only there.
+  it("a shared rule naming an absent field warns on a dry run", async () => {
+    stubJira(
+      `${PREFIXES}branchType:\n  - when: { Sprint: "1" }\n    type: chore\n  - when: { Type: Bug }\n    type: bugfix\n`,
+      bug,
+    );
+    const warnings: string[] = [];
+
+    await getJiraBranchNaming("dev-7", {
+      onWarning: (w) => warnings.push(w),
+      dryRun: true,
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Rule 1 of branchType names");
+  });
+
   // N2: the `labels` id is stable, its display name is localized.
   it("the portable Labels matches on a localized Jira, where labels is named Etiketten", async () => {
     stubJira(PREFIXES + PORTABLE, {

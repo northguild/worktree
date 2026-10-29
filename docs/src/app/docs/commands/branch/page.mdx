@@ -174,7 +174,7 @@ Fields with a value (2), each with a line to paste into jira.branchType:
   `--install` and `--no-open` flags are accepted and ignored.
 - **The `Rule:` line** names the rule that chose the prefix by its position in the list and its text, and
   names the list: `jira.branchType`, or `branchType` when the shared list decided. It
-  reads `built-in mapping` when the file has no rules for that provider, and `none matched` when it has rules
+  reads `built-in mapping` when the file has neither a rule list for that provider nor a shared `branchType`, and `none matched` when it has rules
   and none matched, so the name has no prefix.
 - **Every field the issue has a value for** is listed with its id and its name as your account sees it, and
   each of its values with its id where it has one. Empty fields are left out. Each value comes with a line to

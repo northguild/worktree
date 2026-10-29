@@ -309,8 +309,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
           }`,
         );
       }
-      const naming = await getGitHubBranchNaming(issue, (warning) =>
-        this.warn(warning),
+      const naming = await getGitHubBranchNaming(
+        issue,
+        (warning) => this.warn(warning),
+        dryRun,
       );
       spinner.succeed();
       fetched = { issue, naming };
@@ -476,8 +478,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       const issue = dryRun
         ? await fetchLinearIssue(issueIdFlag, { labelIds: true })
         : await fetchLinearIssue(issueIdFlag);
-      const naming = await getLinearBranchNaming(issue, (warning) =>
-        this.warn(warning),
+      const naming = await getLinearBranchNaming(
+        issue,
+        (warning) => this.warn(warning),
+        dryRun,
       );
       spinner.succeed();
       return {
@@ -493,14 +497,18 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
   private async getClickUpTaskBranchName(
     taskIdFlag: string,
+    dryRun: boolean,
   ): Promise<DerivedName> {
     const typedId = taskIdFlag.trim();
     const spinner = createSpinner(`Fetching ClickUp task ${typedId}`).start();
     try {
       // One fetch gives both the name and the url the API reports (D9).
       const task = await fetchClickUpTask(taskIdFlag);
-      const naming = await getClickUpBranchNaming(task, taskIdFlag, (warning) =>
-        this.warn(warning),
+      const naming = await getClickUpBranchNaming(
+        task,
+        taskIdFlag,
+        (warning) => this.warn(warning),
+        dryRun,
       );
       spinner.succeed();
       return {
@@ -660,7 +668,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       return this.getLinearIssueBranchName(flags.linear, dryRun);
     }
     if (flags.clickup) {
-      return this.getClickUpTaskBranchName(flags.clickup);
+      return this.getClickUpTaskBranchName(flags.clickup, dryRun);
     }
     return undefined;
   }
@@ -708,7 +716,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       match.source === "rule"
         ? `Rule: rule ${match.position} of ${listName}: ${match.rule}`
         : match.source === "built-in"
-          ? `Rule: built-in mapping (the project file has no ${listName})`
+          ? `Rule: built-in mapping (the project file has no ${issue.provider}.branchType or shared branchType)`
           : `Rule: none matched in ${listName}, so the name has no prefix`,
     );
     this.log(

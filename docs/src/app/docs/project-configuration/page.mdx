@@ -150,7 +150,11 @@ decided (`rule 2 of branchType`, or `none matched in branchType`).
 
 A shared rule names fields by what every provider offers: the portable `Type` and `Labels` (see below). A shared
 rule that names a field an issue does not have, such as a `Type` rule on a Linear issue, does not match and does not
-warn, because a shared file is written for several providers on purpose. A provider's own list still warns.
+warn on a real run, because a shared file is written for several providers on purpose. A provider's own list
+still warns, and so does a shared list on a dry run, so a misspelt field such as `Lables` shows up while you
+write the rules. In a shared list match `Type` and `Labels` by name: an id belongs to one provider, so a rule
+pasted from a dry run with an id only ever matches that provider, and fails silently on the others. Keep
+id-based rules for a provider's own list.
 
 ### Fields per provider
 
@@ -196,8 +200,10 @@ A field is named by its id (`customfield_10359`, `issuetype`) or by its display 
 value is written as its name (`Maintenance`) or as `{ id: "10301" }`.
 
 - **Names compare case-insensitively; ids compare exactly.**
-- **Prefer ids in a shared file.** A display name changes when someone renames the field or when a teammate
-  uses Jira in another language, and the rule then silently stops matching. An id does not change.
+- **Prefer ids in a provider's own list.** A display name changes when someone renames the field or when a
+  teammate uses Jira in another language, and the rule then silently stops matching. An id does not change.
+  The shared `branchType` list is the exception: its `Type` and `Labels` rules match by name, because an id
+  belongs to one provider.
 - **Quote numeric ids.** YAML reads an unquoted `10301` as a number. `worktree` accepts it and compares it as
   text, but a quoted id is what Jira shows you.
 - **Two fields can share a display name.** A rule that names such a field by name stops the run, and a dry

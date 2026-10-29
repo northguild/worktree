@@ -306,7 +306,9 @@ export async function getJiraBranchNaming(
   let match: BranchMatch;
   if (list) {
     const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
-      shared: list.shared,
+      // A dry run is where rules are written and checked, so a misspelt field
+      // in the shared list still warns there (D5 holds for real runs).
+      shared: list.shared && options.dryRun !== true,
     });
     for (const warning of result.warnings) {
       options.onWarning?.(warning);

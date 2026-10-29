@@ -242,6 +242,7 @@ export async function getClickUpBranchNaming(
   task: ClickUpTask,
   typedId: string,
   onWarning: (warning: string) => void = () => {},
+  dryRun = false,
 ): Promise<BranchNaming> {
   const list = await getBranchTypeRules("clickup");
   const fields = getClickUpTaskFields(task);
@@ -250,7 +251,9 @@ export async function getClickUpBranchNaming(
   let match: BranchMatch;
   if (list) {
     const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
-      shared: list.shared,
+      // A dry run is where rules are written and checked, so a misspelt field
+      // in the shared list still warns there (D5 holds for real runs).
+      shared: list.shared && !dryRun,
     });
     for (const warning of result.warnings) {
       onWarning(warning);

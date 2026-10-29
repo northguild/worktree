@@ -125,7 +125,7 @@ name, case-insensitively) and values (by name or `{ id: "10301" }`), every field
 in a `when` must match, and `type:` is `feature`, `bugfix` or `chore`. `- otherwise:
 <kind>` closes the list; without it an unmatched issue gets no prefix. A rule
 naming a field the issue lacks warns (in `warnings` under `--json`) and does not
-match; a rule in the shared list does not warn. Prefer ids in a shared file. `github`, `linear` and `clickup` take a `branchType` list of the same
+match; a rule in the shared list does not warn on a real run, but a dry run still prints the warning so a misspelt field shows up. Prefer ids in a provider's own list; in the shared list match `Type` and `Labels` by name. `github`, `linear` and `clickup` take a `branchType` list of the same
 shape and replace their built-in mapping the same way: GitHub rules match `Type` and `Labels`, Linear
 `Labels` (by name or id), ClickUp `Tags` (by name only; a tag has no id). `Type` and `Labels` are
 portable: Jira also answers to `Type` (its issue type, beside `issuetype`) and `Labels` (beside `labels`, which a localized Jira does not display as "Labels") and ClickUp to `Labels` (its tags,

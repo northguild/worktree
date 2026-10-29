@@ -546,6 +546,7 @@ function getBuiltInGitHubBranchKind(
 export async function getGitHubBranchNaming(
   issue: GitHubIssue,
   onWarning: (warning: string) => void = () => {},
+  dryRun = false,
 ): Promise<BranchNaming> {
   const list = await getBranchTypeRules("github");
   const fields = getGitHubIssueFields(issue);
@@ -554,7 +555,9 @@ export async function getGitHubBranchNaming(
   let match: BranchMatch;
   if (list) {
     const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
-      shared: list.shared,
+      // A dry run is where rules are written and checked, so a misspelt field
+      // in the shared list still warns there (D5 holds for real runs).
+      shared: list.shared && !dryRun,
     });
     for (const warning of result.warnings) {
       onWarning(warning);

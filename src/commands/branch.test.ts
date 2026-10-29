@@ -4048,6 +4048,30 @@ branchType:
       expect(output.stdout()).toContain("Branch name: 8-fix-memory-leak");
     });
 
+    // Finding 1: the built-in mapping needs both lists absent, so the line says so.
+    it("words the built-in line with both lists a file lacks", async () => {
+      projectFile("branchPrefix:\n  feature: feat/\n");
+      githubIssue({ type: { id: 9, name: "Bug" } });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain(
+        "Rule: built-in mapping (the project file has no github.branchType or shared branchType)",
+      );
+    });
+
+    // Finding 2: a dry run is where rules are checked, so it passes the flag on.
+    it("warns about a shared rule naming an absent field, because it is a dry run", async () => {
+      projectFile("branchType:\n  - when: { Lables: bug }\n    type: bugfix\n");
+      githubIssue();
+
+      const { command } = await runDry({ github: "8" });
+
+      expect((command as any).warnings).toEqual([
+        expect.stringContaining("Rule 1 of branchType names"),
+      ]);
+    });
+
     it("says no rule matched when rules exist and none did", async () => {
       projectFile(FILE);
       githubIssue({ labels: [] });
