@@ -1794,6 +1794,30 @@ jira:
       it.each([
         ["github", "42"],
         ["jira", "DEV-1"],
+        ["clickup", "9hx"],
+      ])("--no-start with --%s warns nothing and carries on", async (provider, id) => {
+        vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
+        vi.spyOn(branch as any, "getBranchName").mockResolvedValue({
+          branchName: "feature/x",
+          issue: null,
+        });
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { [provider]: id, start: false, assign: false },
+        });
+
+        await branch.run();
+
+        expect(branch.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining("Moving an issue to started"),
+        );
+        expect(mockCreate).toHaveBeenCalled();
+        expect(mockStart).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["github", "42"],
+        ["jira", "DEV-1"],
       ])("a plain --%s run never reads linear.autoStart or asks", async (provider, id) => {
         vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
         vi.spyOn(branch as any, "getBranchName").mockResolvedValue({

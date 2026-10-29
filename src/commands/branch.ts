@@ -1058,16 +1058,18 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
 
     // Decided here for the same reason (D6), written once the tree exists.
+    // Only --start warns on another provider: --no-start asks for no move, so
+    // a wrapper may pass it on every run, as --no-assign is.
     let startLinear = false;
-    if (flags.start !== undefined && flags.github) {
+    if (flags.start && flags.github) {
       this.warn(
         "Moving an issue to started is not supported for GitHub issues.",
       );
-    } else if (flags.start !== undefined && flags.jira) {
+    } else if (flags.start && flags.jira) {
       this.warn(
         "Moving an issue to started is not supported for Jira issues yet.",
       );
-    } else if (flags.start !== undefined && flags.clickup) {
+    } else if (flags.start && flags.clickup) {
       this.warn(
         "Moving an issue to started is not supported for ClickUp tasks yet.",
       );

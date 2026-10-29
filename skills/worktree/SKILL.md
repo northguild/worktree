@@ -109,8 +109,8 @@ skips the assignment with a warning, because assignment is not supported for
 them yet. `--linear` alone warns nothing about assignment.
 
 `--start` and `--no-start` also need one of the four (exit `2` otherwise), and only `--linear`
-acts on them: with `--github` they warn that it is not supported, with `--jira` or
-`--clickup` that it is not supported yet, and the run carries on. With neither flag,
+acts on them: `--start` with `--github` warns that it is not supported, with `--jira` or
+`--clickup` that it is not supported yet, and the run carries on. `--no-start` never warns. With neither flag,
 `linear.autoStart` decides whether a `--linear` issue is moved to its team's started
 state: `true` always, `false` never, and unset means you are asked once ("Move this
 issue to started?") and the answer is saved to the key. A non-interactive run starts and

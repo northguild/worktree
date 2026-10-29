@@ -287,9 +287,9 @@ API key. Without it the command offers to run `worktree config`, and when there 
 ### Moving the issue to started
 
 `--start` moves the Linear issue to its team's first started state once the worktree exists, and `--no-start`
-skips it for that one run. It works with `--linear`; `--github`, `--jira` and `--clickup` warn that it is not
-supported (yet, for Jira and ClickUp) and carry on. On its own it exits `2`, as `--assign` does, because there
-is no issue to act on. The decision is made in this order:
+skips it for that one run. It works with `--linear`; `--start` with `--github`, `--jira` or `--clickup` warns that
+it is not supported (yet, for Jira and ClickUp) and carries on, and `--no-start` there warns nothing. On its own
+either flag exits `2`, as `--assign` does, because there is no issue to act on. The decision is made in this order:
 
 1. `--start` or `--no-start`.
 2. [`linear.autoStart`](/docs/configuration#linear-integration-notes): `true` starts, `false` never does.
