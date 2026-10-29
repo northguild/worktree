@@ -8,6 +8,7 @@ import {
   HERDR_CONFIG_NAMES,
   OPENER_KINDS,
   SECRET_CONFIG_NAMES,
+  UNPROMPTED_CONFIG_NAMES,
 } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
 import { isNonInteractive } from "../lib/interaction.js";
@@ -146,6 +147,13 @@ export default class Config extends BaseCommand {
       if (missing && (value || fromFile)) {
         continue;
       }
+      // Nothing prompts for it, so a `--missing` run has nothing to say (D7).
+      if (
+        missing &&
+        (UNPROMPTED_CONFIG_NAMES as readonly string[]).includes(variable)
+      ) {
+        continue;
+      }
 
       if (!value && fromFile) {
         this.log(
@@ -213,14 +221,19 @@ export default class Config extends BaseCommand {
   ): ConfigName[] {
     // Naming a key is asking for it. Someone configuring ahead of installing
     // Herdr has said what they want, so an explicit --names is never filtered.
+    // A key with no prompt is not offered even by name: the group it would
+    // open has nothing to ask for it (D7).
+    const asked = (name: ConfigName) =>
+      !(UNPROMPTED_CONFIG_NAMES as readonly string[]).includes(name);
     if (names) {
       return names
         .split(",")
         .filter((name) => CONFIG_NAMES.includes(name.trim() as ConfigName))
-        .map((name) => name.trim() as ConfigName);
+        .map((name) => name.trim() as ConfigName)
+        .filter(asked);
     }
 
-    return CONFIG_NAMES.filter((name) => !hidden?.has(name));
+    return CONFIG_NAMES.filter((name) => asked(name) && !hidden?.has(name));
   }
 
   private async getPromptConfigNames(

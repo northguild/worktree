@@ -226,6 +226,133 @@ describe("config command", () => {
     });
   });
 
+  // D7 (#119): github.repository is stored, listed and settable by name, and the
+  // wizard never asks for it.
+  describe("github.repository", () => {
+    it("is a config name, and is not a secret", () => {
+      expect(CONFIG_NAMES).toContain("github.repository");
+      expect(SECRET_CONFIG_NAMES).not.toContain("github.repository");
+    });
+
+    it("stores a valid owner/repo and --list shows it unmasked", async () => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "github.repository", value: "acme/widgets" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "github.repository",
+        "acme/widgets",
+      );
+
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "github.repository" ? "acme/widgets" : ""),
+      );
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: false },
+      });
+      await config.run();
+
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        "github.repository=acme/widgets",
+      );
+    });
+
+    it.each([
+      "acme/widgets/extra",
+      "https://github.com/acme/widgets",
+      "acme/..",
+    ])("refuses %j with exit 2 and stores nothing", async (value) => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(git, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "github.repository", value },
+        flags: {},
+      });
+
+      await expect(config.run()).rejects.toMatchObject({
+        code: "invalid_value",
+        oclif: { exit: 2 },
+      });
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "github.repository",
+        expect.anything(),
+      );
+    });
+
+    // `worktree config github.repository ""` never reaches the validator: the
+    // command reads an empty value argument as a request to print the key, as
+    // it does for every key. The refusal is the validator's, which a prompt or
+    // another caller can reach.
+    it("refuses an empty value at the validator, with exit 2", async () => {
+      await expect(
+        validators.validateConfigValue("github.repository", ""),
+      ).rejects.toMatchObject({
+        code: "invalid_value",
+        oclif: { exit: 2 },
+      });
+    });
+
+    it("is neither listed nor prompted by --missing", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: true },
+      });
+      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+
+      await config.run();
+
+      expect(mockConsoleLog).toHaveBeenCalledWith("jira.host");
+      expect(mockConsoleLog).not.toHaveBeenCalledWith("github.repository");
+    });
+
+    it("does not open the GitHub group, or prompt, on a --missing run", async () => {
+      // Everything else answered, so only github.repository is unset.
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+        Promise.resolve(key === "github.repository" ? "" : "set"),
+      );
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: true },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput).not.toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(mockConsoleLog).toHaveBeenCalledWith("No missing config found.");
+    });
+
+    it("asks nothing for it on a bare wizard run", async () => {
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("anything");
+      mockSelect.mockResolvedValue("true");
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false },
+      });
+
+      await config.run();
+
+      const asked = [
+        ...mockConfirm.mock.calls,
+        ...mockInput.mock.calls,
+        ...mockSelect.mock.calls,
+      ].map(([prompt]) => (prompt as { message: string }).message);
+      expect(asked.filter((m) => /repositor/i.test(m))).toEqual([]);
+    });
+  });
+
   describe("setting config values", () => {
     it("should set a valid config value", async () => {
       const mockSetConfigValue = vi

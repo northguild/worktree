@@ -12,6 +12,7 @@ export const CONFIG_NAMES = [
   "clickup.workspaceId",
   "github.token",
   "github.autoAssign",
+  "github.repository",
   "branchPrefix.feature",
   "branchPrefix.bugfix",
   "branchPrefix.chore",
@@ -31,6 +32,14 @@ export const SECRET_CONFIG_NAMES = [
   "linear.apiKey",
   "clickup.apiToken",
   "github.token",
+] as const satisfies readonly ConfigName[];
+
+// Keys the wizard never asks for: stored, listed and settable by name, but
+// absent from a bare run and from `--missing`. `github.repository` names a fork
+// setup's issue repository, an exception rather than something to ask everyone
+// (D7), so a prompt for it would be noise for the people with no fork.
+export const UNPROMPTED_CONFIG_NAMES = [
+  "github.repository",
 ] as const satisfies readonly ConfigName[];
 
 // Accepted values for the `opener` config key: which destination a worktree is

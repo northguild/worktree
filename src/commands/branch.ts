@@ -5,6 +5,7 @@ import {
 } from "../integrations/clickup.js";
 import {
   assignGitHubIssue,
+  describeGitHubRepository,
   fetchGitHubIssue,
   getGitHubBranchNaming,
 } from "../integrations/github.js";
@@ -332,7 +333,16 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         (warning) => this.warn(warning),
         dryRun,
       );
-      spinner.succeed();
+      // Named only when the repository is not origin's (D4), so the text for
+      // everyone else is what it always was. Known only once the fetch has
+      // resolved it, so it is the settled line and not the running one.
+      if (issue.repository && issue.repository.source !== "origin") {
+        spinner.succeed(
+          `Fetching GitHub issue #${issueNumber} from ${describeGitHubRepository(issue.repository)}`,
+        );
+      } else {
+        spinner.succeed();
+      }
       fetched = { issue, naming };
     } catch (error) {
       spinner.fail();
@@ -641,12 +651,18 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     ).start();
 
     try {
-      const { login, assigned } = await assignGitHubIssue(issueNumber);
+      const { login, assigned, repository } =
+        await assignGitHubIssue(issueNumber);
+      // Named only when the repository is not origin's (D4).
+      const where =
+        !repository || repository.source === "origin"
+          ? ""
+          : ` in ${describeGitHubRepository(repository)}`;
       if (assigned) {
-        spinner.succeed(`Assigned issue #${issueNumber} to ${login}`);
+        spinner.succeed(`Assigned issue #${issueNumber} to ${login}${where}`);
         return true;
       }
-      const message = `Issue #${issueNumber} was not assigned to ${login}. Assigning needs a token whose account has push access to the repository.`;
+      const message = `Issue #${issueNumber} was not assigned to ${login}${where}. Assigning needs a token whose account has push access to the repository.`;
       spinner.warn(message);
       this.recordWarning(message);
     } catch (error) {

@@ -62,12 +62,15 @@ worktree branch --github 42 --json --agent-file brief.md
 
 ## GitHub Issue Branching
 
-Use the `--github` flag to create a suggested branch name from an issue in the current repository.
+Use the `--github` flag to create a suggested branch name from an issue. The issue is read from the
+repository named by `github.repository`, else the `upstream` remote when it points at GitHub, else `origin`; in a
+fork that means the original's issues, and the output names the repository whenever it is not `origin`'s. See
+[Forks](/docs/guides/github-issue-integration#forks).
 
 - The issue number can be passed as `42` or `"#42"`.
 - A pull request number is refused as a usage error, since the pull request already has a branch. The message names
-  `worktree checkout <head-branch>` when that branch is on this repository and its name is only letters, digits,
-  `_`, `.`, `/` and `-`; otherwise, a fork included, it says to run `worktree checkout` and pick one.
+  `worktree checkout <head-branch>` when that branch is on `origin` and its name is only letters, digits,
+  `_`, `.`, `/` and `-`; otherwise, a fork's or `upstream`'s branch included, it says to run `worktree checkout` and pick one.
 - A closed issue gets a warning. An interactive run asks before continuing, and answering no ends the run with exit
   `1` and no worktree; a [non-interactive run](#non-interactive-runs) carries on, and `--json` reports the warning
   in `warnings`.

@@ -15,6 +15,10 @@ import {
 import { isNonInteractive } from "./interaction.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
+import {
+  GITHUB_REPOSITORY_PATTERN,
+  isValidGitHubRepository,
+} from "./validators.js";
 
 // Imports git.ts and is never imported by it (or by agent.ts): git.ts and
 // agent.ts already import each other (#59), and this file must not close
@@ -128,7 +132,27 @@ export const projectConfigSchema = z
       })
       .optional(),
     jira: branchType.extend({ host: z.string().min(1).optional() }).optional(),
-    github: branchType.optional(),
+    github: branchType
+      .extend({
+        // The pattern is for the published schema, so an editor flags a bad
+        // value; the refine adds what a pattern cannot hold. `abort` keeps a
+        // value both refuse to one message.
+        repository: z
+          .string()
+          .regex(GITHUB_REPOSITORY_PATTERN, {
+            message: "repository must be owner/repo, for example acme/widgets",
+            abort: true,
+          })
+          .refine((value) => isValidGitHubRepository(value) === true, {
+            message: "repository must be owner/repo, for example acme/widgets",
+          })
+          .meta({
+            description:
+              "The owner/repo that --github reads issues from and --assign assigns in, for example acme/widgets. Only needed when that is not the upstream remote, or origin without one.",
+          })
+          .optional(),
+      })
+      .optional(),
     linear: branchType.optional(),
     clickup: branchType
       .extend({
@@ -174,7 +198,7 @@ export function projectConfigJsonSchema() {
 const TEAM_SECTIONS: Record<string, readonly string[]> = {
   branchPrefix: ["feature", "bugfix", "chore"],
   jira: ["host", "branchType"],
-  github: ["branchType"],
+  github: ["repository", "branchType"],
   linear: ["branchType"],
   clickup: ["workspaceId", "branchType"],
 };
@@ -359,6 +383,7 @@ const TEAM_CONFIG_KEYS = [
   "branchPrefix.chore",
   "jira.host",
   "clickup.workspaceId",
+  "github.repository",
 ] as const satisfies readonly ConfigName[];
 
 export type TeamConfigKey = (typeof TEAM_CONFIG_KEYS)[number];
@@ -381,6 +406,8 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
       return config.branchPrefix?.chore;
     case "jira.host":
       return config.jira?.host;
+    case "github.repository":
+      return config.github?.repository;
     case "clickup.workspaceId":
       // YAML reads an unquoted 9001234 as a number; git config holds text.
       return config.clickup?.workspaceId === undefined
@@ -914,6 +941,7 @@ export function renderProjectFile(
   section("branchPrefix", "bugfix", values["branchPrefix.bugfix"]);
   section("branchPrefix", "chore", values["branchPrefix.chore"]);
   section("jira", "host", values["jira.host"]);
+  section("github", "repository", values["github.repository"]);
   section("clickup", "workspaceId", values["clickup.workspaceId"]);
   // A personal postCreate is one string; the file holds a list of steps.
   document.postCreate = values.postCreate ? [values.postCreate] : undefined;

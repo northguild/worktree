@@ -938,6 +938,55 @@ jira:
       );
     });
 
+    it.each([
+      ["upstream", "Fetching GitHub issue #42 from acme/widgets (upstream)"],
+      [
+        "github.repository",
+        "Fetching GitHub issue #42 from acme/widgets (github.repository)",
+      ],
+    ] as const)("names the repository read in the settled spinner line when it came from %s (D4)", async (source, line) => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+        type: { name: "Feature" },
+        pullRequest: null,
+        repository: { owner: "acme", name: "widgets", source },
+      } as any);
+      mockInput.mockResolvedValue("42-add-dark-mode");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42" },
+      });
+
+      await branch.run();
+
+      const spinner = vi.mocked(ora).mock.results[0]?.value;
+      expect(vi.mocked(ora).mock.calls[0]?.[0]).toBe(
+        "Fetching GitHub issue #42",
+      );
+      expect(spinner.succeed).toHaveBeenCalledWith(line);
+    });
+
+    it("leaves the fetch spinner untouched when the repository is origin's", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+        type: { name: "Feature" },
+        pullRequest: null,
+        repository: { owner: "acme", name: "widgets", source: "origin" },
+      } as any);
+      mockInput.mockResolvedValue("42-add-dark-mode");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { github: "42" },
+      });
+
+      await branch.run();
+
+      const spinner = vi.mocked(ora).mock.results[0]?.value;
+      expect(spinner.succeed).toHaveBeenCalledWith();
+    });
+
     it("refuses a pull request and names its checkout", async () => {
       vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
         number: 105,
@@ -2622,6 +2671,55 @@ jira:
         );
         expect(spinner.fail).not.toHaveBeenCalled();
         expect(spinner.succeed).not.toHaveBeenCalled();
+      });
+
+      it("names the repository and its source in the unassigned warning when it is not origin's (D4)", async () => {
+        vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
+          login: "octocat",
+          assigned: false,
+          repository: { owner: "acme", name: "widgets", source: "upstream" },
+        });
+        githubRun({ assign: true });
+
+        await branch.run();
+
+        const spinner = vi.mocked(ora).mock.results.at(-1)?.value;
+        expect(spinner.warn).toHaveBeenCalledWith(
+          "Issue #42 was not assigned to octocat in acme/widgets (upstream). Assigning needs a token whose account has push access to the repository.",
+        );
+      });
+
+      it("names the repository on the assigned line when it is not origin's, and not when it is", async () => {
+        const mockAssign = vi.spyOn(githubIntegration, "assignGitHubIssue");
+        githubRun({ assign: true });
+
+        mockAssign.mockResolvedValueOnce({
+          login: "octocat",
+          assigned: true,
+          repository: {
+            owner: "acme",
+            name: "widgets",
+            source: "github.repository",
+          },
+        });
+        await branch.run();
+        expect(
+          vi.mocked(ora).mock.results.at(-1)?.value.succeed,
+        ).toHaveBeenCalledWith(
+          "Assigned issue #42 to octocat in acme/widgets (github.repository)",
+        );
+
+        vi.mocked(ora).mockClear();
+        githubRun({ assign: true });
+        mockAssign.mockResolvedValueOnce({
+          login: "octocat",
+          assigned: true,
+          repository: { owner: "acme", name: "widgets", source: "origin" },
+        });
+        await branch.run();
+        expect(
+          vi.mocked(ora).mock.results.at(-1)?.value.succeed,
+        ).toHaveBeenCalledWith("Assigned issue #42 to octocat");
       });
 
       it("assigns before the worktree is created", async () => {

@@ -13,6 +13,7 @@ import {
   getBranchPrefix,
   getBranchTypeRules,
   getProjectPostCreateSteps,
+  isProjectFileKey,
   isTeamConfigKey,
   loadProjectConfig,
   MIGRATION_OFFER_KEY,
@@ -27,6 +28,7 @@ import {
   projectFileValue,
   readProjectConfig,
   renderBranchName,
+  renderProjectFile,
   resetProjectConfigCache,
   resolveTeamConfig,
   summariseProjectFile,
@@ -674,7 +676,23 @@ describe("resolveTeamConfig (D2, D3)", () => {
     );
   });
 
+  it("reads github.repository from the file, git config first", async () => {
+    fromOriginMain("github:\n  repository: acme/widgets\n");
+
+    expect(await resolveTeamConfig("github.repository")).toEqual({
+      value: "acme/widgets",
+      source: "project",
+    });
+
+    personal({ "github.repository": "me/fork" });
+    expect(await resolveTeamConfig("github.repository")).toEqual({
+      value: "me/fork",
+      source: "git-config",
+    });
+  });
+
   it("knows exactly the team keys the resolver covers", () => {
+    expect(isTeamConfigKey("github.repository")).toBe(true);
     expect(isTeamConfigKey("jira.host")).toBe(true);
     expect(isTeamConfigKey("clickup.workspaceId")).toBe(true);
     // Personal and secret keys never come from the file (D3).
@@ -707,6 +725,23 @@ describe("the published JSON Schema (D5, D6)", () => {
     }
 
     expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual(generated);
+  });
+
+  // The editor flags what the pattern refuses; lengths and the ., .. and .git
+  // names are left to the load.
+  it("gives github.repository a pattern an editor can check", () => {
+    const { github } = projectConfigJsonSchema().properties as Record<
+      string,
+      { properties: Record<string, { pattern: string }> }
+    >;
+    const pattern = new RegExp(github.properties.repository.pattern);
+
+    expect(pattern.test("acme/widgets")).toBe(true);
+    expect(pattern.test("mona-cat_octo/widgets")).toBe(true);
+    expect(pattern.test("acme")).toBe(false);
+    expect(pattern.test("acme/widgets/extra")).toBe(false);
+    expect(pattern.test("https://github.com/acme/widgets")).toBe(false);
+    expect(pattern.test("acme/wid gets")).toBe(false);
   });
 });
 
@@ -1117,6 +1152,69 @@ describe("file-derived text in warnings is shown, not interpreted", () => {
 // Phase 8 (#181): D19-D22. Expected values come from the plan's §4 example
 // file and from D20's wording, never from the writer under test.
 // ---------------------------------------------------------------------------
+
+describe("github.repository in the file (#119)", () => {
+  async function loads(content: string) {
+    fromOriginMain(content);
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("did not load");
+    return result.config;
+  }
+
+  it("loads, and is a project-file key", async () => {
+    const config = await loads("github:\n  repository: acme/widgets\n");
+
+    expect(config.github?.repository).toBe("acme/widgets");
+    expect(isProjectFileKey("github.repository")).toBe(true);
+    expect(projectFileValue(config, "github.repository")).toBe("acme/widgets");
+    expect(projectFileKeys(config)).toEqual(["github.repository"]);
+  });
+
+  it("loads beside the github branchType rules", async () => {
+    const config = await loads(
+      "github:\n  repository: acme/widgets\n  branchType:\n    - otherwise: feature\n",
+    );
+
+    expect(config.github?.repository).toBe("acme/widgets");
+    expect(config.github?.branchType).toHaveLength(1);
+  });
+
+  it.each([
+    "acme/widgets/extra",
+    "https://github.com/acme/widgets",
+    "acme/..",
+    "acme/widgets.git",
+    "acme",
+    '""',
+    "[acme/widgets]",
+  ])("fails to load with repository %s, as ProjectConfigError", async (value) => {
+    const error = await failure(`github:\n  repository: ${value}\n`);
+
+    expect(error.message).toContain("github.repository");
+  });
+
+  // The pattern and the refine both refuse a bad shape; the file says so once.
+  it("names a value the pattern refuses once, not twice", async () => {
+    const error = await failure("github:\n  repository: acme\n");
+
+    expect(error.message.match(/must be owner\/repo/g)).toHaveLength(1);
+  });
+
+  it("loads a managed user's fork, whose owner ends in _ and a shortcode", async () => {
+    const config = await loads(
+      "github:\n  repository: mona-cat_octo/widgets\n",
+    );
+
+    expect(config.github?.repository).toBe("mona-cat_octo/widgets");
+  });
+
+  it("is written by renderProjectFile and loads as written", async () => {
+    const text = renderProjectFile({ "github.repository": "acme/widgets" });
+
+    expect(text).toContain("github:\n  repository: acme/widgets");
+    expect((await loads(text)).github?.repository).toBe("acme/widgets");
+  });
+});
 
 describe("projectFileKeys and projectFileValue (D19)", () => {
   it("lists the keys the example file sets, in the order the wizard knows them", async () => {
