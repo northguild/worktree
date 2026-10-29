@@ -2139,6 +2139,18 @@ jira:
           "/path/to/worktree",
           defaultOpenOptions,
         );
+
+        // The last spinner of the run is the assignment's. The warning carries
+        // the rejection's own text (the fixture's input above); `fail` and
+        // `succeed` must stay untouched.
+        const spinner = vi.mocked(ora).mock.results.at(-1)?.value;
+        expect(spinner.warn).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "GitHub: Failed to assign issue 42 in o/r. 403 Forbidden",
+          ),
+        );
+        expect(spinner.fail).not.toHaveBeenCalled();
+        expect(spinner.succeed).not.toHaveBeenCalled();
       });
 
       it("still creates the worktree when the issue comes back unassigned", async () => {
@@ -2163,10 +2175,10 @@ jira:
           defaultOpenOptions,
         );
 
-        // §2 is "never `fail`, never a throw", and only the throw half is
-        // pinned by the case above. The last spinner of the run is the
-        // assignment's; without this, swapping `warn` for `fail` or `succeed`
-        // is invisible to the whole suite.
+        // §2 is "never `fail`, never a throw". The case above pins the throwing
+        // path's spinner; this pins the silent no-op's. The last spinner of the
+        // run is the assignment's; without this, swapping this `warn` for
+        // `fail` or `succeed` is invisible to the whole suite.
         const spinner = vi.mocked(ora).mock.results.at(-1)?.value;
         // The silent-ignore case GitHub documents for an account without push
         // access (not observed, #162). The fine-grained permission is named on
@@ -2198,9 +2210,7 @@ jira:
         // creation spinners and a launched editor.
         expect(calls).toEqual(["assign", "createWorktree"]);
       });
-    });
 
-    describe("the other issue sources", () => {
       it("still creates the worktree when persisting the answer fails", async () => {
         // The write is bookkeeping about whether to assign, not the assignment
         // itself, so §2 covers it just as firmly: a stale .git/config.lock must
@@ -2264,7 +2274,9 @@ jira:
           "Could not save github.autoAssign, so you will be asked again next time. config file is locked",
         );
       });
+    });
 
+    describe("the other issue sources", () => {
       it("never reaches the assignment seam without --github or --jira", async () => {
         // The global spies in beforeEach would absorb a stray call silently,
         // so the plain path needs its own assertion that nothing is reached.

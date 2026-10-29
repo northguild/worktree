@@ -180,6 +180,52 @@ describe("openWorktreePath", () => {
     expect(spinnerMocks.succeed).not.toHaveBeenCalled();
   });
 
+  it("returns before the editor exits, and settles the spinner only when it does", async () => {
+    expectCommands(`code ${worktreePath}`);
+    let exit!: (output: string) => void;
+    mockRun.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        exit = resolve;
+      }),
+    );
+
+    // The launch is held open, so this resolving at all is the property: a
+    // terminal editor must not block branch, checkout or open until it exits.
+    await command.open(worktreePath);
+
+    expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+    expect(spinnerMocks.fail).not.toHaveBeenCalled();
+
+    exit("");
+
+    await vi.waitFor(() =>
+      expect(spinnerMocks.succeed).toHaveBeenCalledTimes(1),
+    );
+    expect(spinnerMocks.fail).not.toHaveBeenCalled();
+  });
+
+  it("fails the spinner only when a launch that was still running is rejected", async () => {
+    expectCommands(`code ${worktreePath}`);
+    let crash!: (error: Error) => void;
+    mockRun.mockReturnValueOnce(
+      new Promise<string>((_, reject) => {
+        crash = reject;
+      }),
+    );
+
+    await command.open(worktreePath);
+
+    expect(spinnerMocks.fail).not.toHaveBeenCalled();
+    expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+
+    crash(new Error("spawn code ENOENT"));
+
+    await vi.waitFor(() =>
+      expect(spinnerMocks.fail).toHaveBeenCalledWith("spawn code ENOENT"),
+    );
+    expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+  });
+
   it("keeps the interim herdr workaround working as executable plus arguments", async () => {
     // The §2 constraint: multi-word `codeEditor` values are in the wild
     // precisely because this one worked before `opener` existed, and it has to

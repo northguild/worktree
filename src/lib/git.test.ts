@@ -251,6 +251,11 @@ describe("git config", () => {
     ]);
     // One argv element, not a shell string that happens to contain the value.
     expect(runSpy.mock.calls[0]?.[1]).toHaveLength(3);
+    // The read is `git config <key>` with no value: a second argument would write.
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
+      "config",
+      "northguild.worktree.codeEditor",
+    ]);
     expect(value).toBe(hostileValue);
   });
 });
@@ -717,6 +722,26 @@ describe("gitCreateWorktree", () => {
     expect(spinnerMocks.fail).toHaveBeenCalledWith("Command failed: git fetch");
     expect(spinnerMocks.succeed).not.toHaveBeenCalled();
   });
+
+  // The caller acts on the path this returns, so a rejected add has to reach it
+  // rather than let a path git never created come back.
+  it("rejects when the worktree add fails", async () => {
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce(gitRootPath)
+      .mockResolvedValueOnce("")
+      .mockRejectedValueOnce(new Error("Command failed: git worktree add"));
+
+    await expect(gitCreateWorktree(branchName, sourceBranch)).rejects.toThrow(
+      "Command failed: git worktree add",
+    );
+
+    expect(runSpy).toHaveBeenCalledTimes(3);
+    expect(spinnerMocks.fail).toHaveBeenCalledWith(
+      "Command failed: git worktree add",
+    );
+    expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+  });
 });
 
 describe("gitNukeWorktreeCmd", () => {
@@ -794,6 +819,20 @@ describe("gitNukeWorktreeCmd", () => {
     );
 
     expect(runSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects when the branch delete fails", async () => {
+    const runSpy = vi
+      .spyOn(cli, "run")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockRejectedValueOnce(new Error("Command failed: git branch -D"));
+
+    await expect(gitNukeWorktreeCmd(target)).rejects.toThrow(
+      "Command failed: git branch -D",
+    );
+
+    expect(runSpy).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -2360,6 +2399,29 @@ describe("what the removal helpers report", () => {
       );
       // One line says so — the command's error — not the spinner as well.
       expect(spinnerMocks.fail).not.toHaveBeenCalled();
+      expect(spinnerMocks.stop).toHaveBeenCalled();
+    });
+
+    // A failed branch delete is the last command, and the only thing between it
+    // and the message that says the worktree was removed.
+    it("throws, and does not say it was removed, when the branch delete failed", async () => {
+      mockRun
+        .mockResolvedValueOnce("")
+        .mockResolvedValueOnce("")
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Command failed: git branch -D"), {
+            stderr: `error: cannot delete branch '${branchName}' used by worktree\n`,
+          }),
+        );
+
+      await expect(
+        gitNukeWorktree({ branchName, path: onePath }),
+      ).rejects.toThrow(
+        `Could not remove the worktree ${branchName}: error: cannot delete branch '${branchName}' used by worktree`,
+      );
+      expect(mockRun).toHaveBeenCalledTimes(3);
+      // Any `succeed`, whatever its text, would claim the removal went through.
+      expect(spinnerMocks.succeed).not.toHaveBeenCalled();
       expect(spinnerMocks.stop).toHaveBeenCalled();
     });
 
