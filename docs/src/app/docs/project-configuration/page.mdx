@@ -241,7 +241,8 @@ the issue holds no value for are left out of the list; a rule on one of them wou
 A rule in a provider's own list naming a field the issue does not have, such as a typo or a field from another
 project, warns on every run that gets as far as that rule, naming the field and the rule's position, and the rule
 does not match. The warning is in `warnings` of the `--json` document. A rule in the shared `branchType` list does
-not warn, since it is written for several providers. A field that exists but is empty is not a mistake: it just
+not warn on a real run, since it is written for several providers; on a dry run it warns too, so a misspelt
+field shows up. A field that exists but is empty is not a mistake: it just
 matches nothing.
 
 With rules set (a Jira list or the shared one), or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
