@@ -29,6 +29,21 @@ file inside a submodule has to be copied by hand.
 
 `node_modules` is excluded, so an env file shipped inside a dependency is never copied.
 
+### Other files, from `.worktree.yml`
+
+Not every secret is env-shaped. A repository can list more files under `copy` in its
+[project configuration](/docs/project-configuration#copy-files):
+
+```yaml
+copy:
+  - config/master.key
+```
+
+Each entry is a relative glob, and a file is copied under the same two conditions as above: it is untracked and
+matched by your ignore rules. **A `copy` path must be gitignored to be copied** — a tracked file is already in
+the new worktree, and a file git neither tracks nor ignores is left behind. These files are reported in the
+same list as env files, and `worktree checkout` copies them too.
+
 ## Check What Gets Copied
 
 Every copied file is listed by path, so the output is worth a glance:
@@ -83,4 +98,5 @@ Check that git actually ignores it:
 git check-ignore -v .env.staging
 ```
 
-No output means the file is not ignored, so it is not copied. Add it to `.gitignore`.
+No output means the file is not ignored, so it is not copied. Add it to `.gitignore`. The same applies to a
+file named under `copy`.

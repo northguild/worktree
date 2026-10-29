@@ -1,0 +1,344 @@
+---
+title: Project Configuration
+---
+
+# Project Configuration
+
+A repository can carry its team's settings in a `.worktree.yml` file at the repository root, so a new
+teammate does not have to learn the source branch, the branch prefixes or the Jira host from a wiki. The
+file holds team settings only. Anything that belongs to one person or one machine stays in
+[git config](/docs/configuration).
+
+```yaml
+# yaml-language-server: $schema=https://northguild.github.io/worktree/schema/v1.json
+defaultSourceBranch: origin/main
+
+branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+
+jira:
+  host: https://acme.atlassian.net
+
+clickup:
+  workspaceId: 9012345
+```
+
+The `$schema` comment makes an editor with the YAML language server complete keys and flag mistakes as
+you type. The schema is published at `https://northguild.github.io/worktree/schema/v1.json`.
+
+## Where the file is read from
+
+`worktree` reads the file from the repository's default branch, not from your working copy:
+`git show <ref>:.worktree.yml`, where `<ref>` is `origin/HEAD`. So a branch that edits the file changes
+nothing until it is merged, and two worktrees of one repository always agree.
+
+- With no `origin/HEAD` it uses the personal `defaultSourceBranch` from git config instead. The file's own
+  `defaultSourceBranch` is never used to find the file.
+- With neither, no file is read. A repository that has an `origin` remote says so once and names
+  `git remote set-head origin --auto`; a repository with no `origin` stays silent.
+- `worktree branch` fetches once before it reads the file, so a change merged an hour ago applies to the
+  next branch you create. Other commands use the ref as it was last fetched.
+- If your working copy of `.worktree.yml` differs from the one in use, the run warns once and names both.
+
+To try an edit before it merges, point `WORKTREE_PROJECT_CONFIG` at the file:
+
+```bash
+WORKTREE_PROJECT_CONFIG=./.worktree.yml worktree branch feature/try-it
+```
+
+Every run that uses it says so on stderr.
+
+## Precedence
+
+For each key, the first of these that has a value wins:
+
+| Order | Source |
+|---|---|
+| 1 | A flag, where the key has one (`--source` for the source branch) |
+| 2 | Your git config, in any scope (`worktree config <key> <value>`) |
+| 3 | `.worktree.yml` |
+| 4 | The built-in default |
+
+Overriding a team value from git config is allowed and discouraged: it is the way to work around a wrong
+team value before a fix merges. A value in the file also counts as configured, so `worktree branch` does
+not offer to run `worktree config` for a key the file supplies.
+
+## Which keys go where
+
+| Kind of key | Keys | In the file |
+|---|---|---|
+| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `clickup.workspaceId` | Read; your git config overrides them |
+| Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `github.autoAssign` | Ignored with a warning naming the key and `worktree config <key>` |
+| Secret keys | `jira.apiToken`, `linear.apiKey`, `clickup.apiToken`, `github.token` | Refused; the run stops |
+
+Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
+under `branchPrefix`.
+
+The `branchType` lists under `jira`, `github`, `linear` and `clickup` are live: see
+[Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
+`copy`, see [Copy files](#copy-files), and `postCreate`, see [Post-create steps](#post-create-steps).
+
+### What the file may not hold
+
+A credential in a committed file is in the repository's history for good. A secret key, whatever its
+value, stops the run with exit `2`, and the message says the value must be rotated. Personal keys are
+ignored rather than refused, because they are harmless there and an unrelated teammate's preference
+should not stop you.
+
+## Branch-type rules
+
+Which prefix a branch gets (`feat/`, `fix/`, `chore/`) depends on the kind of issue. By default `worktree`
+guesses from the issue (Jira and GitHub from the issue type, Linear from labels, ClickUp from tags). A
+`branchType` list under `jira`, `github`, `linear` or `clickup` replaces that provider's guess with your
+team's own rules.
+
+```yaml
+jira:
+  host: https://acme.atlassian.net
+  # First matching rule wins. Ids, because people here use Jira in different languages.
+  branchType:
+    - when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance
+      type: chore
+    - when: { customfield_10359: { id: "10302" } }   # Work Category = Bug
+      type: bugfix
+    - when: { issuetype: { id: "10008" } }           # Issue Type = Bug
+      type: bugfix
+    - otherwise: feature
+```
+
+- **The first matching rule wins.** Rules are tried in order and the rest are not looked at.
+- **`type` is `feature`, `bugfix` or `chore`**, the three `branchPrefix` keys. The prefix comes from
+  `branchPrefix.<type>` as usual.
+- **`when` names one or more fields, and every one of them must match.** A list of values matches if any of
+  them does, and a field that holds a list (labels, components, a multi-select) matches if any element does.
+- **`- otherwise: <kind>` may appear once, last.** It sets the kind for an issue no rule matched. Without it,
+  an unmatched issue gets **no prefix**.
+- **With a provider's `branchType` set, that provider's built-in mapping is not used at all.** The rules
+  replace it, so a rule list without `otherwise` does not fall back to `feature`. A provider without a
+  `branchType` list keeps its built-in mapping, and nothing changes for it.
+
+### Fields per provider
+
+Each provider offers the fields below to `when`. Jira offers every field on the issue; the others offer one or
+two.
+
+| Provider | Fields | Ids |
+|---|---|---|
+| Jira | every field on the issue | yes |
+| GitHub | `Type` (the issue type) and `Labels` | yes, for both |
+| Linear | `Labels` | yes |
+| ClickUp | `Tags` | no: a ClickUp tag has no id, so match it by name |
+
+```yaml
+github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+    - when: { Labels: [chore, maintenance] }
+      type: chore
+```
+
+GitHub's built-in mapping gives an issue with no type, or a type other than `Feature`, `Bug` or `Task`, no
+prefix, and that stays true unless you opt in. A `github.branchType` list that ends with
+`- otherwise: feature` gives every issue the rules do not match the `feature` prefix. An issue with no type
+simply does not match a `Type` rule; that is not a mistake and does not warn.
+
+Linear and ClickUp keep falling back to `feature` without rules; with rules, an issue none of them matches
+gets no prefix unless the list ends with `otherwise`.
+
+With `linear.branchType` set, or on a dry run, `worktree` asks Linear for each label's `id` as well as its
+name, so a rule can match `{ id: "..." }`. Otherwise the Linear request is unchanged.
+
+### Ids or names
+
+A field is named by its id (`customfield_10359`, `issuetype`) or by its display name (`Work Category`). A
+value is written as its name (`Maintenance`) or as `{ id: "10301" }`.
+
+- **Names compare case-insensitively; ids compare exactly.**
+- **Prefer ids in a shared file.** A display name changes when someone renames the field or when a teammate
+  uses Jira in another language, and the rule then silently stops matching. An id does not change.
+- **Quote numeric ids.** YAML reads an unquoted `10301` as a number. `worktree` accepts it and compares it as
+  text, but a quoted id is what Jira shows you.
+- **Two fields can share a display name.** A rule that names such a field by name stops the run, and a dry
+  run, with exit `2` (`invalid_value` under `--json`) and an error naming both ids; use one of them.
+- **Find an id** with a [dry run](#writing-rules-with-a-dry-run), which lists every field and value of a real
+  issue with its id, for every provider. In Jira you can also read a field's id under *Settings, Issues,
+  Custom fields*, or in the address of a field's page.
+
+### Writing rules with a dry run
+
+Rules are easiest to write against a real issue. `worktree branch --dry-run` takes one issue flag, fetches the
+issue and prints what a real run would name the branch and why, without creating anything:
+
+```bash
+worktree branch --jira DEV-123 --dry-run
+worktree branch --github 42 --dry-run
+worktree branch --linear ENG-123 --dry-run
+worktree branch --clickup 9hx --dry-run
+```
+
+1. Run it on an issue of the kind you want a rule for.
+2. Read the `Rule:` line: it says whether a rule, the built-in mapping or nothing chose the prefix.
+3. Find the field and value in the list. Each has its id and name, and a ready line such as
+   `- when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance`.
+4. Paste the line under the provider's `branchType`, add `type: chore` (or `bugfix`, `feature`) beneath it,
+   and run the dry run again. Its `Rule:` line now names your rule by position.
+
+A value with an id is written by id. A value without one, such as a ClickUp tag, is written by name. Fields
+the issue holds no value for are left out of the list; a rule on one of them would never match this issue.
+`worktree branch --dry-run --json` prints the same as one document; its
+[shape](/docs/commands/branch#previewing-a-branch-name) is on the branch page.
+
+### Mistakes in a rule
+
+A rule naming a field the issue does not have, such as a typo or a field from another project, warns on every
+run that gets as far as that rule, naming the field and the rule's position, and the rule does not match. The
+warning is in `warnings` of the `--json` document. A field that exists but is empty is not a mistake: it just
+matches nothing.
+
+With rules set, or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
+request it was already making. Otherwise the request is unchanged.
+
+## Branch name template
+
+`branchName` sets the shape of a branch name that `worktree` derives from an issue:
+
+```yaml
+branchName: "{prefix}{id}-{slug}"
+```
+
+- **`{prefix}`** is the prefix the rules (or the built-in mapping) chose, or nothing when none applies.
+- **`{id}`** is the issue number (GitHub), key (Jira), identifier (Linear), or `CU-<id>` or the upper-cased
+  custom id (ClickUp).
+- **`{slug}`** is the title as lowercase letters, digits and dashes, cut to at most 48 characters.
+
+`{prefix}{id}-{slug}` is the default and gives the names `worktree` has always made, for every provider. Any
+other word in braces is an error when the file is read. The result still has to be a valid git branch name:
+a template that produces one that is not, such as `"{prefix}{id} {slug}"` with its space, is refused with
+the reason (exit `2` when nothing can be asked, a message in the prompt otherwise).
+
+The template applies only to names derived from an issue. A name you type, as in `worktree branch my-branch`,
+is used as given.
+
+## Copy files
+
+`copy` lists files that `worktree branch` and `worktree checkout` carry into a new worktree, beside the
+[env files](/docs/guides/env-files) they already copy:
+
+```yaml
+copy:
+  - config/master.key
+  - certs/**/*.pem
+```
+
+- **Each entry is a relative glob**, matched from the repository root. `*` matches within a directory and
+  `**/` matches any number of directories, so `config/*.key` finds `config/master.key` but not
+  `config/old/master.key`.
+- **A path must be gitignored to be copied.** `copy` uses the same selection as the env files: the file is
+  untracked and matched by your ignore rules. A tracked file is already in the new worktree, so it is never
+  copied over itself. A file that is neither tracked nor ignored is not copied either; add it to
+  `.gitignore` first.
+- **`node_modules` is never searched**, even by a pattern that would match inside it.
+- **Listed files are reported with the env files.** They appear in the same list on screen, and in
+  `envFilesCopied` of the `--json` document.
+- **An entry that starts with `/` or `:`, or has a `..` segment, is an error** when the file is read, so a
+  pattern cannot reach outside the repository.
+- **Nothing is asked first.** Unlike steps that run commands, copying executes nothing and stays within your
+  own clone, so no approval is needed.
+- **`worktree branch --dry-run` copies nothing**, like everything else it skips.
+
+A repository with no file, or a file without `copy`, copies exactly what it did before.
+
+## Post-create steps
+
+`postCreate` lists the commands `worktree branch` runs in a new worktree to get it ready:
+
+```yaml
+postCreate:
+  - pnpm install
+  - pnpm prisma generate
+```
+
+- **Steps run in order**, in the new worktree, each as a program and its arguments with no shell, each
+  limited to 10 minutes. The first step that fails stops the rest, and `branch` exits `1` with the worktree
+  kept. See [Installing dependencies](/docs/commands/branch#installing-dependencies).
+- **A step cannot be empty or hold control or formatting characters** (a tab, a newline, an escape, a
+  right-to-left override), so the steps you approve are shown exactly as they run. A file with one stops the
+  run like any other [broken file](#a-broken-file-stops-the-run).
+- **An empty list is the same as no list**: the command is inferred from the lockfile.
+- **Your own `postCreate` wins.** A command you set with `worktree config postCreate` replaces the file's
+  steps and runs without approval, since you wrote it.
+- **`branch --source` an older release branch** still runs the default branch's steps. A failure is loud,
+  and `--no-install` gets round it.
+
+### Approving the steps
+
+Steps from a file run commands on your machine that someone else wrote, so each person approves them once.
+
+- **The approval covers exactly these steps.** Changing a step, adding one or reordering them asks again.
+  It is kept in your clone's local git config under an internal key. That key is not a setting: it is not
+  in `worktree config --list` and `worktree config <key> <value>` cannot set it.
+- **On a terminal**, `worktree branch` lists every step before anything is created and asks. Yes remembers
+  the approval; no exits `1` with nothing created. `worktree config --approve` shows the current steps and
+  asks the same question ahead of time.
+- **When nothing can be asked** (a script, CI, `--json`, `--yes` or `--non-interactive`), an unapproved or
+  changed list stops the run before anything is created, with exit `2` and `missing_value` under `--json`.
+  The message names the two ways out: approve once in a terminal with `worktree config --approve`, or skip
+  the steps with `--no-install`. It never prints a value you could paste to approve them, so a script or an
+  agent cannot approve its own run. CI that wants steps from the file should set its own `postCreate` or
+  pass `--no-install`.
+- **`--no-install` needs no approval**, and neither does `branch --dry-run`, which runs nothing.
+
+## Starting a file from your git config
+
+`worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree
+from the team keys in your git config: the source branch, the branch prefixes, the Jira host, the ClickUp
+workspace id and `postCreate`, which becomes a one-step list. It never writes a personal or secret key. The
+file is left uncommitted and the command refuses to overwrite one that is there, so review it, commit it and
+merge it to the default branch. The result loads exactly as written.
+
+## Moving to the file
+
+On a terminal, `worktree` offers two steps, each at most once. Nothing is offered under `--json`, `--yes`,
+`--non-interactive`, `CI` or without a terminal, and `branch` makes its offers only after the worktree is
+open.
+
+- **Before there is a file.** With no `.worktree.yml` on the default branch and a team key in your git
+  config, `worktree` offers `worktree config --project` once per repository. Either answer is remembered.
+- **After there is one.** The keys in your local git config that hold the same value as the file are offered
+  for removal with `git config --local --unset`, once per version of the file. A key with a different value
+  is left alone: it is the override described under [Precedence](#precedence). Global values are never
+  touched.
+
+The answers are kept in local git config under `northguild.worktree.*`, outside the configuration keys:
+`worktree config --list` does not show them and `worktree config <key> <value>` cannot set them.
+
+`worktree config --list` marks where each value comes from, and `worktree config <key> <value>` for a key the
+file sets shows both values and asks first. See [`config`](/docs/commands/config#project-file).
+
+## A broken file stops the run
+
+Invalid YAML, a value of the wrong type or a secret key is an error, and it stops the command before
+anything is created: no worktree, no assignment, no saved answer. The exit code is `2` (`invalid_value`
+under `--json`), and the message names the file, the ref it was read from, the key path and the line.
+`WORKTREE_PROJECT_CONFIG` points at a corrected copy while the fix is in review.
+
+An unknown top-level key does not stop the run. It warns, naming the key, and is ignored, so a file written
+for a newer `worktree` still works for a teammate on an older one.
+
+## `jira.host` receives everyone's credentials
+
+`worktree` sends your Jira email and API token to `https://<jira.host>` with every Jira request. When the
+host comes from `.worktree.yml`, a merged change to that line redirects every teammate's next Jira request,
+credentials included, to the new host. There is no prompt: the file is read only from the default branch,
+so it has been through your review process, and it is trusted the way any merged code is.
+
+Review a change to `jira.host` as carefully as you would a change to a build script. A personal
+`jira.host` in your git config overrides the file's, which is also how to stop a bad value reaching you
+before it is reverted:
+
+```bash
+worktree config jira.host https://acme.atlassian.net
+```

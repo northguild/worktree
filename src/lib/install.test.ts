@@ -6,13 +6,19 @@ import * as cli from "./cli.js";
 import * as git from "./git.js";
 import { INSTALL_TIMEOUT_MS, runInstall } from "./install.js";
 import { setNonInteractive } from "./interaction.js";
+import * as projectConfig from "./project-config.js";
 
 let tree: string;
 let postCreate: string;
+let projectSteps: string[];
 
 beforeEach(() => {
   tree = mkdtempSync(join(tmpdir(), "worktree-install-"));
   postCreate = "";
+  projectSteps = [];
+  vi.spyOn(projectConfig, "getProjectPostCreateSteps").mockImplementation(
+    async () => projectSteps,
+  );
   vi.spyOn(git, "gitGetConfigValue").mockImplementation(async (name) =>
     name === "postCreate" ? postCreate : "",
   );
@@ -45,6 +51,8 @@ describe("runInstall inference", () => {
     expect(result).toEqual({
       ran: true,
       command: [program, ...args].join(" "),
+      steps: [[program, ...args].join(" ")],
+      from: "lockfile",
       inferred: true,
       ok: true,
     });
@@ -99,6 +107,8 @@ describe("runInstall postCreate", () => {
     expect(result).toEqual({
       ran: true,
       command: 'make "setup all"',
+      steps: ['make "setup all"'],
+      from: "git-config",
       inferred: false,
       ok: true,
     });
@@ -183,6 +193,8 @@ describe("runInstall outcomes", () => {
     expect(result).toEqual({
       ran: true,
       command: "npm ci",
+      steps: ["npm ci"],
+      from: "lockfile",
       inferred: true,
       ok: false,
       reason: "exited with code 1",
@@ -202,5 +214,121 @@ describe("runInstall outcomes", () => {
       ok: false,
       reason: "npm did not finish within 600s",
     });
+  });
+});
+
+// Phase 7 (#181), D15 and D18: expected values come from the plan's Done-when
+// ("steps stop at the first failure with installed.ok false, command the
+// failing step and steps the ones run") and D18's `from` values.
+describe("runInstall file steps", () => {
+  beforeEach(() => {
+    projectSteps = ["pnpm install", "pnpm prisma generate", "pnpm build"];
+  });
+
+  it("runs each step in order, by argv, in the new tree, each bounded", async () => {
+    const result = await runInstall(tree);
+
+    expect(result).toEqual({
+      ran: true,
+      command: "pnpm build",
+      steps: ["pnpm install", "pnpm prisma generate", "pnpm build"],
+      from: "project",
+      inferred: false,
+      ok: true,
+    });
+    expect(mockRunStreaming.mock.calls).toEqual([
+      ["pnpm", ["install"], { cwd: tree, timeout: INSTALL_TIMEOUT_MS }],
+      [
+        "pnpm",
+        ["prisma", "generate"],
+        { cwd: tree, timeout: INSTALL_TIMEOUT_MS },
+      ],
+      ["pnpm", ["build"], { cwd: tree, timeout: INSTALL_TIMEOUT_MS }],
+    ]);
+  });
+
+  it("stops at the first failure: command is that step, steps are the ones run", async () => {
+    mockRunStreaming
+      .mockResolvedValueOnce({ exitCode: 0 })
+      .mockResolvedValueOnce({ exitCode: 3 });
+
+    const result = await runInstall(tree);
+
+    expect(result).toEqual({
+      ran: true,
+      command: "pnpm prisma generate",
+      steps: ["pnpm install", "pnpm prisma generate"],
+      from: "project",
+      inferred: false,
+      ok: false,
+      reason: "exited with code 3",
+    });
+    expect(mockRunStreaming).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops at a timeout the same way", async () => {
+    mockRunStreaming.mockRejectedValueOnce(
+      new Error("pnpm did not finish within 600s"),
+    );
+
+    const result = await runInstall(tree);
+
+    expect(result).toMatchObject({
+      ok: false,
+      command: "pnpm install",
+      steps: ["pnpm install"],
+      reason: "pnpm did not finish within 600s",
+    });
+    expect(mockRunStreaming).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails the run at a step whose program is not on PATH", async () => {
+    vi.mocked(cli.commandExists)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    const result = await runInstall(tree);
+
+    expect(result).toMatchObject({
+      ok: false,
+      command: "pnpm prisma generate",
+      steps: ["pnpm install", "pnpm prisma generate"],
+      reason: "pnpm is not on PATH",
+    });
+    expect(mockRunStreaming).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs them on an interactive run with nothing else asked", async () => {
+    setNonInteractive(false);
+
+    expect(await runInstall(tree)).toMatchObject({
+      ran: true,
+      from: "project",
+    });
+  });
+
+  it("an empty list is the same as unset: the lockfile is inferred", async () => {
+    projectSteps = [];
+    lockfile("package-lock.json");
+
+    expect(await runInstall(tree)).toMatchObject({
+      from: "lockfile",
+      command: "npm ci",
+    });
+  });
+
+  it("a personal postCreate wins over the file's steps (D2)", async () => {
+    postCreate = "make setup";
+
+    expect(await runInstall(tree)).toMatchObject({
+      from: "git-config",
+      steps: ["make setup"],
+    });
+    expect(mockRunStreaming).toHaveBeenCalledTimes(1);
+  });
+
+  it("--no-install runs none of them", async () => {
+    expect(await runInstall(tree, false)).toMatchObject({ ran: false });
+    expect(mockRunStreaming).not.toHaveBeenCalled();
   });
 });

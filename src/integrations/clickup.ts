@@ -1,4 +1,18 @@
+import {
+  type BranchMatch,
+  type BranchNaming,
+  evaluateBranchTypeRules,
+  type IssueField,
+  matchOfResult,
+} from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
+import {
+  type BranchKind,
+  getBranchPrefix,
+  getBranchTypeRules,
+  getTeamConfigValue,
+  renderBranchName,
+} from "../lib/project-config.js";
 import { InvalidValueError, MissingValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
@@ -51,7 +65,7 @@ export async function resolveClickUpToken(): Promise<string> {
 }
 
 export async function resolveClickUpWorkspaceId(): Promise<string | undefined> {
-  const workspaceId = await gitGetConfigValue("clickup.workspaceId");
+  const workspaceId = await getTeamConfigValue("clickup.workspaceId");
 
   return workspaceId || undefined;
 }
@@ -206,27 +220,62 @@ export function getClickUpBranchType(tags: string[]) {
   return "feature" as const;
 }
 
+// D9: ClickUp's rule field in v1 is `Tags`, by name only (a tag has no id).
+export function getClickUpTaskFields(task: ClickUpTask): IssueField[] {
+  return [
+    {
+      id: "Tags",
+      name: "Tags",
+      values: task.tags.map((name) => ({ name })),
+    },
+  ];
+}
+
 // Takes the task already fetched so a caller can keep its url from the same
 // request. D6: `CU-<id>` for a short id, the custom id upper-cased otherwise;
 // it is told apart by the shape the user typed, not by `custom_id`, so the
-// branch carries the id that was asked for.
-export async function getClickUpBranchNameFromTask(
+// branch carries the id that was asked for. With `clickup.branchType` in the
+// project file the rules decide the kind (D10) and a task no rule matches gets
+// no prefix; without it the built-in mapping applies. Rule warnings go to
+// `onWarning`.
+export async function getClickUpBranchNaming(
   task: ClickUpTask,
   typedId: string,
-): Promise<string> {
-  const branchType = getClickUpBranchType(task.tags);
+  onWarning: (warning: string) => void = () => {},
+): Promise<BranchNaming> {
+  const rules = await getBranchTypeRules("clickup");
+  const fields = getClickUpTaskFields(task);
 
-  const prefix = await gitGetConfigValue(
-    branchType === "bugfix"
-      ? "branchPrefix.bugfix"
-      : branchType === "chore"
-        ? "branchPrefix.chore"
-        : "branchPrefix.feature",
-  );
+  let kind: BranchKind | undefined;
+  let match: BranchMatch;
+  if (rules) {
+    const result = evaluateBranchTypeRules(rules, fields, "clickup.branchType");
+    for (const warning of result.warnings) {
+      onWarning(warning);
+    }
+    kind = result.kind;
+    match = matchOfResult(result);
+  } else {
+    kind = getClickUpBranchType(task.tags);
+    match = { source: "built-in" };
+  }
 
   const parsed = parseClickUpTaskId(typedId);
   const segment =
     parsed.kind === "custom" ? parsed.id.toUpperCase() : `CU-${task.id}`;
 
-  return `${prefix}${segment}-${slugifyBranchTitle(task.name)}`;
+  const branchName = await renderBranchName({
+    prefix: await getBranchPrefix(kind),
+    id: segment,
+    slug: slugifyBranchTitle(task.name),
+  });
+  return { branchName, kind, fields, match };
+}
+
+export async function getClickUpBranchNameFromTask(
+  task: ClickUpTask,
+  typedId: string,
+  onWarning: (warning: string) => void = () => {},
+): Promise<string> {
+  return (await getClickUpBranchNaming(task, typedId, onWarning)).branchName;
 }

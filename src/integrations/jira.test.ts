@@ -1,9 +1,14 @@
 import * as cli from "../lib/cli.js";
+import * as git from "../lib/git.js";
+import * as projectConfig from "../lib/project-config.js";
+import { resetProjectConfigCache } from "../lib/project-config.js";
+import * as prompt from "../lib/prompt.js";
 import { expectCommands } from "../test-setup.js";
 import {
   assignJiraIssue,
   fetchJiraIssue,
   getJiraBranchNameFromIssue,
+  getJiraBranchNaming,
   validateJiraCredentials,
 } from "./jira.js";
 
@@ -22,10 +27,45 @@ function makeJiraIssue(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// A project file on origin/main, and no working copy of it to disagree with.
+function stubProjectFile(content: string) {
+  vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+  vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+    status: "found",
+    content,
+  });
+  vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+}
+
+// The plan's example file (§4): its prefixes and host decide the values below.
+const PROJECT_FILE = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+`;
+
+// Tests that script `git config` through cli.run in a fixed order have no
+// project file; the rules lookup must not consume one of those answers.
+function stubNoProjectFile() {
+  vi.spyOn(projectConfig, "loadProjectConfig").mockResolvedValue({
+    status: "none",
+    reason: "no-ref",
+    warnings: [],
+  });
+}
+
 describe("Jira integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetProjectConfigCache();
     vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    // The project-file cases spy on git.js; the rest read through cli.run.
+    vi.restoreAllMocks();
   });
 
   it("throws for invalid issue ids", async () => {
@@ -71,6 +111,467 @@ describe("Jira integration", () => {
       },
     );
     expect(issue.key).toBe("DEV-123");
+  });
+
+  // D17: a host from the file is trusted like merged code. It is used with no
+  // prompt, and the credentials go to it.
+  it("sends credentials to the host the project file supplies, without asking", async () => {
+    stubProjectFile(PROJECT_FILE);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+          name
+        ] ?? "",
+      ),
+    );
+    const prompted = vi.spyOn(prompt, "askConfirm");
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(makeJiraIssue()),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await fetchJiraIssue("dev-123");
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://acme.atlassian.net/rest/api/3/issue/DEV-123",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: `Basic ${Buffer.from("test@example.com:api-token").toString("base64")}`,
+        }),
+      }),
+    );
+    expect(prompted).not.toHaveBeenCalled();
+  });
+
+  it("prefers a personal jira.host over the project file's", async () => {
+    stubProjectFile(PROJECT_FILE);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        {
+          "jira.host": "mine.atlassian.net",
+          "jira.email": "test@example.com",
+          "jira.apiToken": "api-token",
+        }[name] ?? "",
+      ),
+    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(makeJiraIssue()),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await fetchJiraIssue("dev-123");
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://mine.atlassian.net/rest/api/3/issue/DEV-123",
+      expect.anything(),
+    );
+  });
+
+  it("takes the branch prefix from the project file when git config has none", async () => {
+    stubProjectFile(PROJECT_FILE);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        {
+          "jira.email": "test@example.com",
+          "jira.apiToken": "api-token",
+        }[name] ?? "",
+      ),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(
+          makeJiraIssue({
+            key: "DEV-42",
+            fields: {
+              summary: "Fix login bug",
+              issuetype: { id: "10008", name: "Bug" },
+            },
+          }),
+        ),
+      }),
+    );
+
+    expect(await getJiraBranchNameFromIssue("dev-42")).toBe(
+      "fix/DEV-42-fix-login-bug",
+    );
+  });
+
+  describe("branchName template", () => {
+    function stubIssue(file: string) {
+      stubProjectFile(file);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: vi.fn().mockResolvedValue(
+            makeJiraIssue({
+              fields: {
+                summary: "Tidy up",
+                issuetype: { id: "10009", name: "Task" },
+              },
+            }),
+          ),
+        }),
+      );
+    }
+
+    it("the default template gives today's name", async () => {
+      stubIssue(`${PROJECT_FILE}branchName: "{prefix}{id}-{slug}"\n`);
+
+      expect(await getJiraBranchNameFromIssue("dev-123")).toBe(
+        "chore/DEV-123-tidy-up",
+      );
+    });
+
+    it("a different template reorders the key, the prefix and the slug", async () => {
+      stubIssue(`${PROJECT_FILE}branchName: "{id}/{prefix}{slug}"\n`);
+
+      expect(await getJiraBranchNameFromIssue("dev-123")).toBe(
+        "DEV-123/chore/tidy-up",
+      );
+    });
+  });
+
+  describe("branch-type rules (jira.branchType)", () => {
+    // The #181 example file (plan §4): its rules and comments decide the kinds.
+    const RULES_FILE = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+  branchType:
+    - when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance
+      type: chore
+    - when: { customfield_10359: { id: "10302" } }   # Work Category = Bug
+      type: bugfix
+    - when: { issuetype: { id: "10008" } }           # Issue Type = Bug
+      type: bugfix
+    - otherwise: feature
+`;
+
+    // Shapes from Atlassian's Jira Cloud REST v3 issue documentation, from
+    // memory (not re-read this run; see the phase report): a single select is
+    // {self, value, id}; issuetype is {id, name, ...}; expand=names adds a
+    // top-level `names` map of field id -> display name.
+    function ruleIssue(
+      fields: Record<string, unknown>,
+      names: Record<string, string> = {
+        customfield_10359: "Work Category",
+        issuetype: "Issue Type",
+      },
+    ) {
+      return {
+        id: "10001",
+        key: "DEV-7",
+        names,
+        fields: { summary: "Fix login bug", ...fields },
+      };
+    }
+
+    function select(id: string, value: string) {
+      return {
+        self: `https://acme.atlassian.net/rest/api/3/customFieldOption/${id}`,
+        value,
+        id,
+      };
+    }
+
+    function stubJira(issue: unknown) {
+      stubProjectFile(RULES_FILE);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(issue),
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+      return fetchSpy;
+    }
+
+    it("asks for field names only when the project file sets jira.branchType", async () => {
+      const fetchSpy = stubJira(ruleIssue({}));
+
+      await getJiraBranchNameFromIssue("dev-7");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://acme.atlassian.net/rest/api/3/issue/DEV-7?expand=names",
+        expect.anything(),
+      );
+    });
+
+    it("sends the request it always sent, with no expand, when no rules are set", async () => {
+      stubProjectFile(PROJECT_FILE);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(makeJiraIssue()),
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await getJiraBranchNameFromIssue("dev-123");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://acme.atlassian.net/rest/api/3/issue/DEV-123",
+        expect.anything(),
+      );
+    });
+
+    it("keeps the built-in mapping when no rules are set, whatever fields say", async () => {
+      stubProjectFile(PROJECT_FILE);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: vi.fn().mockResolvedValue(
+            makeJiraIssue({
+              fields: {
+                summary: "Tidy up",
+                issuetype: { id: "10009", name: "Task" },
+              },
+            }),
+          ),
+        }),
+      );
+
+      expect(await getJiraBranchNameFromIssue("dev-123")).toBe(
+        "chore/DEV-123-tidy-up",
+      );
+    });
+
+    it("gives chore for Work Category = Maintenance (id 10301), the first rule", async () => {
+      stubJira(
+        ruleIssue({
+          customfield_10359: select("10301", "Maintenance"),
+          issuetype: { id: "10008", name: "Bug" },
+        }),
+      );
+
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "chore/DEV-7-fix-login-bug",
+      );
+    });
+
+    it("gives bugfix for Work Category = Bug (id 10302)", async () => {
+      stubJira(
+        ruleIssue({
+          customfield_10359: select("10302", "Bug"),
+          issuetype: { id: "10007", name: "Story" },
+        }),
+      );
+
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "fix/DEV-7-fix-login-bug",
+      );
+    });
+
+    it("gives bugfix for Issue Type id 10008 when the category is empty", async () => {
+      stubJira(
+        ruleIssue({
+          customfield_10359: null,
+          issuetype: { id: "10008", name: "Bug" },
+        }),
+      );
+
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "fix/DEV-7-fix-login-bug",
+      );
+    });
+
+    it("gives feature through otherwise when nothing else matches", async () => {
+      stubJira(
+        ruleIssue({
+          customfield_10359: select("10399", "Something else"),
+          issuetype: { id: "10007", name: "Story" },
+        }),
+      );
+
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "feat/DEV-7-fix-login-bug",
+      );
+    });
+
+    it("matches a field by its display name from expand=names, in any case", async () => {
+      stubProjectFile(`branchPrefix:
+  chore: chore/
+jira:
+  host: acme.atlassian.net
+  branchType:
+    - when: { work category: maintenance }
+      type: chore
+`);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: vi.fn().mockResolvedValue(
+            ruleIssue({
+              customfield_10359: select("10301", "Maintenance"),
+            }),
+          ),
+        }),
+      );
+
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "chore/DEV-7-fix-login-bug",
+      );
+    });
+
+    it("matches multi-select options, components and labels on any element", async () => {
+      stubProjectFile(`branchPrefix:
+  chore: chore/
+  bugfix: fix/
+jira:
+  host: acme.atlassian.net
+  branchType:
+    - when: { customfield_20000: Docs }
+      type: chore
+    - when: { components: payments }
+      type: bugfix
+    - when: { labels: [hotfix] }
+      type: bugfix
+`);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      const respond = (fields: Record<string, unknown>) =>
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue({
+            ok: true,
+            json: vi.fn().mockResolvedValue(ruleIssue(fields, {})),
+          }),
+        );
+
+      respond({
+        customfield_20000: [select("1", "Api"), select("2", "Docs")],
+      });
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "chore/DEV-7-fix-login-bug",
+      );
+
+      respond({
+        customfield_20000: [],
+        components: [{ id: "10", name: "Payments" }],
+      });
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "fix/DEV-7-fix-login-bug",
+      );
+
+      respond({ components: [], labels: ["backend", "hotfix"] });
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "fix/DEV-7-fix-login-bug",
+      );
+    });
+
+    it("hands a warning to the caller for a field the issue does not have, and the rule does not match", async () => {
+      stubProjectFile(`branchPrefix:
+  feature: feat/
+jira:
+  host: acme.atlassian.net
+  branchType:
+    - when: { Work Categroy: Maintenance }
+      type: chore
+    - otherwise: feature
+`);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: vi.fn().mockResolvedValue(ruleIssue({})),
+        }),
+      );
+      const warnings: string[] = [];
+
+      const name = await getJiraBranchNameFromIssue("dev-7", (warning) =>
+        warnings.push(warning),
+      );
+
+      expect(name).toBe("feat/DEV-7-fix-login-bug");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("Work Categroy");
+      expect(warnings[0]).toContain("Rule 1");
+    });
+
+    it("gives no prefix when no rule matches and there is no otherwise", async () => {
+      stubProjectFile(`branchPrefix:
+  feature: feat/
+jira:
+  host: acme.atlassian.net
+  branchType:
+    - when: { issuetype: Bug }
+      type: bugfix
+`);
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+        Promise.resolve(
+          { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+            name
+          ] ?? "",
+        ),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: vi
+            .fn()
+            .mockResolvedValue(
+              ruleIssue({ issuetype: { id: "10007", name: "Story" } }),
+            ),
+        }),
+      );
+
+      expect(await getJiraBranchNameFromIssue("dev-7")).toBe(
+        "DEV-7-fix-login-bug",
+      );
+    });
   });
 
   it("throws a helpful error when jira.host is missing", async () => {
@@ -119,6 +620,7 @@ describe("Jira integration", () => {
   });
 
   it("builds branch names from Jira issue type and configured prefix", async () => {
+    stubNoProjectFile();
     expectCommands(
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
@@ -157,6 +659,7 @@ describe("Jira integration", () => {
   });
 
   it("cuts a long summary to a whole-word slug of at most 48 characters", async () => {
+    stubNoProjectFile();
     expectCommands(
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
@@ -193,6 +696,7 @@ describe("Jira integration", () => {
   });
 
   it('falls back to "issue" when the summary leaves no slug', async () => {
+    stubNoProjectFile();
     expectCommands(
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
@@ -584,5 +1088,118 @@ describe("Jira integration", () => {
       );
       await expect(failure).rejects.not.toThrow(/api-token/);
     });
+  });
+});
+
+// Phase 5 (#181): what `branch --dry-run` shows. Expected values come from the
+// plan's example file (§4) and D9/D13: the request asks for display names on a
+// dry run even with no rules, and the match names the rule by its position.
+describe("getJiraBranchNaming", () => {
+  const EXAMPLE_FILE = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+  branchType:
+    - when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance
+      type: chore
+    - when: { issuetype: { id: "10008" } }           # Issue Type = Bug
+      type: bugfix
+`;
+  const NO_RULES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+`;
+
+  function stubJira(file: string, issue: unknown) {
+    resetProjectConfigCache();
+    stubProjectFile(file);
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(
+        { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
+          name
+        ] ?? "",
+      ),
+    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(issue),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    return fetchSpy;
+  }
+
+  const issue = {
+    id: "10001",
+    key: "DEV-7",
+    names: {
+      customfield_10359: "Work Category",
+      issuetype: "Issue Type",
+      summary: "Summary",
+    },
+    fields: {
+      summary: "Fix login bug",
+      customfield_10359: { value: "Maintenance", id: "10301" },
+      issuetype: { id: "10008", name: "Bug" },
+    },
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("asks for display names on a dry run even when no rules are set (D9)", async () => {
+    const fetchSpy = stubJira(NO_RULES, issue);
+
+    const naming = await getJiraBranchNaming("dev-7", { dryRun: true });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://acme.atlassian.net/rest/api/3/issue/DEV-7?expand=names",
+      expect.anything(),
+    );
+    expect(naming.match).toEqual({ source: "built-in" });
+    expect(naming.fields).toContainEqual({
+      id: "customfield_10359",
+      name: "Work Category",
+      values: [{ id: "10301", name: "Maintenance" }],
+    });
+  });
+
+  it("names the rule that matched by its position", async () => {
+    stubJira(EXAMPLE_FILE, issue);
+
+    const naming = await getJiraBranchNaming("dev-7", { dryRun: true });
+
+    expect(naming.branchName).toBe("chore/DEV-7-fix-login-bug");
+    expect(naming.kind).toBe("chore");
+    expect(naming.match).toEqual({
+      source: "rule",
+      position: 1,
+      rule: {
+        when: { customfield_10359: { id: "10301" } },
+        type: "chore",
+      },
+    });
+  });
+
+  it("says no rule matched when rules exist and none did", async () => {
+    stubJira(EXAMPLE_FILE, {
+      ...issue,
+      fields: {
+        summary: "Fix login bug",
+        issuetype: { id: "10007", name: "Story" },
+      },
+    });
+
+    const naming = await getJiraBranchNaming("dev-7", { dryRun: true });
+
+    expect(naming.match).toEqual({ source: "none" });
+    expect(naming.kind).toBeUndefined();
+    expect(naming.branchName).toBe("DEV-7-fix-login-bug");
   });
 });

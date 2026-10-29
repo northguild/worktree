@@ -10,6 +10,21 @@ import {
   SECRET_CONFIG_NAMES,
 } from "../lib/constants.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
+import { isNonInteractive } from "../lib/interaction.js";
+import {
+  approvePostCreate,
+  isProjectFileKey,
+  loadProjectConfig,
+  offerProjectConfig,
+  PROJECT_CONFIG_FILE,
+  type ProjectConfig,
+  ProjectConfigError,
+  projectFileKeys,
+  projectFileValue,
+  showVisibly,
+  summariseProjectFile,
+  writeProjectFile,
+} from "../lib/project-config.js";
 import { askConfirm, askInput, askSelect } from "../lib/prompt.js";
 import type { ConfigName, OpenerKind } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
@@ -31,6 +46,10 @@ export default class Config extends BaseCommand {
     value: Args.string(),
   };
   static override flags = {
+    approve: Flags.boolean({
+      description:
+        "Review and approve the postCreate steps in the project's .worktree.yml (terminal only)",
+    }),
     list: Flags.boolean({
       char: "l",
       description: "List all available variables",
@@ -43,7 +62,35 @@ export default class Config extends BaseCommand {
       char: "n",
       description: "Comma-separated list of variable names to prompt",
     }),
+    project: Flags.boolean({
+      description:
+        "Write a commented .worktree.yml from the team settings in your git config (never a personal or secret one), uncommitted",
+    }),
+    // Passed by the commands that delegate to this one mid-run (`branch`, via
+    // verifyConfig), so the offers of D21 are not made before a worktree exists.
+    "skip-offers": Flags.boolean({ hidden: true }),
   };
+
+  /**
+   * The project file, when there is a usable one. A file that cannot be used
+   * is said so and treated as absent: `config` is how a person works around a
+   * wrong team value, so it must keep working.
+   */
+  private async loadFile(): Promise<ProjectConfig | undefined> {
+    try {
+      const project = await loadProjectConfig();
+      for (const warning of project.warnings) {
+        this.warn(warning);
+      }
+      return project.status === "loaded" ? project.config : undefined;
+    } catch (error) {
+      if (error instanceof ProjectConfigError) {
+        this.warn(error.message);
+        return undefined;
+      }
+      throw error;
+    }
+  }
 
   /**
    * The Herdr keys to keep out of sight. Someone without the `herdr` binary has
@@ -77,6 +124,7 @@ export default class Config extends BaseCommand {
   private async renderList(missing: boolean) {
     let count = 0;
     const hidden = await this.getHiddenConfigNames();
+    const file = await this.loadFile();
 
     for (const variable of CONFIG_NAMES) {
       if (hidden.has(variable)) {
@@ -84,8 +132,26 @@ export default class Config extends BaseCommand {
       }
 
       const value = await gitGetConfigValue(variable);
+      // File-derived text is shown with its control characters escaped (D16).
+      const fromFile =
+        file && isProjectFileKey(variable)
+          ? projectFileValue(file, variable)
+          : undefined;
 
-      if (missing && value) {
+      // The file's steps have their own summary line below; a bare name here
+      // would read as unset.
+      if (variable === "postCreate" && fromFile && !value) {
+        continue;
+      }
+      if (missing && (value || fromFile)) {
+        continue;
+      }
+
+      if (!value && fromFile) {
+        this.log(
+          `${variable}=${showVisibly(fromFile)} (${PROJECT_CONFIG_FILE})`,
+        );
+        count++;
         continue;
       }
 
@@ -94,13 +160,51 @@ export default class Config extends BaseCommand {
       const shown = SECRET_CONFIG_NAMES.some((name) => name === variable)
         ? "***"
         : value;
-      this.log(value ? `${variable}=${shown}` : variable);
+      const source =
+        value && fromFile
+          ? value === fromFile
+            ? ` (${PROJECT_CONFIG_FILE})`
+            : ` (overrides ${PROJECT_CONFIG_FILE}: ${showVisibly(fromFile)})`
+          : "";
+      this.log(value ? `${variable}=${shown}${source}` : variable);
       count++;
     }
 
     if (missing && count === 0) {
       this.log("No variables have missing values");
     }
+
+    if (file && !missing) {
+      for (const line of summariseProjectFile(file)) {
+        this.log(line);
+      }
+    }
+  }
+
+  /**
+   * `worktree config <key> <value>` for a key the file sets (D19): says so,
+   * shows both values and asks. Non-interactive, naming the key and value is
+   * asking for it, so it proceeds and warns.
+   */
+  private async confirmOverride(name: ConfigName, value: string) {
+    if (!isProjectFileKey(name)) {
+      return true;
+    }
+    const file = await this.loadFile();
+    const fromFile = file && projectFileValue(file, name);
+    if (!fromFile) {
+      return true;
+    }
+    const said = `${PROJECT_CONFIG_FILE} sets ${name} to ${showVisibly(fromFile)}. You are setting it to ${value}, which overrides the file for you only.`;
+    if (isNonInteractive()) {
+      this.warn(said);
+      return true;
+    }
+    this.log(said);
+    return askConfirm(
+      { message: `Override ${name} for yourself?` },
+      { value: `whether to override ${name}`, flag: "worktree config" },
+    );
   }
 
   private getApplicableConfigNames(
@@ -119,10 +223,10 @@ export default class Config extends BaseCommand {
     return CONFIG_NAMES.filter((name) => !hidden?.has(name));
   }
 
-  private async getPromptConfigNames(flags: {
-    missing: boolean;
-    names?: string;
-  }): Promise<ConfigName[]> {
+  private async getPromptConfigNames(
+    flags: { missing: boolean; names?: string },
+    fileKeys: readonly ConfigName[],
+  ): Promise<ConfigName[]> {
     // Not computed for a --names run: that path returns before the filter, and
     // `branch` delegates to exactly that form (base-command.ts), so probing
     // there would put a `which herdr` behind a plain `worktree branch`.
@@ -133,17 +237,22 @@ export default class Config extends BaseCommand {
           await this.getHiddenConfigNames(),
         );
 
+    // Naming a key with --names is asking for it, but a key the file supplies
+    // is not missing, so --missing never asks for one (D19). A bare run never
+    // asks what the file answers.
     if (flags.missing) {
       const configNames: ConfigName[] = [];
       for (const name of applicableConfigNames) {
-        if (!(await gitGetConfigValue(name))) {
+        if (!fileKeys.includes(name) && !(await gitGetConfigValue(name))) {
           configNames.push(name);
         }
       }
       return configNames;
     }
 
-    return applicableConfigNames;
+    return flags.names
+      ? applicableConfigNames
+      : applicableConfigNames.filter((name) => !fileKeys.includes(name));
   }
 
   /**
@@ -196,7 +305,14 @@ export default class Config extends BaseCommand {
   }
 
   private async renderInput(flags: { missing: boolean; names?: string }) {
-    const configNames = await this.getPromptConfigNames(flags);
+    const file = await this.loadFile();
+    const fileKeys = file ? projectFileKeys(file) : [];
+    if (fileKeys.length > 0 && !flags.names) {
+      this.log(
+        `${PROJECT_CONFIG_FILE} sets ${fileKeys.join(", ")}, so the wizard does not ask for them. Change one for yourself with \`worktree config <key> <value>\`.`,
+      );
+    }
+    const configNames = await this.getPromptConfigNames(flags, fileKeys);
     const hasJiraPrompt = configNames.some((name) => name.startsWith("jira"));
     const hasBranchPrefixPrompt = configNames.some((name) =>
       name.startsWith("branchPrefix"),
@@ -687,6 +803,35 @@ export default class Config extends BaseCommand {
     // Mark that config has been called at least once
     await gitSetConfigValue("has-called-config", "true");
 
+    if (flags.approve) {
+      if (
+        args.name ||
+        flags.list ||
+        flags.missing ||
+        flags.names ||
+        flags.project
+      ) {
+        this.error(
+          "--approve cannot be combined with other arguments or flags.",
+        );
+      }
+      await approvePostCreate();
+      return;
+    }
+
+    if (flags.project) {
+      if (args.name || flags.list || flags.missing || flags.names) {
+        this.error(
+          "--project cannot be combined with other arguments or flags.",
+        );
+      }
+      const written = await writeProjectFile();
+      this.log(
+        `Wrote ${written.path} from ${written.keys.join(", ")}. It is not committed; review it, then commit it to the default branch.`,
+      );
+      return;
+    }
+
     if (args.name) {
       if (!this.isValidArgName(args.name)) {
         // Offer only what this machine can use: naming the Herdr keys here is
@@ -704,7 +849,9 @@ export default class Config extends BaseCommand {
 
       if (args.value) {
         await validateConfigValue(args.name, args.value);
-        await gitSetConfigValue(args.name, args.value);
+        if (await this.confirmOverride(args.name, args.value)) {
+          await gitSetConfigValue(args.name, args.value);
+        }
         return;
       }
       // The value alone, secrets included (unlike `--list`, which masks them),
@@ -721,6 +868,11 @@ export default class Config extends BaseCommand {
       return this.renderList(flags.missing);
     }
 
-    return this.renderInput(flags);
+    await this.renderInput(flags);
+    // Not for a run another command delegated (`branch` before a worktree
+    // exists), and not for one that named its keys (D21).
+    if (!flags.names && !flags["skip-offers"]) {
+      await offerProjectConfig();
+    }
   }
 }

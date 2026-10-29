@@ -172,6 +172,16 @@ describe("runCapturing", () => {
     expect(result).toEqual({ stdout: "hi", stderr: "", exitCode: 0 });
   });
 
+  it("keeps leading and trailing whitespace of stdout when trim is false", async () => {
+    const result = await runCapturing(
+      node,
+      ["-e", "process.stdout.write('\\n\\n  a\\n')"],
+      { trim: false },
+    );
+
+    expect(result.stdout).toBe("\n\n  a\n");
+  });
+
   it("resolves — not rejects — with stderr and the code on a non-zero exit", async () => {
     const result = await runCapturing(node, [
       "-e",

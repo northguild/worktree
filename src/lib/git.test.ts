@@ -20,13 +20,17 @@ import {
   gitGetLocalBranchesTracking,
   gitGetRemoteBranches,
   gitGetRootPath,
+  gitGetTopLevelPath,
   gitGetUncommittedChangesCount,
   gitGetWorktreeList,
   gitGetWorktrees,
+  gitHasOriginRemote,
   gitNukeWorktree,
   gitNukeWorktreeCmd,
+  gitReadBlobAtRef,
   gitRemoveWorktree,
   gitRemoveWorktreesWithProgress,
+  gitResolveOriginHead,
   gitSetConfigValue,
   isSafeToRemove,
 } from "./git.js";
@@ -163,6 +167,17 @@ describe("git branch parsing", () => {
       "-r",
     ]);
     expect(branches).toEqual(["origin/main", "origin/feature/test"]);
+  });
+
+  // D7: a caller that has already fetched this run lists without fetching again.
+  it("lists remote branches without fetching when told the run already did", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValueOnce("  origin/main");
+
+    const branches = await gitGetRemoteBranches({ fetch: false });
+
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(runSpy).toHaveBeenCalledWith("git", ["--no-pager", "branch", "-r"]);
+    expect(branches).toEqual(["origin/main"]);
   });
 });
 
@@ -617,6 +632,21 @@ describe("gitCreateWorktree", () => {
     );
     expect(worktreePath).toBe("/repo/project.worktrees/feature/test");
     expect(spinnerMocks.succeed).toHaveBeenCalled();
+  });
+
+  it("adds the worktree without fetching when told the run already did (D7)", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+    runSpy.mockResolvedValueOnce(gitRootPath);
+
+    await gitCreateWorktree(branchName, sourceBranch, { fetch: false });
+
+    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      expect.arrayContaining(["worktree", "add"]),
+      { cwd: gitRootPath },
+    );
   });
 
   it("adds a tracking worktree when checking out a remote branch", async () => {
@@ -2928,5 +2958,125 @@ describe("gitFindBranchCheckout", () => {
       path: `${treesPath}/has space`,
       inWorktreesRoot: true,
     });
+  });
+});
+
+// The three helpers the project config loader reads git through. The stderr
+// strings are what git 2.x prints, captured by hand from a scratch repository:
+// both a missing path and a missing ref exit 128, and only the message differs.
+describe("gitResolveOriginHead", () => {
+  beforeEach(() => {
+    expectCommands("git symbolic-ref --short refs/remotes/origin/HEAD");
+  });
+
+  it("returns the ref origin/HEAD points at", async () => {
+    vi.spyOn(cli, "run").mockResolvedValueOnce("origin/main");
+
+    expect(await gitResolveOriginHead()).toBe("origin/main");
+  });
+
+  it("returns an empty string when origin/HEAD is not set", async () => {
+    vi.spyOn(cli, "run").mockRejectedValueOnce(
+      new Error("ref refs/remotes/origin/HEAD is not a symbolic ref"),
+    );
+
+    expect(await gitResolveOriginHead()).toBe("");
+  });
+});
+
+describe("gitReadBlobAtRef", () => {
+  it("returns the file's contents when the ref holds it", async () => {
+    const spy = vi
+      .spyOn(cli, "runCapturing")
+      .mockResolvedValueOnce({ stdout: "a: 1", stderr: "", exitCode: 0 });
+
+    const blob = await gitReadBlobAtRef("origin/main", ".worktree.yml");
+
+    // Untrimmed: leading blank lines count towards the line numbers an error cites.
+    expect(spy).toHaveBeenCalledWith(
+      "git",
+      ["show", "origin/main:.worktree.yml"],
+      { trim: false },
+    );
+    expect(blob).toEqual({ status: "found", content: "a: 1" });
+  });
+
+  it("reports an empty file as found with empty content", async () => {
+    vi.spyOn(cli, "runCapturing").mockResolvedValueOnce({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+    });
+
+    expect(await gitReadBlobAtRef("origin/main", ".worktree.yml")).toEqual({
+      status: "found",
+      content: "",
+    });
+  });
+
+  it("reports an absent path when the ref exists but the path does not", async () => {
+    vi.spyOn(cli, "runCapturing").mockResolvedValueOnce({
+      stdout: "",
+      stderr: "fatal: path '.worktree.yml' does not exist in 'origin/main'",
+      exitCode: 128,
+    });
+
+    expect(await gitReadBlobAtRef("origin/main", ".worktree.yml")).toEqual({
+      status: "absent-path",
+    });
+  });
+
+  it("reports an absent ref when the ref does not resolve", async () => {
+    vi.spyOn(cli, "runCapturing").mockResolvedValueOnce({
+      stdout: "",
+      stderr: "fatal: invalid object name 'origin/gone'.",
+      exitCode: 128,
+    });
+
+    expect(await gitReadBlobAtRef("origin/gone", ".worktree.yml")).toEqual({
+      status: "absent-ref",
+    });
+  });
+
+  it("throws on a failure that is neither, instead of calling it absent", async () => {
+    vi.spyOn(cli, "runCapturing").mockResolvedValueOnce({
+      stdout: "",
+      stderr: "fatal: not a git repository",
+      exitCode: 128,
+    });
+
+    await expect(
+      gitReadBlobAtRef("origin/main", ".worktree.yml"),
+    ).rejects.toThrow("not a git repository");
+  });
+});
+
+describe("gitHasOriginRemote", () => {
+  it("is true when git can name origin's url", async () => {
+    const spy = vi
+      .spyOn(cli, "runCapturing")
+      .mockResolvedValueOnce({ stdout: "u", stderr: "", exitCode: 0 });
+
+    expect(await gitHasOriginRemote()).toBe(true);
+    expect(spy).toHaveBeenCalledWith("git", ["remote", "get-url", "origin"]);
+  });
+
+  it("is false when there is no origin", async () => {
+    vi.spyOn(cli, "runCapturing").mockResolvedValueOnce({
+      stdout: "",
+      stderr: "error: No such remote 'origin'",
+      exitCode: 2,
+    });
+
+    expect(await gitHasOriginRemote()).toBe(false);
+  });
+});
+
+describe("gitGetTopLevelPath", () => {
+  it("asks git for the current worktree's top level", async () => {
+    expectCommands("git rev-parse --show-toplevel");
+    vi.spyOn(cli, "run").mockResolvedValueOnce("/work/repo.worktrees/x");
+
+    expect(await gitGetTopLevelPath()).toBe("/work/repo.worktrees/x");
   });
 });

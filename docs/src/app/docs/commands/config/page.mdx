@@ -17,6 +17,8 @@ worktree config --list --missing
 worktree config --missing
 worktree config --missing --names <comma-separated-keys>
 worktree config --yes --names <comma-separated-keys>
+worktree config --approve
+worktree config --project
 ```
 
 `--list` shows `github.token`, `jira.apiToken`, `linear.apiKey` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
@@ -33,6 +35,55 @@ exits `0`.
 - `--yes` (`-y`) makes the run [non-interactive](/docs/commands/branch#non-interactive-runs): nothing is asked.
   Each key takes its default, or the value it already holds, and the run fails with exit `2` naming
   `worktree config <key> <value>` for a key with neither, such as a token. Without `--names` the optional groups have no default and the run fails naming `--names <keys>`.
+
+## Project File
+
+When the repository's `.worktree.yml` sets a team key, `worktree config` knows. See
+[Project Configuration](/docs/project-configuration) for the file.
+
+- **The wizard asks nothing the file answers.** A bare `worktree config` says once which keys the file sets
+  and skips them, including a personal `postCreate` when the file has steps. The wizard no longer writes a
+  personal copy of a value the file already supplies. `--names` alone is the exception: naming a key is
+  asking for it. With `--missing` a key the file supplies is not missing, so it is not asked even when named,
+  which is why `branch`'s offer to fill in missing values never asks for one.
+- **`worktree config <key> <value>` for a key the file sets** says so, shows the file's value and yours, and
+  asks before writing your value. Yes overrides the file for you only. Non-interactive, naming the key and
+  value is asking for it, so the value is set and a warning says the file sets the key.
+- **`--list` marks where each value comes from**, in plain text:
+
+  ```text
+  defaultSourceBranch=origin/main (.worktree.yml)
+  branchPrefix.bugfix=bug/ (overrides .worktree.yml: fix/)
+  ```
+
+  A value only the file supplies carries `(.worktree.yml)`. A value in your git config that differs from the
+  file's carries `(overrides .worktree.yml: <the file's value>)`. Keys only the file can set follow, one line
+  each: `jira.branchType: 4 rules`, `branchName=<template>`, `copy: 1 pattern` and `postCreate: 2 steps`,
+  each marked `(.worktree.yml)`. A value the file supplies is not missing, so `--list --missing` leaves it
+  out. Secrets stay masked as `<key>=***`.
+
+### Writing the file with `--project`
+
+`worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree from
+the team keys in your git config (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`,
+`clickup.workspaceId` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
+secret key. A personal `postCreate` command becomes a one-step list. The file is left uncommitted for you to
+review, and the command refuses to overwrite an existing `.worktree.yml`. It takes no other argument or flag.
+
+### Offers
+
+On a terminal, `branch` (after the worktree is open) and a bare `worktree config` make two offers, each at
+most once. Nothing is offered under `--json`, `--yes`, `--non-interactive`, `CI`, without a terminal, or on
+`branch --dry-run`.
+
+- With no `.worktree.yml` on the default branch and a team key in your git config, `worktree config --project`
+  is offered once per repository. Either answer is remembered.
+- With a `.worktree.yml`, the keys in your local git config that hold the same value as the file are offered
+  for removal (`git config --local --unset`), once per version of the file. A key with a different value
+  stays, as the override it is.
+
+These answers are kept under `northguild.worktree.*` in local git config. They are not configuration keys, so
+`--list` does not show them and `worktree config <key> <value>` cannot set them.
 
 ## Examples
 
@@ -51,9 +102,12 @@ worktree config --list --missing
 worktree config --missing
 worktree config --missing --names defaultSourceBranch
 worktree config --missing --yes --names branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
+worktree config --project
 ```
 
-Configuration is stored in local Git config under `northguild.worktree.*`.
+Configuration is stored in Git config under `northguild.worktree.*`. A team can also set some keys for
+everyone in a `.worktree.yml` file, which your own value overrides; see
+[Project Configuration](/docs/project-configuration).
 
 ## Opener Keys
 
@@ -78,6 +132,10 @@ regardless, so a machine can be configured before Herdr is installed.
 - `branchPrefix.feature` optional prefix used for `Feature` issues.
 - `branchPrefix.bugfix` optional prefix used for `Bug` issues.
 - `branchPrefix.chore` optional prefix used for `Task` issues.
+
+These prefixes are chosen by each provider's built-in mapping (GitHub and Jira by issue type, Linear by label,
+ClickUp by tag). A `branchType` list for that provider in `.worktree.yml` replaces the mapping; see
+[Branch-type rules](/docs/project-configuration#branch-type-rules).
 
 `github.token` and `github.autoAssign` are asked together behind one confirm, so declining costs a single
 yes/no. The `github.autoAssign` prompt has three choices: "Yes, always", "No, never" and "Ask me each
@@ -111,7 +169,15 @@ The last leaves the key unset, so `--missing` goes on offering the prompt until 
 ## Post-create Key
 
 - `postCreate` a command to run in every new worktree, such as `pnpm install`. Read by
-  [`branch`](/docs/commands/branch#installing-dependencies); when it is unset the command is inferred from
-  the lockfile instead. It is validated like `agent.command`: its first word has to be on `PATH`. See
+  [`branch`](/docs/commands/branch#installing-dependencies); when it is unset the steps under `postCreate`
+  in `.worktree.yml` run instead (after you approve them), else the command is inferred from the lockfile. It is validated like `agent.command`: its first word has to be on `PATH`. See
   [Configuration](/docs/configuration#post-create-command). The prompt accepts an empty answer, which leaves
   it unset.
+
+## Approving Post-create Steps
+
+`worktree config --approve` shows the `postCreate` steps in the repository's `.worktree.yml` and asks
+whether to run them in new worktrees on this machine. Yes records the approval for those exact steps in this
+clone's local git config, so `worktree branch` does not ask. It needs a terminal: when nothing can be asked
+it refuses with exit `2`. The approval is not a configuration key, so it is not listed by `--list` and
+cannot be set by name. See [Approving the steps](/docs/project-configuration#approving-the-steps).

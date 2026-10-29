@@ -32,6 +32,12 @@ Supported issue-type prefix mapping:
 
 If a prefix key is not configured, no prefix is applied.
 
+This built-in mapping applies **only when no rules are set**. If `.worktree.yml` has a `jira.branchType`
+list, the rules decide the kind instead and the mapping above is not consulted: an issue no rule matches
+gets no prefix unless the list ends with `- otherwise: <kind>`. See
+[Branch-type rules](/docs/project-configuration#branch-type-rules) for the syntax, and for why to name
+fields and options by id.
+
 ## Assigning the issue
 
 `--assign` assigns the Jira issue to the account behind `jira.email` while the branch is created, and
@@ -60,7 +66,7 @@ worktree config jira.autoAssign true
 
 Authentication is resolved in this order:
 
-1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in local git config.
+1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in git config. `jira.host` is read from git config, else from the team's `.worktree.yml`, with no prompt; a file's host receives everyone's credentials, see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials).
 2. Interactive prompts for missing values, then save to local git config.
 
 ## Suggested Setup

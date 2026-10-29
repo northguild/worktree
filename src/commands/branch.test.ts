@@ -13,9 +13,16 @@ import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { runInstall } from "../lib/install.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import * as projectConfig from "../lib/project-config.js";
+import { resetProjectConfigCache } from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
 import * as validators from "../lib/validators.js";
-import { captureOutput, loadConfig } from "../test-setup.js";
+import {
+  captureOutput,
+  expectCommands,
+  loadConfig,
+  mockRun,
+} from "../test-setup.js";
 import Branch from "./branch.js";
 
 // Mock the inquirer module
@@ -102,6 +109,20 @@ describe("branch command", () => {
     // Nothing collides unless a case says so; the lookup is git, which these
     // cases are not about.
     vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+
+    // D7: branch fetches once itself, so nothing here touches a remote. The
+    // repository has an origin/HEAD and no .worktree.yml: the run every case
+    // below was written for, which the project-config cases then vary.
+    resetProjectConfigCache();
+    // The offers of D21 have their own cases at the end of this file.
+    vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "absent-path",
+    });
+    vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
     vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
     vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
     vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
@@ -136,6 +157,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/test",
         "origin/main",
+        { fetch: false },
       );
       expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
         report: "stdout",
@@ -169,6 +191,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "prompted-branch",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -191,6 +214,501 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/test",
         "origin/develop",
+        { fetch: false },
+      );
+    });
+  });
+
+  // Phase 2 of the project-config plan (#181): precedence, the simple team
+  // keys, and the order inside run() (D2, D3, D4, D7, D17). Expected values
+  // come from the plan's example file and its Done-when list.
+  describe("the project file (.worktree.yml)", () => {
+    const PROJECT_FILE = `defaultSourceBranch: origin/develop
+branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+jira:
+  host: https://acme.atlassian.net
+`;
+
+    // `has-called-config` is set; everything else is whatever the case gives.
+    function personalConfig(values: Record<string, string> = {}) {
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "agent.command") return Promise.resolve("claude --bg");
+        return Promise.resolve(values[key] ?? "");
+      });
+    }
+
+    function projectFile(content: string) {
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "found",
+        content,
+      });
+    }
+
+    function run(flags: Record<string, unknown>, branchName?: string) {
+      (branch as any).parse = vi
+        .fn()
+        .mockResolvedValue({ args: { branchName }, flags });
+      return branch.run();
+    }
+
+    beforeEach(() => {
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue([
+        "origin/main",
+        "origin/develop",
+      ]);
+    });
+
+    describe("a repository without a file", () => {
+      it("makes the calls it always did, and prints nothing extra", async () => {
+        personalConfig({ defaultSourceBranch: "origin/main" });
+        const warn = vi.spyOn(branch, "warn");
+
+        await run({}, "feature/test");
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "feature/test",
+          "origin/main",
+          { fetch: false },
+        );
+        expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+          report: "stdout",
+        });
+        expect(mockOpenWorktreePath).toHaveBeenCalledWith(
+          "/path/to/worktree",
+          defaultOpenOptions,
+        );
+        expect(warn).not.toHaveBeenCalled();
+        // The only new reads: the ref, and the file at it.
+        expect(git.gitReadBlobAtRef).toHaveBeenCalledTimes(1);
+      });
+
+      it("falls back to origin/main with no source key anywhere", async () => {
+        personalConfig();
+
+        await run({}, "feature/test");
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "feature/test",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+    });
+
+    // Phase 6 (#181), D14. The pattern is the example file's `config/master.key`.
+    describe("copy patterns (D14)", () => {
+      it("hands the file's copy patterns to the copy step, with the report on stdout", async () => {
+        personalConfig({ defaultSourceBranch: "origin/main" });
+        projectFile("copy:\n  - config/master.key\n");
+
+        await run({}, "feature/test");
+
+        expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+          report: "stdout",
+          copy: ["config/master.key"],
+        });
+      });
+
+      it("passes no patterns for a file without a copy key", async () => {
+        personalConfig({ defaultSourceBranch: "origin/main" });
+        projectFile("defaultSourceBranch: origin/develop\n");
+
+        await run({}, "feature/test");
+
+        expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+          report: "stdout",
+          copy: undefined,
+        });
+      });
+    });
+
+    describe("fetching (D7)", () => {
+      it("fetches exactly once, before the file is read, and tells creation not to", async () => {
+        personalConfig();
+        const order: string[] = [];
+        vi.mocked(git.gitFetch).mockImplementation(async () => {
+          order.push("fetch");
+          return "";
+        });
+        vi.mocked(git.gitReadBlobAtRef).mockImplementation(async () => {
+          order.push("read");
+          return { status: "absent-path" };
+        });
+
+        await run({}, "feature/test");
+
+        expect(order).toEqual(["fetch", "read"]);
+        expect(git.gitFetch).toHaveBeenCalledTimes(1);
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "feature/test",
+          expect.any(String),
+          { fetch: false },
+        );
+      });
+
+      it("does not fetch a second time to list the remote branches for --source", async () => {
+        personalConfig();
+
+        await run({ source: "origin/develop" }, "feature/test");
+
+        expect(git.gitFetch).toHaveBeenCalledTimes(1);
+        expect(git.gitGetRemoteBranches).toHaveBeenCalledWith({
+          fetch: false,
+        });
+      });
+    });
+
+    // Phase 4 (#181): github/linear/clickup rules and branchName. Prefixes
+    // and kinds are the plan's example file (section 4): feat/ fix/ chore/,
+    // `Type: Bug` is a bugfix, `Labels: [chore, maintenance]` a chore.
+    describe("branch-type rules and branchName", () => {
+      const PREFIXES = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+`;
+      const GITHUB_RULES = `github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+    - when: { Labels: [chore, maintenance] }
+      type: chore
+`;
+
+      function githubIssue(overrides: Record<string, unknown> = {}) {
+        vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+          number: 8,
+          title: "Fix memory leak",
+          state: "open",
+          type: null,
+          labels: [],
+          pullRequest: null,
+          ...overrides,
+        } as any);
+      }
+
+      beforeEach(() => {
+        personalConfig();
+        mockInput.mockImplementation(async (config: any) => config.default);
+      });
+
+      it("a GitHub rule on the label decides the prefix", async () => {
+        projectFile(PREFIXES + GITHUB_RULES);
+        githubIssue({ labels: [{ id: 3, name: "Maintenance" }] });
+
+        await run({ github: "8" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "chore/8-fix-memory-leak",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("a GitHub issue no rule matches gets no prefix", async () => {
+        projectFile(PREFIXES + GITHUB_RULES);
+        githubIssue({ type: { id: 1, name: "Feature" } });
+
+        await run({ github: "8" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "8-fix-memory-leak",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("keeps a rule warning in the run's warnings", async () => {
+        projectFile(`${PREFIXES}github:
+  branchType:
+    - when: { Priority: High }
+      type: bugfix
+`);
+        githubIssue();
+
+        await run({ github: "8" });
+
+        expect((branch as any).warnings).toEqual([
+          expect.stringContaining(
+            'Rule 1 of github.branchType names the field "Priority"',
+          ),
+        ]);
+      });
+
+      it("a Linear rule on the label decides the prefix", async () => {
+        personalConfig({ "linear.apiKey": "lin_api_test" });
+        projectFile(`${PREFIXES}linear:
+  branchType:
+    - when: { Labels: Urgent }
+      type: bugfix
+`);
+        vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue({
+          identifier: "ENG-1",
+          title: "Add dark mode",
+          url: null,
+          labels: ["Urgent"],
+          labelNodes: [{ id: "l1", name: "Urgent" }],
+        });
+
+        await run({ linear: "eng-1" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "fix/ENG-1-add-dark-mode",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("a ClickUp rule on the tag decides the prefix", async () => {
+        personalConfig({ "clickup.apiToken": "pk_test" });
+        projectFile(`${PREFIXES}clickup:
+  branchType:
+    - when: { Tags: hotfix }
+      type: bugfix
+`);
+        vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue({
+          id: "9hx",
+          customId: null,
+          name: "Fix login",
+          url: null,
+          tags: ["Hotfix"],
+        });
+
+        await run({ clickup: "9hx" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "fix/CU-9hx-fix-login",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("applies the branchName template to an issue-derived name", async () => {
+        projectFile(`${PREFIXES}branchName: "{prefix}{slug}-{id}"\n`);
+        githubIssue({ type: { id: 1, name: "Bug" } });
+
+        await run({ github: "8" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "fix/fix-memory-leak-8",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      it("never applies the template to a positional name", async () => {
+        projectFile(`${PREFIXES}branchName: "{prefix}{slug}-{id}"\n`);
+
+        await run({}, "my/own-name");
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "my/own-name",
+          "origin/main",
+          { fetch: false },
+        );
+      });
+
+      // A space is valid in a template (the schema only checks braces), and
+      // isValidBranchName refuses it: "Branch name cannot contain spaces".
+      it("refuses a template that produces an invalid name when nothing can be asked", async () => {
+        setNonInteractive(true);
+        projectFile(`${PREFIXES}branchName: "{prefix}{id} {slug}"\n`);
+        githubIssue();
+
+        await expect(run({ github: "8" })).rejects.toMatchObject({
+          code: "invalid_value",
+          message: "Branch name cannot contain spaces",
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it("offers a template's invalid name to the prompt, which validates it", async () => {
+        projectFile(`${PREFIXES}branchName: "{prefix}{id} {slug}"\n`);
+        githubIssue();
+        mockInput.mockResolvedValue("8-fix-memory-leak");
+
+        await run({ github: "8" });
+
+        const config = mockInput.mock.calls[0]?.[0] as any;
+        expect(config.default).toBe("8 fix-memory-leak");
+        expect(config.validate(config.default)).toBe(
+          "Branch name cannot contain spaces",
+        );
+      });
+    });
+
+    describe("a bad file (D4)", () => {
+      it("stops with exit 2 before a worktree is added or anything is prompted", async () => {
+        personalConfig();
+        projectFile("defaultSourceBranch: [not, text]\n");
+
+        const failure = await run({}, "feature/test").then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+
+        expect(failure).toMatchObject({
+          code: "invalid_value",
+          oclif: { exit: 2 },
+        });
+        expect((failure as Error).message).toContain(
+          ".worktree.yml at origin/main",
+        );
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+        expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockInput).not.toHaveBeenCalled();
+      });
+
+      it("names the secret and the rotation when a file holds one", async () => {
+        personalConfig();
+        projectFile("jira:\n  apiToken: abc\n");
+
+        await expect(run({}, "feature/test")).rejects.toThrow(/rotated/);
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("precedence: flag, git config, file, default (D2)", () => {
+      beforeEach(() => projectFile(PROJECT_FILE));
+
+      it("takes the source branch from the file when git config has none", async () => {
+        personalConfig();
+
+        await run({}, "feature/test");
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "feature/test",
+          "origin/develop",
+          { fetch: false },
+        );
+      });
+
+      it("prefers a personal defaultSourceBranch to the file's", async () => {
+        personalConfig({ defaultSourceBranch: "origin/release" });
+
+        await run({}, "feature/test");
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "feature/test",
+          "origin/release",
+          { fetch: false },
+        );
+      });
+
+      it("prefers --source to both", async () => {
+        personalConfig({ defaultSourceBranch: "origin/release" });
+        vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue([
+          "origin/main",
+          "origin/hotfix",
+        ]);
+
+        await run({ source: "origin/hotfix" }, "feature/test");
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "feature/test",
+          "origin/hotfix",
+          { fetch: false },
+        );
+      });
+
+      it("does not offer to configure a source branch the file supplies", async () => {
+        personalConfig();
+
+        await run({}, "feature/test");
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(vi.mocked(branch.config.runCommand)).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["Feature", "feat/"],
+        ["Bug", "fix/"],
+        ["Task", "chore/"],
+      ])("prefixes a GitHub %s issue with the file's %s", async (type, prefix) => {
+        personalConfig();
+        vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+          number: 8,
+          title: "Fix memory leak",
+          type: { name: type },
+        } as any);
+        mockInput.mockImplementation(async (config: any) => config.default);
+
+        await run({ github: "8" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          `${prefix}8-fix-memory-leak`,
+          "origin/develop",
+          { fetch: false },
+        );
+      });
+
+      it("prefers a personal prefix to the file's for GitHub", async () => {
+        personalConfig({ "branchPrefix.bugfix": "bug/" });
+        vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+          number: 8,
+          title: "Fix memory leak",
+          type: { name: "Bug" },
+        } as any);
+        mockInput.mockImplementation(async (config: any) => config.default);
+
+        await run({ github: "8" });
+
+        expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+          "bug/8-fix-memory-leak",
+          "origin/develop",
+          { fetch: false },
+        );
+      });
+
+      it("builds the Jira issue url from the file's host, without a prompt (D17)", async () => {
+        personalConfig({ "jira.email": "me@acme.test", "jira.apiToken": "t" });
+        vi.spyOn(
+          jiraIntegration,
+          "getJiraBranchNameFromIssue",
+        ).mockResolvedValue("feat/DEV-1-x");
+        mockInput.mockImplementation(async (config: any) => config.default);
+        const output = captureOutput();
+
+        try {
+          const command = new Branch(["--json"], await loadConfig());
+          (command as any).parse = vi.fn().mockResolvedValue({
+            args: {},
+            flags: { jira: "dev-1", assign: false },
+          });
+          (command as any).parsed = true;
+          vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+            opener: "none",
+          });
+          await (command as any)._run();
+
+          expect(output.document().issue).toEqual({
+            provider: "jira",
+            key: "DEV-1",
+            url: "https://acme.atlassian.net/browse/DEV-1",
+          });
+        } finally {
+          output.restore();
+        }
+        expect(mockConfirm).not.toHaveBeenCalled();
+      });
+    });
+
+    it("prints the loader's warnings once, before anything is created", async () => {
+      personalConfig();
+      projectFile("opener: herdr\ndefaultSourceBranch: origin/main\n");
+      const warn = vi.spyOn(branch, "warn");
+
+      await run({}, "feature/test");
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("`opener` is a personal setting"),
       );
     });
   });
@@ -262,6 +780,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/test",
         "develop",
+        { fetch: false },
       );
     });
 
@@ -295,6 +814,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/test",
         "origin/develop",
+        { fetch: false },
       );
     });
 
@@ -317,6 +837,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/test",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -366,6 +887,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/test",
         "origin/main",
+        { fetch: false },
       );
     });
   });
@@ -408,6 +930,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/42-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -506,6 +1029,7 @@ describe("branch command", () => {
         expect(mockGitCreateWorktree).toHaveBeenCalledWith(
           "7-old-bug",
           "origin/main",
+          { fetch: false },
         );
       });
 
@@ -714,6 +1238,38 @@ describe("branch command", () => {
   });
 
   describe("--jira flag", () => {
+    it("keeps a rule warning from the Jira integration in the run's warnings", async () => {
+      vi.spyOn(
+        jiraIntegration,
+        "getJiraBranchNameFromIssue",
+      ).mockImplementation(async (_issueId, onWarning) => {
+        onWarning?.('Rule 1 of jira.branchType names the field "Nope".');
+        return "DEV-123-add-dark-mode";
+      });
+      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "defaultSourceBranch")
+          return Promise.resolve("origin/main");
+        if (key === "jira.host")
+          return Promise.resolve("example.atlassian.net");
+        if (key === "jira.email") return Promise.resolve("test@example.com");
+        if (key === "jira.apiToken") return Promise.resolve("token");
+        return Promise.resolve("");
+      });
+      mockInput.mockResolvedValue("DEV-123-add-dark-mode");
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { jira: "dev-123" },
+      });
+
+      await branch.run();
+
+      expect((branch as any).warnings).toContain(
+        'Rule 1 of jira.branchType names the field "Nope".',
+      );
+    });
+
     it("should pre-fill input with branch name derived from jira issue", async () => {
       vi.spyOn(jiraIntegration, "getJiraBranchNameFromIssue").mockResolvedValue(
         "feature/DEV-123-add-dark-mode",
@@ -742,6 +1298,7 @@ describe("branch command", () => {
 
       expect(jiraIntegration.getJiraBranchNameFromIssue).toHaveBeenCalledWith(
         "dev-123",
+        expect.any(Function),
       );
       expect(mockInput).toHaveBeenCalledWith({
         message: "Branch name",
@@ -752,6 +1309,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/DEV-123-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
     });
   });
@@ -805,6 +1363,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "fix/ENG-123-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -827,6 +1386,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "feature/ENG-123-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -1032,6 +1592,7 @@ describe("branch command", () => {
       expect(create).toHaveBeenCalledWith(
         "feature/CU-9hx-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -1055,6 +1616,7 @@ describe("branch command", () => {
       expect(create).toHaveBeenCalledWith(
         "fix/DEV-123-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -1077,6 +1639,7 @@ describe("branch command", () => {
       expect(create).toHaveBeenCalledWith(
         "feature/DEV-123-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -1128,6 +1691,7 @@ describe("branch command", () => {
       expect(create).toHaveBeenCalledWith(
         "feature/CU-9hx-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
     });
 
@@ -1566,6 +2130,7 @@ describe("branch command", () => {
         expect(mockGitCreateWorktree).toHaveBeenCalledWith(
           "42-add-dark-mode",
           "origin/main",
+          { fetch: false },
         );
         expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
           report: "stdout",
@@ -1659,6 +2224,7 @@ describe("branch command", () => {
         expect(mockGitCreateWorktree).toHaveBeenCalledWith(
           "42-add-dark-mode",
           "origin/main",
+          { fetch: false },
         );
         expect(mockOpenWorktreePath).toHaveBeenCalledWith(
           "/path/to/worktree",
@@ -1692,6 +2258,7 @@ describe("branch command", () => {
         expect(mockGitCreateWorktree).toHaveBeenCalledWith(
           "42-add-dark-mode",
           "origin/main",
+          { fetch: false },
         );
         expect(mockWarn).toHaveBeenCalledWith(
           "Could not save github.autoAssign, so you will be asked again next time. config file is locked",
@@ -2042,6 +2609,7 @@ describe("branch command", () => {
         expect(mockGitCreateWorktree).toHaveBeenCalledWith(
           "42-add-dark-mode",
           "origin/main",
+          { fetch: false },
         );
         expect(mockOpenWorktreePath).toHaveBeenCalledWith(
           "/path/to/worktree",
@@ -2377,6 +2945,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "42-add-dark-mode",
         "origin/main",
+        { fetch: false },
       );
       expect(mockInput).not.toHaveBeenCalled();
       expect(mockConfirm).not.toHaveBeenCalled();
@@ -2445,6 +3014,7 @@ describe("branch command", () => {
       expect(mockGitCreateWorktree).toHaveBeenCalledWith(
         "42-add-a-dark-mode-toggle-to-the-settings-page-so",
         "origin/main",
+        { fetch: false },
       );
       expect(mockInput).not.toHaveBeenCalled();
     });
@@ -2542,6 +3112,8 @@ describe("branch command", () => {
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "pnpm install --frozen-lockfile",
+        steps: ["pnpm install --frozen-lockfile"],
+        from: "lockfile",
         inferred: true,
         ok: true,
       });
@@ -2593,6 +3165,8 @@ describe("branch command", () => {
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "npm ci",
+        steps: ["npm ci"],
+        from: "lockfile",
         inferred: true,
         ok: false,
         reason: "exited with code 1",
@@ -2656,6 +3230,8 @@ describe("branch command", () => {
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "pnpm install --frozen-lockfile",
+        steps: ["pnpm install --frozen-lockfile"],
+        from: "lockfile",
         inferred: true,
         ok: true,
       });
@@ -2706,6 +3282,8 @@ describe("branch command", () => {
         installed: {
           ran: true,
           command: "pnpm install --frozen-lockfile",
+          steps: ["pnpm install --frozen-lockfile"],
+          from: "lockfile",
           inferred: true,
           ok: true,
         },
@@ -2717,6 +3295,24 @@ describe("branch command", () => {
           prompted: true,
         },
         warnings: [],
+      });
+    });
+
+    it("lists a copy-pattern file in envFilesCopied beside the env files, and sends the report to stderr", async () => {
+      vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+        status: "found",
+        content: "copy:\n  - config/master.key\n",
+      });
+      mockCopyEnvFiles.mockResolvedValue([".env", "config/master.key"]);
+
+      await runJson({ branchName: "feature/test" }, { "no-open": true });
+
+      expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
+        report: "stderr",
+        copy: ["config/master.key"],
+      });
+      expect(output.document()).toMatchObject({
+        envFilesCopied: [".env", "config/master.key"],
       });
     });
 
@@ -2874,6 +3470,8 @@ describe("branch command", () => {
       mockRunInstall.mockResolvedValue({
         ran: true,
         command: "npm ci",
+        steps: ["npm ci"],
+        from: "lockfile",
         inferred: true,
         ok: false,
         reason: "exited with code 1",
@@ -3137,11 +3735,358 @@ describe("branch command", () => {
       await run();
 
       expect(git.gitFindBranchCheckout).toHaveBeenCalledWith("feat");
-      expect(create).toHaveBeenCalledWith("feat", "origin/main");
+      expect(create).toHaveBeenCalledWith("feat", "origin/main", {
+        fetch: false,
+      });
       expect(mockOpenWorktreePath).toHaveBeenCalledWith(
         "/path/to/worktree",
         defaultOpenOptions,
       );
+    });
+  });
+});
+
+// Phase 5 of the project-config plan (#181): D13. Expected values come from the
+// plan's Done-when line, the #181 example file (§4) and D9; none is read back
+// from the code under test.
+describe("branch command — --dry-run", () => {
+  const originalExitCode = process.exitCode;
+  let output: ReturnType<typeof captureOutput>;
+  const mockInput = vi.mocked(input);
+  const mockConfirm = vi.mocked(confirm);
+  const mockCopyEnvFiles = vi.mocked(copyEnvFilesFromRootPath);
+  const mockRunInstall = vi.mocked(runInstall);
+
+  // The example file of §4 for GitHub, plus prefixes.
+  const FILE = `branchPrefix:
+  feature: feat/
+  bugfix: fix/
+  chore: chore/
+github:
+  branchType:
+    - when: { Type: Bug }
+      type: bugfix
+    - when: { Labels: [chore, maintenance] }
+      type: chore
+`;
+
+  function projectFile(content: string) {
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "found",
+      content,
+    });
+  }
+
+  function githubIssue(overrides: Record<string, unknown> = {}) {
+    return vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+      number: 8,
+      title: "Fix memory leak",
+      state: "open",
+      htmlUrl: "https://github.com/acme/demo/issues/8",
+      type: null,
+      labels: [{ id: 5, name: "Maintenance" }],
+      pullRequest: null,
+      ...overrides,
+    } as any);
+  }
+
+  // `run` itself: a dry run prints its own document, so there is no result.
+  async function runDry(
+    flags: Record<string, unknown>,
+    argv: string[] = [],
+    args: Record<string, unknown> = {},
+  ) {
+    const command = new Branch(argv, await loadConfig());
+    (command as any).parse = vi
+      .fn()
+      .mockResolvedValue({ args, flags: { "dry-run": true, ...flags } });
+    (command as any).parsed = true;
+    const open = vi.spyOn(command as any, "openWorktreePath");
+    const result = await command.run();
+    return { command, open, result };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    resetProjectConfigCache();
+    output = captureOutput();
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+      // autoAssign is unset, so a real run would ask whether to assign.
+      Promise.resolve(key === "has-called-config" ? "true" : ""),
+    );
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "absent-path",
+    });
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
+      login: "octocat",
+      assigned: true,
+    });
+    vi.spyOn(jiraIntegration, "assignJiraIssue").mockResolvedValue({
+      outcome: "assigned",
+      displayName: "Ada Lovelace",
+    });
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+  });
+
+  it("needs an issue to look at", async () => {
+    const dry = runDry({}, [], { branchName: "my/own-name" });
+
+    await expect(dry).rejects.toThrow(
+      "--dry-run requires one of --github, --jira, --linear or --clickup.",
+    );
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+  });
+
+  it("creates, assigns, saves and asks nothing", async () => {
+    projectFile(FILE);
+    githubIssue({ state: "closed", stateReason: "completed" });
+
+    const { open, result } = await runDry({ github: "8" });
+
+    expect(result).toBeUndefined();
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
+    expect(git.gitSetConfigValue).not.toHaveBeenCalled();
+    expect(mockInput).not.toHaveBeenCalled();
+    // A closed issue is a prompt in a real run; a dry run only says so.
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    expect(mockRunInstall).not.toHaveBeenCalled();
+    expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+    expect(output.stderr()).toContain("Issue #8 is closed as completed.");
+  });
+
+  it("copies nothing even when the file lists copy patterns", async () => {
+    projectFile(`${FILE}copy:\n  - config/master.key\n`);
+    githubIssue();
+
+    await runDry({ github: "8" });
+
+    expect(mockCopyEnvFiles).not.toHaveBeenCalled();
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+  });
+
+  it("assigns no Jira issue and asks Jira for names", async () => {
+    const naming = vi
+      .spyOn(jiraIntegration, "getJiraBranchNaming")
+      .mockResolvedValue({
+        branchName: "DEV-7-fix-login-bug",
+        kind: undefined,
+        fields: [],
+        match: { source: "none" },
+      });
+
+    await runDry({ jira: "dev-7" });
+
+    expect(naming).toHaveBeenCalledWith(
+      "dev-7",
+      expect.objectContaining({ dryRun: true }),
+    );
+    expect(jiraIntegration.assignJiraIssue).not.toHaveBeenCalled();
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("asks Linear for label ids, and ClickUp lists tags by name", async () => {
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+      Promise.resolve(
+        key === "linear.apiKey"
+          ? "lin_api_test"
+          : key === "clickup.apiToken"
+            ? "pk_test"
+            : "",
+      ),
+    );
+    const linear = vi
+      .spyOn(linearIntegration, "fetchLinearIssue")
+      .mockResolvedValue({
+        identifier: "ENG-1",
+        title: "Add dark mode",
+        url: null,
+        labels: ["Urgent"],
+        labelNodes: [{ id: "l1", name: "Urgent" }],
+      });
+    vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue({
+      id: "9hx",
+      customId: null,
+      name: "Fix login",
+      url: null,
+      tags: ["Hotfix"],
+    });
+
+    await runDry({ linear: "eng-1" });
+    expect(linear).toHaveBeenCalledWith("eng-1", { labelIds: true });
+    expect(output.stdout()).toContain('- when: { Labels: { id: "l1" } }');
+
+    await runDry({ clickup: "9hx" });
+    expect(output.stdout()).toContain(
+      "- when: { Tags: Hotfix }   # Tags = Hotfix",
+    );
+  });
+
+  it("ignores the agent flags, since it starts no agent", async () => {
+    // No agent.command is configured, which a real run with a brief refuses.
+    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    githubIssue();
+
+    await expect(
+      runDry({ github: "8", agent: "do the work" }),
+    ).resolves.toMatchObject({ result: undefined });
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+  });
+
+  describe("the human output", () => {
+    it("names the branch, the matching rule and each non-empty field with ids", async () => {
+      projectFile(FILE);
+      githubIssue();
+
+      await runDry({ github: "8" });
+
+      const text = output.stdout();
+      expect(text).toContain("Branch name: chore/8-fix-memory-leak");
+      expect(text).toContain(
+        "Rule: rule 2 of github.branchType: when: { Labels: [chore, maintenance] }, type: chore",
+      );
+      // Labels has a value; Type is empty on this issue and is not listed.
+      expect(text).toContain("Labels (id Labels)");
+      expect(text).toContain("Maintenance (id 5)");
+      expect(text).not.toContain("Type (id Type)");
+    });
+
+    it("prints a paste-ready line per value in the form of the plan", async () => {
+      githubIssue({ type: { id: 9, name: "Bug" } });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain(
+        '- when: { Labels: { id: "5" } }   # Labels = Maintenance',
+      );
+      expect(output.stdout()).toContain(
+        '- when: { Type: { id: "9" } }   # Type = Bug',
+      );
+    });
+
+    it("writes the Jira select option line exactly as #181 does", async () => {
+      vi.spyOn(jiraIntegration, "getJiraBranchNaming").mockResolvedValue({
+        branchName: "chore/DEV-7-fix-login-bug",
+        kind: "chore",
+        fields: [
+          {
+            id: "customfield_10359",
+            name: "Work Category",
+            values: [{ id: "10301", name: "Maintenance" }],
+          },
+          { id: "labels", name: "Labels", values: [] },
+        ],
+        match: {
+          source: "rule",
+          position: 1,
+          rule: { when: { customfield_10359: { id: "10301" } }, type: "chore" },
+        },
+      });
+
+      await runDry({ jira: "dev-7" });
+
+      expect(output.stdout()).toContain(
+        '- when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance',
+      );
+      expect(output.stdout()).toContain("Work Category (id customfield_10359)");
+      expect(output.stdout()).not.toContain("Labels (id labels)");
+    });
+
+    it("says built-in when the file has no rules for the provider", async () => {
+      githubIssue({ type: { id: 9, name: "Bug" } });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain("Rule: built-in");
+      expect(output.stdout()).toContain("Branch name: 8-fix-memory-leak");
+    });
+
+    it("says no rule matched when rules exist and none did", async () => {
+      projectFile(FILE);
+      githubIssue({ labels: [] });
+
+      await runDry({ github: "8" });
+
+      expect(output.stdout()).toContain("Rule: none matched");
+    });
+
+    it("does not depend on colour to say any of it", async () => {
+      projectFile(FILE);
+      githubIssue();
+
+      await runDry({ github: "8" });
+
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: looking for ANSI escapes
+      expect(output.stdout()).not.toMatch(/\u001b\[/);
+    });
+  });
+
+  describe("with --json", () => {
+    it("prints exactly one document, its own and not the branch document", async () => {
+      projectFile(FILE);
+      githubIssue();
+
+      await runDry({ github: "8" }, ["--json"]);
+
+      expect(output.stdout().trim().split("\n")).toHaveLength(1);
+      expect(output.document()).toEqual({
+        dryRun: true,
+        branch: "chore/8-fix-memory-leak",
+        issue: {
+          provider: "github",
+          number: 8,
+          url: "https://github.com/acme/demo/issues/8",
+        },
+        kind: "chore",
+        match: {
+          source: "rule",
+          position: 2,
+          rule: "when: { Labels: [chore, maintenance] }, type: chore",
+        },
+        fields: [
+          {
+            id: "Labels",
+            name: "Labels",
+            values: [
+              {
+                id: "5",
+                name: "Maintenance",
+                when: '- when: { Labels: { id: "5" } }   # Labels = Maintenance',
+              },
+            ],
+          },
+        ],
+        warnings: [],
+      });
+    });
+
+    it("reports a rule warning in warnings", async () => {
+      projectFile(`${FILE.split("github:")[0]}github:
+  branchType:
+    - when: { Priority: High }
+      type: bugfix
+`);
+      githubIssue();
+
+      await runDry({ github: "8" }, ["--json"]);
+
+      expect(output.document().warnings).toEqual([
+        expect.stringContaining('names the field "Priority"'),
+      ]);
     });
   });
 });
@@ -3167,6 +4112,14 @@ describe("branch command — --help", () => {
     expect(help).toContain('{provider:"clickup", key');
   });
 
+  it("documents --dry-run in the flags, the description and its own --json document", () => {
+    expect(Branch.flags["dry-run"]).toBeDefined();
+    const help = Branch.description ?? "";
+    expect(help).toContain("--dry-run");
+    expect(help).toContain("paste-ready");
+    expect(help).toContain('{source:"rule", position, rule}');
+  });
+
   // D1: `--clickup` is `-c`.
   it("gives --clickup the short flag -c", () => {
     expect(Branch.flags.clickup.char).toBe("c");
@@ -3175,5 +4128,333 @@ describe("branch command — --help", () => {
   // D1: `--linear` is `-l`, beside `-g` and `-j`.
   it("gives --linear the short flag -l", () => {
     expect(Branch.flags.linear.char).toBe("l");
+  });
+});
+
+// Phase 7 of the project-config plan (#181): D16, D13. Expected values come
+// from the plan's Done-when line and D16's wording; the hash is the one
+// `shasum -a 256` gives for the example file's steps (see project-config.test).
+describe("branch command — approval of the project's postCreate steps", () => {
+  const HASH =
+    "085b75c700b8be5a24f7d7c0fe76efa00d5cad067c3895aed7dddf53a79f56de";
+  const FILE = "postCreate:\n  - pnpm install\n  - pnpm prisma generate\n";
+  const KEY = "northguild.worktree.postCreateApproval";
+  let personal: string;
+  let stored: string;
+  const mockConfirm = vi.mocked(confirm);
+  const mockRunInstall = vi.mocked(runInstall);
+  const originalExitCode = process.exitCode;
+
+  async function run(flags: Record<string, unknown> = {}) {
+    const command = new Branch([], await loadConfig());
+    (command as any).parse = vi.fn().mockResolvedValue({
+      args: { branchName: "feature/test" },
+      flags,
+    });
+    (command as any).parsed = true;
+    vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+      opener: "editor",
+    });
+    return command.run();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    personal = "";
+    stored = "";
+    expectCommands(
+      `git config --local ${KEY}`,
+      `git config --local ${KEY} ${HASH}`,
+    );
+    mockRun.mockImplementation(async (_file: string, args: string[]) => {
+      if (args.length === 3) {
+        if (stored) return stored;
+        throw new Error("exit 1");
+      }
+      stored = args[args.length - 1] ?? "";
+      return "";
+    });
+    mockRunInstall.mockResolvedValue({ ran: false, reason: "skipped" });
+    resetProjectConfigCache();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (key: string) => {
+        if (key === "has-called-config") return "true";
+        if (key === "defaultSourceBranch") return "origin/main";
+        if (key === "postCreate") return personal;
+        return "";
+      },
+    );
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "found",
+      content: FILE,
+    });
+    vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+    setNonInteractive(false);
+  });
+
+  it("fails closed non-interactively: exit 2, nothing created, both ways out named, no hash", async () => {
+    setNonInteractive(true);
+
+    const error = await run().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(MissingValueError);
+    const text = JSON.stringify({
+      message: (error as Error).message,
+      value: (error as MissingValueError).value,
+      flag: (error as MissingValueError).flag,
+    });
+    expect(text).toContain("worktree config --approve");
+    expect(text).toContain("--no-install");
+    expect(text).not.toMatch(/[0-9a-f]{64}/);
+    expect((error as any).oclif.exit).toBe(2);
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(mockRunInstall).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+
+  it("asks interactively, stores the hash on yes and installs", async () => {
+    mockConfirm.mockResolvedValue(true);
+
+    await run();
+
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(stored).toBe(HASH);
+    expect(git.gitCreateWorktree).toHaveBeenCalled();
+    expect(mockRunInstall).toHaveBeenCalled();
+  });
+
+  it("exits 1 with nothing created when the answer is no", async () => {
+    mockConfirm.mockResolvedValue(false);
+
+    const error = await run().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect((error as any).oclif.exit).toBe(1);
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(mockRunInstall).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+
+  it("does not ask again once approved", async () => {
+    stored = HASH;
+    setNonInteractive(true);
+
+    await run();
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(git.gitCreateWorktree).toHaveBeenCalled();
+  });
+
+  it("a taken name gets the reopen guidance, not an approval it would not use", async () => {
+    setNonInteractive(true);
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue({
+      path: "/repo.worktrees/feature/test",
+      pathExists: true,
+      inWorktreesRoot: true,
+      isCurrent: false,
+    });
+
+    const error = await run().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).not.toBeInstanceOf(MissingValueError);
+    expect((error as Error).message).toContain("worktree open feature/test");
+    expect((error as any).oclif.exit).toBe(2);
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+
+  it("--no-install needs no approval", async () => {
+    setNonInteractive(true);
+
+    await run({ install: false });
+
+    expect(git.gitCreateWorktree).toHaveBeenCalled();
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("a personal postCreate runs without approval", async () => {
+    personal = "make setup";
+    setNonInteractive(true);
+
+    await run();
+
+    expect(git.gitCreateWorktree).toHaveBeenCalled();
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("--dry-run runs no approval and no prompt, even non-interactively", async () => {
+    setNonInteractive(true);
+    vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+      number: 8,
+      title: "Fix it",
+      state: "open",
+      htmlUrl: "https://github.com/acme/demo/issues/8",
+      type: null,
+      labels: [],
+      pullRequest: null,
+    } as any);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await run({ "dry-run": true, github: "8" });
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+
+  it("documents the installed fields in --help", () => {
+    const help = Branch.description ?? "";
+    expect(help).toContain("steps");
+    expect(help).toContain('"git-config", "project" or "lockfile"');
+  });
+});
+
+// Phase 8 of the project-config plan (#181): D21. Expected values come from the
+// plan's Done-when line and §4 ("the nudge runs only interactively, after the
+// worktree is opened"); the offer's own rules are pinned in project-config.test.
+describe("branch command — the offers of D21", () => {
+  const mockConfirm = vi.mocked(confirm);
+  const OFFER_KEY = "northguild.worktree.projectFileOffer";
+  let open: ReturnType<typeof vi.spyOn>;
+
+  async function run(flags: Record<string, unknown> = {}) {
+    const command = new Branch([], await loadConfig());
+    (command as any).parse = vi.fn().mockResolvedValue({
+      args: { branchName: "feature/test" },
+      flags,
+    });
+    (command as any).parsed = true;
+    open = vi
+      .spyOn(command as any, "openWorktreePath")
+      .mockResolvedValue({ opener: "editor" });
+    return { command, result: await command.run() };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProjectConfigCache();
+    // The earlier suites stub the offers out; these cases need the real ones.
+    vi.mocked(projectConfig.offerProjectConfig).mockRestore?.();
+    setNonInteractive(false);
+    mockRun.mockResolvedValue("");
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(false);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // A team key in git config and no .worktree.yml on origin/HEAD: the
+    // repository the nudge is for.
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      async (key: string) => {
+        if (key === "has-called-config") return "true";
+        if (key === "defaultSourceBranch") return "origin/main";
+        return "";
+      },
+    );
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "absent-path",
+    });
+    vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+  });
+
+  afterEach(() => {
+    setNonInteractive(false);
+  });
+
+  const offered = () =>
+    mockConfirm.mock.calls.filter(([prompt]) =>
+      (prompt as { message: string }).message.includes("--project"),
+    );
+
+  it("offers --project only after the worktree is opened", async () => {
+    await run();
+
+    expect(offered()).toHaveLength(1);
+    const openedAt = open.mock.invocationCallOrder[0] ?? Infinity;
+    const askedAt = mockConfirm.mock.invocationCallOrder[0] ?? 0;
+    expect(askedAt).toBeGreaterThan(openedAt);
+    expect(mockRun).toHaveBeenCalledWith("git", [
+      "config",
+      "--local",
+      OFFER_KEY,
+      "declined",
+    ]);
+  });
+
+  it("offers nothing when the run is non-interactive (--json, --yes, CI, no TTY)", async () => {
+    setNonInteractive(true);
+
+    await run();
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining([OFFER_KEY]),
+    );
+  });
+
+  it("offers nothing on a dry run", async () => {
+    vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+      number: 8,
+      title: "Fix memory leak",
+      state: "open",
+      htmlUrl: "https://github.com/acme/demo/issues/8",
+      type: null,
+      labels: [],
+      pullRequest: null,
+    } as any);
+
+    await run({ github: "8", "dry-run": true });
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining([OFFER_KEY]),
+    );
+  });
+
+  it("does not offer before the worktree exists: a failed creation asks nothing", async () => {
+    vi.spyOn(git, "gitCreateWorktree").mockRejectedValue(new Error("no"));
+
+    await expect(run()).rejects.toThrow("no");
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("warns and still returns the document when an offer fails", async () => {
+    mockConfirm.mockRejectedValue(new Error("prompt closed"));
+
+    const { command, result } = await run();
+
+    expect(result?.path).toBe("/path/to/worktree");
+    expect(result?.warnings.join(" ")).toContain("prompt closed");
+    expect(command).toBeDefined();
   });
 });

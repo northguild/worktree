@@ -38,8 +38,7 @@ interface RunOptions extends ExecOptions {
    * whose first component starts with a space ahead of every other, and
    * trimming would silently rename it to one that does not exist.
    *
-   * This option is `run`'s alone. `runCapturing` below always trims, so it
-   * takes the narrower ExecOptions rather than accepting a `trim` it ignores.
+   * `runCapturing` below takes it too, for stdout only.
    */
   trim?: boolean;
 }
@@ -124,7 +123,12 @@ export function run(
 export function runCapturing(
   file: string,
   args: string[] = [],
-  { cwd, timeout, env }: ExecOptions = {},
+  {
+    cwd,
+    timeout,
+    env,
+    trim = true,
+  }: ExecOptions & Pick<RunOptions, "trim"> = {},
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = execFile(
@@ -133,7 +137,10 @@ export function runCapturing(
       { cwd, timeout, env: mergeEnv(env) },
       (error, stdout, stderr) => {
         disarm();
-        const output = { stdout: stdout.trim(), stderr: stderr.trim() };
+        const output = {
+          stdout: trim ? stdout.trim() : stdout,
+          stderr: stderr.trim(),
+        };
 
         if (!error) {
           resolve({ ...output, exitCode: 0 });

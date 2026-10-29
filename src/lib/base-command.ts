@@ -33,6 +33,7 @@ import {
   setNonInteractive,
 } from "./interaction.js";
 import { createSpinner } from "./progress.js";
+import { getTeamConfigValue, isTeamConfigKey } from "./project-config.js";
 import { askConfirm, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
 import type {
@@ -391,14 +392,18 @@ export abstract class BaseCommand extends Command {
   protected async verifyConfig(configNames: ConfigName[] = []) {
     if ((await gitGetConfigValue("has-called-config")) !== "true") {
       if (await this.confirmFirstTimeConfig()) {
-        await this.config.runCommand("config");
+        await this.config.runCommand("config", ["--skip-offers"]);
         return;
       }
     }
 
     const missingNames: ConfigName[] = [];
     for (const name of configNames) {
-      if (!(await gitGetConfigValue(name))) {
+      // A team key the project file supplies is not missing (D2, D3).
+      const value = isTeamConfigKey(name)
+        ? await getTeamConfigValue(name)
+        : await gitGetConfigValue(name);
+      if (!value) {
         missingNames.push(name);
       }
     }
@@ -424,6 +429,7 @@ export abstract class BaseCommand extends Command {
         "--missing",
         "--names",
         configNames.join(","),
+        "--skip-offers",
       ]);
     }
   }

@@ -1,4 +1,17 @@
+import {
+  type BranchMatch,
+  type BranchNaming,
+  evaluateBranchTypeRules,
+  type IssueField,
+  matchOfResult,
+} from "../lib/branch-type.js";
 import { gitGetConfigValue } from "../lib/git.js";
+import {
+  type BranchKind,
+  getBranchPrefix,
+  getBranchTypeRules,
+  renderBranchName,
+} from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
@@ -7,6 +20,8 @@ export interface LinearIssue {
   title: string;
   url: string | null;
   labels: string[];
+  /** Each label with its id; present only when asked for, which rules need (D9). */
+  labelNodes?: { id: string; name: string }[];
 }
 
 interface LinearGraphqlError {
@@ -24,18 +39,25 @@ const LINEAR_REQUEST_TIMEOUT_MS = 15_000;
 
 // D4: the id is a variable, never part of the query text. Title and labels are
 // all the branch name needs; the description and comments are not requested.
-const ISSUE_QUERY = `query Issue($id: String!) {
+const issueQuery = (labelFields: string) => `query Issue($id: String!) {
   issue(id: $id) {
     identifier
     title
     url
     labels {
       nodes {
-        name
+${labelFields}
       }
     }
   }
 }`;
+
+const ISSUE_QUERY = issueQuery("        name");
+
+// D9: the label id is asked for only when `linear.branchType` rules exist, so
+// a run without them sends the request it always sent. `id` is a field of
+// Linear's `IssueLabel` type (https://studio.apollographql.com/public/Linear-API/variant/current/schema/reference/objects/IssueLabel).
+const ISSUE_QUERY_WITH_LABEL_IDS = issueQuery("        id\n        name");
 
 const VIEWER_QUERY = "query { viewer { id } }";
 
@@ -115,7 +137,10 @@ function hasErrorCode(body: LinearGraphqlResponse, code: string): boolean {
   );
 }
 
-function parseLinearIssue(issue: unknown): LinearIssue | undefined {
+function parseLinearIssue(
+  issue: unknown,
+  withLabelIds: boolean,
+): LinearIssue | undefined {
   if (!isRecord(issue)) {
     return undefined;
   }
@@ -127,24 +152,47 @@ function parseLinearIssue(issue: unknown): LinearIssue | undefined {
     typeof identifier !== "string" ||
     typeof title !== "string" ||
     !Array.isArray(nodes) ||
-    !nodes.every((node) => isRecord(node) && typeof node.name === "string")
+    !nodes.every(
+      (node) =>
+        isRecord(node) &&
+        typeof node.name === "string" &&
+        (!withLabelIds || typeof node.id === "string"),
+    )
   ) {
     return undefined;
   }
 
+  const labelNodes = nodes as { id: string; name: string }[];
   return {
     identifier,
     title,
     url: typeof url === "string" ? url : null,
-    labels: nodes.map((node) => (node as { name: string }).name),
+    labels: labelNodes.map((node) => node.name),
+    ...(withLabelIds
+      ? { labelNodes: labelNodes.map(({ id, name }) => ({ id, name })) }
+      : {}),
   };
 }
 
-export async function fetchLinearIssue(issueId: string): Promise<LinearIssue> {
+/**
+ * `labelIds` asks for each label's id even with no rules: a dry run exists to
+ * show them (D9, D13).
+ */
+export async function fetchLinearIssue(
+  issueId: string,
+  options: { labelIds?: boolean } = {},
+): Promise<LinearIssue> {
   const identifier = getIssueIdentifier(issueId);
   const apiKey = await resolveLinearApiKey();
+  const withLabelIds =
+    options.labelIds === true ||
+    (await getBranchTypeRules("linear")) !== undefined;
 
-  const response = await fetchLinear(ISSUE_QUERY, { id: identifier }, apiKey);
+  const response = await fetchLinear(
+    withLabelIds ? ISSUE_QUERY_WITH_LABEL_IDS : ISSUE_QUERY,
+    { id: identifier },
+    apiKey,
+  );
 
   if (response.status === 401 || response.status === 403) {
     throw new Error(AUTH_FAILED_MESSAGE);
@@ -187,7 +235,7 @@ export async function fetchLinearIssue(issueId: string): Promise<LinearIssue> {
     );
   }
 
-  const issue = parseLinearIssue(rawIssue);
+  const issue = parseLinearIssue(rawIssue, withLabelIds);
 
   if (!issue) {
     throw new Error(`Linear: Unexpected response for issue ${identifier}.`);
@@ -211,22 +259,57 @@ export function getLinearBranchType(labels: string[]) {
   return "feature" as const;
 }
 
+// D9: Linear's rule field in v1 is `Labels`, with ids when the issue was
+// fetched for rules and names alone otherwise.
+export function getLinearIssueFields(issue: LinearIssue): IssueField[] {
+  return [
+    {
+      id: "Labels",
+      name: "Labels",
+      values: issue.labelNodes ?? issue.labels.map((name) => ({ name })),
+    },
+  ];
+}
+
 // Takes the issue already fetched so a caller can keep its url from the same
-// request. D6: the same shape as Jira's name.
+// request. D6: the same shape as Jira's name. With `linear.branchType` in the
+// project file the rules decide the kind (D10) and an issue no rule matches
+// gets no prefix; without it the built-in mapping applies. Rule warnings go to
+// `onWarning`.
+export async function getLinearBranchNaming(
+  issue: LinearIssue,
+  onWarning: (warning: string) => void = () => {},
+): Promise<BranchNaming> {
+  const rules = await getBranchTypeRules("linear");
+  const fields = getLinearIssueFields(issue);
+
+  let kind: BranchKind | undefined;
+  let match: BranchMatch;
+  if (rules) {
+    const result = evaluateBranchTypeRules(rules, fields, "linear.branchType");
+    for (const warning of result.warnings) {
+      onWarning(warning);
+    }
+    kind = result.kind;
+    match = matchOfResult(result);
+  } else {
+    kind = getLinearBranchType(issue.labels);
+    match = { source: "built-in" };
+  }
+
+  const branchName = await renderBranchName({
+    prefix: await getBranchPrefix(kind),
+    id: issue.identifier,
+    slug: slugifyBranchTitle(issue.title),
+  });
+  return { branchName, kind, fields, match };
+}
+
 export async function getLinearBranchNameFromIssue(
   issue: LinearIssue,
+  onWarning: (warning: string) => void = () => {},
 ): Promise<string> {
-  const branchType = getLinearBranchType(issue.labels);
-
-  const prefix = await gitGetConfigValue(
-    branchType === "bugfix"
-      ? "branchPrefix.bugfix"
-      : branchType === "chore"
-        ? "branchPrefix.chore"
-        : "branchPrefix.feature",
-  );
-
-  return `${prefix}${issue.identifier}-${slugifyBranchTitle(issue.title)}`;
+  return (await getLinearBranchNaming(issue, onWarning)).branchName;
 }
 
 export async function validateLinearCredentials(): Promise<boolean> {

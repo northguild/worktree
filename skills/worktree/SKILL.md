@@ -12,7 +12,8 @@ description: >
 
 CLI wrapper for `git worktree` that turns the common branch-create,
 env-copy, editor-open, and cleanup cycle into single commands. Config
-is stored in local git config under `northguild.worktree.*`. Worktrees
+is stored in git config under `northguild.worktree.*`; a committed `.worktree.yml`
+can supply the team keys (see Configuration Reference). Worktrees
 are created in a sibling directory named `<repo>.worktrees/`.
 
 ## Setup
@@ -27,6 +28,7 @@ worktree config
 # behind a confirm. The Herdr keys
 # herdr.focus and herdr.agent are offered only when `herdr` is on PATH; opener is
 # always offered. `worktree config <key>` prints one value, for scripts.
+# It skips any key the project's .worktree.yml sets and says which.
 
 # Create your first worktree
 worktree branch feature/my-feature
@@ -45,7 +47,9 @@ worktree branch feature/add-bulk-actions --source origin/release/1.4
 ```
 
 Creates a branch, adds a worktree under `<repo>.worktrees/feature/add-bulk-actions`,
-copies the gitignored env files from the root worktree, and opens the directory
+copies the gitignored env files from the root worktree (plus any gitignored
+file the project's `.worktree.yml` lists under `copy`, which `checkout` copies
+too), and opens the directory
 in the configured `codeEditor` — or, when `opener` is `herdr`, as a Herdr space
 labelled with the branch name.
 
@@ -114,22 +118,39 @@ not save the key; `false` or `--no-assign` skips assignment. Branch prefixes are
 - `Bug` → `branchPrefix.bugfix`
 - `Task` → `branchPrefix.chore`
 
+That is the built-in Jira mapping, and it applies only when no rules are set.
+A `jira.branchType` list in `.worktree.yml` replaces it: ordered rules, the first
+match wins, each `when:` names fields (by id, such as `customfield_10359`, or by
+name, case-insensitively) and values (by name or `{ id: "10301" }`), every field
+in a `when` must match, and `type:` is `feature`, `bugfix` or `chore`. `- otherwise:
+<kind>` closes the list; without it an unmatched issue gets no prefix. A rule
+naming a field the issue lacks warns (in `warnings` under `--json`) and does not
+match. Prefer ids in a shared file. `github`, `linear` and `clickup` take a `branchType` list of the same
+shape and replace their built-in mapping the same way: GitHub rules match `Type` and `Labels`, Linear
+`Labels` (by name or id), ClickUp `Tags` (by name only; a tag has no id). GitHub's built-in gives an issue
+with no type no prefix; `- otherwise: feature` in `github.branchType` opts in. `branchName: "{prefix}{id}-{slug}"`
+in the file sets the shape of an issue-derived name (default as shown, today's names); a template that makes
+an invalid branch name is refused, and a name typed as the argument is never templated.
+To write rules against a real issue, run `worktree branch --<provider> <id> --dry-run`: it prints the name,
+the rule that chose the prefix and each non-empty field with its id and a paste-ready `- when: { … }` line, and
+creates, assigns, saves and asks nothing (`--json` prints its own document, with `match` and `fields`).
+
 Linear has no issue type, so its labels decide, compared case-insensitively
 and by exact name: a `bug` label → `branchPrefix.bugfix`; else a `chore` or
 `maintenance` label → `branchPrefix.chore`; otherwise (`Feature`,
 `Improvement`, no label) `branchPrefix.feature`. A bug label wins over the
-others. The name is the prefix, the upper-cased identifier and the slugged
-title, such as `fix/ENG-123-fix-login`.
+others. That is the built-in Linear mapping and applies only when no `linear.branchType` rules are set.
+The name is the prefix, the upper-cased identifier and the slugged title, such as `fix/ENG-123-fix-login`.
 
 ClickUp's tags decide the same way, with the same `bug`, `chore` and
 `maintenance` rule (a guess carried over from Linear, not confirmed against a
-live Workspace). A short id such as `9hx` becomes `CU-9hx` in the name
+live Workspace), unless `clickup.branchType` rules are set. A short id such as `9hx` becomes `CU-9hx` in the name
 (`feature/CU-9hx-fix-login`); a custom id is upper-cased in the name only, and sent to ClickUp as typed
 (`fix/DEV-123-fix-login`).
 
 **Issue content is used for the branch name and nothing else.** `--github`,
 `--jira`, `--linear` and `--clickup` read the issue's number or key, its title (Jira:
-summary) and its type (Linear: its labels; ClickUp: its tags); `--github` also reads whether the
+summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
 refused, naming `worktree checkout <branch>` when its branch is on this
 repository and its name is only letters, digits, `_`, `.`, `/` and `-`, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
@@ -148,6 +169,7 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 131,071 bytes
 worktree branch feature/x --no-agent                # open, but start no agent
 worktree branch feature/x --no-open                 # print the path, open nothing
+worktree branch --jira DEV-123 --dry-run            # show the name, the matching rule and the fields; create nothing
 worktree checkout feature/fix-login-timeout -a "find the cause of the timeout"
 ```
 
@@ -196,19 +218,28 @@ Flags for agent mode:
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
+| `--dry-run` | `branch` | with an issue flag: print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 Defaults when non-interactive:
 
-- **Branch name** from `--github`: `<prefix><number>-<slug>`, the slug cut to
+- **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to
   48 characters at the last dash. With no issue, the branch name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or
   `jira.autoAssign`, then assign. The default is never saved.
-- **Install:** on. The command is `postCreate`, else inferred from the lockfile
-  (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). With nothing
-  to run it says so and carries on. A failure keeps the worktree, starts nothing
-  and exits `1`.
-- **Source branch:** `defaultSourceBranch`, else `origin/main` with a warning.
+- **Install:** on. The command is your `postCreate`, else the steps under
+  `postCreate` in `.worktree.yml` (run in order, the first failure stops the
+  rest), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`,
+  `yarn.lock`, `bun.lock`). With nothing to run it says so and carries on. A
+  failure keeps the worktree, starts nothing and exits `1`.
+- **Approval of the file's steps:** checked before anything is created. A
+  non-interactive run (script, CI, `--json`, `--yes`) that has not approved them
+  exits `2` with `missing_value`, naming `worktree config --approve` and
+  `--no-install`; the message never contains a value to approve with. Do not try
+  to approve for the person: run `branch --no-install`, or tell them to run
+  `worktree config --approve` in a terminal. A personal `postCreate` and
+  `--dry-run` need no approval.
+- **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`), else `origin/main` with a warning.
 - **A branch name that is already taken** (a re-run of `branch`) is refused: exit
   `2`, `invalid_value`, naming the existing worktree's path and
   `worktree open <branch>`. A branch with no worktree, one checked out outside
@@ -229,7 +260,7 @@ document:
 {"path":"/abs/repo.worktrees/42-fix-login","branch":"42-fix-login","source":"origin/main",
  "issue":{"provider":"github","number":42,"url":"https://github.com/acme/demo/issues/42"},"assigned":true,
  "envFilesCopied":["docs/.env.local"],
- "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","inferred":true,"ok":true},
+ "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
  "agent":{"name":"demo-42-fix-login","kind":"claude","command":["claude","--name","demo-42-fix-login"],"prompted":true},
  "warnings":[]}
@@ -243,7 +274,9 @@ document:
   start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a
   detached start. `herdr.agent` is `null` when no agent was started in the
   pane.
-- `installed` is `{ran:false,reason}` when skipped. A failed install still
+- `installed` is `{ran:false,reason}` when skipped. `steps` are the commands
+  that ran, in order; `command` is the one that failed, else the last that ran;
+  `from` is `"git-config"`, `"project"` or `"lockfile"`. A failed install still
   prints the whole document, with `installed.ok` `false` and a `reason`, and
   exits `1`.
 - A brief that was given and not delivered does the same: the whole document,
@@ -385,6 +418,41 @@ panes it is working in along with the directory.
 All keys are stored via `worktree config <key> <value>` in git config
 under `northguild.worktree.*`.
 
+A repository can commit a `.worktree.yml` at its root that supplies the team keys:
+`defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host` and
+`clickup.workspaceId` (written nested: `jira: { host: ... }`). Precedence per key:
+flag, then git config (any scope), then the file, then the built-in default. The
+file is read from `origin/HEAD` (`git show`), never the working copy, and
+`branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
+that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
+`herdr.*`, `agent.command`, `jira.email`, `*.autoAssign`) in the file is ignored
+with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
+`clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
+`2` (`invalid_value`) before anything is created. An unknown key only warns. A
+file's `jira.host` receives every teammate's Jira credentials, so treat a change
+to it like code.
+
+Config behaviours with the file: the wizard does not ask for a key the file sets (a
+personal `postCreate` included when the file has steps). `worktree config <key>
+<value>` for a key the file sets shows both values and asks; non-interactive it sets
+the value and warns. `worktree config --list` prints `<key>=<value> (.worktree.yml)`
+or `<key>=<value> (overrides .worktree.yml: <file value>)`, then one summary line per
+file-only key (rules per provider, `branchName`, `copy`, `postCreate` steps).
+`worktree config --project` writes a commented `.worktree.yml` at the current
+worktree's top level from the team keys in git config (never a personal or secret
+key; a personal `postCreate` becomes a one-step list), uncommitted, and refuses to
+overwrite an existing one. On a terminal only (never `--json`, `--yes`,
+`--non-interactive`, CI, no TTY or `branch --dry-run`; in `branch`, after the
+worktree is open), two offers each appear at most once: `--project` when the
+repository has no file and git config holds a team key, and removal of the local
+keys the file repeats with the same value. Their answers live under
+`northguild.worktree.*` outside the config keys, so an agent cannot set them.
+
+The file's `copy` list (relative globs such as `config/master.key`) names extra
+files for `branch` and `checkout` to copy with the env files. A path must be
+gitignored to be copied; a tracked file never is. Copied files are listed in
+`envFilesCopied`, and `branch --dry-run` copies nothing.
+
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
@@ -393,7 +461,7 @@ under `northguild.worktree.*`.
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
-| `postCreate` | `pnpm install` | the install step of `branch`; unset means infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
+| `postCreate` | `pnpm install` | the install step of `branch`; unset means the steps in `.worktree.yml` (once approved with `worktree config --approve`), else infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
 | `github.token` | `ghp_...` | `--github` flag |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
@@ -420,6 +488,9 @@ worktree config --yes --names branchPrefix.feature,branchPrefix.bugfix
 
 # List current values (tokens shown as ***; read one with worktree config <key>)
 worktree config --list
+
+# Write .worktree.yml from the team keys in git config (uncommitted)
+worktree config --project
 ```
 
 ## Common Mistakes
