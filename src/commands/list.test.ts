@@ -461,3 +461,18 @@ describe("list command — --help", () => {
     expect(help).toContain("2 usage");
   });
 });
+
+describe("list command — flag definitions", () => {
+  it("keeps the --agents char and description", () => {
+    expect(List.flags.agents.char).toBe("a");
+    expect(List.flags.agents.description).toBe(
+      "Show the agent session living in each worktree",
+    );
+  });
+
+  it("keeps the --churn description", () => {
+    expect(List.flags.churn.description).toBe(
+      "Show how much each worktree has changed: files, insertions and deletions",
+    );
+  });
+});
