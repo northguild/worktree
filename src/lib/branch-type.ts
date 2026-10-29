@@ -1,6 +1,7 @@
 import {
   type BranchKind,
   type BranchTypeRule,
+  ProjectConfigError,
   showVisibly,
 } from "./project-config.js";
 
@@ -35,8 +36,11 @@ export interface BranchTypeResult {
   warnings: string[];
 }
 
-/** Two fields answer to one display name; the rule must use an id (D11). */
-export class AmbiguousFieldError extends Error {
+/**
+ * Two fields answer to one display name; the rule must use an id (D11). A
+ * problem in the file like any other, so it exits 2 with `invalid_value`.
+ */
+export class AmbiguousFieldError extends ProjectConfigError {
   constructor(message: string) {
     super(message);
     this.name = "AmbiguousFieldError";

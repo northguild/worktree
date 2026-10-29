@@ -714,8 +714,10 @@ export class PostCreateDeclinedError extends Error {
   }
 }
 
-// The hash is never part of a message: a script that could read it from an
-// error could store it and approve the steps without a person (D16).
+// The hash is kept out of messages so no output hands over an approval. It is
+// not a secret: it is SHA-256 over the public steps, and anything that can
+// write local git config can compute it. The gate is that only a terminal run
+// asks (D16).
 function approvalRequired() {
   return new MissingValueError(
     "approval of this project's postCreate steps from .worktree.yml",

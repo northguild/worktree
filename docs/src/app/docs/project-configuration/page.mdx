@@ -161,8 +161,8 @@ value is written as its name (`Maintenance`) or as `{ id: "10301" }`.
   uses Jira in another language, and the rule then silently stops matching. An id does not change.
 - **Quote numeric ids.** YAML reads an unquoted `10301` as a number. `worktree` accepts it and compares it as
   text, but a quoted id is what Jira shows you.
-- **Two fields can share a display name.** A rule that names such a field by name stops the run with an
-  error naming both ids; use an id.
+- **Two fields can share a display name.** A rule that names such a field by name stops the run, and a dry
+  run, with exit `2` (`invalid_value` under `--json`) and an error naming both ids; use one of them.
 - **Find an id** with a [dry run](#writing-rules-with-a-dry-run), which lists every field and value of a real
   issue with its id, for every provider. In Jira you can also read a field's id under *Settings, Issues,
   Custom fields*, or in the address of a field's page.

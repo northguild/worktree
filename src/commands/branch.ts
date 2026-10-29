@@ -909,11 +909,6 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       return undefined;
     }
 
-    // D16: the file's postCreate steps are approved by this person, or the run
-    // ends here, before a name is asked for, an issue assigned or a tree made.
-    // A dry run runs nothing, so it returned above without asking (D13).
-    await ensurePostCreateApproved({ install: flags.install });
-
     const { branchName, issue } = await this.getBranchName(
       args.branchName,
       flags,
@@ -924,6 +919,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     if (await this.reopenOrRefuseTakenBranch(branchName, flags, brief)) {
       return undefined;
     }
+
+    // D16: the file's postCreate steps are approved by this person, or the run
+    // ends here, before an issue is assigned or a tree made. After the reopen
+    // check, which runs no steps, so a taken name gets its own guidance rather
+    // than an approval it would not use. A dry run runs nothing, so it
+    // returned above without asking (D13).
+    await ensurePostCreateApproved({ install: flags.install });
 
     // Decided before the worktree exists (D7), so the prompt cannot appear
     // after the creation spinners or behind a launched editor. Being assigned

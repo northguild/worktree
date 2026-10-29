@@ -1,10 +1,12 @@
 import {
+  AmbiguousFieldError,
   type BranchTypeRule,
   evaluateBranchTypeRules,
   formatBranchTypeRule,
   type IssueField,
   pasteReadyLine,
 } from "./branch-type.js";
+import { InvalidValueError } from "./prompt.js";
 
 // Expected values come from the plan's D8-D11 and the #181 example file, not
 // from the engine: first match wins, `when` fields all match, a list matches
@@ -185,6 +187,28 @@ describe("evaluateBranchTypeRules", () => {
     expect(() => evaluateBranchTypeRules(rules, [workCategory, twin])).toThrow(
       /customfield_10359.*customfield_20000|customfield_20000.*customfield_10359/,
     );
+  });
+
+  it("reports an ambiguous name as a bad file: exit 2, invalid_value", () => {
+    const twin: IssueField = {
+      id: "customfield_20000",
+      name: "Work Category",
+      values: [{ id: "1", name: "Maintenance" }],
+    };
+    const rules = [when({ "Work Category": "Maintenance" }, "chore")];
+
+    const error = (() => {
+      try {
+        evaluateBranchTypeRules(rules, [workCategory, twin]);
+      } catch (caught) {
+        return caught;
+      }
+    })();
+
+    expect(error).toBeInstanceOf(AmbiguousFieldError);
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as InvalidValueError).oclif.exit).toBe(2);
+    expect((error as InvalidValueError).code).toBe("invalid_value");
   });
 
   it("lets an id name a field even when another field shares its display name", () => {

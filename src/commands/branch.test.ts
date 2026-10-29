@@ -4263,6 +4263,27 @@ describe("branch command — approval of the project's postCreate steps", () => 
     expect(git.gitCreateWorktree).toHaveBeenCalled();
   });
 
+  it("a taken name gets the reopen guidance, not an approval it would not use", async () => {
+    setNonInteractive(true);
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue({
+      path: "/repo.worktrees/feature/test",
+      pathExists: true,
+      inWorktreesRoot: true,
+      isCurrent: false,
+    });
+
+    const error = await run().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).not.toBeInstanceOf(MissingValueError);
+    expect((error as Error).message).toContain("worktree open feature/test");
+    expect((error as any).oclif.exit).toBe(2);
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(stored).toBe("");
+  });
+
   it("--no-install needs no approval", async () => {
     setNonInteractive(true);
 
