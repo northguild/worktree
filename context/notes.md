@@ -20,3 +20,18 @@ Non-blocking review observations. Branch-local; `/feature-close` deletes this fi
   refused. The hyphen rule rests on the sign-up form's wording, not a docs page.
 - `worktree config --project` writes a personal `github.repository` into the team file, as for every team
   key — a fork user pinning their own fork would commit it.
+
+## Phase 2 — Resolve `upstream` and read from it
+
+- Done-when (a) says the call sequence is unchanged, but an origin-only user now gets one local
+  `git remote get-url upstream` probe first. D1 needs it and §2 allows it; reword (a) at close.
+- When an issue read from `upstream` or the key turns out to be a pull request, the refusal in
+  `src/commands/branch.ts` (~:321-329) does not name the repository — short of §2's "the output says which
+  one it used", though D4's wording is met.
+- Untested: a non-origin source with no readable `origin` should give `headBranch: null` for a pull request
+  (`src/integrations/github.ts:497-507`).
+- Stale comment at `src/integrations/github.ts:479-480` ("A fork's branch is not on origin…") — when
+  `origin` is the fork its branch is suggested; should read "a branch on any other repository".
+- Four new `branch.test.ts` mocks add `as any`, matching the file's existing pattern.
+- The fetch spinner names the repository on its settled line, not while running: `branch.ts` learns it
+  only after `fetchGitHubIssue` returns. The assigned line names it too, beyond the not-assigned warning.

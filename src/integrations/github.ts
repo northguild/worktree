@@ -11,14 +11,26 @@ import {
   type BranchKind,
   getBranchPrefix,
   getBranchTypeRules,
+  getTeamConfigValue,
   renderBranchName,
 } from "../lib/project-config.js";
 import { askInput, assertCanPrompt, InvalidValueError } from "../lib/prompt.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
+import { isValidGitHubRepository } from "../lib/validators.js";
 
 interface GitHubRepository {
   owner: string;
   name: string;
+}
+
+/** Where the repository a run reads came from (D1). */
+export type GitHubRepositorySource =
+  | "github.repository"
+  | "upstream"
+  | "origin";
+
+export interface ResolvedGitHubRepository extends GitHubRepository {
+  source: GitHubRepositorySource;
 }
 
 export interface GitHubIssueTypeApiResponse {
@@ -71,6 +83,11 @@ export interface GitHubIssue {
    * null when it could not be read.
    */
   pullRequest: { headBranch: string | null } | null;
+  /**
+   * The repository the issue was read from. Always set by `fetchGitHubIssue`;
+   * optional so an issue built by hand, as the naming tests do, stays valid.
+   */
+  repository?: ResolvedGitHubRepository;
   user: {
     login: string;
     htmlUrl: string;
@@ -138,7 +155,7 @@ function parseGitHubRepositoryFromRemote(remoteUrl: string): GitHubRepository {
   };
 }
 
-async function getCurrentGitHubRepository(): Promise<GitHubRepository> {
+async function readOriginRepository(): Promise<GitHubRepository> {
   try {
     const remoteUrl = await run("git", ["remote", "get-url", "origin"]);
     return parseGitHubRepositoryFromRemote(remoteUrl);
@@ -153,6 +170,62 @@ async function getCurrentGitHubRepository(): Promise<GitHubRepository> {
       "GitHub: Unable to read the origin remote for the current repository.",
     );
   }
+}
+
+// D3: an `upstream` that is missing, or is not a GitHub URL, is not evidence
+// about GitHub issues, so either answer is "none" and resolution carries on to
+// origin. Neither case is an error.
+async function readUpstreamRepository(): Promise<GitHubRepository | undefined> {
+  let remoteUrl: string;
+  try {
+    remoteUrl = await run("git", ["remote", "get-url", "upstream"]);
+  } catch {
+    return undefined;
+  }
+  try {
+    return parseGitHubRepositoryFromRemote(remoteUrl);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The repository `--github` reads and `--assign` assigns in (D1, D6): the
+ * `github.repository` key, then an `upstream` remote that is a GitHub URL, then
+ * `origin`. Read and assignment both come through here, so they cannot
+ * disagree. The key is checked again here because git config can be edited by
+ * hand, and the value goes into a request path.
+ */
+export async function resolveGitHubRepository(): Promise<ResolvedGitHubRepository> {
+  const configured = await getTeamConfigValue("github.repository");
+  if (configured) {
+    const verdict = isValidGitHubRepository(configured);
+    if (verdict !== true) {
+      throw new InvalidValueError(
+        `GitHub: github.repository "${configured}" is not valid. ${verdict}`,
+      );
+    }
+    const [owner, name] = configured.split("/");
+    return { owner, name, source: "github.repository" };
+  }
+
+  const upstream = await readUpstreamRepository();
+  if (upstream) {
+    return { ...upstream, source: "upstream" };
+  }
+
+  return { ...(await readOriginRepository()), source: "origin" };
+}
+
+/**
+ * `owner/repo`, and where it came from when that is not `origin` (D4), so the
+ * text for a person whose `origin` is the repository stays what it always was.
+ */
+export function describeGitHubRepository(repository: ResolvedGitHubRepository) {
+  const fullName = `${repository.owner}/${repository.name}`;
+  return repository.source === "origin"
+    ? fullName
+    : `${fullName} (${repository.source})`;
 }
 
 function getGitHubHeaders(token?: string): Record<string, string> {
@@ -309,7 +382,8 @@ export async function fetchGitHubIssue(issueId: number | string) {
     throw new InvalidValueError(`GitHub: Invalid issue id "${issueId}".`);
   }
 
-  const { owner, name } = await getCurrentGitHubRepository();
+  const repository = await resolveGitHubRepository();
+  const { owner, name } = repository;
   let token = await gitGetConfigValue("github.token");
   let tokenSource: GitHubTokenSource | undefined = token ? "stored" : undefined;
 
@@ -327,7 +401,7 @@ export async function fetchGitHubIssue(issueId: number | string) {
 
   if (!response.ok) {
     throw await githubFailure(
-      `GitHub: Failed to fetch issue ${normalizedIssueId} from ${owner}/${name}.`,
+      `GitHub: Failed to fetch issue ${normalizedIssueId} from ${describeGitHubRepository(repository)}.`,
       response,
       tokenSource,
     );
@@ -337,8 +411,7 @@ export async function fetchGitHubIssue(issueId: number | string) {
   const pullRequest = issue.pull_request
     ? {
         headBranch: await fetchGitHubPullRequestHeadBranch(
-          owner,
-          name,
+          repository,
           issue.number,
           token,
         ),
@@ -390,6 +463,7 @@ export async function fetchGitHubIssue(issueId: number | string) {
         : [];
     }),
     pullRequest,
+    repository,
     user: {
       login: issue.user.login,
       htmlUrl: issue.user.html_url,
@@ -398,17 +472,20 @@ export async function fetchGitHubIssue(issueId: number | string) {
 }
 
 // The head branch only improves the message that refuses a pull request, so a
-// failed lookup is a null and never a second reason to fail. A fork's branch is
-// not on origin, and its name is anyone's to choose, so it is never suggested.
+// failed lookup is a null and never a second reason to fail. `worktree
+// checkout` resolves against origin (D5), so a branch is suggested only when it
+// lives in the repository behind origin: the one the pull request was read from
+// when that is origin, else origin's, read here and only for a pull request.
+// A fork's branch is not on origin, and its name is anyone's to choose, so it is
+// never suggested.
 async function fetchGitHubPullRequestHeadBranch(
-  owner: string,
-  name: string,
+  repository: ResolvedGitHubRepository,
   number: number,
   token?: string,
 ): Promise<string | null> {
   try {
     const response = await fetchGitHub(
-      `/repos/${owner}/${name}/pulls/${number}`,
+      `/repos/${repository.owner}/${repository.name}/pulls/${number}`,
       token,
     );
     if (!response.ok) {
@@ -417,8 +494,12 @@ async function fetchGitHubPullRequestHeadBranch(
     const pull = (await response.json()) as {
       head?: { ref?: string; repo?: { full_name?: string } | null };
     };
+    const origin =
+      repository.source === "origin"
+        ? repository
+        : await readOriginRepository();
     const headRepository = pull.head?.repo?.full_name?.toLowerCase();
-    if (headRepository !== `${owner}/${name}`.toLowerCase()) {
+    if (headRepository !== `${origin.owner}/${origin.name}`.toLowerCase()) {
       return null;
     }
     return pull.head?.ref ?? null;
@@ -452,14 +533,20 @@ export async function fetchGitHubLogin(
 const ASSIGN_PERMISSION_HINT =
   "Assigning needs a token whose account has push access to the repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.";
 
-export async function assignGitHubIssue(issueId: number | string) {
+// `repository` is optional for the same reason as on `GitHubIssue`.
+export async function assignGitHubIssue(issueId: number | string): Promise<{
+  login: string;
+  assigned: boolean;
+  repository?: ResolvedGitHubRepository;
+}> {
   const normalizedIssueId = String(issueId).trim();
 
   if (!/^\d+$/.test(normalizedIssueId)) {
     throw new InvalidValueError(`GitHub: Invalid issue id "${issueId}".`);
   }
 
-  const { owner, name } = await getCurrentGitHubRepository();
+  const repository = await resolveGitHubRepository();
+  const { owner, name } = repository;
   // Resolved once and passed on, so a run that reads the token from `gh` or has
   // to prompt for a PAT does so exactly once.
   const { token, source } = await requireGitHubToken();
@@ -473,7 +560,7 @@ export async function assignGitHubIssue(issueId: number | string) {
 
   if (!response.ok) {
     const failure = await githubFailure(
-      `GitHub: Failed to assign issue ${normalizedIssueId} in ${owner}/${name}.`,
+      `GitHub: Failed to assign issue ${normalizedIssueId} in ${describeGitHubRepository(repository)}.`,
       response,
       source,
     );
@@ -493,6 +580,7 @@ export async function assignGitHubIssue(issueId: number | string) {
   return {
     login,
     assigned: assignees.some((assignee) => assignee.login === login),
+    repository,
   };
 }
 

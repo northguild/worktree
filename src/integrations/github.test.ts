@@ -2,7 +2,9 @@ import { input } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
+import { InvalidValueError } from "../lib/prompt.js";
 import { expectCommands } from "../test-setup.js";
 import {
   assignGitHubIssue,
@@ -86,14 +88,27 @@ function makeOkJsonResponse<T>(payload: T) {
   };
 }
 
+// What `git remote get-url upstream` does in a clone with no such remote.
+const NO_UPSTREAM_REMOTE = new Error("error: No such remote 'upstream'");
+
+const ORIGIN_REPOSITORY = {
+  owner: "northguild",
+  name: "worktree",
+  source: "origin",
+};
+
 describe("GitHub integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     expectCommands(
+      "git remote get-url upstream",
       "git remote get-url origin",
       "git config northguild.worktree.github.token",
     );
+    // The project file and git config are not what these tests are about; the
+    // fork tests below override the key.
+    vi.spyOn(projectConfig, "getTeamConfigValue").mockResolvedValue("");
   });
 
   it.each([
@@ -124,6 +139,7 @@ describe("GitHub integration", () => {
   it("fetches issue info from the current repository", async () => {
     const runSpy = vi
       .spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("");
 
@@ -180,6 +196,7 @@ describe("GitHub integration", () => {
       },
       pullRequest: null,
       labels: [],
+      repository: ORIGIN_REPOSITORY,
       user: {
         login: "baldurpan",
         htmlUrl: "https://github.com/baldurpan",
@@ -191,6 +208,7 @@ describe("GitHub integration", () => {
   // "Get an issue"); the client keeps those two.
   it("maps the issue's labels to their id and name", async () => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("");
     vi.stubGlobal(
@@ -225,6 +243,7 @@ describe("GitHub integration", () => {
 
   it("reads the head branch of a pull request answered as an issue", async () => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
     const fetchSpy = vi
@@ -269,6 +288,7 @@ describe("GitHub integration", () => {
     ["whose lookup fails", new Response("", { status: 404 })],
   ])("reports no head branch for a pull request %s", async (_case, pullResponse) => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
     vi.stubGlobal(
@@ -307,6 +327,7 @@ describe("GitHub integration", () => {
     // Use a pre-configured token so the repo-check step is skipped, and the
     // error comes directly from the issue fetch.
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
 
@@ -329,6 +350,7 @@ describe("GitHub integration", () => {
 
   it("adds no hint to a 401 when no token was sent", async () => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce(""); // git config: no token
     const fetchSpy = vi.fn();
@@ -350,6 +372,7 @@ describe("GitHub integration", () => {
 
   it("auto-resolves a token via gh CLI when the repo check fails without a token", async () => {
     const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockRejectedValueOnce(NO_UPSTREAM_REMOTE);
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git"); // git remote get-url origin
     runSpy.mockResolvedValueOnce(""); // git config token (no token)
     runSpy.mockResolvedValueOnce("ghp_auto_token"); // gh auth token
@@ -403,6 +426,7 @@ describe("GitHub integration", () => {
   it("stores a token the person typed at the prompt", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockRejectedValueOnce(NO_UPSTREAM_REMOTE);
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
     runSpy.mockResolvedValueOnce("");
     runSpy.mockRejectedValueOnce(new Error("not logged in")); // gh auth token
@@ -435,6 +459,7 @@ describe("GitHub integration", () => {
 
   it("says the stored token was refused, naming both remedies, on a 401 fetching an issue", async () => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_stale_token");
     vi.stubGlobal(
@@ -468,6 +493,7 @@ describe("GitHub integration", () => {
   it("gives the stored hint on a 401 for a token typed at the prompt", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockRejectedValueOnce(NO_UPSTREAM_REMOTE);
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
     runSpy.mockResolvedValueOnce(""); // git config: no token
     runSpy.mockRejectedValueOnce(new Error("not logged in")); // gh auth token
@@ -505,6 +531,7 @@ describe("GitHub integration", () => {
 
   it("keeps the gh hint on a 401 for a token that came from gh", async () => {
     const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockRejectedValueOnce(NO_UPSTREAM_REMOTE);
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
     runSpy.mockResolvedValueOnce(""); // git config: no token
     runSpy.mockResolvedValueOnce("ghp_gh_token"); // gh auth token
@@ -538,6 +565,7 @@ describe("GitHub integration", () => {
     setNonInteractive(true);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockRejectedValueOnce(NO_UPSTREAM_REMOTE);
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
     runSpy.mockResolvedValueOnce("");
     runSpy.mockRejectedValueOnce(new Error("not logged in")); // gh auth token
@@ -637,6 +665,7 @@ describe("GitHub integration", () => {
 
   it("assigns the authenticated user to the issue", async () => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
 
@@ -652,6 +681,7 @@ describe("GitHub integration", () => {
     await expect(assignGitHubIssue(42)).resolves.toEqual({
       login: "baldurpan",
       assigned: true,
+      repository: ORIGIN_REPOSITORY,
     });
 
     expect(fetchSpy).toHaveBeenNthCalledWith(
@@ -687,6 +717,7 @@ describe("GitHub integration", () => {
     assignees,
   }) => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
 
@@ -700,6 +731,7 @@ describe("GitHub integration", () => {
     await expect(assignGitHubIssue(42)).resolves.toEqual({
       login: "baldurpan",
       assigned: false,
+      repository: ORIGIN_REPOSITORY,
     });
   });
 
@@ -711,6 +743,7 @@ describe("GitHub integration", () => {
   // branch, configuration and GitHub guide docs carry; change them together.
   it("throws naming the permission when the assignment request is refused", async () => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
 
@@ -737,6 +770,7 @@ describe("GitHub integration", () => {
 
   it("gives the stored-token hint when /user answers 401 during an assignment", async () => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
     vi.stubGlobal(
@@ -762,6 +796,7 @@ describe("GitHub integration", () => {
 
   it("gives the gh hint when /user answers 401 for a gh token during an assignment", async () => {
     const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockRejectedValueOnce(NO_UPSTREAM_REMOTE);
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
     runSpy.mockResolvedValueOnce(""); // git config: no token
     runSpy.mockResolvedValueOnce("ghp_gh_token"); // gh auth token
@@ -788,6 +823,7 @@ describe("GitHub integration", () => {
   it("gives the stored hint when /user answers 401 for a token typed during an assignment", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const runSpy = vi.spyOn(cli, "run");
+    runSpy.mockRejectedValueOnce(NO_UPSTREAM_REMOTE);
     runSpy.mockResolvedValueOnce("git@github.com:northguild/worktree.git");
     runSpy.mockResolvedValueOnce(""); // git config: no token
     runSpy.mockRejectedValueOnce(new Error("not logged in")); // gh auth token
@@ -820,6 +856,7 @@ describe("GitHub integration", () => {
 
   it("says the token was refused when the assignment request answers 401", async () => {
     vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
       .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
       .mockResolvedValueOnce("ghp_test_token");
 
@@ -892,6 +929,289 @@ describe("GitHub integration", () => {
     );
     await expect(failure).rejects.not.toThrow(/ghp_secret_token/);
     expect(AbortSignal.timeout).toHaveBeenCalledWith(15_000);
+  });
+});
+
+// Which repository is read is decided by D1's order: the github.repository key,
+// then an `upstream` remote that is a GitHub URL, then `origin`. Every expected
+// repository below is that order applied to the remotes the test sets up.
+describe("the repository --github reads in a fork", () => {
+  const FORK = "git@github.com:me/worktree.git";
+  const UPSTREAM = "git@github.com:northguild/worktree.git";
+  const TOKEN = "ghp_test_token";
+
+  // `run` answers by argv, so a test names the remotes it has and the order of
+  // the calls is asserted separately, not baked into a queue.
+  function stubRemotes(remotes: { origin?: string; upstream?: string }) {
+    return vi.spyOn(cli, "run").mockImplementation(async (_file, args) => {
+      const [subcommand, action, remote] = args ?? [];
+      if (subcommand === "remote" && action === "get-url") {
+        const url = remotes[remote as "origin" | "upstream"];
+        if (url === undefined) {
+          throw new Error(`error: No such remote '${remote}'`);
+        }
+        return url;
+      }
+      if (args?.at(-1) === "northguild.worktree.github.token") {
+        return TOKEN;
+      }
+      throw new Error(`unexpected git call: ${args?.join(" ")}`);
+    });
+  }
+
+  function remoteCalls(runSpy: ReturnType<typeof stubRemotes>) {
+    return runSpy.mock.calls
+      .map(([, args]) => args?.join(" "))
+      .filter((call) => call?.startsWith("remote get-url"));
+  }
+
+  const user = { login: "baldurpan", html_url: "https://github.com/baldurpan" };
+
+  function stubFetch(...responses: unknown[]) {
+    const fetchSpy = vi.fn();
+    for (const response of responses) {
+      fetchSpy.mockResolvedValueOnce(makeOkJsonResponse(response));
+    }
+    vi.stubGlobal("fetch", fetchSpy);
+    return fetchSpy;
+  }
+
+  function pullRequestIssue(number: number) {
+    return makeIssueApiResponse({
+      number,
+      pull_request: {
+        url: `https://api.github.com/repos/northguild/worktree/pulls/${number}`,
+      },
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    expectCommands(
+      "git remote get-url upstream",
+      "git remote get-url origin",
+      "git config northguild.worktree.github.token",
+    );
+    vi.spyOn(projectConfig, "getTeamConfigValue").mockResolvedValue("");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("(a) reads origin when there is no upstream and no key, probing upstream first and changing no text", async () => {
+    const runSpy = stubRemotes({ origin: UPSTREAM });
+    const fetchSpy = stubFetch(makeIssueApiResponse());
+
+    const issue = await fetchGitHubIssue(42);
+
+    expect(remoteCalls(runSpy)).toEqual([
+      "remote get-url upstream",
+      "remote get-url origin",
+    ]);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "https://api.github.com/repos/northguild/worktree/issues/42",
+    );
+    expect(issue.repository).toEqual({
+      owner: "northguild",
+      name: "worktree",
+      source: "origin",
+    });
+  });
+
+  it("(a) fails with today's text, naming no source, when origin is the repository read", async () => {
+    stubRemotes({ origin: UPSTREAM });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 404 })),
+    );
+
+    await expect(fetchGitHubIssue(42)).rejects.toThrow(
+      /^GitHub: Failed to fetch issue 42 from northguild\/worktree\. 404/,
+    );
+  });
+
+  it("(a) keeps today's error for a non-GitHub origin when there is no upstream", async () => {
+    stubRemotes({ origin: "git@gitlab.com:northguild/worktree.git" });
+
+    await expect(fetchGitHubIssue(42)).rejects.toThrow(
+      'GitHub: Unable to read the origin remote for the current repository. GitHub: Unable to determine the current repository from origin remote "git@gitlab.com:northguild/worktree.git".',
+    );
+  });
+
+  it("(b) reads an upstream GitHub remote in preference to origin", async () => {
+    const runSpy = stubRemotes({ origin: FORK, upstream: UPSTREAM });
+    const fetchSpy = stubFetch(makeIssueApiResponse());
+
+    const issue = await fetchGitHubIssue(42);
+
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "https://api.github.com/repos/northguild/worktree/issues/42",
+    );
+    expect(issue.repository?.source).toBe("upstream");
+    expect(remoteCalls(runSpy)).toEqual(["remote get-url upstream"]);
+  });
+
+  it("(b) names the repository and where it came from when the read fails", async () => {
+    stubRemotes({ origin: FORK, upstream: UPSTREAM });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 404 })),
+    );
+
+    await expect(fetchGitHubIssue(42)).rejects.toThrow(
+      /^GitHub: Failed to fetch issue 42 from northguild\/worktree \(upstream\)\. 404/,
+    );
+  });
+
+  it("(c) reads the configured github.repository in preference to upstream, without probing a remote", async () => {
+    vi.spyOn(projectConfig, "getTeamConfigValue").mockImplementation(
+      async (name) => (name === "github.repository" ? "acme/widgets" : ""),
+    );
+    const runSpy = stubRemotes({ origin: FORK, upstream: UPSTREAM });
+    const fetchSpy = stubFetch(makeIssueApiResponse());
+
+    const issue = await fetchGitHubIssue(42);
+
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "https://api.github.com/repos/acme/widgets/issues/42",
+    );
+    expect(issue.repository).toEqual({
+      owner: "acme",
+      name: "widgets",
+      source: "github.repository",
+    });
+    expect(remoteCalls(runSpy)).toEqual([]);
+  });
+
+  it("(d) skips an upstream that is not a GitHub URL and reads origin", async () => {
+    stubRemotes({
+      origin: FORK,
+      upstream: "git@gitlab.com:northguild/worktree.git",
+    });
+    const fetchSpy = stubFetch(makeIssueApiResponse());
+
+    const issue = await fetchGitHubIssue(42);
+
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "https://api.github.com/repos/me/worktree/issues/42",
+    );
+    expect(issue.repository?.source).toBe("origin");
+  });
+
+  it.each([
+    ["the upstream remote", {}, "northguild", "worktree", "upstream"],
+    [
+      "the github.repository key",
+      { key: "acme/widgets" },
+      "acme",
+      "widgets",
+      "github.repository",
+    ],
+    ["origin", { noUpstream: true }, "me", "worktree", "origin"],
+  ])("(e) assigns in the repository the read used: %s", async (_case, setup, owner, name, source) => {
+    const options = setup as { key?: string; noUpstream?: boolean };
+    if (options.key) {
+      vi.spyOn(projectConfig, "getTeamConfigValue").mockImplementation(
+        async (key) => (key === "github.repository" ? (options.key ?? "") : ""),
+      );
+    }
+    stubRemotes({
+      origin: FORK,
+      ...(options.noUpstream ? {} : { upstream: UPSTREAM }),
+    });
+    const fetchSpy = stubFetch(
+      user,
+      makeIssueApiResponse({ assignees: [user] }),
+    );
+
+    const result = await assignGitHubIssue(42);
+
+    expect(fetchSpy.mock.calls[1]?.[0]).toBe(
+      `https://api.github.com/repos/${owner}/${name}/issues/42/assignees`,
+    );
+    expect(result.repository).toEqual({ owner, name, source });
+  });
+
+  it("(e) names the repository and its source when the assignment is refused", async () => {
+    stubRemotes({ origin: FORK, upstream: UPSTREAM });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(makeOkJsonResponse(user))
+      .mockResolvedValueOnce(new Response("{}", { status: 404 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(assignGitHubIssue(42)).rejects.toThrow(
+      "GitHub: Failed to assign issue 42 in northguild/worktree (upstream).",
+    );
+  });
+
+  describe("(f) a pull request's head branch is suggested only when it is on origin", () => {
+    it("gives no head branch when the head is on upstream and origin is the fork", async () => {
+      stubRemotes({ origin: FORK, upstream: UPSTREAM });
+      stubFetch(pullRequestIssue(7), {
+        head: { ref: "feature/x", repo: { full_name: "northguild/worktree" } },
+      });
+
+      const issue = await fetchGitHubIssue(7);
+
+      expect(issue.pullRequest).toEqual({ headBranch: null });
+    });
+
+    it("gives the head branch when the head is on origin, though the read was upstream", async () => {
+      stubRemotes({ origin: FORK, upstream: UPSTREAM });
+      stubFetch(pullRequestIssue(7), {
+        head: { ref: "feature/x", repo: { full_name: "me/worktree" } },
+      });
+
+      const issue = await fetchGitHubIssue(7);
+
+      expect(issue.pullRequest).toEqual({ headBranch: "feature/x" });
+    });
+
+    it("reads origin only for a pull request", async () => {
+      const runSpy = stubRemotes({ origin: FORK, upstream: UPSTREAM });
+      stubFetch(makeIssueApiResponse());
+
+      await fetchGitHubIssue(42);
+
+      expect(remoteCalls(runSpy)).toEqual(["remote get-url upstream"]);
+    });
+
+    it("gives the head branch when the head is on origin and origin was read", async () => {
+      stubRemotes({ origin: UPSTREAM });
+      stubFetch(pullRequestIssue(7), {
+        head: { ref: "feature/x", repo: { full_name: "northguild/worktree" } },
+      });
+
+      const issue = await fetchGitHubIssue(7);
+
+      expect(issue.pullRequest).toEqual({ headBranch: "feature/x" });
+    });
+  });
+
+  it.each([
+    "https://github.com/acme/widgets",
+    "acme/widgets/extra",
+    "acme/..",
+    "acme/widgets.git",
+  ])("(g) refuses the malformed key %j, naming github.repository, before any request", async (value) => {
+    vi.spyOn(projectConfig, "getTeamConfigValue").mockImplementation(
+      async (name) => (name === "github.repository" ? value : ""),
+    );
+    const runSpy = stubRemotes({ origin: FORK, upstream: UPSTREAM });
+    const fetchSpy = stubFetch();
+
+    const failure = await fetchGitHubIssue(42).catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(InvalidValueError);
+    expect((failure as Error).message).toContain("github.repository");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(remoteCalls(runSpy)).toEqual([]);
+    await expect(assignGitHubIssue(42)).rejects.toBeInstanceOf(
+      InvalidValueError,
+    );
   });
 });
 
