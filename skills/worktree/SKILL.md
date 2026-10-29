@@ -70,6 +70,11 @@ Use `branch` to create something new.
 
 ```bash
 # GitHub — requires github.token in config (or gh CLI authenticated)
+# Reads the repository named by github.repository (git config, then
+# .worktree.yml), else the `upstream` remote when it is a GitHub URL, else
+# `origin`. When that is not origin's, the output says so, e.g.
+# "Fetching GitHub issue #42 from acme/widgets (upstream)". If a fork's issues
+# are on the fork, pin it: worktree config github.repository <owner/repo>
 worktree branch --github 42
 worktree branch --github "#42"
 
@@ -450,8 +455,8 @@ All keys are stored via `worktree config <key> <value>` in git config
 under `northguild.worktree.*`.
 
 A repository can commit a `.worktree.yml` at its root that supplies the team keys:
-`defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host` and
-`clickup.workspaceId` (written nested: `jira: { host: ... }`). Precedence per key:
+`defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host`,
+`clickup.workspaceId` and `github.repository` (written nested: `jira: { host: ... }`). Precedence per key:
 flag, then git config (any scope), then the file, then the built-in default. The
 file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
@@ -496,6 +501,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `postCreate` | `pnpm install` | the install step of `branch`; unset means the steps in `.worktree.yml` (once approved with `worktree config --approve`), else infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
 | `github.token` | `ghp_...` | `--github` flag |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
+| `github.repository` | `acme/widgets` | which repository `--github` and `--assign` use: this key (team key, also under `github:` in `.worktree.yml`), else `upstream` if a GitHub remote, else `origin`; optional, and `worktree config` never asks for it |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |

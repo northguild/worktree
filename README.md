@@ -95,7 +95,7 @@ The setup flow can configure:
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
-`jira.host` and `clickup.workspaceId`, read from the default branch; your own git config overrides it. The
+`jira.host`, `clickup.workspaceId` and `github.repository`, read from the default branch; your own git config overrides it. The
 wizard skips what the file answers, `worktree config --list` marks each value `(.worktree.yml)` or
 `(overrides .worktree.yml: <file value>)`, and `worktree config --project` writes a `.worktree.yml` from the
 team keys in your git config (never a personal or secret one), uncommitted. See
@@ -240,7 +240,7 @@ worktree help branch
 
 Configuration is stored in Git config under the `northguild.worktree.*` namespace. A committed
 `.worktree.yml` can supply the team keys (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`,
-`clickup.workspaceId`); your git config wins over it, and it wins over the built-in default. A file's
+`clickup.workspaceId`, `github.repository`); your git config wins over it, and it wins over the built-in default. A file's
 `jira.host` receives every teammate's Jira credentials, so review a change to it like code. See
 [Project Configuration](https://northguild.github.io/worktree/docs/project-configuration).
 

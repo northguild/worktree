@@ -4,8 +4,9 @@ title: GitHub Issue Integration
 
 # GitHub Issue Integration
 
-`worktree` can derive branch names directly from GitHub issues in the current repository, and assign the
-issue to you at the same time.
+`worktree` can derive branch names directly from GitHub issues, and assign the issue to you at the same time.
+The issue is read from your repository, or from the one it was forked from; see
+[Forks](#forks).
 
 ## Basic Usage
 
@@ -17,6 +18,38 @@ worktree branch --github 42 --assign
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
 A [non-interactive run](/docs/commands/branch#non-interactive-runs) takes it without asking.
+
+## Forks
+
+`--github` and `--assign` read and assign in one repository, chosen in this order:
+
+1. The `github.repository` key, an `owner/repo` such as `acme/widgets`. It is read from git config, then from
+   `.worktree.yml`.
+2. The `upstream` remote, when it exists and points at GitHub.
+3. The `origin` remote.
+
+With no `upstream` remote and no key, that is `origin`, as it has always been, and the output is unchanged. In a
+fork, `origin` is your copy and the issues usually live on `upstream`, so `--github 42` reads issue 42 of
+the original with no setup. An `upstream` that does not point at GitHub is skipped, not an error.
+
+Whenever the repository is not the one behind `origin`, the output says which one it used and why. The spinner
+reads `Fetching GitHub issue #42 from acme/widgets (upstream)`, the assignment line ends `in acme/widgets
+(upstream)`, and a failure names the repository in the same form. The part in brackets is `upstream` or
+`github.repository`.
+
+If your issues are on the fork, or on a repository neither remote points at, pin it:
+
+```bash
+worktree config github.repository <owner/repo>
+```
+
+`github.repository` is a team key: commit it under `github:` in
+[`.worktree.yml`](/docs/project-configuration) to say it once for everyone, and any teammate can override it
+from git config. Only `owner/repo` is accepted; a URL, a path or a trailing `.git` is refused. `worktree
+config` never asks for it, since most people have no fork, so set it by name.
+
+A token that can read your fork may not be allowed on `upstream`; a private upstream answers `404`, and the
+error names the repository it asked.
 
 ## How Branch Names Are Built
 

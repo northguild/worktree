@@ -23,6 +23,7 @@ config.
 - `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means the steps in `.worktree.yml`, else infer from the lockfile)
 - `github.token` (GitHub personal access token)
 - `github.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
+- `github.repository` (example: `acme/widgets`; the repository `--github` reads and assigns in, only needed when it is not the repository found otherwise (`upstream` when that is a GitHub remote, else `origin`), for example when your issues are on your fork and an `upstream` remote exists; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
@@ -206,7 +207,11 @@ worktree config branchPrefix.chore chore/
 
 ## GitHub Integration Notes
 
-- `worktree branch --github <issue-number>` reads issues from the current repository remote.
+- `worktree branch --github <issue-number>` reads issues from the repository named by `github.repository`
+  (git config, then `.worktree.yml`), else the `upstream` remote when it points at GitHub, else `origin`. When
+  that is not `origin`'s repository, the output names it. To read a fork's own issues, or any other repository,
+  set the key. It is a team key, so it can live in `.worktree.yml` under `github:`, and git config overrides it.
+  See [Forks](/docs/guides/github-issue-integration#forks).
 - Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
 - If `github.token` is missing, `worktree` can attempt to use `gh auth token` (read each run, never saved) and then prompt; only a typed or configured token is stored.
 - `github.autoAssign` decides whether reading an issue also assigns it to you. It has three states, not
@@ -218,6 +223,12 @@ worktree config branchPrefix.chore chore/
 
 ```bash
 worktree config github.autoAssign true
+```
+
+- To pin the repository, for example when your issues are on your fork although an `upstream` remote exists:
+
+```bash
+worktree config github.repository <owner/repo>
 ```
 
 - `github.token` and `github.autoAssign` are prompted together, behind one confirm, so `worktree config`

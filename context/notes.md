@@ -35,3 +35,14 @@ Non-blocking review observations. Branch-local; `/feature-close` deletes this fi
 - Four new `branch.test.ts` mocks add `as any`, matching the file's existing pattern.
 - The fetch spinner names the repository on its settled line, not while running: `branch.ts` learns it
   only after `fetchGitHubIssue` returns. The assigned line names it too, beyond the not-assigned warning.
+
+## Phase 3 — Documentation, skill and release note
+
+- The guide's Forks section says "The spinner reads `Fetching GitHub issue #42 from …`"; it is the settled
+  line that reads so (`src/commands/branch.ts:339-342`). "The assignment line ends `in …`" holds for the
+  success line, not the not-assigned warning, which has text after it.
+- The guide's intro ("or from the one it was forked from") and `commands/branch/page.mdx:67` ("in a fork that
+  means the original's issues") assume an `upstream` remote; the code reads whatever remote is named
+  `upstream` and never asks GitHub for a fork's parent. The Forks section itself is precise.
+- No `.changeset/` note in this phase: `context/release.md` writes it once per feature at `/feature-close`,
+  which overrides the plan's Phase 3 Files line and its `changeset:status` done-when item.

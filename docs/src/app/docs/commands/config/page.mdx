@@ -66,7 +66,7 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree from
 the team keys in your git config (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`,
-`clickup.workspaceId` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
+`clickup.workspaceId`, `github.repository` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
 secret key. A personal `postCreate` command becomes a one-step list. The file is left uncommitted for you to
 review, and the command refuses to overwrite an existing `.worktree.yml`. It takes no other argument or flag.
 
@@ -130,6 +130,11 @@ regardless, so a machine can be configured before Herdr is installed.
 - `github.autoAssign` whether reading a GitHub issue also assigns it to you: `true` always, `false`
   never, unset means you are asked once and your answer is saved. See
   [Configuration](/docs/configuration#github-integration-notes).
+- `github.repository` the `owner/repo` that `--github` and `--assign` use, a team key that can also be set in
+  `.worktree.yml` under `github:`. Without it `worktree` uses `upstream` when that is a GitHub remote, else
+  `origin`. **The wizard never asks for it**, and `--missing` never lists it: most people have no fork. Set it by
+  name, for example `worktree config github.repository acme/widgets` when your issues are on your fork. See
+  [Forks](/docs/guides/github-issue-integration#forks).
 - `branchPrefix.feature` optional prefix used for `Feature` issues.
 - `branchPrefix.bugfix` optional prefix used for `Bug` issues.
 - `branchPrefix.chore` optional prefix used for `Task` issues.

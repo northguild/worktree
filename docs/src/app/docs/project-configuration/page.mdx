@@ -23,6 +23,9 @@ jira:
 
 clickup:
   workspaceId: 9012345
+
+github:
+  repository: acme/widgets
 ```
 
 The `$schema` comment makes an editor with the YAML language server complete keys and flag mistakes as
@@ -69,12 +72,17 @@ not offer to run `worktree config` for a key the file supplies.
 
 | Kind of key | Keys | In the file |
 |---|---|---|
-| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `clickup.workspaceId` | Read; your git config overrides them |
+| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `clickup.workspaceId`, `github.repository` | Read; your git config overrides them |
 | Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `github.autoAssign`, `linear.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
 | Secret keys | `jira.apiToken`, `linear.apiKey`, `clickup.apiToken`, `github.token` | Refused; the run stops |
 
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.
+
+`github.repository` is the `owner/repo` that `--github` reads and assigns in. It is only needed when that is not the
+repository found otherwise (`upstream` when that is a GitHub remote, else `origin`), for example when your
+issues are on your fork and an `upstream` remote exists; see [Forks](/docs/guides/github-issue-integration#forks). `worktree config`
+never asks for it.
 
 The `branchType` lists under `jira`, `github`, `linear` and `clickup`, and the shared top-level `branchType`, are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
@@ -342,7 +350,7 @@ Steps from a file run commands on your machine that someone else wrote, so each 
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree
 from the team keys in your git config: the source branch, the branch prefixes, the Jira host, the ClickUp
-workspace id and `postCreate`, which becomes a one-step list. It never writes a personal or secret key. The
+workspace id, the GitHub repository and `postCreate`, which becomes a one-step list. It never writes a personal or secret key. The
 file is left uncommitted and the command refuses to overwrite one that is there, so review it, commit it and
 merge it to the default branch. The result loads exactly as written.
 
