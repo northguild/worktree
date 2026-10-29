@@ -533,8 +533,33 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
    * settle the key for the human who runs this later.
    */
   private async shouldAssignIssue(configKey: ConfigName, assignFlag?: boolean) {
-    if (assignFlag !== undefined) {
-      return assignFlag;
+    return this.decideIssueAction(configKey, assignFlag, {
+      question: "Assign this issue to you?",
+      value: "whether to assign the issue",
+      flag: "--assign or --no-assign",
+    });
+  }
+
+  /**
+   * Same precedence as `shouldAssignIssue`, for moving an issue to started:
+   * `--start`/`--no-start`, then `configKey`, then true when non-interactive
+   * (nothing saved), then a prompt that saves its answer under `configKey`.
+   */
+  private async shouldStartIssue(configKey: ConfigName, startFlag?: boolean) {
+    return this.decideIssueAction(configKey, startFlag, {
+      question: "Move this issue to started?",
+      value: "whether to move the issue to started",
+      flag: "--start or --no-start",
+    });
+  }
+
+  private async decideIssueAction(
+    configKey: ConfigName,
+    flagValue: boolean | undefined,
+    prompt: { question: string; value: string; flag: string },
+  ) {
+    if (flagValue !== undefined) {
+      return flagValue;
     }
 
     const configured = await gitGetConfigValue(configKey);
@@ -551,15 +576,12 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
     const answer = await askConfirm(
       {
-        message: `Assign this issue to you? (saved as ${configKey}; change it later with \`worktree config ${configKey} <true|false>\`)`,
+        message: `${prompt.question} (saved as ${configKey}; change it later with \`worktree config ${configKey} <true|false>\`)`,
       },
-      {
-        value: "whether to assign the issue",
-        flag: "--assign or --no-assign",
-      },
+      { value: prompt.value, flag: prompt.flag },
     );
     // The worktree is the deliverable (§2), and this write is only bookkeeping
-    // about whether to assign. `gitSetConfigValue` does not swallow the way
+    // about whether to assign or start. `gitSetConfigValue` does not swallow the way
     // `gitGetConfigValue` does, so an unwrapped failure here — a stale
     // `.git/config.lock` from a concurrent git process is the realistic one —
     // would reach BaseCommand.catch and cost the user the branch they asked

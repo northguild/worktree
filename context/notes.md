@@ -31,3 +31,15 @@ Branch-local and advisory. Nothing reads this file; `/feature-close` deletes it.
 - The new config tests use `(config as any).parse`, the file's existing pattern.
 - The select's wording ("Should `branch --linear` move the issue to started once the worktree exists?") is
   the implementation's own; it belongs with §9's names question.
+
+## Phase 3 — one decision helper
+
+- The precedence docstring still sits on `shouldAssignIssue` (`branch.ts:520-534`), while the logic it
+  describes is in `decideIssueAction`, which has none.
+- The seam test reaches the private `shouldStartIssue` through `(branch as any)`, copying the jira seam
+  test; phase 4's command-level tests are what cover it through `run()`.
+- `decideIssueAction`'s `prompt` parameter is an inline object type rather than an interface. Style only.
+- `shouldStartIssue` has no production caller until phase 4, and the phase mixes an extraction with an
+  addition. Both are what D9 asked for.
+- The start prompt text "Move this issue to started?" is pinned by the seam test; docs that quote it should
+  quote it exactly.

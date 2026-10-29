@@ -2111,6 +2111,48 @@ jira:
       });
     });
 
+    describe("the start decision shares the assign precedence", () => {
+      // Expected values: D4 (flag, then key true/false, then non-interactive
+      // true unsaved, then a prompt that saves under the key and names it).
+      const decide = (flag?: boolean) =>
+        (branch as any).shouldStartIssue("linear.autoStart", flag);
+
+      function configured(values: Record<string, string>) {
+        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+          Promise.resolve(values[key] ?? ""),
+        );
+      }
+
+      it("honours the flag, then the key, and non-interactive starts without saving", async () => {
+        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        configured({ "linear.autoStart": "false" });
+        expect(await decide(true)).toBe(true);
+        expect(await decide()).toBe(false);
+
+        configured({ "linear.autoStart": "true" });
+        expect(await decide(false)).toBe(false);
+        expect(await decide()).toBe(true);
+
+        configured({});
+        setNonInteractive(true);
+        expect(await decide()).toBe(true);
+        expect(mockSet).not.toHaveBeenCalled();
+      });
+
+      it("prompts naming the key and saves the answer under it", async () => {
+        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        configured({});
+        mockConfirm.mockResolvedValue(false);
+
+        expect(await decide()).toBe(false);
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Move this issue to started? (saved as linear.autoStart; change it later with `worktree config linear.autoStart <true|false>`)",
+        });
+        expect(mockSet).toHaveBeenCalledWith("linear.autoStart", "false");
+      });
+    });
+
     describe("the worktree is the deliverable", () => {
       it("still creates and opens the worktree when the assignment throws", async () => {
         vi.spyOn(githubIntegration, "assignGitHubIssue").mockRejectedValue(
