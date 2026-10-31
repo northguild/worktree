@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { confirm } from "@inquirer/prompts";
 import { expectCommands, mockRun } from "../test-setup.js";
+import * as config from "./config.js";
 import { CONFIG_NAMES, SECRET_CONFIG_NAMES } from "./constants.js";
 import * as git from "./git.js";
 import { setNonInteractive } from "./interaction.js";
@@ -46,10 +47,13 @@ vi.mock("@inquirer/prompts", () => ({
 
 vi.mock("./git.js", () => ({
   gitResolveOriginHead: vi.fn(),
-  gitGetConfigValue: vi.fn(),
   gitReadBlobAtRef: vi.fn(),
   gitHasOriginRemote: vi.fn(),
   gitGetTopLevelPath: vi.fn(),
+}));
+
+vi.mock("./config.js", () => ({
+  gitGetConfigValue: vi.fn(),
 }));
 
 // The example file from plan §4, verbatim: the expected values below come from
@@ -92,6 +96,7 @@ postCreate:
 `;
 
 const mocked = vi.mocked(git);
+const mockedConfig = vi.mocked(config);
 let scratch: string;
 
 function blob(content: string) {
@@ -118,7 +123,7 @@ beforeEach(() => {
   resetProjectConfigCache();
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), "wt-project-config-"));
   mocked.gitResolveOriginHead.mockResolvedValue("");
-  mocked.gitGetConfigValue.mockResolvedValue("");
+  mockedConfig.gitGetConfigValue.mockResolvedValue("");
   mocked.gitReadBlobAtRef.mockResolvedValue({ status: "absent-path" });
   mocked.gitHasOriginRemote.mockResolvedValue(true);
   mocked.gitGetTopLevelPath.mockResolvedValue(scratch);
@@ -239,12 +244,12 @@ describe("readProjectConfig: no project config (D1)", () => {
 
 describe("readProjectConfig: which ref (D1)", () => {
   it("falls back to the personal defaultSourceBranch when origin/HEAD is absent", async () => {
-    mocked.gitGetConfigValue.mockResolvedValue("origin/develop");
+    mockedConfig.gitGetConfigValue.mockResolvedValue("origin/develop");
     blob("branchPrefix: { feature: feat/ }\n");
 
     const result = await readProjectConfig({});
 
-    expect(mocked.gitGetConfigValue).toHaveBeenCalledWith(
+    expect(mockedConfig.gitGetConfigValue).toHaveBeenCalledWith(
       "defaultSourceBranch",
     );
     expect(mocked.gitReadBlobAtRef).toHaveBeenCalledWith(
@@ -269,7 +274,7 @@ describe("readProjectConfig: which ref (D1)", () => {
 
   it("prefers origin/HEAD over the personal key", async () => {
     mocked.gitResolveOriginHead.mockResolvedValue("origin/main");
-    mocked.gitGetConfigValue.mockResolvedValue("origin/develop");
+    mockedConfig.gitGetConfigValue.mockResolvedValue("origin/develop");
     blob("copy: [a]\n");
 
     await readProjectConfig({});
@@ -594,7 +599,7 @@ describe("resolveTeamConfig (D2, D3)", () => {
   ] as const;
 
   function personal(values: Record<string, string>) {
-    mocked.gitGetConfigValue.mockImplementation((name: string) =>
+    mockedConfig.gitGetConfigValue.mockImplementation((name: string) =>
       Promise.resolve(values[name] ?? ""),
     );
   }
@@ -665,7 +670,7 @@ describe("resolveTeamConfig (D2, D3)", () => {
       "origin/main",
       ".worktree.yml",
     );
-    expect(mocked.gitGetConfigValue).toHaveBeenCalledTimes(1);
+    expect(mockedConfig.gitGetConfigValue).toHaveBeenCalledTimes(1);
   });
 
   it("throws the file's error rather than answering with the default", async () => {
@@ -902,7 +907,7 @@ describe("post-create approval", () => {
       stored = args[args.length - 1] ?? "";
       return "";
     });
-    mocked.gitGetConfigValue.mockImplementation(async (name: string) =>
+    mockedConfig.gitGetConfigValue.mockImplementation(async (name: string) =>
       name === "postCreate" ? personal : "",
     );
     fromOriginMain(
@@ -1298,7 +1303,7 @@ function fakeGitConfig(initial: Record<string, string> = {}) {
     ]),
   );
   const global = new Map<string, string>();
-  mocked.gitGetConfigValue.mockImplementation(async (name: string) => {
+  mockedConfig.gitGetConfigValue.mockImplementation(async (name: string) => {
     const key = `northguild.worktree.${name}`;
     return local.get(key) ?? global.get(key) ?? "";
   });

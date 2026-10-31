@@ -1,5 +1,6 @@
 import { input } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
+import * as config from "../lib/config.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import * as projectConfig from "../lib/project-config.js";
@@ -1257,7 +1258,7 @@ describe("getGitHubBranchNameFromIssue", () => {
       content,
     });
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
   }
 
   beforeEach(() => {
@@ -1436,7 +1437,7 @@ github:
       content,
     });
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
   }
 
   afterEach(() => {
@@ -1521,7 +1522,7 @@ describe("the shared branchType list for GitHub", () => {
       content,
     });
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
       Promise.resolve(personal[name] ?? ""),
     );
   }

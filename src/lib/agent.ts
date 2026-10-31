@@ -6,7 +6,7 @@ import {
   listHerdrAgents,
 } from "../integrations/herdr.js";
 import { isProcessRunning, run } from "./cli.js";
-import { gitGetConfigValue } from "./git.js";
+import { gitGetConfigValue } from "./config.js";
 import type { AgentSession } from "./types.js";
 import { splitCommandValue } from "./utils.js";
 

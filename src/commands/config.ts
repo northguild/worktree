@@ -3,6 +3,7 @@ import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
 import { BaseCommand } from "../lib/base-command.js";
 import { commandExists } from "../lib/cli.js";
+import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
 import {
   CONFIG_NAMES,
   HERDR_CONFIG_NAMES,
@@ -10,7 +11,6 @@ import {
   SECRET_CONFIG_NAMES,
   UNPROMPTED_CONFIG_NAMES,
 } from "../lib/constants.js";
-import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import {
   approvePostCreate,

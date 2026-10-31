@@ -5,8 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { confirm, input, select } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
+import * as gitConfig from "../lib/config.js";
 import { CONFIG_NAMES, SECRET_CONFIG_NAMES } from "../lib/constants.js";
-import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import * as projectConfig from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
@@ -36,7 +36,7 @@ describe("config command", () => {
     mockConsoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
 
     // Prevent config command tests from touching the low-level cmd wrapper.
-    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
 
     // No project file unless a case supplies one; the offers are covered by
     // project-config.test.ts, so they are spies here.
@@ -48,10 +48,12 @@ describe("config command", () => {
     vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
 
     // Default mock to prevent config verification from running
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-      if (key === "has-called-config") return Promise.resolve("true");
-      return Promise.resolve("");
-    });
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+      (key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        return Promise.resolve("");
+      },
+    );
   });
 
   // Phase 7 (#181), D16 and D22. The approval is made by `--approve`, which
@@ -76,7 +78,7 @@ describe("config command", () => {
 
       expect(approve).toHaveBeenCalledTimes(1);
       approve.mockRestore();
-      expect(git.gitSetConfigValue).not.toHaveBeenCalledWith(
+      expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalledWith(
         INTERNAL,
         expect.anything(),
       );
@@ -98,7 +100,7 @@ describe("config command", () => {
     it("keeps the approval key out of CONFIG_NAMES and out of --list", async () => {
       expect(CONFIG_NAMES as readonly string[]).not.toContain(INTERNAL);
       parsed({}, { list: true, missing: false });
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
         async (key: string) => (key === INTERNAL ? "a-stored-value" : ""),
       );
 
@@ -118,7 +120,7 @@ describe("config command", () => {
       await expect(config.run()).rejects.toThrow(
         `Unknown config name: ${INTERNAL}`,
       );
-      expect(git.gitSetConfigValue).not.toHaveBeenCalledWith(
+      expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalledWith(
         INTERNAL,
         expect.anything(),
       );
@@ -137,17 +139,19 @@ describe("config command", () => {
         flags: { list: true, missing: false },
       });
 
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "jira.host")
-          return Promise.resolve("https://test.atlassian.net");
-        if (key === "jira.email") return Promise.resolve("test@example.com");
-        if (key === "jira.apiToken") return Promise.resolve("api-token-123");
-        if (key === "codeEditor") return Promise.resolve("code");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "jira.host")
+            return Promise.resolve("https://test.atlassian.net");
+          if (key === "jira.email") return Promise.resolve("test@example.com");
+          if (key === "jira.apiToken") return Promise.resolve("api-token-123");
+          if (key === "codeEditor") return Promise.resolve("code");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          return Promise.resolve("");
+        },
+      );
 
       await config.run();
 
@@ -176,8 +180,8 @@ describe("config command", () => {
         "clickup.apiToken": "clickup-secret-value",
         "github.token": "github-secret-value",
       };
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(secrets[key] ?? ""),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => Promise.resolve(secrets[key] ?? ""),
       );
 
       await config.run();
@@ -196,7 +200,7 @@ describe("config command", () => {
         flags: { list: true, missing: false },
       });
 
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue(""); // All empty
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue(""); // All empty
 
       await config.run();
 
@@ -216,7 +220,7 @@ describe("config command", () => {
         flags: { list: true, missing: true },
       });
 
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("some-value"); // All have values
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("some-value"); // All have values
 
       await config.run();
 
@@ -237,7 +241,7 @@ describe("config command", () => {
     it("stores a valid owner/repo and --list shows it unmasked", async () => {
       vi.spyOn(validators, "validateConfigValue").mockRestore();
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       (config as any).parse = vi.fn().mockResolvedValue({
         args: { name: "github.repository", value: "acme/widgets" },
@@ -251,8 +255,9 @@ describe("config command", () => {
         "acme/widgets",
       );
 
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(key === "github.repository" ? "acme/widgets" : ""),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(key === "github.repository" ? "acme/widgets" : ""),
       );
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -272,7 +277,7 @@ describe("config command", () => {
     ])("refuses %j with exit 2 and stores nothing", async (value) => {
       vi.spyOn(validators, "validateConfigValue").mockRestore();
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       (config as any).parse = vi.fn().mockResolvedValue({
         args: { name: "github.repository", value },
@@ -307,7 +312,7 @@ describe("config command", () => {
         args: {},
         flags: { list: true, missing: true },
       });
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("");
 
       await config.run();
 
@@ -317,8 +322,9 @@ describe("config command", () => {
 
     it("does not open the GitHub group, or prompt, on a --missing run", async () => {
       // Everything else answered, so only github.repository is unset.
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(key === "github.repository" ? "" : "set"),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(key === "github.repository" ? "" : "set"),
       );
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -356,7 +362,7 @@ describe("config command", () => {
   describe("setting config values", () => {
     it("should set a valid config value", async () => {
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       const mockValidateConfigValue = vi
         .spyOn(validators, "validateConfigValue")
@@ -382,7 +388,7 @@ describe("config command", () => {
 
     it("should get config value when only name is provided", async () => {
       const mockGetConfigValue = vi
-        .spyOn(git, "gitGetConfigValue")
+        .spyOn(gitConfig, "gitGetConfigValue")
         .mockResolvedValue("test@example.com");
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -399,7 +405,7 @@ describe("config command", () => {
     });
 
     it("should print a secret when only its name is provided", async () => {
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("tok_secret");
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("tok_secret");
       (config as any).parse = vi.fn().mockResolvedValue({
         args: { name: "github.token" },
         flags: {},
@@ -423,7 +429,7 @@ describe("config command", () => {
 
     it("should store opener none", async () => {
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       (config as any).parse = vi.fn().mockResolvedValue({
         args: { name: "opener", value: "none" },
@@ -443,7 +449,7 @@ describe("config command", () => {
     ])("should refuse a whitespace-only %s and store nothing", async (name) => {
       vi.spyOn(validators, "validateConfigValue").mockRestore();
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       (config as any).parse = vi.fn().mockResolvedValue({
         args: { name, value: "   " },
@@ -464,7 +470,7 @@ describe("config command", () => {
       // Earlier tests stub the validator; this one wants the real one.
       vi.spyOn(validators, "validateConfigValue").mockRestore();
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       (config as any).parse = vi.fn().mockResolvedValue({
         args: { name: "opener", value: "bogus" },
@@ -582,7 +588,7 @@ describe("config command", () => {
         .mockResolvedValueOnce("fix/")
         .mockResolvedValueOnce("chore/");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -647,7 +653,7 @@ describe("config command", () => {
     it("takes the defaults without asking when the run is non-interactive", async () => {
       setNonInteractive(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -697,12 +703,14 @@ describe("config command", () => {
   describe("defaultSourceBranch prompt pre-fill", () => {
     it("should pre-fill with the existing value when one is configured", async () => {
       mockInput.mockResolvedValue("origin/develop");
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/develop");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/develop");
+          return Promise.resolve("");
+        },
+      );
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -760,7 +768,7 @@ describe("config command", () => {
     it("prompts for the command and stores it trimmed, without a group confirm when named", async () => {
       mockInput.mockResolvedValue(" pnpm install ");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -784,7 +792,7 @@ describe("config command", () => {
     it("accepts an empty answer, which declines a fixed command", async () => {
       mockInput.mockResolvedValue("");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -822,12 +830,13 @@ describe("config command", () => {
 
     it("keeps the stored value when a non-interactive run names the key", async () => {
       setNonInteractive(true);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(key === "postCreate" ? "make setup" : "true"),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(key === "postCreate" ? "make setup" : "true"),
       );
       vi.spyOn(cli, "commandExists").mockResolvedValue(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -867,7 +876,7 @@ describe("config command", () => {
     it("should prompt for the agent command and store it without a group confirm when the key is named", async () => {
       mockInput.mockResolvedValue("claude --bg");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -972,11 +981,13 @@ describe("config command", () => {
 
     it("should pre-fill with the existing value when one is configured", async () => {
       mockInput.mockResolvedValue("codex -q");
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "agent.command") return Promise.resolve("codex -q");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "agent.command") return Promise.resolve("codex -q");
+          return Promise.resolve("");
+        },
+      );
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -1057,11 +1068,13 @@ describe("config command", () => {
       });
     };
     const withStoredHost = (stored: string) => {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "jira.host") return Promise.resolve(stored);
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "jira.host") return Promise.resolve(stored);
+          return Promise.resolve("");
+        },
+      );
     };
 
     // Issue: "offers the stored host as an editable default".
@@ -1115,7 +1128,7 @@ describe("config command", () => {
     it("should write the answer the prompt returns", async () => {
       mockInput.mockResolvedValue("https://new.atlassian.net");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       hostRun();
 
@@ -1132,7 +1145,7 @@ describe("config command", () => {
     it("should take the stored host without prompting when non-interactive", async () => {
       setNonInteractive(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       withStoredHost("https://real.atlassian.net");
       hostRun();
@@ -1150,7 +1163,7 @@ describe("config command", () => {
     it("should fail naming worktree config jira.host when non-interactive and none is stored", async () => {
       setNonInteractive(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       withStoredHost("");
       hostRun();
@@ -1170,7 +1183,7 @@ describe("config command", () => {
       mockSelect.mockResolvedValueOnce("herdr");
       mockConfirm.mockResolvedValueOnce(false);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -1209,11 +1222,13 @@ describe("config command", () => {
     });
 
     const withStoredOpener = (stored: string) => {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "opener") return Promise.resolve(stored);
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "opener") return Promise.resolve(stored);
+          return Promise.resolve("");
+        },
+      );
     };
 
     const parseOpenerRun = (yes: boolean) => {
@@ -1249,7 +1264,7 @@ describe("config command", () => {
     ])("should write the chosen opener %j", async (answer) => {
       mockSelect.mockResolvedValue(answer);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       parseOpenerRun(true);
 
@@ -1266,7 +1281,7 @@ describe("config command", () => {
     ])("should take a stored opener of %j as %j without exiting 2 when non-interactive", async (stored, expected) => {
       setNonInteractive(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       withStoredOpener(stored);
       parseOpenerRun(true);
@@ -1280,7 +1295,7 @@ describe("config command", () => {
     it("should write true when herdr.focus is confirmed", async () => {
       mockConfirm.mockResolvedValueOnce(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -1323,12 +1338,14 @@ describe("config command", () => {
     it("should pre-fill both prompts with the configured values", async () => {
       mockSelect.mockResolvedValue("herdr");
       mockConfirm.mockResolvedValue(false);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "opener") return Promise.resolve("herdr");
-        if (key === "herdr.focus") return Promise.resolve("false");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "opener") return Promise.resolve("herdr");
+          if (key === "herdr.focus") return Promise.resolve("false");
+          return Promise.resolve("");
+        },
+      );
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -1371,13 +1388,15 @@ describe("config command", () => {
     it("should take the stored herdr.focus without prompting when non-interactive", async () => {
       setNonInteractive(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "herdr.focus") return Promise.resolve("false");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "herdr.focus") return Promise.resolve("false");
+          return Promise.resolve("");
+        },
+      );
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -1393,7 +1412,7 @@ describe("config command", () => {
     it("should take yes for an unset herdr.focus without exiting 2 when non-interactive", async () => {
       setNonInteractive(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -1410,7 +1429,7 @@ describe("config command", () => {
     it("should set herdr.agent from a prompt run", async () => {
       mockInput.mockResolvedValue("claude");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -1482,7 +1501,9 @@ describe("config command", () => {
           message === "Do you want to configure Linear integration?",
       );
       mockInput.mockResolvedValue("lin_api_prompted");
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       linearRun({});
 
       await config.run();
@@ -1514,7 +1535,9 @@ describe("config command", () => {
 
     it("answers the group yes without asking for --names linear.apiKey", async () => {
       mockInput.mockResolvedValue("lin_api_named");
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       linearRun({ names: "linear.apiKey" });
 
       await config.run();
@@ -1524,14 +1547,15 @@ describe("config command", () => {
     });
 
     it("never offers the stored key as a default or prefill", async () => {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config"
-            ? "true"
-            : key === "linear.apiKey"
-              ? "lin_api_stored"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "linear.apiKey"
+                ? "lin_api_stored"
+                : "",
+          ),
       );
       mockInput.mockResolvedValue("lin_api_new");
       linearRun({ names: "linear.apiKey" });
@@ -1553,7 +1577,9 @@ describe("config command", () => {
       "   ",
     ])("writes nothing for an empty answer (%j)", async (answer) => {
       mockInput.mockResolvedValue(answer);
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       linearRun({ names: "linear.apiKey" });
 
       await config.run();
@@ -1566,7 +1592,9 @@ describe("config command", () => {
 
     it("stores a pasted key without surrounding whitespace", async () => {
       mockInput.mockResolvedValue("  lin_api_pasted \n");
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       linearRun({ names: "linear.apiKey" });
 
       await config.run();
@@ -1580,14 +1608,15 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("linear.apiKey");
 
       mockConsoleLog.mockClear();
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config"
-            ? "true"
-            : key === "linear.apiKey"
-              ? "lin_api_stored"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "linear.apiKey"
+                ? "lin_api_stored"
+                : "",
+          ),
       );
       await config.run();
       expect(mockConsoleLog).not.toHaveBeenCalledWith("linear.apiKey");
@@ -1639,7 +1668,9 @@ describe("config command", () => {
       mockInput.mockImplementation(async ({ message }) =>
         message === "ClickUp API token" ? "pk_prompted" : "12345",
       );
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       clickUpRun({});
 
       await config.run();
@@ -1671,7 +1702,9 @@ describe("config command", () => {
 
     it("answers the group yes without asking for --names clickup.apiToken, and asks only the token", async () => {
       mockInput.mockResolvedValue("pk_named");
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       clickUpRun({ names: "clickup.apiToken" });
 
       await config.run();
@@ -1682,14 +1715,15 @@ describe("config command", () => {
     });
 
     it("never offers the stored token as a default or prefill", async () => {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config"
-            ? "true"
-            : key === "clickup.apiToken"
-              ? "pk_stored"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "clickup.apiToken"
+                ? "pk_stored"
+                : "",
+          ),
       );
       mockInput.mockResolvedValue("pk_new");
       clickUpRun({ names: "clickup.apiToken" });
@@ -1709,7 +1743,9 @@ describe("config command", () => {
       "   ",
     ])("keeps the stored token for an empty answer (%j)", async (answer) => {
       mockInput.mockResolvedValue(answer);
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       clickUpRun({ names: "clickup.apiToken" });
 
       await config.run();
@@ -1722,7 +1758,9 @@ describe("config command", () => {
 
     it("stores a pasted token without surrounding whitespace", async () => {
       mockInput.mockResolvedValue("  pk_pasted \n");
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       clickUpRun({ names: "clickup.apiToken" });
 
       await config.run();
@@ -1735,7 +1773,9 @@ describe("config command", () => {
       "   ",
     ])("skips the workspace id for an empty answer (%j)", async (answer) => {
       mockInput.mockResolvedValue(answer);
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       clickUpRun({ names: "clickup.workspaceId" });
 
       await config.run();
@@ -1749,7 +1789,9 @@ describe("config command", () => {
 
     it("stores a trimmed workspace id and validates it as digits", async () => {
       mockInput.mockResolvedValue(" 9001 ");
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       clickUpRun({ names: "clickup.workspaceId" });
 
       await config.run();
@@ -1769,14 +1811,15 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("clickup.workspaceId");
 
       mockConsoleLog.mockClear();
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config"
-            ? "true"
-            : key === "clickup.apiToken"
-              ? "pk_stored"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "clickup.apiToken"
+                ? "pk_stored"
+                : "",
+          ),
       );
       await config.run();
       expect(mockConsoleLog).not.toHaveBeenCalledWith("clickup.apiToken");
@@ -1812,16 +1855,19 @@ describe("config command", () => {
 
     it("takes an empty workspace id without failing in a non-interactive run", async () => {
       setNonInteractive(true);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config"
-            ? "true"
-            : key === "clickup.apiToken"
-              ? "pk_stored"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "clickup.apiToken"
+                ? "pk_stored"
+                : "",
+          ),
       );
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       clickUpRun({ names: "clickup.apiToken,clickup.workspaceId" });
 
       await config.run();
@@ -1852,7 +1898,9 @@ describe("config command", () => {
       "\t\n",
     ])("writes nothing for an empty answer (%j)", async (answer) => {
       mockInput.mockResolvedValue(answer);
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       jiraTokenRun();
 
       await config.run();
@@ -1866,7 +1914,9 @@ describe("config command", () => {
 
     it("stores a pasted token without surrounding whitespace", async () => {
       mockInput.mockResolvedValue("  jira_pasted_placeholder \n");
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       jiraTokenRun();
 
       await config.run();
@@ -1879,7 +1929,9 @@ describe("config command", () => {
 
     it("stores a plain token as given", async () => {
       mockInput.mockResolvedValue("jira_plain_placeholder");
-      const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
       jiraTokenRun();
 
       await config.run();
@@ -1899,7 +1951,7 @@ describe("config command", () => {
       mockInput.mockResolvedValueOnce("ghp_prompted_token");
       mockSelect.mockResolvedValueOnce("true");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -1978,13 +2030,16 @@ describe("config command", () => {
       "\t\n",
     ])("should keep a stored github.token when the prompt is answered empty (%j)", async (answer) => {
       mockInput.mockResolvedValue(answer);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "github.token") return Promise.resolve("ghp_stored_token");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "github.token")
+            return Promise.resolve("ghp_stored_token");
+          return Promise.resolve("");
+        },
+      );
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -2013,7 +2068,7 @@ describe("config command", () => {
     it("should store a pasted github.token without surrounding whitespace", async () => {
       mockInput.mockResolvedValue("  ghp_padded_placeholder \n");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
 
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -2035,11 +2090,13 @@ describe("config command", () => {
     });
 
     const withStoredAutoAssign = (stored: string) =>
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "github.autoAssign") return Promise.resolve(stored);
-        return Promise.resolve("");
-      });
+      vi
+        .spyOn(gitConfig, "gitGetConfigValue")
+        .mockImplementation((key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "github.autoAssign") return Promise.resolve(stored);
+          return Promise.resolve("");
+        });
 
     const parseAutoAssignRun = (flags: Record<string, unknown>) => {
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -2078,7 +2135,7 @@ describe("config command", () => {
     ])("should write the %s answer to github.autoAssign as %j", async (_label, answer) => {
       mockSelect.mockResolvedValue(answer);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       withStoredAutoAssign(answer === "true" ? "false" : "true");
       parseAutoAssignRun({ yes: false });
@@ -2099,7 +2156,7 @@ describe("config command", () => {
     ])("should take a stored github.autoAssign of %j without exiting 2 when non-interactive", async (stored, expected) => {
       setNonInteractive(true);
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       withStoredAutoAssign(stored);
       parseAutoAssignRun({ yes: true });
@@ -2118,7 +2175,7 @@ describe("config command", () => {
       // it until it is settled, and "Ask me each time" must be a way to answer.
       mockSelect.mockResolvedValue("");
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       parseAutoAssignRun({ missing: true, yes: false });
 
@@ -2139,11 +2196,13 @@ describe("config command", () => {
 
     describe("jira.autoAssign prompt (D7)", () => {
       const withStoredJiraAutoAssign = (stored: string) =>
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-          if (key === "has-called-config") return Promise.resolve("true");
-          if (key === "jira.autoAssign") return Promise.resolve(stored);
-          return Promise.resolve("");
-        });
+        vi
+          .spyOn(gitConfig, "gitGetConfigValue")
+          .mockImplementation((key: string) => {
+            if (key === "has-called-config") return Promise.resolve("true");
+            if (key === "jira.autoAssign") return Promise.resolve(stored);
+            return Promise.resolve("");
+          });
 
       const parseJiraAutoAssignRun = (flags: Record<string, unknown>) => {
         (config as any).parse = vi.fn().mockResolvedValue({
@@ -2193,7 +2252,7 @@ describe("config command", () => {
       ])("should write the %s answer to jira.autoAssign as %j", async (_label, answer) => {
         mockSelect.mockResolvedValue(answer);
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         withStoredJiraAutoAssign(answer === "true" ? "false" : "true");
         parseJiraAutoAssignRun({ yes: false });
@@ -2213,7 +2272,7 @@ describe("config command", () => {
       ])("should take a stored jira.autoAssign of %j without exiting 2 when non-interactive", async (stored, expected) => {
         setNonInteractive(true);
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         withStoredJiraAutoAssign(stored);
         parseJiraAutoAssignRun({ yes: true });
@@ -2229,7 +2288,7 @@ describe("config command", () => {
 
       it("should offer an unset jira.autoAssign on a --missing run", async () => {
         mockSelect.mockResolvedValue("");
-        vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
         parseJiraAutoAssignRun({ missing: true, yes: false });
 
         await config.run();
@@ -2253,7 +2312,7 @@ describe("config command", () => {
           .mockResolvedValueOnce("token");
         mockSelect.mockResolvedValueOnce("true");
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         (config as any).parse = vi.fn().mockResolvedValue({
           args: {},
@@ -2277,11 +2336,13 @@ describe("config command", () => {
 
     describe("linear.autoStart prompt (D10)", () => {
       const withStored = (stored: string) =>
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-          if (key === "has-called-config") return Promise.resolve("true");
-          if (key === "linear.autoStart") return Promise.resolve(stored);
-          return Promise.resolve("");
-        });
+        vi
+          .spyOn(gitConfig, "gitGetConfigValue")
+          .mockImplementation((key: string) => {
+            if (key === "has-called-config") return Promise.resolve("true");
+            if (key === "linear.autoStart") return Promise.resolve(stored);
+            return Promise.resolve("");
+          });
 
       const parseRun = (flags: Record<string, unknown>) => {
         (config as any).parse = vi.fn().mockResolvedValue({
@@ -2331,7 +2392,7 @@ describe("config command", () => {
       ])("should write the %s answer to linear.autoStart as %j", async (_label, answer) => {
         mockSelect.mockResolvedValue(answer);
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         withStored(answer === "true" ? "false" : "true");
         parseRun({ yes: false });
@@ -2351,7 +2412,7 @@ describe("config command", () => {
       ])("should take a stored linear.autoStart of %j without exiting 2 when non-interactive", async (stored, expected) => {
         setNonInteractive(true);
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         withStored(stored);
         parseRun({ yes: true });
@@ -2367,7 +2428,7 @@ describe("config command", () => {
 
       it("should offer an unset linear.autoStart on a --missing run", async () => {
         mockSelect.mockResolvedValue("");
-        vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
         parseRun({ missing: true, yes: false });
 
         await config.run();
@@ -2388,7 +2449,7 @@ describe("config command", () => {
         mockInput.mockResolvedValueOnce("lin_api_x");
         mockSelect.mockResolvedValueOnce("true");
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         parseRun({ missing: true, names: "linear.apiKey,linear.autoStart" });
 
@@ -2412,7 +2473,7 @@ describe("config command", () => {
         );
         mockInput.mockResolvedValueOnce("lin_api_x");
         mockSelect.mockResolvedValueOnce("true");
-        vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
         parseRun({ missing: false, names: undefined });
 
         await config.run();
@@ -2502,11 +2563,13 @@ describe("config command", () => {
       // opener stays unset here, so this exercises the per-key carve-out on its
       // own rather than the opener=herdr opt-in covered below.
       vi.spyOn(cli, "commandExists").mockResolvedValue(false);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "herdr.agent") return Promise.resolve("claude");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "herdr.agent") return Promise.resolve("claude");
+          return Promise.resolve("");
+        },
+      );
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
         flags: { list: true, missing: false },
@@ -2569,11 +2632,13 @@ describe("config command", () => {
 
     it("un-hides every Herdr key when opener is explicitly herdr", async () => {
       vi.spyOn(cli, "commandExists").mockResolvedValue(false);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "opener") return Promise.resolve("herdr");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "opener") return Promise.resolve("herdr");
+          return Promise.resolve("");
+        },
+      );
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
         flags: { list: true, missing: true },
@@ -2612,7 +2677,7 @@ describe("config command", () => {
       // installing Herdr must not be silently ignored.
       vi.spyOn(cli, "commandExists").mockResolvedValue(false);
       const setConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       mockSelect.mockResolvedValue("herdr");
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -2686,7 +2751,7 @@ postCreate:
       scratch = fs.mkdtempSync(path.join(os.tmpdir(), "wt-config-"));
       personal = {};
       setNonInteractive(false);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
         async (key: string) =>
           key === "has-called-config" ? "true" : (personal[key] ?? ""),
       );
@@ -2827,7 +2892,7 @@ postCreate:
         expect(said).toContain("feat/");
         expect(said).toContain("mine/");
         expect(mockConfirm).toHaveBeenCalledTimes(1);
-        expect(git.gitSetConfigValue).toHaveBeenCalledWith(
+        expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
           "branchPrefix.feature",
           "mine/",
         );
@@ -2840,7 +2905,7 @@ postCreate:
 
         await config.run();
 
-        expect(git.gitSetConfigValue).not.toHaveBeenCalledWith(
+        expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalledWith(
           "branchPrefix.feature",
           "mine/",
         );
@@ -2854,7 +2919,7 @@ postCreate:
         await config.run();
 
         expect(mockConfirm).not.toHaveBeenCalled();
-        expect(git.gitSetConfigValue).toHaveBeenCalledWith(
+        expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
           "branchPrefix.feature",
           "mine/",
         );
@@ -2885,7 +2950,7 @@ postCreate:
 
         expect(mockConfirm).not.toHaveBeenCalled();
         expect(warn).not.toHaveBeenCalled();
-        expect(git.gitSetConfigValue).toHaveBeenCalledWith(
+        expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
           "codeEditor",
           "code",
         );
@@ -3096,7 +3161,7 @@ postCreate:
           await expect(config.run()).rejects.toThrow(
             `Unknown config name: ${key}`,
           );
-          expect(git.gitSetConfigValue).not.toHaveBeenCalledWith(
+          expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalledWith(
             key,
             expect.anything(),
           );

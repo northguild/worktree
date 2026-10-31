@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { commandExists, runStreaming } from "./cli.js";
-import { gitGetConfigValue } from "./git.js";
+import { gitGetConfigValue } from "./config.js";
 import { isNonInteractive } from "./interaction.js";
 import { getProjectPostCreateSteps } from "./project-config.js";
 import { splitCommandValue } from "./utils.js";
