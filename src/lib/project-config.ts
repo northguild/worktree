@@ -4,9 +4,9 @@ import path from "node:path";
 import { LineCounter, parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import { run } from "./cli.js";
+import { gitGetConfigValue } from "./config.js";
 import { SECRET_CONFIG_NAMES } from "./constants.js";
 import {
-  gitGetConfigValue,
   gitGetTopLevelPath,
   gitHasOriginRemote,
   gitReadBlobAtRef,

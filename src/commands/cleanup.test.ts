@@ -2,6 +2,7 @@
 import { confirm } from "@inquirer/prompts";
 import ora from "ora";
 import * as herdr from "../integrations/herdr.js";
+import * as config from "../lib/config.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import type { ConfigName, WorktreeListEntry } from "../lib/types.js";
@@ -196,7 +197,7 @@ describe("cleanup command", () => {
     // and spawns no Herdr process. Spied rather than left to the global run()
     // mock so the gate is explicit, and so the undeclared `git config` call
     // does not warn on every test here.
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
   });
 
   it("returns early with success message when no stale worktrees exist", async () => {
@@ -1372,7 +1373,7 @@ describe("cleanup command — the herdr closer", () => {
   const mockConfirm = vi.mocked(confirm);
 
   function setConfig(values: Partial<Record<ConfigName, string>>) {
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
       async (name: ConfigName) => values[name] ?? "",
     );
   }

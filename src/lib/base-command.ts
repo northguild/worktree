@@ -21,11 +21,8 @@ import {
   toHerdrAgentName,
 } from "../integrations/herdr.js";
 import { run, spawnDetached } from "./cli.js";
-import {
-  gitGetAbsoluteWorktreesPath,
-  gitGetConfigValue,
-  gitGetRootPath,
-} from "./git.js";
+import { gitGetConfigValue } from "./config.js";
+import { gitGetAbsoluteWorktreesPath, gitGetRootPath } from "./git.js";
 import {
   isNonInteractive,
   readProcessInteractionInputs,

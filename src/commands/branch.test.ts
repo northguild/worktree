@@ -9,6 +9,7 @@ import * as githubIntegration from "../integrations/github.js";
 import * as herdr from "../integrations/herdr.js";
 import * as jiraIntegration from "../integrations/jira.js";
 import * as linearIntegration from "../integrations/linear.js";
+import * as gitConfig from "../lib/config.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { runInstall } from "../lib/install.js";
@@ -93,11 +94,13 @@ describe("branch command", () => {
     // Mock config verification to prevent first-time config prompts. An agent
     // is configured, so a case that passes a brief clears the preflight that
     // refuses one nothing would take; that preflight has its own cases.
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-      if (key === "has-called-config") return Promise.resolve("true");
-      if (key === "agent.command") return Promise.resolve("claude --bg");
-      return Promise.resolve("");
-    });
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+      (key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "agent.command") return Promise.resolve("claude --bg");
+        return Promise.resolve("");
+      },
+    );
 
     // From this phase on, any --github run can reach the assignment seam: an
     // unset `github.autoAssign` means ask (D3), so a case that never mentions
@@ -124,7 +127,7 @@ describe("branch command", () => {
     vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
     vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
-    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
     vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
       login: "octocat",
       assigned: true,
@@ -140,12 +143,14 @@ describe("branch command", () => {
       const mockGitCreateWorktree = vi
         .spyOn(git, "gitCreateWorktree")
         .mockResolvedValue("/path/to/worktree");
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          return Promise.resolve("");
+        },
+      );
 
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
@@ -173,7 +178,7 @@ describe("branch command", () => {
       const mockGitCreateWorktree = vi
         .spyOn(git, "gitCreateWorktree")
         .mockResolvedValue("/path/to/worktree");
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("origin/main");
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("origin/main");
 
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -234,11 +239,13 @@ jira:
 
     // `has-called-config` is set; everything else is whatever the case gives.
     function personalConfig(values: Record<string, string> = {}) {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "agent.command") return Promise.resolve("claude --bg");
-        return Promise.resolve(values[key] ?? "");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "agent.command") return Promise.resolve("claude --bg");
+          return Promise.resolve(values[key] ?? "");
+        },
+      );
     }
 
     function projectFile(content: string) {
@@ -824,7 +831,7 @@ jira:
 
     it("should fallback to origin/main when no default source is configured", async () => {
       const mockGetConfigValue = vi
-        .spyOn(git, "gitGetConfigValue")
+        .spyOn(gitConfig, "gitGetConfigValue")
         .mockResolvedValue("");
       const mockGitCreateWorktree = vi
         .spyOn(git, "gitCreateWorktree")
@@ -871,7 +878,7 @@ jira:
     it("should reject using local source when confirmation is denied", async () => {
       vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue(["origin/main"]);
       mockConfirm.mockResolvedValue(false);
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("origin/main");
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("origin/main");
       const mockGitCreateWorktree = vi
         .spyOn(git, "gitCreateWorktree")
         .mockResolvedValue("/path/to/worktree");
@@ -903,15 +910,18 @@ jira:
         title: "Add dark mode",
         type: { name: "Feature" },
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        if (key === "branchPrefix.feature") return Promise.resolve("feature/");
-        if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
-        if (key === "branchPrefix.chore") return Promise.resolve("chore/");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          if (key === "branchPrefix.feature")
+            return Promise.resolve("feature/");
+          if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
+          if (key === "branchPrefix.chore") return Promise.resolve("chore/");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("feature/42-add-dark-mode");
       const mockGitCreateWorktree = vi
         .spyOn(git, "gitCreateWorktree")
@@ -1043,12 +1053,14 @@ jira:
           stateReason: "not_planned",
           pullRequest: null,
         } as any);
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-          if (key === "has-called-config") return Promise.resolve("true");
-          if (key === "defaultSourceBranch")
-            return Promise.resolve("origin/main");
-          return Promise.resolve("");
-        });
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) => {
+            if (key === "has-called-config") return Promise.resolve("true");
+            if (key === "defaultSourceBranch")
+              return Promise.resolve("origin/main");
+            return Promise.resolve("");
+          },
+        );
         mockInput.mockResolvedValue("7-old-bug");
         (branch as any).parse = vi.fn().mockResolvedValue({
           args: {},
@@ -1128,13 +1140,15 @@ jira:
           title: "Fix login bug",
           type: { name: "Bug" },
         } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("fix/13-fix-login-bug");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
 
@@ -1154,15 +1168,18 @@ jira:
         title: "Fix memory leak",
         type: { name: "Bug" },
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        if (key === "branchPrefix.feature") return Promise.resolve("feature/");
-        if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
-        if (key === "branchPrefix.chore") return Promise.resolve("chore/");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          if (key === "branchPrefix.feature")
+            return Promise.resolve("feature/");
+          if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
+          if (key === "branchPrefix.chore") return Promise.resolve("chore/");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("fix/8-fix-memory-leak");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
 
@@ -1184,15 +1201,18 @@ jira:
         title: "Update CI config",
         type: { name: "Task" },
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        if (key === "branchPrefix.feature") return Promise.resolve("feature/");
-        if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
-        if (key === "branchPrefix.chore") return Promise.resolve("chore/");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          if (key === "branchPrefix.feature")
+            return Promise.resolve("feature/");
+          if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
+          if (key === "branchPrefix.chore") return Promise.resolve("chore/");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("chore/9-update-ci-config");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
 
@@ -1214,12 +1234,14 @@ jira:
         title: "Update dependencies",
         type: null,
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("7-update-dependencies");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
 
@@ -1241,12 +1263,14 @@ jira:
         title: "Fix: user's email (login)",
         type: null,
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("5-fix-users-email-login");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
 
@@ -1268,12 +1292,14 @@ jira:
         title: "!!!",
         type: null,
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("3-issue");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
 
@@ -1299,16 +1325,18 @@ jira:
         onWarning?.('Rule 1 of jira.branchType names the field "Nope".');
         return "DEV-123-add-dark-mode";
       });
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        if (key === "jira.host")
-          return Promise.resolve("example.atlassian.net");
-        if (key === "jira.email") return Promise.resolve("test@example.com");
-        if (key === "jira.apiToken") return Promise.resolve("token");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          if (key === "jira.host")
+            return Promise.resolve("example.atlassian.net");
+          if (key === "jira.email") return Promise.resolve("test@example.com");
+          if (key === "jira.apiToken") return Promise.resolve("token");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("DEV-123-add-dark-mode");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       (branch as any).parse = vi.fn().mockResolvedValue({
@@ -1327,16 +1355,18 @@ jira:
       vi.spyOn(jiraIntegration, "getJiraBranchNameFromIssue").mockResolvedValue(
         "feature/DEV-123-add-dark-mode",
       );
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        if (key === "jira.host")
-          return Promise.resolve("example.atlassian.net");
-        if (key === "jira.email") return Promise.resolve("test@example.com");
-        if (key === "jira.apiToken") return Promise.resolve("token");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          if (key === "jira.host")
+            return Promise.resolve("example.atlassian.net");
+          if (key === "jira.email") return Promise.resolve("test@example.com");
+          if (key === "jira.apiToken") return Promise.resolve("token");
+          return Promise.resolve("");
+        },
+      );
       mockInput.mockResolvedValue("feature/DEV-123-add-dark-mode");
       const mockGitCreateWorktree = vi
         .spyOn(git, "gitCreateWorktree")
@@ -1376,15 +1406,18 @@ jira:
     };
 
     function stubConfig(apiKey = "lin_api_test") {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        if (key === "linear.apiKey") return Promise.resolve(apiKey);
-        if (key === "branchPrefix.feature") return Promise.resolve("feature/");
-        if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          if (key === "linear.apiKey") return Promise.resolve(apiKey);
+          if (key === "branchPrefix.feature")
+            return Promise.resolve("feature/");
+          if (key === "branchPrefix.bugfix") return Promise.resolve("fix/");
+          return Promise.resolve("");
+        },
+      );
     }
 
     // `linear.autoStart` is unset in every case here, which under D4 attempts a
@@ -1539,17 +1572,18 @@ jira:
       let mockCreate: ReturnType<typeof vi.spyOn>;
 
       function config(values: Record<string, string> = {}) {
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-          Promise.resolve(
-            {
-              "has-called-config": "true",
-              defaultSourceBranch: "origin/main",
-              "linear.apiKey": "lin_api_test",
-              "clickup.apiToken": "pk_test",
-              "branchPrefix.feature": "feature/",
-              ...values,
-            }[key] ?? "",
-          ),
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) =>
+            Promise.resolve(
+              {
+                "has-called-config": "true",
+                defaultSourceBranch: "origin/main",
+                "linear.apiKey": "lin_api_test",
+                "clickup.apiToken": "pk_test",
+                "branchPrefix.feature": "feature/",
+                ...values,
+              }[key] ?? "",
+            ),
         );
       }
 
@@ -1631,7 +1665,9 @@ jira:
       });
 
       it("asks once when the key is unset and saves the answer under the key", async () => {
-        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
         mockConfirm.mockResolvedValue(true);
 
         const document = await go({});
@@ -1666,7 +1702,9 @@ jira:
 
       it("a non-interactive run with the key unset starts and saves nothing", async () => {
         setNonInteractive(true);
-        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
 
         const document = await go({});
 
@@ -1877,7 +1915,7 @@ jira:
           args: {},
           flags: { [provider]: id, assign: false },
         });
-        const getConfig = vi.mocked(git.gitGetConfigValue);
+        const getConfig = vi.mocked(gitConfig.gitGetConfigValue);
         getConfig.mockClear();
 
         await branch.run();
@@ -2007,8 +2045,8 @@ jira:
         "branchPrefix.bugfix": "fix/",
         ...values,
       };
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(config[key] ?? ""),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => Promise.resolve(config[key] ?? ""),
       );
     }
 
@@ -2307,8 +2345,9 @@ jira:
       ["--github", { github: "42", linear: "ENG-1" }],
       ["--jira", { jira: "DEV-42", linear: "ENG-1" }],
     ])("refuses --linear with %s", async (_label, flags) => {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(key === "has-called-config" ? "true" : ""),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(key === "has-called-config" ? "true" : ""),
       );
       const fetchSpy = vi.spyOn(linearIntegration, "fetchLinearIssue");
       (branch as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
@@ -2328,8 +2367,9 @@ jira:
       ["--jira", { jira: "DEV-42", clickup: "9hx" }],
       ["--linear", { linear: "ENG-1", clickup: "9hx" }],
     ])("refuses --clickup with %s", async (_label, flags) => {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(key === "has-called-config" ? "true" : ""),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(key === "has-called-config" ? "true" : ""),
       );
       const fetchSpy = vi.spyOn(clickupIntegration, "fetchClickUpTask");
       (branch as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
@@ -2345,10 +2385,12 @@ jira:
     });
 
     it("should error when both --github and --jira are provided", async () => {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          return Promise.resolve("");
+        },
+      );
 
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -2381,12 +2423,14 @@ jira:
         number: 42,
         title: "Add dark mode",
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        return Promise.resolve(configValues[key] ?? "");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          return Promise.resolve(configValues[key] ?? "");
+        },
+      );
       mockInput.mockResolvedValue("42-add-dark-mode");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
 
@@ -2452,7 +2496,7 @@ jira:
           .spyOn(githubIntegration, "assignGitHubIssue")
           .mockResolvedValue({ login: "octocat", assigned: true });
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         mockConfirm.mockResolvedValue(true);
         githubRun({});
@@ -2477,7 +2521,7 @@ jira:
           .spyOn(githubIntegration, "assignGitHubIssue")
           .mockResolvedValue({ login: "octocat", assigned: true });
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         mockConfirm.mockResolvedValue(false);
         githubRun({});
@@ -2499,8 +2543,8 @@ jira:
         (branch as any).shouldAssignIssue("jira.autoAssign", flag);
 
       function configured(values: Record<string, string>) {
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-          Promise.resolve(values[key] ?? ""),
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) => Promise.resolve(values[key] ?? ""),
         );
       }
 
@@ -2514,7 +2558,9 @@ jira:
       });
 
       it("assigns without saving when non-interactive and unset", async () => {
-        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
         configured({});
         setNonInteractive(true);
 
@@ -2523,7 +2569,9 @@ jira:
       });
 
       it("prompts naming the key and saves the answer under it", async () => {
-        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
         configured({});
         mockConfirm.mockResolvedValue(false);
 
@@ -2536,7 +2584,7 @@ jira:
       });
 
       it("names the given key when saving the answer fails", async () => {
-        vi.spyOn(git, "gitSetConfigValue").mockRejectedValue(
+        vi.spyOn(gitConfig, "gitSetConfigValue").mockRejectedValue(
           new Error("config file is locked"),
         );
         const mockWarn = vi
@@ -2559,13 +2607,15 @@ jira:
         (branch as any).shouldStartIssue("linear.autoStart", flag);
 
       function configured(values: Record<string, string>) {
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-          Promise.resolve(values[key] ?? ""),
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) => Promise.resolve(values[key] ?? ""),
         );
       }
 
       it("honours the flag, then the key, and non-interactive starts without saving", async () => {
-        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
         configured({ "linear.autoStart": "false" });
         expect(await decide(true)).toBe(true);
         expect(await decide()).toBe(false);
@@ -2581,7 +2631,9 @@ jira:
       });
 
       it("prompts naming the key and saves the answer under it", async () => {
-        const mockSet = vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
         configured({});
         mockConfirm.mockResolvedValue(false);
 
@@ -2748,7 +2800,7 @@ jira:
         // itself, so §2 covers it just as firmly: a stale .git/config.lock must
         // not cost the user the branch they asked for.
         mockConfirm.mockResolvedValue(true);
-        vi.spyOn(git, "gitSetConfigValue").mockRejectedValue(
+        vi.spyOn(gitConfig, "gitSetConfigValue").mockRejectedValue(
           new Error("error: could not lock config file .git/config"),
         );
         const mockWarn = vi
@@ -2782,7 +2834,7 @@ jira:
         // itself, so §2 covers it just as firmly: a stale .git/config.lock must
         // not cost the user the branch they asked for.
         mockConfirm.mockResolvedValue(true);
-        vi.spyOn(git, "gitSetConfigValue").mockRejectedValue(
+        vi.spyOn(gitConfig, "gitSetConfigValue").mockRejectedValue(
           "config file is locked",
         );
         const mockWarn = vi
@@ -2819,7 +2871,7 @@ jira:
           .spyOn(jiraIntegration, "assignJiraIssue")
           .mockResolvedValue({ outcome: "assigned", displayName: "Me" });
         const mockSetConfigValue = vi
-          .spyOn(git, "gitSetConfigValue")
+          .spyOn(gitConfig, "gitSetConfigValue")
           .mockResolvedValue();
         vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
           "/path/to/worktree",
@@ -2859,7 +2911,7 @@ jira:
             jiraIntegration,
             "getJiraBranchNameFromIssue",
           ).mockResolvedValue("DEV-123-add-dark-mode");
-          vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+          vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
             (key: string) => {
               if (key === "has-called-config") return Promise.resolve("true");
               if (key === "defaultSourceBranch")
@@ -2972,7 +3024,7 @@ jira:
         it("asks when the key is unset, assigns on yes and saves it under jira.autoAssign", async () => {
           const mockAssign = spyAssign(assignedToMe);
           const mockSet = vi
-            .spyOn(git, "gitSetConfigValue")
+            .spyOn(gitConfig, "gitSetConfigValue")
             .mockResolvedValue();
           mockConfirm.mockResolvedValue(true);
           jiraRun({});
@@ -2990,7 +3042,7 @@ jira:
         it("assigns without asking or saving when non-interactive and unset", async () => {
           const mockAssign = spyAssign(assignedToMe);
           const mockSet = vi
-            .spyOn(git, "gitSetConfigValue")
+            .spyOn(gitConfig, "gitSetConfigValue")
             .mockResolvedValue();
           jiraRun({});
           setNonInteractive(true);
@@ -3110,10 +3162,12 @@ jira:
         [true],
         [false],
       ])("errors when the assign flag is %s with none of --github, --jira, --linear or --clickup", async (assign) => {
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-          if (key === "has-called-config") return Promise.resolve("true");
-          return Promise.resolve("");
-        });
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) => {
+            if (key === "has-called-config") return Promise.resolve("true");
+            return Promise.resolve("");
+          },
+        );
         const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
           throw new Error(
             "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
@@ -3141,7 +3195,7 @@ jira:
         const mockAssign = vi
           .spyOn(githubIntegration, "assignGitHubIssue")
           .mockResolvedValue({ login: "octocat", assigned: true });
-        vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+        vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
         mockConfirm.mockResolvedValue(false);
         githubRun({});
         const mockGitCreateWorktree = vi
@@ -3184,13 +3238,15 @@ jira:
     beforeEach(() => {
       tempDir = mkdtempSync(join(tmpdir(), "worktree-brief-"));
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-        if (key === "has-called-config") return Promise.resolve("true");
-        if (key === "defaultSourceBranch")
-          return Promise.resolve("origin/main");
-        if (key === "agent.command") return Promise.resolve("claude --bg");
-        return Promise.resolve("");
-      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "defaultSourceBranch")
+            return Promise.resolve("origin/main");
+          if (key === "agent.command") return Promise.resolve("claude --bg");
+          return Promise.resolve("");
+        },
+      );
     });
 
     afterEach(() => {
@@ -3289,14 +3345,15 @@ jira:
     // and as an exit 0 with `agent: null` on every other.
     describe("a brief with no agent to hand it to", () => {
       function configure(values: Record<string, string>) {
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-          Promise.resolve(
-            key === "has-called-config"
-              ? "true"
-              : key === "defaultSourceBranch"
-                ? "origin/main"
-                : (values[key] ?? ""),
-          ),
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) =>
+            Promise.resolve(
+              key === "has-called-config"
+                ? "true"
+                : key === "defaultSourceBranch"
+                  ? "origin/main"
+                  : (values[key] ?? ""),
+            ),
         );
       }
 
@@ -3464,18 +3521,19 @@ jira:
 
     it("takes the issue-derived name, asks nothing, assigns by default and saves nothing", async () => {
       const mockSetConfigValue = vi
-        .spyOn(git, "gitSetConfigValue")
+        .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
       vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
         number: 42,
         title: "Add dark mode",
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config" || key === "defaultSourceBranch"
-            ? "origin/main"
-            : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config" || key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+          ),
       );
       const mockGitCreateWorktree = vi
         .spyOn(git, "gitCreateWorktree")
@@ -3507,19 +3565,20 @@ jira:
       ["a configured false", { assign: undefined }, "false"],
       ["--no-assign", { assign: false }, ""],
     ])("does not assign with %s", async (_label, flagOverride, configured) => {
-      vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
       vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
         number: 42,
         title: "Add dark mode",
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "github.autoAssign"
-            ? configured
-            : key === "has-called-config" || key === "defaultSourceBranch"
-              ? "origin/main"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "github.autoAssign"
+              ? configured
+              : key === "has-called-config" || key === "defaultSourceBranch"
+                ? "origin/main"
+                : "",
+          ),
       );
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       (branch as any).parse = vi.fn().mockResolvedValue({
@@ -3530,7 +3589,7 @@ jira:
       await branch.run();
 
       expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
-      expect(git.gitSetConfigValue).not.toHaveBeenCalled();
+      expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalled();
     });
 
     it("cuts a long issue title to a 48-character slug without asking", async () => {
@@ -3539,12 +3598,13 @@ jira:
         title:
           "Add a dark mode toggle to the settings page so that users can switch themes at runtime",
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config" || key === "defaultSourceBranch"
-            ? "origin/main"
-            : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config" || key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+          ),
       );
       const mockGitCreateWorktree = vi
         .spyOn(git, "gitCreateWorktree")
@@ -3569,14 +3629,15 @@ jira:
         number: 42,
         title: "Add dark mode",
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "github.autoAssign"
-            ? "true"
-            : key === "has-called-config" || key === "defaultSourceBranch"
-              ? "origin/main"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "github.autoAssign"
+              ? "true"
+              : key === "has-called-config" || key === "defaultSourceBranch"
+                ? "origin/main"
+                : "",
+          ),
       );
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       (branch as any).parse = vi.fn().mockResolvedValue({
@@ -3625,7 +3686,7 @@ jira:
       const warnSpy = vi
         .spyOn(branch, "warn")
         .mockImplementation((input) => input);
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("");
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
@@ -3737,12 +3798,13 @@ jira:
       process.exitCode = undefined;
       output = captureOutput();
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config" || key === "defaultSourceBranch"
-            ? "origin/main"
-            : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config" || key === "defaultSourceBranch"
+              ? "origin/main"
+              : "",
+          ),
       );
     });
 
@@ -3914,8 +3976,9 @@ jira:
     });
 
     it("says warnings on stderr and keeps them in the document", async () => {
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(key === "has-called-config" ? "true" : ""),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(key === "has-called-config" ? "true" : ""),
       );
 
       await runJson({ branchName: "feature/test" }, {});
@@ -3950,14 +4013,15 @@ jira:
 
     it("gives a brief with no agent kind as missing_value, before a tree exists (#75)", async () => {
       vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config" || key === "defaultSourceBranch"
-            ? "origin/main"
-            : key === "opener"
-              ? "herdr"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config" || key === "defaultSourceBranch"
+              ? "origin/main"
+              : key === "opener"
+                ? "herdr"
+                : "",
+          ),
       );
 
       await runJson({ branchName: "feature/test" }, { agent: "do it" });
@@ -4088,7 +4152,7 @@ jira:
       expect(mockCopyEnvFiles).not.toHaveBeenCalled();
       expect(mockRunInstall).not.toHaveBeenCalled();
       expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
-      expect(git.gitSetConfigValue).not.toHaveBeenCalled();
+      expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalled();
     };
 
     const refusals: [string, () => void, string][] = [
@@ -4125,14 +4189,15 @@ jira:
       beforeEach(() => {
         setNonInteractive(nonInteractive);
         mockCreate().mockResolvedValue("/path/to/worktree");
-        vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-          Promise.resolve(
-            key === "has-called-config"
-              ? "true"
-              : key === "defaultSourceBranch"
-                ? "origin/main"
-                : "",
-          ),
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) =>
+            Promise.resolve(
+              key === "has-called-config"
+                ? "true"
+                : key === "defaultSourceBranch"
+                  ? "origin/main"
+                  : "",
+            ),
         );
       });
 
@@ -4237,14 +4302,15 @@ jira:
         title: "Add dark mode",
         state: "open",
       } as any);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config"
-            ? "true"
-            : key === "defaultSourceBranch"
-              ? "origin/main"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "defaultSourceBranch"
+                ? "origin/main"
+                : "",
+          ),
       );
       // The derived name would be "42-add-dark-mode"; the person edits it.
       mockInput.mockResolvedValue("feat");
@@ -4269,14 +4335,15 @@ jira:
 
     it("proceeds as before when nothing collides", async () => {
       const create = mockCreate().mockResolvedValue("/path/to/worktree");
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
-        Promise.resolve(
-          key === "has-called-config"
-            ? "true"
-            : key === "defaultSourceBranch"
-              ? "origin/main"
-              : "",
-        ),
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "defaultSourceBranch"
+                ? "origin/main"
+                : "",
+          ),
       );
 
       await run();
@@ -4358,7 +4425,7 @@ github:
     process.exitCode = undefined;
     resetProjectConfigCache();
     output = captureOutput();
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key: string) =>
       // autoAssign is unset, so a real run would ask whether to assign.
       Promise.resolve(key === "has-called-config" ? "true" : ""),
     );
@@ -4370,7 +4437,7 @@ github:
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
     vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
     vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
-    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
     vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
     vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
       login: "octocat",
@@ -4405,7 +4472,7 @@ github:
     expect(result).toBeUndefined();
     expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     expect(githubIntegration.assignGitHubIssue).not.toHaveBeenCalled();
-    expect(git.gitSetConfigValue).not.toHaveBeenCalled();
+    expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalled();
     expect(mockInput).not.toHaveBeenCalled();
     // A closed issue is a prompt in a real run; a dry run only says so.
     expect(mockConfirm).not.toHaveBeenCalled();
@@ -4447,7 +4514,7 @@ github:
   });
 
   it("asks Linear for label ids, and ClickUp lists tags by name", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key: string) =>
       Promise.resolve(
         key === "linear.apiKey"
           ? "lin_api_test"
@@ -4485,7 +4552,7 @@ github:
 
   it("ignores the agent flags, since it starts no agent", async () => {
     // No agent.command is configured, which a real run with a brief refuses.
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("");
     githubIssue();
 
     await expect(
@@ -4829,7 +4896,7 @@ describe("branch command — approval of the project's postCreate steps", () => 
     mockRunInstall.mockResolvedValue({ ran: false, reason: "skipped" });
     resetProjectConfigCache();
     vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
       async (key: string) => {
         if (key === "has-called-config") return "true";
         if (key === "defaultSourceBranch") return "origin/main";
@@ -4847,7 +4914,7 @@ describe("branch command — approval of the project's postCreate steps", () => 
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
     vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
     vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
-    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
     vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
   });
 
@@ -5015,7 +5082,7 @@ describe("branch command — the offers of D21", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     // A team key in git config and no .worktree.yml on origin/HEAD: the
     // repository the nudge is for.
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
       async (key: string) => {
         if (key === "has-called-config") return "true";
         if (key === "defaultSourceBranch") return "origin/main";
@@ -5031,7 +5098,7 @@ describe("branch command — the offers of D21", () => {
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
     vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
     vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
-    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
     vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
   });
 

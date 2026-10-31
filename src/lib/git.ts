@@ -12,32 +12,18 @@ import {
   toRealPath,
 } from "./agent.js";
 import { run, runCapturing } from "./cli.js";
+import { gitGetConfigValue } from "./config.js";
 import { isNonInteractive } from "./interaction.js";
 import { createSpinner, isProgressEnabled } from "./progress.js";
 import { askConfirm } from "./prompt.js";
 import type {
   AgentSession,
-  ConfigName,
   WorktreeAgent,
   WorktreeChurn,
   WorktreeListBaseEntry,
   WorktreeListEntry,
 } from "./types.js";
 import { strToNum } from "./utils.js";
-
-export async function gitGetConfigValue(name: ConfigName) {
-  try {
-    return await run("git", ["config", `northguild.worktree.${name}`]);
-  } catch {
-    return "";
-  }
-}
-
-// The value is an argv element, so a config value carrying quotes, backticks or
-// semicolons is stored literally instead of being parsed as shell syntax.
-export async function gitSetConfigValue(name: ConfigName, value: string) {
-  await run("git", ["config", `northguild.worktree.${name}`, value]);
-}
 
 async function gitCmdShowTopLevel() {
   return run("git", ["rev-parse", "--show-toplevel"]);
@@ -145,7 +131,7 @@ export async function gitGetAbsoluteWorktreesPath() {
 // The ref an ahead count is taken against when a worktree has no upstream to
 // count against. `origin/HEAD` is the repository's own answer to "what is the
 // default branch", so it is asked first; `defaultSourceBranch` answers for a
-// clone made before git started recording that ref, and gitGetConfigValue
+// clone made before git started recording that ref, and gitGetConfigValue (config.ts)
 // already returns "" when the key is unset. An empty result means no base
 // resolved — which callers must read as "not counted", never as zero. See
 // UNPUSHED-COMMIT-GUARD-PLAN §3 D2, GitHub issue #63.

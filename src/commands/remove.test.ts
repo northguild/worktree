@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { checkbox, confirm } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
 import * as agent from "../lib/agent.js";
+import * as config from "../lib/config.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import { MissingValueError } from "../lib/prompt.js";
@@ -71,7 +72,7 @@ describe("remove command", () => {
     // and spawns no Herdr process. Spied rather than left to the global run()
     // mock so the gate is explicit, and so the undeclared `git config` call
     // does not warn on every test here.
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
   });
 
   describe("when no worktrees exist", () => {
@@ -570,7 +571,7 @@ describe("remove command — the herdr closer", () => {
   let calls: string[];
 
   function setConfig(values: Partial<Record<ConfigName, string>>) {
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
       async (name: ConfigName) => values[name] ?? "",
     );
   }
@@ -787,7 +788,7 @@ describe("remove command — --json", () => {
     vi.clearAllMocks();
     process.exitCode = undefined;
     output = captureOutput();
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
   });
 
   afterEach(() => {
