@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mockRunStreaming } from "../test-setup.js";
 import * as cli from "./cli.js";
-import * as git from "./git.js";
+import * as config from "./config.js";
 import { INSTALL_TIMEOUT_MS, runInstall } from "./install.js";
 import { setNonInteractive } from "./interaction.js";
 import * as projectConfig from "./project-config.js";
@@ -19,7 +19,7 @@ beforeEach(() => {
   vi.spyOn(projectConfig, "getProjectPostCreateSteps").mockImplementation(
     async () => projectSteps,
   );
-  vi.spyOn(git, "gitGetConfigValue").mockImplementation(async (name) =>
+  vi.spyOn(config, "gitGetConfigValue").mockImplementation(async (name) =>
     name === "postCreate" ? postCreate : "",
   );
   vi.spyOn(console, "error").mockImplementation(() => {});

@@ -1,4 +1,5 @@
 import * as cli from "../lib/cli.js";
+import * as config from "../lib/config.js";
 import * as git from "../lib/git.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import { expectCommands } from "../test-setup.js";
@@ -140,7 +141,7 @@ describe("ClickUp integration", () => {
   describe("resolveClickUpWorkspaceId", () => {
     it("reads clickup.workspaceId from the project file when git config has none", async () => {
       stubProjectFile("clickup:\n  workspaceId: 9012345\n");
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
       await expect(resolveClickUpWorkspaceId()).resolves.toBe("9012345");
     });
@@ -494,7 +495,7 @@ describe("ClickUp integration", () => {
 
     function projectFile(rules: string, rest = "") {
       stubProjectFile(`${PREFIXES}${rest}clickup:\n  branchType:\n${rules}`);
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
     }
 
     it("a tag in a rule gives its kind, and the rules replace the built-in mapping", async () => {
@@ -544,7 +545,7 @@ describe("ClickUp integration", () => {
 
     it("keeps the built-in mapping when the file has no clickup.branchType", async () => {
       stubProjectFile(PREFIXES);
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
       expect(
         await getClickUpBranchNameFromTask({ ...task, tags: ["Bug"] }, "9hx"),
@@ -602,7 +603,7 @@ describe("ClickUp integration", () => {
 
     it("takes the prefix from the project file when git config has none", async () => {
       stubProjectFile("branchPrefix:\n  bugfix: fix/\n");
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
       const name = await getClickUpBranchNameFromTask(task, "9hx");
 
@@ -733,7 +734,7 @@ describe("getClickUpBranchNaming", () => {
   it("shows tags by name and reports the built-in mapping with no rules", async () => {
     resetProjectConfigCache();
     stubProjectFile("branchPrefix:\n  bugfix: fix/\n");
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
     const naming = await getClickUpBranchNaming(
       {
@@ -787,7 +788,7 @@ describe("the shared branchType list for ClickUp", () => {
   function projectFile(content: string) {
     resetProjectConfigCache();
     stubProjectFile(content);
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
   }
 
   afterEach(() => {

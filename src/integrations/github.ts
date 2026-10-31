@@ -6,7 +6,7 @@ import {
   matchOfResult,
 } from "../lib/branch-type.js";
 import { commandExists, run } from "../lib/cli.js";
-import { gitGetConfigValue, gitSetConfigValue } from "../lib/git.js";
+import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
 import {
   type BranchKind,
   getBranchPrefix,

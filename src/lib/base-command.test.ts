@@ -21,6 +21,7 @@ import {
   readAgentBrief,
 } from "./base-command.js";
 import * as cli from "./cli.js";
+import * as config from "./config.js";
 import * as git from "./git.js";
 import { isNonInteractive, setNonInteractive } from "./interaction.js";
 import { resetProjectConfigCache } from "./project-config.js";
@@ -100,7 +101,7 @@ describe("openWorktreePath", () => {
    * not what they mean to assert.
    */
   function setConfig(values: Partial<Record<ConfigName, string>>) {
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
       async (name: ConfigName) => values[name] ?? "",
     );
   }
@@ -302,7 +303,7 @@ describe("openWorktreePath — the editor and none openers", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   function setConfig(values: Partial<Record<ConfigName, string>>) {
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
       async (name: ConfigName) => values[name] ?? "",
     );
   }
@@ -410,7 +411,7 @@ describe("dispatchAgent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     command = new TestCommand([], { runCommand: vi.fn() } as any);
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("claude --bg");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("claude --bg");
     logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
   });
 
@@ -441,7 +442,9 @@ describe("dispatchAgent", () => {
   });
 
   it("collapses repeated whitespace instead of passing an empty argument", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("  claude   --bg  ");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue(
+      "  claude   --bg  ",
+    );
 
     await command.dispatch(worktreePath, prompt);
 
@@ -453,7 +456,7 @@ describe("dispatchAgent", () => {
   });
 
   it("runs a bare command with the prompt as its only argument", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("claude");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("claude");
 
     await command.dispatch(worktreePath, prompt);
 
@@ -465,7 +468,7 @@ describe("dispatchAgent", () => {
   });
 
   it("points at the config command and starts nothing when no agent is configured", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
     await command.dispatch(worktreePath, prompt);
 
@@ -480,7 +483,7 @@ describe("dispatchAgent", () => {
   it("treats a whitespace-only command as no agent rather than spawning nothing", async () => {
     // The head is what spawn receives, and spawn("") throws synchronously —
     // which would take the editor launch down with it.
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("   ");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("   ");
 
     await command.dispatch(worktreePath, prompt);
 
@@ -542,7 +545,7 @@ describe("openWorktreePath — the Herdr opener", () => {
    * the editor's command string back as the opener kind and route by accident.
    */
   function setConfig(values: Partial<Record<ConfigName, string>>) {
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
       async (name: ConfigName) => values[name] ?? "",
     );
   }
@@ -1168,7 +1171,7 @@ describe("resolveSpaceCloser", () => {
   let mockInstalled: ReturnType<typeof vi.spyOn>;
 
   function setConfig(values: Partial<Record<ConfigName, string>>) {
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
       async (name: ConfigName) => values[name] ?? "",
     );
   }
@@ -1483,7 +1486,7 @@ describe("verifyConfig", () => {
     runCommand = vi.fn().mockResolvedValue(undefined);
     command = new TestCommand([], { runCommand } as any);
     warnSpy = vi.spyOn(command, "warn").mockImplementation((input) => input);
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
       Promise.resolve(name === "has-called-config" ? "true" : ""),
     );
   });
@@ -1548,7 +1551,7 @@ describe("verifyConfig", () => {
         expect(id).toBe("config");
         await new Config(argv, await loadConfig()).run();
       });
-      vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+      vi.spyOn(config, "gitSetConfigValue").mockResolvedValue();
       vi.spyOn(console, "log").mockImplementation(() => {});
       vi.mocked(confirm).mockResolvedValue(true);
       vi.mocked(select).mockResolvedValue("none");
@@ -1588,7 +1591,7 @@ describe("verifyConfig", () => {
 
   it("skips the first-time offer when non-interactive", async () => {
     setNonInteractive(true);
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
     await command.verify([]);
 

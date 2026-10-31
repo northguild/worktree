@@ -1,4 +1,5 @@
 import * as cli from "../lib/cli.js";
+import * as config from "../lib/config.js";
 import * as git from "../lib/git.js";
 import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
@@ -121,7 +122,7 @@ describe("Jira integration", () => {
   // prompt, and the credentials go to it.
   it("sends credentials to the host the project file supplies, without asking", async () => {
     stubProjectFile(PROJECT_FILE);
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
       Promise.resolve(
         { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
           name
@@ -150,7 +151,7 @@ describe("Jira integration", () => {
 
   it("prefers a personal jira.host over the project file's", async () => {
     stubProjectFile(PROJECT_FILE);
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
       Promise.resolve(
         {
           "jira.host": "mine.atlassian.net",
@@ -175,7 +176,7 @@ describe("Jira integration", () => {
 
   it("takes the branch prefix from the project file when git config has none", async () => {
     stubProjectFile(PROJECT_FILE);
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
       Promise.resolve(
         {
           "jira.email": "test@example.com",
@@ -207,7 +208,7 @@ describe("Jira integration", () => {
   describe("branchName template", () => {
     function stubIssue(file: string) {
       stubProjectFile(file);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(
           { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
             name
@@ -294,7 +295,7 @@ jira:
 
     function stubJira(issue: unknown) {
       stubProjectFile(RULES_FILE);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(
           { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
             name
@@ -322,7 +323,7 @@ jira:
 
     it("sends the request it always sent, with no expand, when no rules are set", async () => {
       stubProjectFile(PROJECT_FILE);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(
           { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
             name
@@ -345,7 +346,7 @@ jira:
 
     it("keeps the built-in mapping when no rules are set, whatever fields say", async () => {
       stubProjectFile(PROJECT_FILE);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(
           { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
             name
@@ -433,7 +434,7 @@ jira:
     - when: { work category: maintenance }
       type: chore
 `);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(
           { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
             name
@@ -471,7 +472,7 @@ jira:
     - when: { labels: [hotfix] }
       type: bugfix
 `);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(
           { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
             name
@@ -518,7 +519,7 @@ jira:
       type: chore
     - otherwise: feature
 `);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(
           { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
             name
@@ -553,7 +554,7 @@ jira:
     - when: { issuetype: Bug }
       type: bugfix
 `);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(
           { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
             name
@@ -1122,7 +1123,7 @@ jira:
   function stubJira(file: string, issue: unknown) {
     resetProjectConfigCache();
     stubProjectFile(file);
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
       Promise.resolve(
         { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
           name
@@ -1240,7 +1241,7 @@ jira:
   function stubJira(file: string, issue: unknown) {
     resetProjectConfigCache();
     stubProjectFile(file);
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
       Promise.resolve(
         { "jira.email": "test@example.com", "jira.apiToken": "api-token" }[
           name

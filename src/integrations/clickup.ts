@@ -5,7 +5,7 @@ import {
   type IssueField,
   matchOfResult,
 } from "../lib/branch-type.js";
-import { gitGetConfigValue } from "../lib/git.js";
+import { gitGetConfigValue } from "../lib/config.js";
 import {
   type BranchKind,
   getBranchPrefix,

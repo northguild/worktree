@@ -16,7 +16,7 @@ import {
   isSessionWaiting,
 } from "./agent.js";
 import * as cli from "./cli.js";
-import * as git from "./git.js";
+import * as config from "./config.js";
 import type { AgentSession } from "./types.js";
 
 // Nothing here launches an agent runtime: run() is the globally mocked
@@ -41,7 +41,7 @@ function mockSessionsJson(sessions: unknown) {
 describe("getAgentSessions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("claude");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("claude");
   });
 
   it("returns every well-formed entry, optional fields included", async () => {
@@ -105,7 +105,7 @@ describe("getAgentSessions", () => {
   });
 
   it("invokes the head of agent.command, not its dispatch arguments", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("claude --bg");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("claude --bg");
     mockSessionsJson([]);
 
     await getAgentSessions();
@@ -116,7 +116,7 @@ describe("getAgentSessions", () => {
   });
 
   it("invokes a quoted program path whole, as the dispatch would", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue(
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue(
       '"/opt/My Tools/claude" --bg',
     );
     mockSessionsJson([]);
@@ -131,7 +131,7 @@ describe("getAgentSessions", () => {
   });
 
   it("returns nothing and runs nothing when agent.command is unset", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
     await expect(getAgentSessions()).resolves.toEqual([]);
 
@@ -139,7 +139,7 @@ describe("getAgentSessions", () => {
   });
 
   it("treats a whitespace-only agent.command as unset", async () => {
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("   ");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("   ");
 
     await expect(getAgentSessions()).resolves.toEqual([]);
 
@@ -309,7 +309,7 @@ function runtimeEntry(overrides: Record<string, unknown> = {}) {
 }
 
 function mockConfig(values: Record<string, string>) {
-  vi.spyOn(git, "gitGetConfigValue").mockImplementation(
+  vi.spyOn(config, "gitGetConfigValue").mockImplementation(
     async (key) => values[key] ?? "",
   );
 }

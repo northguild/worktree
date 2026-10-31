@@ -1,6 +1,7 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { select } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
+import * as config from "../lib/config.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
@@ -45,7 +46,7 @@ describe("checkout command", () => {
       status: "absent-path",
     });
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
     const mockConfig = {
       runCommand: vi.fn().mockResolvedValue(undefined),
     } as any;
@@ -257,13 +258,13 @@ describe("checkout command", () => {
       ]);
       vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((key: string) =>
         Promise.resolve(key === "agent.command" ? "claude --bg" : ""),
       );
     });
 
     it("fails a brief with no agent command before creating a worktree", async () => {
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
       (checkout as any).parse = vi.fn().mockResolvedValue({
         args: { branchName: "feature/test" },
         flags: { agent: "review this branch" },
@@ -278,7 +279,7 @@ describe("checkout command", () => {
 
     it("fails a brief with no agent kind before creating a worktree (#75)", async () => {
       vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((key: string) =>
         Promise.resolve(key === "opener" ? "herdr" : ""),
       );
       (checkout as any).parse = vi.fn().mockResolvedValue({

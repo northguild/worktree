@@ -26,15 +26,14 @@ import {
   formatBranchTypeRule,
   pasteReadyLine,
 } from "../lib/branch-type.js";
+import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
   gitFetch,
   gitFindBranchCheckout,
-  gitGetConfigValue,
   gitGetLocalBranches,
   gitGetRemoteBranches,
-  gitSetConfigValue,
 } from "../lib/git.js";
 import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";

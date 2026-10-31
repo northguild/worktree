@@ -1,4 +1,5 @@
 import * as cli from "../lib/cli.js";
+import * as config from "../lib/config.js";
 import * as git from "../lib/git.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import { expectCommands } from "../test-setup.js";
@@ -388,7 +389,7 @@ describe("Linear integration", () => {
     // Plan §4's example file: bugfix: fix/ decides the expected prefix.
     it("takes the prefix from the project file when git config has none", async () => {
       stubProjectFile("branchPrefix:\n  bugfix: fix/\n");
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
       const name = await getLinearBranchNameFromIssue({
         identifier: "ENG-42",
@@ -402,7 +403,7 @@ describe("Linear integration", () => {
 
     it("prefers the personal prefix over the project file's", async () => {
       stubProjectFile("branchPrefix:\n  bugfix: fix/\n");
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("bug/");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("bug/");
 
       const name = await getLinearBranchNameFromIssue({
         identifier: "ENG-42",
@@ -496,7 +497,7 @@ describe("Linear integration", () => {
 
     function withRules(rules: string) {
       stubProjectFile(`${PREFIXES}linear:\n  branchType:\n${rules}`);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
       );
     }
@@ -519,7 +520,7 @@ describe("Linear integration", () => {
 
     it("sends the query it always sent when no rules are set", async () => {
       stubProjectFile(PREFIXES);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
       );
       const fetchSpy = stubFetch(respond(200, issuePayload()));
@@ -564,7 +565,7 @@ describe("Linear integration", () => {
     // D9/D13: a dry run exists to show ids, so it asks for them with no rules.
     it("asks for each label's id on a dry run even with no rules", async () => {
       stubProjectFile(PREFIXES);
-      vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+      vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
         Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
       );
       const fetchSpy = stubFetch(
@@ -653,7 +654,7 @@ describe("Linear integration", () => {
 
     it("applies the branchName template", async () => {
       stubProjectFile(`${PREFIXES}branchName: "{prefix}{slug}-{id}"\n`);
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
       expect(
         await getLinearBranchNameFromIssue({
@@ -667,7 +668,7 @@ describe("Linear integration", () => {
 
     it("the default template reproduces today's name", async () => {
       stubProjectFile(`${PREFIXES}branchName: "{prefix}{id}-{slug}"\n`);
-      vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+      vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
       expect(
         await getLinearBranchNameFromIssue({
@@ -733,7 +734,7 @@ linear:
     - when: { Labels: { id: "lbl-chore" } }
       type: chore
 `);
-    vi.spyOn(git, "gitGetConfigValue").mockResolvedValue("");
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
 
     const naming = await getLinearBranchNaming({
       identifier: "ENG-42",
@@ -1158,7 +1159,7 @@ describe("the shared branchType list for Linear", () => {
   function projectFile(content: string) {
     resetProjectConfigCache();
     stubProjectFile(content);
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((name: string) =>
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
       Promise.resolve(name === "linear.apiKey" ? API_KEY : ""),
     );
   }
