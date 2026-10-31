@@ -10,3 +10,11 @@ Branch-local and advisory. `/feature-close` deletes this file.
 - The comments at `linear.ts` and `linear.test.ts` cite Apollo schema reference URLs. The arguments were actually confirmed in Linear's `packages/sdk/src/schema.graphql`, so that is the better citation.
 - "D2-D4" and "D8" in `linear.ts` name this plan's decisions, while other comments in the file use other plans' numbering.
 - Linear's parsing in `linear.ts` is hand-written narrowing, against the Zod rule in `typescript/validation.md`. D4 follows the file's stance; changing it would be a whole-file decision.
+
+## Phase 2 of #113
+
+- `--linear -5` and `--linear -` used to take the token as the value; in a terminal they now open the picker and the stray token is dropped silently. Only `-x` has a test. `--unknown`, `-5` and `-` do not.
+- A typed `<pick-a-linear-issue>` gets the picker rather than an invalid-identifier error, and no test pins what `-l <PICK>` produces.
+- Not pinned: a bare `--linear` with no API key stopping before the list; the refusal coming before the brief is read; `x --linear`, `--linear -- x` and `--linear --linear` in the two-token shape. All behaved correctly when probed.
+- The menu's opening sentence and the spinner text have no plan source; their wording is pinned from the code.
+- The comment on `LINEAR_PICK` says `run` swaps it "before anything else reads it"; earlier reads test its truthiness. "Before anything reads its value" would be accurate.

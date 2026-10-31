@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { confirm, input } from "@inquirer/prompts";
+import { confirm, input, select } from "@inquirer/prompts";
 import ora from "ora";
 import * as clickupIntegration from "../integrations/clickup.js";
 import * as githubIntegration from "../integrations/github.js";
@@ -29,6 +29,7 @@ import Branch from "./branch.js";
 vi.mock("@inquirer/prompts", () => ({
   confirm: vi.fn(),
   input: vi.fn(),
+  select: vi.fn(),
 }));
 
 // Mock env functions
@@ -5107,5 +5108,434 @@ describe("branch command — the offers of D21", () => {
     expect(result?.path).toBe("/path/to/worktree");
     expect(result?.warnings.join(" ")).toContain("prompt closed");
     expect(command).toBeDefined();
+  });
+});
+
+// #113: `--linear` with no identifier picks one of the viewer's own issues.
+// Expected values come from the plan: the refusal text and exit code from D7
+// (the format in prompt.ts and the exit-code list in branch's description), the
+// empty-list text from D8, the choice text from D6, the escapes from
+// showVisibly's documented behaviour, and every spelling's parse from oclif's
+// own parser (probed against parse.js, not read off the rewrite).
+describe("branch command — --linear with no identifier", () => {
+  const originalExitCode = process.exitCode;
+  const originalCi = process.env.CI;
+  const stdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  const mockInput = vi.mocked(input);
+  const mockSelect = vi.mocked(select);
+  const mockOra = vi.mocked(ora);
+  let output: ReturnType<typeof captureOutput>;
+
+  const ASSIGNED = {
+    issues: [
+      {
+        identifier: "ENG-7",
+        title: "Add dark mode",
+        state: { name: "In Progress", type: "started" },
+      },
+      {
+        identifier: "ENG-9",
+        title: "Fix login",
+        state: { name: "Todo", type: "unstarted" },
+      },
+    ],
+    hasMore: false,
+  };
+  const REFUSAL = "no default for the Linear issue; pass --linear <identifier>";
+
+  function terminal(isTTY: boolean) {
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: isTTY,
+      configurable: true,
+    });
+  }
+
+  async function runPick(argv: string[]) {
+    const command = new Branch(argv, await loadConfig());
+    vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+      opener: "none",
+    });
+    return (command as any)._run();
+  }
+
+  let list: ReturnType<typeof vi.spyOn>;
+  let fetchIssue: ReturnType<typeof vi.spyOn>;
+  let startIssue: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    terminal(true);
+    delete process.env.CI;
+    resetProjectConfigCache();
+    output = captureOutput();
+    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
+      if (key === "has-called-config") return Promise.resolve("true");
+      if (key === "defaultSourceBranch") return Promise.resolve("origin/main");
+      if (key === "linear.apiKey") return Promise.resolve("lin_api_test");
+      return Promise.resolve("");
+    });
+    vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "absent-path",
+    });
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    mockInput.mockImplementation(async (config: any) => config.default);
+    mockRunInstallSkipped();
+    list = vi
+      .spyOn(linearIntegration, "listAssignedLinearIssues")
+      .mockResolvedValue(ASSIGNED);
+    // The picked identifier comes back as the issue, so what reaches the fetch
+    // is what the document reports.
+    fetchIssue = vi
+      .spyOn(linearIntegration, "fetchLinearIssue")
+      .mockImplementation(async (id: string) => ({
+        identifier: id.trim().toUpperCase(),
+        title: "Add dark mode",
+        url: null,
+        labels: [],
+      }));
+    startIssue = vi
+      .spyOn(linearIntegration, "startLinearIssue")
+      .mockResolvedValue({
+        outcome: "started",
+        from: "Todo",
+        to: "In Progress",
+      });
+    mockSelect.mockResolvedValue("ENG-7");
+    // `linear.autoStart` is unset, so a terminal is asked once whether to start.
+    vi.mocked(confirm).mockResolvedValue(true);
+  });
+
+  function mockRunInstallSkipped() {
+    vi.mocked(runInstall).mockResolvedValue({ ran: false, reason: "skipped" });
+  }
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+    if (stdinIsTTY) {
+      Object.defineProperty(process.stdin, "isTTY", stdinIsTTY);
+    } else {
+      Reflect.deleteProperty(process.stdin, "isTTY");
+    }
+    if (originalCi === undefined) {
+      delete process.env.CI;
+    } else {
+      process.env.CI = originalCi;
+    }
+    setNonInteractive(undefined);
+  });
+
+  describe("the spellings", () => {
+    it.each([
+      [["--linear"], true],
+      [["-l"], true],
+      [["--linear", "--no-start"], false],
+      [["-l", "--no-start"], false],
+      [["--no-start", "--linear"], false],
+      [["--linear", "--no-open"], true],
+      [["--linear", "--"], true],
+    ])("%j offers the issues and carries the pick through", async (argv, starts) => {
+      const document = await runPick(argv);
+
+      expect(list).toHaveBeenCalledTimes(1);
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+      // The pick reaches the fetch, the start and the document as if typed.
+      expect(fetchIssue).toHaveBeenCalledTimes(1);
+      expect(fetchIssue).toHaveBeenCalledWith("ENG-7");
+      if (starts) {
+        expect(startIssue).toHaveBeenCalledWith("ENG-7");
+      } else {
+        expect(startIssue).not.toHaveBeenCalled();
+      }
+      expect(document?.issue).toEqual({
+        provider: "linear",
+        key: "ENG-7",
+        url: null,
+      });
+      expect(document?.started).toBe(starts ? true : null);
+      expect(git.gitCreateWorktree).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      [["--linear", "ENG-1"], "ENG-1"],
+      [["-l", "eng-1"], "eng-1"],
+      [["--linear=ENG-1"], "ENG-1"],
+      [["-l=eng-1"], "eng-1"],
+      [["-leng-1"], "eng-1"],
+      [["--no-start", "-l", "ENG-1"], "ENG-1"],
+    ])("%j names an issue, so there is no pick and no request", async (argv, typed) => {
+      const document = await runPick(argv);
+
+      expect(list).not.toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(fetchIssue).toHaveBeenCalledWith(typed);
+      expect(document?.issue).toMatchObject({ key: "ENG-1" });
+    });
+
+    it("leaves a --linear after -- alone: it is an argument, not the flag", async () => {
+      await runPick(["--", "--linear"]);
+
+      expect(list).not.toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(fetchIssue).not.toHaveBeenCalled();
+    });
+
+    it("reads --linear -x as a bare flag, so -x is left for oclif to report as unknown", async () => {
+      await runPick(["--linear", "-x"]);
+
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(2);
+      expect(output.stderr()).toContain("Nonexistent flag: -x");
+    });
+
+    it.each([
+      [["--agent", "--linear"], "--agent"],
+      [["-a", "-l"], "--agent"],
+      [["--source", "--linear"], "--source"],
+      [["--github", "-l"], "--github"],
+    ])("%j after a value-taking flag is that flag's missing value, as today", async (argv, flag) => {
+      await runPick(argv);
+
+      expect(list).not.toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(2);
+      expect(output.stderr()).toContain(`Flag ${flag} expects a value`);
+    });
+
+    it("still reports a cluster that is not boolean flags then -l as oclif does", async () => {
+      await runPick(["-nl"]);
+
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(2);
+      expect(output.stderr()).toContain("Nonexistent flag: -nl");
+    });
+  });
+
+  describe("the menu", () => {
+    it("lists identifier, title and state in words, and returns the identifier", async () => {
+      await runPick(["--linear"]);
+
+      expect(mockSelect).toHaveBeenCalledWith({
+        message: "Pick one of your unstarted and started Linear issues.",
+        choices: [
+          { name: "ENG-7  Add dark mode  (In Progress)", value: "ENG-7" },
+          { name: "ENG-9  Fix login  (Todo)", value: "ENG-9" },
+        ],
+      });
+    });
+
+    it("carries a different pick, not the first one", async () => {
+      mockSelect.mockResolvedValue("ENG-9");
+
+      const document = await runPick(["--linear"]);
+
+      expect(fetchIssue).toHaveBeenCalledWith("ENG-9");
+      expect(document?.issue).toMatchObject({ key: "ENG-9" });
+    });
+
+    it("shows a title and a state name with their control and formatting characters escaped", async () => {
+      list.mockResolvedValue({
+        issues: [
+          {
+            identifier: "ENG-7",
+            title: "Fix \u001b[2J\u202egnp",
+            state: { name: "Done\u0007", type: "started" },
+          },
+        ],
+        hasMore: false,
+      });
+
+      await runPick(["--linear"]);
+
+      const config = mockSelect.mock.calls[0]?.[0] as any;
+      expect(config.choices[0].name).toBe(
+        "ENG-7  Fix \\x1b[2J\\u{202e}gnp  (Done\\x07)",
+      );
+      expect(config.choices[0].value).toBe("ENG-7");
+    });
+
+    it("says in words that more exist and names the way out, only when they do", async () => {
+      await runPick(["--linear"]);
+      expect((mockSelect.mock.calls[0]?.[0] as any).message).not.toContain(
+        "worktree branch --linear <identifier>",
+      );
+
+      list.mockResolvedValue({ ...ASSIGNED, hasMore: true });
+      await runPick(["--linear"]);
+
+      expect((mockSelect.mock.calls[1]?.[0] as any).message).toBe(
+        "Pick one of your unstarted and started Linear issues. More match than the 2 listed; if yours is not here, quit and pass its identifier: worktree branch --linear <identifier>.",
+      );
+    });
+
+    it("stops the spinner before the menu opens", async () => {
+      await runPick(["--linear"]);
+
+      const index = mockOra.mock.calls.findIndex(
+        ([text]) => text === "Fetching your Linear issues",
+      );
+      expect(index).toBeGreaterThanOrEqual(0);
+      const spinner = mockOra.mock.results[index]?.value;
+      expect(spinner.start).toHaveBeenCalledTimes(1);
+      expect(spinner.stop).toHaveBeenCalledTimes(1);
+      expect(spinner.stop.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSelect.mock.invocationCallOrder[0] ?? 0,
+      );
+    });
+
+    it("never shows the stand-in value", async () => {
+      await runPick(["--linear"]);
+
+      expect(JSON.stringify(mockOra.mock.calls)).not.toContain("pick-a-linear");
+      expect(JSON.stringify(mockSelect.mock.calls)).not.toContain(
+        "pick-a-linear",
+      );
+      expect(`${output.stdout()}${output.stderr()}`).not.toContain(
+        "pick-a-linear",
+      );
+    });
+  });
+
+  describe("the ways it ends without a worktree", () => {
+    it("exits 1 with D8's text when no issue is assigned, and asks nothing", async () => {
+      list.mockResolvedValue({ issues: [], hasMore: false });
+
+      await runPick(["--linear"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(output.stderr()).toContain(
+        "Error: Linear: no unstarted or started issues are assigned to you. Pass an identifier: worktree branch --linear <identifier>.",
+      );
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("reports a failed lookup, fails the spinner and creates nothing", async () => {
+      list.mockRejectedValue(
+        new Error("Linear: Failed to fetch your issues. 500 Server Error"),
+      );
+
+      await runPick(["--linear"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(output.stderr()).toContain(
+        "Linear: Failed to fetch your issues. 500 Server Error",
+      );
+      const index = mockOra.mock.calls.findIndex(
+        ([text]) => text === "Fetching your Linear issues",
+      );
+      expect(mockOra.mock.results[index]?.value.fail).toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("ends silently with exit 0 and creates nothing on Ctrl-C at the menu", async () => {
+      const cancelled = new Error("User force closed the prompt with SIGINT");
+      cancelled.name = "ExitPromptError";
+      mockSelect.mockRejectedValue(cancelled);
+
+      await runPick(["--linear"]);
+
+      expect(process.exitCode).toBeUndefined();
+      expect(output.stderr()).toBe("");
+      expect(output.stdout()).toBe("");
+      expect(fetchIssue).not.toHaveBeenCalled();
+      expect(startIssue).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a run that cannot ask", () => {
+    function expectRefusedBeforeAnyWork() {
+      expect(process.exitCode).toBe(2);
+      expect(list).not.toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(fetchIssue).not.toHaveBeenCalled();
+      expect(startIssue).not.toHaveBeenCalled();
+      expect(git.gitFetch).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      expect(`${output.stdout()}${output.stderr()}`).not.toContain(
+        "pick-a-linear",
+      );
+    }
+
+    it.each([
+      [["--linear", "--yes"]],
+      [["-yl"]],
+      [["--linear", "--non-interactive"]],
+    ])("%j exits 2 with the missing-value line", async (argv) => {
+      await runPick(argv);
+
+      expect(output.stderr()).toContain(`worktree: ${REFUSAL}`);
+      expectRefusedBeforeAnyWork();
+    });
+
+    it("exits 2 under CI", async () => {
+      process.env.CI = "true";
+
+      await runPick(["--linear"]);
+
+      expect(output.stderr()).toContain(`worktree: ${REFUSAL}`);
+      expectRefusedBeforeAnyWork();
+    });
+
+    it("exits 2 with no terminal", async () => {
+      terminal(false);
+
+      await runPick(["--linear"]);
+
+      expect(output.stderr()).toContain(`worktree: ${REFUSAL}`);
+      expectRefusedBeforeAnyWork();
+    });
+
+    it("gives missing_value and its details as the one --json document", async () => {
+      await runPick(["--linear", "--json"]);
+
+      expect(output.document()).toEqual({
+        error: {
+          code: "missing_value",
+          message: REFUSAL,
+          details: {
+            value: "the Linear issue",
+            flag: "--linear <identifier>",
+          },
+        },
+      });
+      expectRefusedBeforeAnyWork();
+    });
+
+    it("refuses --dry-run in a terminal too, and asks nothing", async () => {
+      await runPick(["--linear", "--dry-run"]);
+
+      expect(output.stderr()).toContain(`worktree: ${REFUSAL}`);
+      expectRefusedBeforeAnyWork();
+    });
+
+    it("refuses --dry-run --json as missing_value", async () => {
+      await runPick(["--linear", "--dry-run", "--json"]);
+
+      expect(output.document()).toMatchObject({
+        error: { code: "missing_value", message: REFUSAL },
+      });
+      expectRefusedBeforeAnyWork();
+    });
+
+    it("still takes a named identifier non-interactively", async () => {
+      const document = await runPick(["--linear", "ENG-1", "--json"]);
+
+      expect(list).not.toHaveBeenCalled();
+      expect(document).toMatchObject({ issue: { key: "ENG-1" } });
+      expect(output.document()).toMatchObject({
+        issue: { provider: "linear", key: "ENG-1" },
+      });
+    });
   });
 });

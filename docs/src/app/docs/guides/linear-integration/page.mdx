@@ -12,10 +12,19 @@ title: Linear Issue Integration
 worktree branch --linear ENG-123
 worktree branch --linear eng-123
 worktree branch -l ENG-123
+worktree branch --linear
 ```
 
 Pass the issue identifier, the team key and number Linear shows on the issue (`ENG-123`). It is accepted in any
 case. A pasted issue URL is not accepted.
+
+Leave the identifier out (`worktree branch --linear`, with nothing after it or only another flag) and `worktree`
+lists your own unstarted and started issues, each as identifier, title and state name, and asks you to pick one.
+The run then goes on exactly as if you had typed that identifier. One request fetches up to 50 issues; when more
+match, the prompt says so and names the way out, which is to quit and pass the identifier. With none assigned to
+you the command exits `1` and says to pass an identifier. The pick needs a terminal: `--json`, `--yes`,
+`--non-interactive`, `CI`, a missing terminal and `--dry-run` all exit `2` with `missing_value` before any request,
+so a script or an agent must pass the identifier.
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
 
@@ -55,7 +64,10 @@ no rule matches gets no prefix unless the list ends with `- otherwise: <kind>`. 
 
 ## What Is Read From the Issue
 
-**Issue content is used for the branch name and nothing else.** `worktree` reads the issue's identifier, its title
+**Issue content is used for the branch name and nothing else, with one exception: the menu.** When you leave the
+identifier out, the identifier, title and state name of each of your own unstarted and started issues are shown to
+you in the menu (control and formatting characters in them shown as escapes), and only to you at the terminal: never
+in `--json`, which refuses that run, and never passed to an agent. For the issue you then name, `worktree` reads the issue's identifier, its title
 and the names of its labels (and, when `linear.branchType` or the shared `branchType` is set, their ids). The title is reduced to lowercase letters, digits and `-` before it becomes part of
 the branch name, and the labels only select one of the configured `branchPrefix.*` values, or none. The issue
 description and comments are never requested, never printed, never written to the `--json` document (whose `issue`

@@ -16,6 +16,7 @@ worktree branch --github <issue-number> --assign
 worktree branch --github <issue-number> --no-assign
 worktree branch --jira <issue-id>
 worktree branch --jira <issue-id> --assign
+worktree branch --linear
 worktree branch --linear <issue-id>
 worktree branch --linear <issue-id> --start
 worktree branch --linear <issue-id> --no-start
@@ -42,6 +43,7 @@ worktree branch --github 42 --assign
 worktree branch --github 42 --no-assign
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
+worktree branch --linear
 worktree branch --linear ENG-123
 worktree branch --linear eng-123
 worktree branch --linear ENG-123 --no-start
@@ -155,7 +157,8 @@ worktree config jira.autoAssign true
 `--github`, `--jira`, `--linear` or `--clickup`: it fetches that issue, applies the
 [`branchType` rules](/docs/project-configuration#branch-type-rules) and the
 [`branchName` template](/docs/project-configuration#branch-name-template), and stops after naming. On its own
-it is refused with exit `2`, because with no issue there is nothing to evaluate the rules against.
+it is refused with exit `2`, because with no issue there is nothing to evaluate the rules against. A bare `--linear` is
+refused the same way: choosing an issue is a question, and a dry run asks nothing, so give it the identifier.
 
 ```bash
 worktree branch --jira DEV-123 --dry-run
@@ -274,6 +277,7 @@ Use the `--linear` flag (short: `-l`) to create a suggested branch name from an 
 cannot be combined with `--github`, `--jira` or `--clickup`. See the [Linear guide](/docs/guides/linear-integration).
 
 - The issue identifier can be passed in any case (`eng-123`, `ENG-123`, etc.).
+- With no identifier (`worktree branch --linear`), a menu lists your own unstarted and started issues, each as identifier, title and state name, and the one you pick is used exactly as if you had typed it. Only one page of up to 50 is fetched; when more match, the prompt says so and names the way out, which is to quit and pass the identifier. If none is assigned to you the command exits `1` and says to pass an identifier. See [Picking an issue](#picking-a-linear-issue).
 - The generated name is pre-filled in the prompt and still editable.
 - Linear has no issue type, so the issue's labels pick the optional prefix, by exact name and ignoring case:
 	- `branchPrefix.bugfix` for a `bug` label
@@ -286,6 +290,23 @@ If no prefix is configured, `worktree` falls back to an empty prefix and still g
 
 Linear authentication requires one configuration key, `northguild.worktree.linear.apiKey`, your Linear personal
 API key. Without it the command offers to run `worktree config`, and when there is still no key (or the run is non-interactive) exits `2` with `missing_value`. Assigning the issue is not supported yet; [moving it to started](#moving-the-issue-to-started) is.
+
+### Picking a Linear issue
+
+`--linear` with no identifier, last on the line or followed by another flag, asks you to pick one of your own
+unstarted and started Linear issues. It sends one request for them, after your key is checked, and the menu shows
+each issue's identifier, title and state name in words. Titles and state names are written by anyone in your
+workspace, so control and formatting characters in them are shown as escapes such as `\x1b`.
+
+A pick needs a person at a terminal. `--json`, `--yes`, `--non-interactive`, `CI` and a missing terminal exit `2`
+with `missing_value` (`no default for the Linear issue; pass --linear <identifier>`) before the fetch and before
+any request, and so does `--dry-run`, which asks nothing. Ctrl-C at the menu ends the run quietly with nothing
+created.
+
+```bash
+worktree branch --linear
+worktree branch --linear --no-start
+```
 
 ### Moving the issue to started
 
@@ -411,7 +432,8 @@ animates; progress goes to stderr as plain lines.
   `--linear` issue to started the same way; `false` or `--no-start` still skips it.
 - A prompt with none fails at once, exit `2`, with one line on stderr:
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
-  `--source` without the `origin/` prefix (`--source origin/<branch>`).
+  `--source` without the `origin/` prefix (`--source origin/<branch>`), and a `--linear` with no identifier
+  (`--linear <identifier>`), which is refused before the fetch and before any request.
 - Dependencies are installed by default, from `postCreate` or the lockfile; `--no-install` skips it. Steps from `.worktree.yml` that you have not approved stop the run with exit `2` and `missing_value` before anything is created; the message names `worktree config --approve` and `--no-install`.
 - A branch name that is already taken is refused, exit `2` with `invalid_value`, naming the existing worktree's path and `worktree open <branch>`; it is never opened unasked.
 - Missing config is not offered to `config`: `defaultSourceBranch` unset in both your git config and `.worktree.yml` warns and falls back to `origin/main`.
@@ -496,7 +518,7 @@ describing it goes to stderr as usual:
 
 | `code` | Means | Exit |
 | --- | --- | --- |
-| `missing_value` | a value with no default was not given; `details` names it and the flag | `2` |
+| `missing_value` | a value with no default was not given, such as `--linear` with no identifier in a run that cannot ask or with `--dry-run`; `details` names it and the flag | `2` |
 | `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github` number that is a pull request, a branch name that is already taken | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |

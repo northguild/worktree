@@ -17,6 +17,7 @@ import {
 import {
   fetchLinearIssue,
   getLinearBranchNaming,
+  listAssignedLinearIssues,
   startLinearIssue,
 } from "../integrations/linear.js";
 import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
@@ -44,12 +45,16 @@ import {
   getTeamConfigValue,
   loadProjectConfig,
   offerProjectConfig,
+  showVisibly,
 } from "../lib/project-config.js";
 import {
   askConfirm,
   askInput,
+  askSelect,
+  assertCanPrompt,
   InvalidValueError,
   MissingValueError,
+  type PromptSite,
 } from "../lib/prompt.js";
 import type {
   BranchDocument,
@@ -65,6 +70,59 @@ interface DerivedName {
   branchName: string;
   issue: BranchIssue;
   naming?: BranchNaming;
+}
+
+/**
+ * The value a bare `--linear` is given, as a separate token after it, before
+ * oclif parses (D1). oclif has no optional-value flag, and `""` is falsy at
+ * every `flags.linear` read, so the flag carries a value that is truthy and can never be an identifier
+ * (those match `^[A-Z][A-Z0-9]*-\d+$`). `run` swaps it for the picked
+ * identifier before anything else reads it, and it is never printed.
+ */
+const LINEAR_PICK = "<pick-a-linear-issue>";
+
+/** Both the non-interactive and the `--dry-run` refusal of a bare `--linear` (D7). */
+const LINEAR_ISSUE_SITE: PromptSite = {
+  value: "the Linear issue",
+  flag: "--linear <identifier>",
+};
+
+/**
+ * Gives a `--linear` or `-l` that has no value the `LINEAR_PICK` token after
+ * it, so oclif parses it instead of throwing "expects a value". No value means
+ * last on the line, or followed by a token beginning with `-` (oclif would read
+ * a flag there, or fail). The stand-in is its own token, not `--linear=...`, so
+ * a bare `--linear` right after a value-taking flag (`--agent --linear`) is
+ * still read by oclif as that flag's missing value, as it is today. Only tokens
+ * before a `--` are looked at, and only the flag token itself changes: `-yl`, a
+ * cluster ending in `-l` after boolean short flags, becomes `-y`, `--linear`
+ * and the stand-in. Anything else, `--linear=ENG-1` and `-lENG-1` included, is
+ * left alone, and a following flag or `--` is kept.
+ */
+function markBareLinear(argv: string[], booleanChars: string[]): string[] {
+  const rewritten: string[] = [];
+  let parsingFlags = true;
+
+  argv.forEach((token, index) => {
+    if (token === "--") {
+      parsingFlags = false;
+    }
+    const next = argv[index + 1];
+    const isBare = parsingFlags && (next === undefined || next.startsWith("-"));
+    if (isBare && (token === "--linear" || token === "-l")) {
+      rewritten.push("--linear", LINEAR_PICK);
+    } else if (
+      isBare &&
+      /^-[^-=]+l$/.test(token) &&
+      [...token.slice(1, -1)].every((char) => booleanChars.includes(char))
+    ) {
+      rewritten.push(token.slice(0, -1), "--linear", LINEAR_PICK);
+    } else {
+      rewritten.push(token);
+    }
+  });
+
+  return rewritten;
 }
 
 export default class Branch extends BaseCommand {
@@ -84,10 +142,16 @@ are left where they are. --no-start never does. Without either, a terminal is
 asked once and a non-interactive run starts. It needs a key with the Write
 permission.
 
+--linear with no identifier lists your own unstarted and started Linear issues
+and asks you to pick one, then carries on as if you had typed its identifier.
+It needs a terminal: --json, --yes, --non-interactive, CI and a missing
+terminal refuse with exit 2 before any request, and so does --dry-run.
+
 --dry-run (with --github, --jira, --linear or --clickup) fetches the issue and
 prints the branch name, the rule that chose its prefix and every field the issue
 has a value for, with a paste-ready .worktree.yml line per value. It creates
-nothing, assigns nothing, moves nothing, saves nothing and asks nothing.
+nothing, assigns nothing, moves nothing, saves nothing and asks nothing, so
+--linear needs an identifier with it: a bare --linear would have to ask.
 
 --json prints one document on stdout:
 path, branch, source, issue, assigned, started, envFilesCopied, installed,
@@ -130,6 +194,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     "<%= config.bin %> <%= command.id %> --github 42 --assign",
     "<%= config.bin %> <%= command.id %> --jira DEV-123",
     "<%= config.bin %> <%= command.id %> --jira DEV-123 --assign",
+    "<%= config.bin %> <%= command.id %> --linear",
     "<%= config.bin %> <%= command.id %> --linear ENG-123",
     "<%= config.bin %> <%= command.id %> --linear ENG-123 --no-start",
     "<%= config.bin %> <%= command.id %> --clickup 9hx",
@@ -157,7 +222,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }),
     linear: Flags.string({
       char: "l",
-      description: "Create a branch from a Linear issue (issue identifier)",
+      description:
+        "Create a branch from a Linear issue (issue identifier; omit it to pick one of yours)",
     }),
     clickup: Flags.string({
       char: "c",
@@ -216,6 +282,19 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         "Install dependencies in the new worktree (on by default when non-interactive or postCreate is set; the project file's postCreate steps need your approval first, --no-install skips them)",
     }),
   };
+
+  // Before `super.init()`, which parses `this.argv` itself: a bare `--linear`
+  // would fail there with "expects a value" before `run` is reached.
+  override async init() {
+    const definitions = { ...this.ctor.baseFlags, ...this.ctor.flags };
+    this.argv = markBareLinear(
+      this.argv,
+      Object.values(definitions).flatMap((flag) =>
+        flag.type === "boolean" && flag.char ? [flag.char] : [],
+      ),
+    );
+    await super.init();
+  }
 
   // Neither source question has a default: "no" quietly swaps in the
   // configured source branch, which is not what was asked for. A
@@ -748,6 +827,47 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
   }
 
+  /**
+   * The identifier of one of the viewer's own unstarted or started issues,
+   * chosen at the terminal (D5, D6). The spinner is stopped before the menu
+   * opens: one left running redraws over inquirer's lines. Titles and state
+   * names are written by anyone in the workspace, so they are shown escaped.
+   */
+  private async pickLinearIssue(): Promise<string> {
+    const spinner = createSpinner("Fetching your Linear issues").start();
+    let listing: Awaited<ReturnType<typeof listAssignedLinearIssues>>;
+    try {
+      listing = await listAssignedLinearIssues();
+    } catch (error) {
+      spinner.fail();
+      throw error;
+    }
+    spinner.stop();
+
+    if (listing.issues.length === 0) {
+      throw new Error(
+        "Linear: no unstarted or started issues are assigned to you. Pass an identifier: worktree branch --linear <identifier>.",
+      );
+    }
+
+    // One page only (D3): say so in words, with the way out.
+    const more = listing.hasMore
+      ? ` More match than the ${listing.issues.length} listed; if yours is not here, quit and pass its identifier: worktree branch --linear <identifier>.`
+      : "";
+    return askSelect<string>(
+      {
+        message: `Pick one of your unstarted and started Linear issues.${more}`,
+        choices: listing.issues.map((issue) => ({
+          name: showVisibly(
+            `${issue.identifier}  ${issue.title}  (${issue.state.name})`,
+          ),
+          value: issue.identifier,
+        })),
+      },
+      LINEAR_ISSUE_SITE,
+    );
+  }
+
   /** The name for whichever issue flag was given; `undefined` when none was. */
   private async deriveFromIssue(
     flags: {
@@ -896,7 +1016,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
   // creates nothing, so there is no document, and `--json` never reaches it
   // because that run is non-interactive and refuses instead (D3, D6).
   public async run(): Promise<BranchDocument | undefined> {
-    const { args, flags } = await this.parse(Branch);
+    const parsed = await this.parse(Branch);
+    const { args } = parsed;
+    // A copy: a bare `--linear` is swapped for the picked identifier below.
+    const flags = { ...parsed.flags };
     if (
       [flags.github, flags.jira, flags.linear, flags.clickup].filter(Boolean)
         .length > 1
@@ -947,6 +1070,20 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       this.error(
         "--dry-run requires one of --github, --jira, --linear or --clickup.",
       );
+    }
+
+    // A bare `--linear` asks a person (D7). Refused here, before the brief is
+    // read, before the fetch and before any request, so a script learns at
+    // once and with no side effect. A dry run asks nothing, so it is refused
+    // the same way.
+    if (flags.linear === LINEAR_PICK) {
+      if (dryRun) {
+        throw new MissingValueError(
+          LINEAR_ISSUE_SITE.value,
+          LINEAR_ISSUE_SITE.flag,
+        );
+      }
+      assertCanPrompt(LINEAR_ISSUE_SITE);
     }
 
     // Read before anything is created: an empty or oversized brief is a usage
@@ -1023,6 +1160,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         "the ClickUp API token",
         "`worktree config clickup.apiToken <token>`",
       );
+    }
+    // Every later read of `flags.linear` is a real identifier, as if typed (D5).
+    if (flags.linear === LINEAR_PICK) {
+      flags.linear = await this.pickLinearIssue();
     }
     // Stops after naming (§4): no assignment, source, worktree or opener.
     if (dryRun) {

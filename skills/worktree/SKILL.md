@@ -97,6 +97,12 @@ worktree branch --jira DEV-123 --assign
 worktree branch --linear ENG-123
 worktree branch --linear eng-123
 
+# Linear — no identifier: a person picks one of their own unstarted or started
+# issues at the terminal. A non-interactive run (--json, --yes, CI, no TTY) and
+# --dry-run exit 2 with missing_value before any request, so an agent must pass
+# the identifier.
+worktree branch --linear
+
 # Linear — move the issue to its team's started state once the worktree exists
 # (needs a key with the Write permission). --no-start skips it for one run.
 worktree branch --linear ENG-123 --start
@@ -162,7 +168,7 @@ in the file sets the shape of an issue-derived name (default as shown, today's n
 an invalid branch name is refused, and a name typed as the argument is never templated.
 To write rules against a real issue, run `worktree branch --<provider> <id> --dry-run`: it prints the name,
 the rule that chose the prefix and each non-empty field with its id and a paste-ready `- when: { … }` line (by name for `Type` and `Labels` when the shared list decided), and
-creates, assigns, saves and asks nothing (`--json` prints its own document, with `match` and `fields`).
+creates, assigns, saves and asks nothing (`--json` prints its own document, with `match` and `fields`). A bare `--linear` is refused there with exit `2`, because choosing an issue is a question: pass the identifier.
 
 Linear has no issue type, so its labels decide, compared case-insensitively
 and by exact name: a `bug` label → `branchPrefix.bugfix`; else a `chore` or
@@ -177,7 +183,7 @@ live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) 
 (`feature/CU-9hx-fix-login`); a custom id is upper-cased in the name only, and sent to ClickUp as typed
 (`fix/DEV-123-fix-login`).
 
-**Issue content is used for the branch name and nothing else.** `--github`,
+**Issue content is used for the branch name and nothing else, with one exception: the Linear menu.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
 `--jira`, `--linear` and `--clickup` read the issue's number or key, its title (Jira:
 summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
 workflow state and its team's started states (names, types and positions, never the description); `--github` also reads whether the
@@ -249,7 +255,7 @@ Flags for agent mode:
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
 | `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state once the worktree exists, or not; only a backlog or unstarted issue moves, and a `--start` with no issue flag exits `2` |
-| `--dry-run` | `branch` | with an issue flag: print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
+| `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 Defaults when non-interactive:
