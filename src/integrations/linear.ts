@@ -561,3 +561,101 @@ function withMessages(body: LinearGraphqlResponse | undefined): string {
   const messages = errorMessages(body);
   return messages.length > 0 ? ` ${messages.join(", ")}` : "";
 }
+
+export interface LinearAssignedIssue {
+  identifier: string;
+  title: string;
+  state: { name: string; type: string };
+}
+
+// D2: no variables and no user text. `User.assignedIssues` accepts `filter`
+// (IssueFilter), `orderBy` (PaginationOrderBy: createdAt or updatedAt) and
+// `first` (https://studio.apollographql.com/public/Linear-API/variant/current/schema/reference/objects/User);
+// the state `type` values are WorkflowStateFilter.type's vocabulary.
+const ASSIGNED_ISSUES_QUERY = `query {
+  viewer {
+    assignedIssues(
+      first: 50
+      orderBy: updatedAt
+      filter: { state: { type: { in: ["unstarted", "started"] } } }
+    ) {
+      nodes {
+        identifier
+        title
+        state { name type }
+      }
+      pageInfo { hasNextPage }
+    }
+  }
+}`;
+
+function parseAssignedIssue(node: unknown): LinearAssignedIssue | undefined {
+  if (!isRecord(node) || !isRecord(node.state)) {
+    return undefined;
+  }
+
+  const { identifier, title, state } = node;
+
+  if (
+    typeof identifier !== "string" ||
+    typeof title !== "string" ||
+    typeof state.name !== "string" ||
+    typeof state.type !== "string"
+  ) {
+    return undefined;
+  }
+
+  return { identifier, title, state: { name: state.name, type: state.type } };
+}
+
+/**
+ * D2-D4: the viewer's unstarted and started issues, ordered by `updatedAt`
+ * (direction unconfirmed, see the plan's section 9), one page of 50. `hasMore`
+ * says a further page exists. A node missing a field rejects the whole answer;
+ * an empty list is returned as is (the caller raises D8's error). The answers
+ * it classifies throw a `Linear:` error; a network failure is rethrown as is.
+ */
+export async function listAssignedLinearIssues(): Promise<{
+  issues: LinearAssignedIssue[];
+  hasMore: boolean;
+}> {
+  const apiKey = await resolveLinearApiKey();
+  const unexpected = "Linear: Unexpected response fetching your issues.";
+
+  const response = await fetchLinear(ASSIGNED_ISSUES_QUERY, {}, apiKey);
+  const body = await readLinearAnswer(response, {
+    failed: (answer) =>
+      `Linear: Failed to fetch your issues. ${failureDetail(response, answer)}`,
+    unexpected,
+  });
+
+  if (errorMessages(body).length > 0) {
+    throw new Error(
+      `Linear: Failed to fetch your issues.${withMessages(body)}`,
+    );
+  }
+
+  const viewer = isRecord(body.data) ? body.data.viewer : undefined;
+  const connection = isRecord(viewer) ? viewer.assignedIssues : undefined;
+  const nodes = isRecord(connection) ? connection.nodes : undefined;
+  const pageInfo = isRecord(connection) ? connection.pageInfo : undefined;
+
+  if (
+    !Array.isArray(nodes) ||
+    !isRecord(pageInfo) ||
+    typeof pageInfo.hasNextPage !== "boolean"
+  ) {
+    throw new Error(unexpected);
+  }
+
+  const issues: LinearAssignedIssue[] = [];
+  for (const node of nodes) {
+    const issue = parseAssignedIssue(node);
+    if (!issue) {
+      throw new Error(unexpected);
+    }
+    issues.push(issue);
+  }
+
+  return { issues, hasMore: pageInfo.hasNextPage };
+}
