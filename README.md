@@ -293,7 +293,8 @@ line, `worktree: no default for <value>; pass <flag>`.
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not (a Jira issue someone else holds is left alone) |
 | `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state once the worktree exists, or not; only a backlog or unstarted issue moves, and it needs a key with the Write permission (a `--start` with no issue flag exits `2`) |
-| `--dry-run` | `branch` | with an issue flag: print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
+| `--linear` with no identifier | `branch` | list your own unstarted and started Linear issues (title and state, escaped) and pick one, then carry on as if you had typed its identifier; it needs a terminal, so `--json`, `--yes`, `--non-interactive`, CI, no terminal and `--dry-run` refuse with exit `2` and `missing_value` before any request |
+| `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 ### Defaults when non-interactive

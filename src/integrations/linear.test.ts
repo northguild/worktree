@@ -7,6 +7,7 @@ import {
   getLinearBranchNameFromIssue,
   getLinearBranchNaming,
   getLinearBranchType,
+  listAssignedLinearIssues,
   resolveLinearApiKey,
   startLinearIssue,
   validateLinearCredentials,
@@ -1269,5 +1270,224 @@ describe("the shared branchType list for Linear", () => {
       (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
     expect(body.query).toContain("nodes {\n        id\n        name");
+  });
+});
+
+// Linear's schema: User.assignedIssues returns an IssueConnection, whose
+// `nodes` are issues and whose `pageInfo.hasNextPage` is a Boolean
+// (https://studio.apollographql.com/public/Linear-API/variant/current/schema/reference/objects/IssueConnection).
+const ASSIGNED_NODE = {
+  identifier: "ENG-1",
+  title: "Fix login",
+  state: { name: "In Progress", type: "started" },
+};
+
+function assignedPayload(nodes: unknown[], hasNextPage = false) {
+  return {
+    data: {
+      viewer: { assignedIssues: { nodes, pageInfo: { hasNextPage } } },
+    },
+  };
+}
+
+describe("listAssignedLinearIssues", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProjectConfigCache();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const UNEXPECTED = "Linear: Unexpected response fetching your issues.";
+
+  it("maps a two-node answer to the returned shape", async () => {
+    stubKey();
+    stubFetch(
+      respond(
+        200,
+        assignedPayload([
+          ASSIGNED_NODE,
+          {
+            identifier: "ENG-2",
+            title: "Add search",
+            state: { name: "Todo", type: "unstarted" },
+            extra: "ignored",
+          },
+        ]),
+      ),
+    );
+
+    await expect(listAssignedLinearIssues()).resolves.toEqual({
+      issues: [
+        {
+          identifier: "ENG-1",
+          title: "Fix login",
+          state: { name: "In Progress", type: "started" },
+        },
+        {
+          identifier: "ENG-2",
+          title: "Add search",
+          state: { name: "Todo", type: "unstarted" },
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
+  it.each([true, false])("reports hasNextPage %s as hasMore", async (more) => {
+    stubKey();
+    stubFetch(respond(200, assignedPayload([ASSIGNED_NODE], more)));
+
+    const { hasMore } = await listAssignedLinearIssues();
+
+    expect(hasMore).toBe(more);
+  });
+
+  it("returns an empty list for empty nodes", async () => {
+    stubKey();
+    stubFetch(respond(200, assignedPayload([])));
+
+    await expect(listAssignedLinearIssues()).resolves.toEqual({
+      issues: [],
+      hasMore: false,
+    });
+  });
+
+  it.each([
+    ["identifier", { ...ASSIGNED_NODE, identifier: undefined }],
+    ["title", { ...ASSIGNED_NODE, title: undefined }],
+    ["state name", { ...ASSIGNED_NODE, state: { type: "started" } }],
+    ["state type", { ...ASSIGNED_NODE, state: { name: "In Progress" } }],
+    ["state", { ...ASSIGNED_NODE, state: null }],
+  ])("rejects the whole answer when a node lacks its %s", async (_field, bad) => {
+    stubKey();
+    stubFetch(respond(200, assignedPayload([ASSIGNED_NODE, bad])));
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(UNEXPECTED);
+  });
+
+  it.each([
+    ["missing pageInfo", { nodes: [] }],
+    [
+      "non-boolean hasNextPage",
+      { nodes: [], pageInfo: { hasNextPage: "yes" } },
+    ],
+    ["missing nodes", { pageInfo: { hasNextPage: false } }],
+    ["non-array nodes", { nodes: {}, pageInfo: { hasNextPage: false } }],
+  ])("rejects an answer with %s", async (_case, assignedIssues) => {
+    stubKey();
+    stubFetch(respond(200, { data: { viewer: { assignedIssues } } }));
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(UNEXPECTED);
+  });
+
+  it("keeps Linear's message when a 200 carries GraphQL errors", async () => {
+    stubKey();
+    stubFetch(respond(200, { data: null, errors: [{ message: "forbidden" }] }));
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(
+      "Linear: Failed to fetch your issues. forbidden",
+    );
+  });
+
+  it("rejects a 200 whose valid data comes with GraphQL errors", async () => {
+    stubKey();
+    stubFetch(
+      respond(200, {
+        ...assignedPayload([ASSIGNED_NODE]),
+        errors: [{ message: "forbidden" }],
+      }),
+    );
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(
+      "Linear: Failed to fetch your issues. forbidden",
+    );
+  });
+
+  it("keeps Linear's message on a non-2xx answer", async () => {
+    stubKey();
+    stubFetch(respond(400, { errors: [{ message: "Not allowed" }] }));
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(
+      "Linear: Failed to fetch your issues. 400. Not allowed.",
+    );
+  });
+
+  it("reports an unreadable body as unexpected", async () => {
+    stubKey();
+    stubFetch({
+      ok: true,
+      status: 200,
+      statusText: "",
+      json: vi.fn().mockRejectedValue(new SyntaxError("bad json")),
+    });
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(UNEXPECTED);
+  });
+
+  it("fails on a 401 with the authentication message", async () => {
+    stubKey();
+    stubFetch(respond(401, {}));
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(
+      "Linear: Authentication failed. Please verify linear.apiKey in your config.",
+    );
+  });
+
+  it("fails on an AUTHENTICATION_ERROR body with the authentication message", async () => {
+    stubKey();
+    stubFetch(
+      respond(200, {
+        errors: [{ extensions: { code: "AUTHENTICATION_ERROR" } }],
+      }),
+    );
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(
+      "Linear: Authentication failed. Please verify linear.apiKey in your config.",
+    );
+  });
+
+  it("fails on a RATELIMITED body with the rate-limit message", async () => {
+    stubKey();
+    stubFetch(
+      respond(400, { errors: [{ extensions: { code: "RATELIMITED" } }] }),
+    );
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(
+      "Linear: Rate limited.",
+    );
+  });
+
+  it("fails on a non-2xx answer with the status", async () => {
+    stubKey();
+    stubFetch({ ...respond(500, {}), statusText: "Server Error" });
+
+    await expect(listAssignedLinearIssues()).rejects.toThrow(
+      "Linear: Failed to fetch your issues. 500 Server Error.",
+    );
+  });
+
+  it("sends a constant query with no variables and the bare key", async () => {
+    stubKey();
+    const fetchSpy = stubFetch(respond(200, assignedPayload([])));
+
+    await listAssignedLinearIssues();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.linear.app/graphql");
+    expect(init.headers.Authorization).toBe(API_KEY);
+    const body = JSON.parse(init.body);
+    expect(body.variables).toEqual({});
+    // Expected text from the plan's section 4 query, which is built from
+    // User.assignedIssues(first, orderBy, filter) and WorkflowStateFilter.type's
+    // values "unstarted" and "started" in Linear's schema reference.
+    expect(body.query.replace(/\s+/g, " ")).toBe(
+      'query { viewer { assignedIssues( first: 50 orderBy: updatedAt filter: { state: { type: { in: ["unstarted", "started"] } } } ) { nodes { identifier title state { name type } } pageInfo { hasNextPage } } } }',
+    );
+    expect(body.query).not.toContain("$");
   });
 });
