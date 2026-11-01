@@ -175,7 +175,7 @@ With --dry-run it prints one other document: dryRun, branch, issue, kind|null,
 match, fields, warnings
 match: {source:"rule", position, rule}, {source:"built-in"} or
 {source:"none"}
-fields: [{id, name, values:[{id|null, name|null, when}]}]
+fields: [{id, name, pasteInto, values:[{id|null, name|null, when}]}]
 On failure: {error:{code, message, details?}} on stdout.
 
 Exit codes:
