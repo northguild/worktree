@@ -24,6 +24,7 @@ import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
 import {
   type BranchNaming,
   formatBranchTypeRule,
+  isPortableField,
   pasteReadyLine,
 } from "../lib/branch-type.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
@@ -174,7 +175,7 @@ With --dry-run it prints one other document: dryRun, branch, issue, kind|null,
 match, fields, warnings
 match: {source:"rule", position, rule}, {source:"built-in"} or
 {source:"none"}
-fields: [{id, name, values:[{id|null, name|null, when}]}]
+fields: [{id, name, pasteInto, values:[{id|null, name|null, when}]}]
 On failure: {error:{code, message, details?}} on stdout.
 
 Exit codes:
@@ -914,17 +915,21 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // with neither, the name a person would write one under.
     const inForce = await getBranchTypeRules(issue.provider);
     const listName = inForce?.listName ?? `${issue.provider}.branchType`;
-    const fields = naming.fields
-      .filter((field) => field.values.length > 0)
-      .map((field) => ({
-        id: field.id,
-        name: field.name,
-        values: field.values.map((value) => ({
-          id: value.id ?? null,
-          name: value.name ?? null,
-          when: pasteReadyLine(field, value, inForce?.shared === true),
-        })),
-      }));
+    const shared = inForce?.shared === true;
+    const withValue = naming.fields.filter((field) => field.values.length > 0);
+    const ownList = `${issue.provider}.branchType`;
+    const fields = withValue.map((field) => ({
+      id: field.id,
+      name: field.name,
+      // A shared rule never matches a field only this provider has, and on a
+      // real run it does not warn, so the mistake of pasting one there is silent.
+      pasteInto: shared && !isPortableField(field) ? ownList : listName,
+      values: field.values.map((value) => ({
+        id: value.id ?? null,
+        name: value.name ?? null,
+        when: pasteReadyLine(field, value, shared),
+      })),
+    }));
     const match: BranchDryRunDocument["match"] =
       naming.match.source === "rule"
         ? {
@@ -945,11 +950,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     );
     this.log(
       fields.length > 0
-        ? `Fields with a value (${fields.length}), each with a line to paste into ${listName}:`
+        ? `Fields with a value (${fields.length}), each with a line to paste into ${listName}${fields.some((field) => field.pasteInto !== listName) ? ", except where a field says otherwise" : ""}:`
         : "The issue has no field with a value.",
     );
     for (const field of fields) {
-      this.log(`  ${field.name} (id ${field.id})`);
+      this.log(
+        `  ${field.name} (id ${field.id})${field.pasteInto === listName ? "" : ` - only ${issue.provider} has this field: paste into ${field.pasteInto}, not ${listName}`}`,
+      );
       for (const value of field.values) {
         const label = value.name ?? "(no name)";
         this.log(

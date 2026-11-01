@@ -167,7 +167,7 @@ in `otherwise`). GitHub's built-in gives an issue with no type no prefix; `- oth
 in the file sets the shape of an issue-derived name (default as shown, today's names); a template that makes
 an invalid branch name is refused, and a name typed as the argument is never templated.
 To write rules against a real issue, run `worktree branch --<provider> <id> --dry-run`: it prints the name,
-the rule that chose the prefix and each non-empty field with its id and a paste-ready `- when: { … }` line (by name for `Type` and `Labels` when the shared list decided), and
+the rule that chose the prefix and each non-empty field with its id and a paste-ready `- when: { … }` line (by name for `Type` and `Labels` when the shared list decided; any other field is marked with `<provider>.branchType`, the list it belongs in; `--json` gives every field its list as `pasteInto`), and
 creates, assigns, saves and asks nothing (`--json` prints its own document, with `match` and `fields`). A bare `--linear` is refused there with exit `2`, because choosing an issue is a question: pass the identifier.
 
 Linear has no issue type, so its labels decide, compared case-insensitively
