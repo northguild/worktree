@@ -1,0 +1,12 @@
+# Notes
+
+Branch-local and advisory. Nothing reads this file, and `/feature-close` deletes it.
+
+## Phase 1 — Record the Linear link at `branch --linear`
+
+- The ordering in Done-when is proved by three tests together, not one: `branch.test.ts` sees `gitCreateWorktree` then one `gitSetBranchIssueLink`, `issue-link.test.ts` sees one `git config` argv, and `git.test.ts` sees `git worktree add` inside `gitCreateWorktree`. The picker test's title claims an order it does not assert; it shares the code path.
+- Two expected values come from the code rather than a source: the `Invalid issue identifier.` text, and exit 128 rethrowing stderr. The plan's "unknown is never safe" supports the second.
+- The identifier pattern exists twice, `issue-link.ts` and `getIssueIdentifier` in `linear.ts`, and nothing pins one to the other. On a duplicated key the last value wins, which matches git, but no plan row or test fixes it.
+- `toThrow("Invalid issue identifier.")` is a substring match, so a value appended after the period would still pass. The old message does fail it.
+- The `fatal: not a git repository` fixture in `issue-link.test.ts` is pass-through text, not what `--local` prints outside a repository.
+- A failed write's warning keeps execFile's trailing newline, in `--json` too. `branch.ts:897` interpolates `error.message` the same way.
