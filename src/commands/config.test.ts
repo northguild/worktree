@@ -211,6 +211,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("defaultSourceBranch");
       expect(mockConsoleLog).toHaveBeenCalledWith("github.autoAssign");
       expect(mockConsoleLog).toHaveBeenCalledWith("jira.autoAssign");
+      expect(mockConsoleLog).toHaveBeenCalledWith("jira.autoStart");
       expect(mockConsoleLog).toHaveBeenCalledWith("linear.autoStart");
       expect(mockConsoleLog).toHaveBeenCalledWith("clickup.autoStart");
     });
@@ -2482,6 +2483,194 @@ describe("config command", () => {
           "true",
         );
       });
+    });
+
+    describe("jira.autoStart prompt (D9)", () => {
+      const withStoredJiraAutoStart = (stored: string) =>
+        vi
+          .spyOn(gitConfig, "gitGetConfigValue")
+          .mockImplementation((key: string) => {
+            if (key === "has-called-config") return Promise.resolve("true");
+            if (key === "jira.autoStart") return Promise.resolve(stored);
+            return Promise.resolve("");
+          });
+
+      const parseJiraAutoStartRun = (flags: Record<string, unknown>) => {
+        (config as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: {
+            list: false,
+            missing: false,
+            names: "jira.autoStart",
+            ...flags,
+          },
+        });
+      };
+
+      it.each([
+        ["true", "true"],
+        ["false", "false"],
+        ["", ""],
+        ["maybe", ""],
+      ])("should preselect the choice for a stored jira.autoStart of %j", async (stored, expected) => {
+        mockSelect.mockResolvedValue(expected);
+        withStoredJiraAutoStart(stored);
+        parseJiraAutoStartRun({ yes: false });
+
+        await config.run();
+
+        // `--names jira.autoStart` prompts only this key: one select, no input.
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+        expect(mockSelect).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message:
+              "Should `branch --jira` move the issue to in progress once the worktree exists?",
+            // D9: the same three choices, "ask" being the empty value.
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              { name: "Ask me each time", value: "" },
+            ],
+            default: expected,
+          }),
+        );
+        expect(mockInput).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["Yes, always", "true"],
+        ["No, never", "false"],
+        ["Ask me each time", ""],
+      ])("should write the %s answer to jira.autoStart as %j", async (_label, answer) => {
+        mockSelect.mockResolvedValue(answer);
+        const mockSetConfigValue = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
+        withStoredJiraAutoStart(answer === "true" ? "false" : "true");
+        parseJiraAutoStartRun({ yes: false });
+
+        await config.run();
+
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "jira.autoStart",
+          answer,
+        );
+      });
+
+      it.each([
+        ["false", "false"],
+        ["true", "true"],
+        ["", ""],
+      ])("should take a stored jira.autoStart of %j without exiting 2 when non-interactive", async (stored, expected) => {
+        setNonInteractive(true);
+        const mockSetConfigValue = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
+        withStoredJiraAutoStart(stored);
+        parseJiraAutoStartRun({ yes: true });
+
+        await config.run();
+
+        expect(mockSelect).not.toHaveBeenCalled();
+        expect(mockSetConfigValue).toHaveBeenCalledWith(
+          "jira.autoStart",
+          expected,
+        );
+      });
+
+      it("should offer an unset jira.autoStart on a --missing run", async () => {
+        mockSelect.mockResolvedValue("");
+        vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+        parseJiraAutoStartRun({ missing: true, yes: false });
+
+        await config.run();
+
+        expect(mockSelect).toHaveBeenCalledTimes(1);
+      });
+
+      it("should not offer a settled jira.autoStart on a --missing run", async () => {
+        withStoredJiraAutoStart("false");
+        parseJiraAutoStartRun({ missing: true, yes: false });
+
+        await config.run();
+
+        expect(mockSelect).not.toHaveBeenCalled();
+      });
+    });
+
+    it("should ask jira.autoStart right after jira.autoAssign", async () => {
+      mockInput
+        .mockResolvedValueOnce("https://x.atlassian.net")
+        .mockResolvedValueOnce("me@example.com")
+        .mockResolvedValueOnce("token");
+      mockSelect.mockResolvedValueOnce("true").mockResolvedValueOnce("false");
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: true,
+          names:
+            "jira.host,jira.email,jira.apiToken,jira.autoAssign,jira.autoStart",
+        },
+      });
+
+      await config.run();
+
+      expect(mockSelect).toHaveBeenCalledTimes(2);
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "jira.autoAssign",
+        "true",
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "jira.autoStart",
+        "false",
+      );
+    });
+
+    it("should offer jira.autoStart behind the Jira confirm on a bare run", async () => {
+      mockConfirm.mockImplementation(
+        async ({ message }) =>
+          message === "Do you want to configure Jira integration?",
+      );
+      mockInput.mockResolvedValue("value");
+      mockSelect.mockResolvedValueOnce("true").mockResolvedValueOnce("false");
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, names: undefined },
+      });
+
+      await config.run();
+
+      expect(mockSelect).toHaveBeenCalledTimes(2);
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "jira.autoStart",
+        "false",
+      );
+    });
+
+    it("should ask no Jira select when the Jira confirm is declined on a bare run", async () => {
+      mockConfirm.mockResolvedValue(false);
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, names: undefined },
+      });
+
+      await config.run();
+
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "jira.autoStart",
+        expect.anything(),
+      );
     });
 
     describe("linear.autoStart prompt (D10)", () => {

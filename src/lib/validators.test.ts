@@ -372,6 +372,29 @@ describe("isValidConfigValue — jira.autoAssign", () => {
   );
 });
 
+describe("isValidConfigValue — jira.autoStart", () => {
+  // Same contract as the other autoStart keys (D9): `isValidBoolean` accepts
+  // the lowercase words "true" and "false" and nothing else.
+  it.each`
+    value      | expected                         | description
+    ${"true"}  | ${true}                          | ${"always start"}
+    ${"false"} | ${true}                          | ${"never start"}
+    ${"maybe"} | ${"Value must be true or false"} | ${"a non-boolean value"}
+    ${"True"}  | ${"Value must be true or false"} | ${"a capitalised boolean"}
+  `(
+    'should return $expected for "$value" ($description)',
+    async ({ value, expected }) => {
+      expect(await isValidConfigValue("jira.autoStart", value)).toBe(expected);
+    },
+  );
+
+  it("should throw InvalidConfigValueError for a non-boolean value", async () => {
+    await expect(
+      validateConfigValue("jira.autoStart", "maybe"),
+    ).rejects.toThrow(InvalidConfigValueError);
+  });
+});
+
 describe("isValidConfigValue — linear.autoStart", () => {
   // Same contract as the autoAssign keys (D10): `isValidBoolean` accepts the
   // lowercase words "true" and "false" and nothing else.

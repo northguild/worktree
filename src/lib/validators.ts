@@ -189,6 +189,7 @@ export async function isValidConfigValue(
       return isValidOpener(value);
     case "github.autoAssign":
     case "jira.autoAssign":
+    case "jira.autoStart":
     case "linear.autoStart":
     case "clickup.autoStart":
       return isValidBoolean(value);

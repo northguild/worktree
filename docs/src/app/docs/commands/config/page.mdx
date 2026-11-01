@@ -97,6 +97,7 @@ worktree config agent.command "claude --bg"
 worktree config postCreate "pnpm install"
 worktree config github.autoAssign true
 worktree config jira.autoAssign true
+worktree config jira.autoStart true
 worktree config linear.autoStart true
 worktree config clickup.autoStart true
 worktree config --list
@@ -161,11 +162,17 @@ whitespace is refused with exit `2`, and nothing is stored.
 - `jira.autoAssign` whether `--jira` also assigns the issue to you: `true` always, `false` never, unset
   means you are asked once and your answer is saved. See
   [Configuration](/docs/configuration#jira-integration-notes).
+- `jira.autoStart` whether `--jira` also moves the issue to in progress once the worktree exists: `true`
+  always (an issue already in progress or done, or with no single in-progress status to move to, is left
+  where it is), `false` never, unset means you are asked once and your answer is saved. See
+  [Configuration](/docs/configuration#jira-integration-notes) and
+  [Moving the issue to in progress](/docs/guides/jira-integration#moving-the-issue-to-in-progress).
 
 The Jira keys are asked together behind one confirm. The `jira.autoAssign` prompt is asked after the token
 and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
-The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct
-`worktree config jira.autoAssign` accepts only `true` or `false`.
+The `jira.autoStart` prompt follows it with the same three choices. "Ask me each time" leaves a key unset,
+so `--missing` goes on offering the prompt until you settle it. A direct `worktree config jira.autoAssign` or
+`worktree config jira.autoStart` accepts only `true` or `false`.
 
 ## Linear Integration Keys
 

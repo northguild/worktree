@@ -11,6 +11,7 @@ import {
   getJiraBranchNameFromIssue,
   getJiraBranchNaming,
   getJiraIssueFields,
+  startJiraIssue,
   validateJiraCredentials,
 } from "./jira.js";
 
@@ -1237,6 +1238,468 @@ jira:
       await expect(assignJiraIssue("DEV-123")).rejects.toThrow(
         "Jira: /rest/api/3/issue/DEV-123/assignee did not answer within 15s.",
       );
+    });
+  });
+
+  // #125 Phase 1. Fixtures are shaped from Jira's published OpenAPI document
+  // (read via Context7, /openapi/dac-static_atlassian_cloud_jira_platform_swagger-v3_v3_json):
+  // GET issue?fields=status gives fields.status {id, name, statusCategory.key};
+  // GET /transitions gives transitions[] {id, name, isAvailable, to{id, name,
+  // statusCategory.key}}; POST /transitions answers 204. Category keys are
+  // Jira's convention: To Do = new, In Progress = indeterminate, Done = done.
+  describe("startJiraIssue", () => {
+    const authorization = `Basic ${Buffer.from("test@example.com:api-token").toString("base64")}`;
+    const category = {
+      new: { id: 2, key: "new", name: "To Do", colorName: "blue-gray" },
+      indeterminate: {
+        id: 4,
+        key: "indeterminate",
+        name: "In Progress",
+        colorName: "yellow",
+      },
+      done: { id: 3, key: "done", name: "Done", colorName: "green" },
+    };
+
+    function status(
+      id: string,
+      name: string,
+      key: keyof typeof category,
+    ): Record<string, unknown> {
+      return { id, name, statusCategory: category[key] };
+    }
+
+    function transition(
+      id: string,
+      name: string,
+      to: Record<string, unknown>,
+      extra: Record<string, unknown> = {},
+    ) {
+      return {
+        id,
+        name,
+        to,
+        hasScreen: false,
+        isGlobal: false,
+        isAvailable: true,
+        ...extra,
+      };
+    }
+
+    const todo = status("10000", "To Do", "new");
+    const inProgress = status("10001", "In Progress", "indeterminate");
+    const inReview = status("10002", "In Review", "indeterminate");
+    const done = status("10003", "Done", "done");
+
+    function stubJira({
+      current = todo as unknown,
+      issueBody,
+      transitions = [transition("21", "Start progress", inProgress)] as unknown,
+      issueStatus = 200,
+      transitionsStatus = 200,
+      postStatus = 204,
+      postBody = "",
+    }: {
+      current?: unknown;
+      issueBody?: unknown;
+      transitions?: unknown;
+      issueStatus?: number;
+      transitionsStatus?: number;
+      postStatus?: number;
+      postBody?: string;
+    } = {}) {
+      expectCommands(
+        "git config northguild.worktree.jira.host",
+        "git config northguild.worktree.jira.email",
+        "git config northguild.worktree.jira.apiToken",
+      );
+      vi.spyOn(cli, "run")
+        .mockResolvedValueOnce("https://example.atlassian.net/")
+        .mockResolvedValueOnce("test@example.com")
+        .mockResolvedValueOnce("api-token");
+
+      const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+        const respond = (code: number, body: unknown) => ({
+          ok: code >= 200 && code < 300,
+          status: code,
+          statusText: `status ${code}`,
+          json: async () => body,
+          text: async () => (typeof body === "string" ? body : ""),
+        });
+
+        if (init.method === "POST") {
+          return respond(postStatus, postBody);
+        }
+        if (url.includes("/transitions")) {
+          return respond(transitionsStatus, { transitions });
+        }
+        return respond(
+          issueStatus,
+          issueBody ?? {
+            id: "10",
+            key: "DEV-123",
+            fields: { status: current },
+          },
+        );
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      return fetchSpy;
+    }
+
+    function posts(fetchSpy: ReturnType<typeof stubJira>) {
+      return fetchSpy.mock.calls.filter(([, init]) => init.method === "POST");
+    }
+
+    it("moves a To Do issue through the in-progress transition with a POST of its id", async () => {
+      const fetchSpy = stubJira();
+
+      const result = await startJiraIssue("dev-123");
+
+      expect(result).toEqual({
+        outcome: "started",
+        from: "To Do",
+        to: "In Progress",
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://example.atlassian.net/rest/api/3/issue/DEV-123?fields=status",
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://example.atlassian.net/rest/api/3/issue/DEV-123/transitions",
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://example.atlassian.net/rest/api/3/issue/DEV-123/transitions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: authorization,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ transition: { id: "21" } }),
+          signal: expect.any(AbortSignal),
+        },
+      );
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it("treats a transition that omits isAvailable as available", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          {
+            id: "21",
+            name: "Start progress",
+            to: inProgress,
+            hasScreen: false,
+            isGlobal: false,
+          },
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "started",
+        from: "To Do",
+        to: "In Progress",
+      });
+      expect(posts(fetchSpy)).toHaveLength(1);
+    });
+
+    it("does not filter out a transition that has a screen", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("21", "Start progress", inProgress, { hasScreen: true }),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "started",
+        from: "To Do",
+        to: "In Progress",
+      });
+      expect(posts(fetchSpy)).toHaveLength(1);
+    });
+
+    it("reports an issue already in progress after one request and no write", async () => {
+      const fetchSpy = stubJira({ current: inProgress });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "already-started",
+        status: "In Progress",
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a Done issue alone after one request and no write", async () => {
+      const fetchSpy = stubJira({ current: done });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "left-alone",
+        status: "Done",
+        category: "done",
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves an issue with an unrecognised category key alone", async () => {
+      const fetchSpy = stubJira({
+        current: {
+          id: "10009",
+          name: "Limbo",
+          statusCategory: { id: 1, key: "undefined", name: "No Category" },
+        },
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "left-alone",
+        status: "Limbo",
+        category: "undefined",
+      });
+      expect(posts(fetchSpy)).toHaveLength(0);
+    });
+
+    it("ignores a transition that is not available", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("21", "Start progress", inProgress, {
+            isAvailable: false,
+          }),
+          transition("22", "Review", inReview),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "started",
+        from: "To Do",
+        to: "In Review",
+      });
+      expect(JSON.parse(posts(fetchSpy)[0][1].body as string)).toEqual({
+        transition: { id: "22" },
+      });
+    });
+
+    it("ignores a transition that leads back to the current status", async () => {
+      // The current status id appears as an in-progress target: a loop.
+      const loop = status("10000", "To Do", "indeterminate");
+      const fetchSpy = stubJira({
+        transitions: [transition("23", "Restart", loop)],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "no-in-progress-transition",
+        status: "To Do",
+      });
+      expect(posts(fetchSpy)).toHaveLength(0);
+    });
+
+    it("takes the first of several transitions that lead to one target status", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("21", "Start progress", inProgress),
+          transition("31", "Pick up", inProgress, { isGlobal: true }),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "started",
+        from: "To Do",
+        to: "In Progress",
+      });
+      expect(JSON.parse(posts(fetchSpy)[0][1].body as string)).toEqual({
+        transition: { id: "21" },
+      });
+    });
+
+    it("refuses to choose between transitions that lead to different statuses", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("21", "Start progress", inProgress),
+          transition("22", "Send to review", inReview),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "ambiguous",
+        status: "To Do",
+        targets: ["In Progress", "In Review"],
+      });
+      expect(posts(fetchSpy)).toHaveLength(0);
+    });
+
+    it("reports no in-progress transition when the workflow offers only other categories", async () => {
+      const fetchSpy = stubJira({
+        transitions: [transition("41", "Close", done)],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "no-in-progress-transition",
+        status: "To Do",
+      });
+      expect(posts(fetchSpy)).toHaveLength(0);
+    });
+
+    it("reports no in-progress transition for an empty list, which Jira also returns without Transition Issues", async () => {
+      const fetchSpy = stubJira({ transitions: [] });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "no-in-progress-transition",
+        status: "To Do",
+      });
+      expect(posts(fetchSpy)).toHaveLength(0);
+    });
+
+    it("refuses an invalid key before any request", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const refusal = startJiraIssue("../transitions");
+
+      await expect(refusal).rejects.toThrow(
+        'Jira: Invalid issue id "../transitions".',
+      );
+      await expect(refusal).rejects.toMatchObject({ code: "invalid_value" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects an issue answer with no status category", async () => {
+      stubJira({ current: { id: "10000", name: "To Do" } });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Unexpected response for DEV-123.",
+      );
+    });
+
+    it("rejects a transitions answer that is not an array", async () => {
+      stubJira({ transitions: "nope" });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Unexpected response for DEV-123.",
+      );
+    });
+
+    it("reuses the authentication text for a 401 on the status read", async () => {
+      stubJira({ issueStatus: 401 });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.",
+      );
+    });
+
+    it("reuses the authentication text for a 401 on the write", async () => {
+      stubJira({ postStatus: 401 });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.",
+      );
+    });
+
+    it("says the issue was not found for a 404 on the status read", async () => {
+      stubJira({ issueStatus: 404 });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Issue DEV-123 was not found.",
+      );
+    });
+
+    it("says the issue was not found for a 404 on the write", async () => {
+      stubJira({ postStatus: 404 });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Issue DEV-123 was not found.",
+      );
+    });
+
+    it("names the transition and a possibly required field for a 400 on the write, never the token", async () => {
+      stubJira({ postStatus: 400, postBody: "Field 'resolution' is required" });
+
+      const failure = startJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        "Jira: Could not move DEV-123 with the \"Start progress\" transition; it may need a field set in Jira. 400 status 400 - Field 'resolution' is required",
+      );
+      await expect(failure).rejects.not.toThrow(authorization);
+      await expect(failure).rejects.not.toThrow(/api-token/);
+    });
+
+    it("asks for a retry on a 409 on the write", async () => {
+      stubJira({ postStatus: 409, postBody: "conflict" });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: DEV-123 was changed while it was being moved. Try again. 409 status 409 - conflict",
+      );
+    });
+
+    it("carries status and text for any other failure on the write", async () => {
+      stubJira({ postStatus: 500, postBody: "boom" });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Failed to move issue DEV-123. 500 status 500 - boom",
+      );
+    });
+
+    it("carries status and text for a failure reading the transitions", async () => {
+      stubJira({ transitionsStatus: 500 });
+
+      await expect(startJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Failed to move issue DEV-123. 500 status 500",
+      );
+    });
+
+    it("times out a POST that never answers, naming the path and not the token", async () => {
+      expectCommands(
+        "git config northguild.worktree.jira.host",
+        "git config northguild.worktree.jira.email",
+        "git config northguild.worktree.jira.apiToken",
+      );
+      vi.spyOn(cli, "run")
+        .mockResolvedValueOnce("https://example.atlassian.net/")
+        .mockResolvedValueOnce("test@example.com")
+        .mockResolvedValueOnce("api-token");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          if (init.method === "POST") {
+            throw new DOMException("timed out", "TimeoutError");
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () =>
+              url.includes("/transitions")
+                ? { transitions: [transition("21", "Start", inProgress)] }
+                : { fields: { status: todo } },
+          };
+        }),
+      );
+
+      const failure = startJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        "Jira: /rest/api/3/issue/DEV-123/transitions did not answer within 15s.",
+      );
+      await expect(failure).rejects.not.toThrow(/api-token/);
     });
   });
 });
