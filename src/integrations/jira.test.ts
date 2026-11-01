@@ -758,6 +758,84 @@ jira:
     expect(isValid).toBe(true);
   });
 
+  // The fetch signal also bounds the body: headers in time and a body that
+  // stalls past 15s rejects response.json() with the signal's TimeoutError.
+  it("reports a body that stalls past the timeout as a timeout", async () => {
+    expectCommands(
+      "git config northguild.worktree.jira.host",
+      "git config northguild.worktree.jira.email",
+      "git config northguild.worktree.jira.apiToken",
+    );
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("https://example.atlassian.net/")
+      .mockResolvedValueOnce("test@example.com")
+      .mockResolvedValueOnce("api-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi
+          .fn()
+          .mockRejectedValue(new DOMException("timed out", "TimeoutError")),
+      }),
+    );
+
+    await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+      "Jira: /rest/api/3/issue/DEV-123 did not answer within 15s.",
+    );
+  });
+
+  it("leaves a body that fails to parse as a parse failure, not a timeout", async () => {
+    expectCommands(
+      "git config northguild.worktree.jira.host",
+      "git config northguild.worktree.jira.email",
+      "git config northguild.worktree.jira.apiToken",
+    );
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("https://example.atlassian.net/")
+      .mockResolvedValueOnce("test@example.com")
+      .mockResolvedValueOnce("api-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token <")),
+      }),
+    );
+
+    const failure = fetchJiraIssue("dev-123");
+
+    await expect(failure).rejects.toThrow("Unexpected token <");
+    await expect(failure).rejects.not.toThrow(/did not answer within/);
+  });
+
+  it("reports an error body that stalls past the timeout as a timeout", async () => {
+    expectCommands(
+      "git config northguild.worktree.jira.host",
+      "git config northguild.worktree.jira.email",
+      "git config northguild.worktree.jira.apiToken",
+    );
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("https://example.atlassian.net/")
+      .mockResolvedValueOnce("test@example.com")
+      .mockResolvedValueOnce("api-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Server Error",
+        text: vi
+          .fn()
+          .mockRejectedValue(new DOMException("timed out", "TimeoutError")),
+      }),
+    );
+
+    await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+      "Jira: /rest/api/3/issue/DEV-123 did not answer within 15s.",
+    );
+  });
+
   it("rejects a Jira request that never answers, naming the call and not the token", async () => {
     expectCommands(
       "git config northguild.worktree.jira.host",
@@ -1092,6 +1170,73 @@ jira:
         "Jira: /rest/api/3/issue/DEV-123/assignee did not answer within 15s.",
       );
       await expect(failure).rejects.not.toThrow(/api-token/);
+    });
+
+    it("reports an assignee read whose body stalls past the timeout as a timeout", async () => {
+      expectCommands(
+        "git config northguild.worktree.jira.host",
+        "git config northguild.worktree.jira.email",
+        "git config northguild.worktree.jira.apiToken",
+      );
+      vi.spyOn(cli, "run")
+        .mockResolvedValueOnce("https://example.atlassian.net/")
+        .mockResolvedValueOnce("test@example.com")
+        .mockResolvedValueOnce("api-token");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => ({
+          ok: true,
+          status: 200,
+          json: async () => {
+            if (url.endsWith("/myself")) {
+              return me;
+            }
+            throw new DOMException("timed out", "TimeoutError");
+          },
+        })),
+      );
+
+      await expect(assignJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: /rest/api/3/issue/DEV-123?fields=assignee did not answer within 15s.",
+      );
+    });
+
+    it("reports a refused PUT whose error body stalls past the timeout as a timeout", async () => {
+      expectCommands(
+        "git config northguild.worktree.jira.host",
+        "git config northguild.worktree.jira.email",
+        "git config northguild.worktree.jira.apiToken",
+      );
+      vi.spyOn(cli, "run")
+        .mockResolvedValueOnce("https://example.atlassian.net/")
+        .mockResolvedValueOnce("test@example.com")
+        .mockResolvedValueOnce("api-token");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) =>
+          init.method === "PUT"
+            ? {
+                ok: false,
+                status: 500,
+                statusText: "Server Error",
+                text: async () => {
+                  throw new DOMException("timed out", "TimeoutError");
+                },
+              }
+            : {
+                ok: true,
+                status: 200,
+                json: async () =>
+                  url.endsWith("/myself")
+                    ? me
+                    : makeJiraIssue({ fields: { assignee: null } }),
+              },
+        ),
+      );
+
+      await expect(assignJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: /rest/api/3/issue/DEV-123/assignee did not answer within 15s.",
+      );
     });
   });
 });

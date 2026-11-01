@@ -27,6 +27,9 @@ because of ignored files are created as needed.
 Submodules are not searched, because git does not look inside one when listing the parent's files. An env
 file inside a submodule has to be copied by hand.
 
+Nested git repositories (a linked worktree, or a `git init`) are not searched either, for the same reason,
+and that applies to `copy` patterns too. A file inside one has to be copied by hand.
+
 `node_modules` is excluded, so an env file shipped inside a dependency is never copied.
 
 ### Other files, from `.worktree.yml`
@@ -100,3 +103,6 @@ git check-ignore -v .env.staging
 
 No output means the file is not ignored, so it is not copied. Add it to `.gitignore`. The same applies to a
 file named under `copy`.
+
+If the command printed output, the file is ignored, but it is still left behind when it sits inside a nested
+git repository, as described under [What Gets Copied](#what-gets-copied). Copy it by hand.

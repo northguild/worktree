@@ -193,6 +193,8 @@ export interface BranchDryRunValue {
 export interface BranchDryRunField {
   id: string;
   name: string;
+  /** The `branchType` list this field's `when` lines belong in. */
+  pasteInto: string;
   values: BranchDryRunValue[];
 }
 

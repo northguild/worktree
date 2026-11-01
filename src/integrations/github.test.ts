@@ -899,6 +899,87 @@ describe("GitHub integration", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // The fetch signal also bounds the body: headers in time and a body that
+  // stalls past 15s rejects response.json() with the signal's TimeoutError.
+  it("reports an issue body that stalls past the timeout as a timeout", async () => {
+    vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("");
+    const stalled = makeOkJsonResponse(null);
+    stalled.json.mockRejectedValue(
+      new DOMException("timed out", "TimeoutError"),
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stalled));
+
+    await expect(fetchGitHubIssue(42)).rejects.toThrow(
+      "GitHub: /repos/northguild/worktree/issues/42 did not answer within 15s.",
+    );
+  });
+
+  it("reports a user body that stalls past the timeout as a timeout", async () => {
+    const stalled = makeOkJsonResponse(null);
+    stalled.json.mockRejectedValue(
+      new DOMException("timed out", "TimeoutError"),
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stalled));
+
+    await expect(
+      fetchGitHubLogin({ token: "ghp_secret_token", source: "gh" }),
+    ).rejects.toThrow("GitHub: /user did not answer within 15s.");
+  });
+
+  it("reports an assign answer whose body stalls past the timeout as a timeout", async () => {
+    vi.spyOn(cli, "run")
+      .mockRejectedValueOnce(NO_UPSTREAM_REMOTE)
+      .mockResolvedValueOnce("git@github.com:northguild/worktree.git")
+      .mockResolvedValueOnce("ghp_test_token");
+    const stalled = makeOkJsonResponse(null);
+    stalled.json.mockRejectedValue(
+      new DOMException("timed out", "TimeoutError"),
+    );
+    const fetchSpy = vi.fn();
+    fetchSpy.mockResolvedValueOnce(makeOkJsonResponse(makeUserResponse()));
+    fetchSpy.mockResolvedValueOnce(stalled);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(assignGitHubIssue(42)).rejects.toThrow(
+      "GitHub: /repos/northguild/worktree/issues/42/assignees did not answer within 15s.",
+    );
+  });
+
+  it("leaves a body that fails to parse as a parse failure, not a timeout", async () => {
+    const malformed = makeOkJsonResponse(null);
+    malformed.json.mockRejectedValue(new SyntaxError("Unexpected token <"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(malformed));
+
+    const failure = fetchGitHubLogin({
+      token: "ghp_secret_token",
+      source: "gh",
+    });
+
+    await expect(failure).rejects.toThrow("Unexpected token <");
+    await expect(failure).rejects.not.toThrow(/did not answer within/);
+  });
+
+  it("reports an error body that stalls past the timeout as a timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Server Error",
+        text: vi
+          .fn()
+          .mockRejectedValue(new DOMException("timed out", "TimeoutError")),
+      }),
+    );
+
+    await expect(
+      fetchGitHubLogin({ token: "ghp_secret_token", source: "gh" }),
+    ).rejects.toThrow("GitHub: /user did not answer within 15s.");
+  });
+
   // AbortSignal.timeout runs on Node's own timers, which fake timers do not
   // reach, so the signal is swapped for one that has already expired.
   it("rejects a GitHub request that never answers, naming the call and not the token", async () => {

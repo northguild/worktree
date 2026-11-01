@@ -207,8 +207,36 @@ export function getJiraIssueFields(issue: JiraIssue): IssueField[] {
 
 const JIRA_REQUEST_TIMEOUT_MS = 15_000;
 
-// D5: every Jira request is bounded, and a timeout names the call. The path
-// goes in the message; the auth headers, which carry the token, never do.
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
+// D5: a timeout names the call. The path goes in the message; the auth
+// headers, which carry the token, never do.
+function timeoutError(path: string, cause: unknown): Error {
+  return new Error(
+    `Jira: ${path} did not answer within ${JIRA_REQUEST_TIMEOUT_MS / 1000}s.`,
+    { cause },
+  );
+}
+
+// The request's signal also bounds reading the body, so a body that stalls
+// after the headers arrive rejects with the same TimeoutError as the fetch.
+async function readJiraBody<T>(
+  path: string,
+  read: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (isTimeout(error)) {
+      throw timeoutError(path, error);
+    }
+    throw error;
+  }
+}
+
+// D5: every Jira request is bounded, body included.
 async function fetchJira(
   path: string,
   credentials: JiraCredentials,
@@ -231,11 +259,8 @@ async function fetchJira(
       signal: AbortSignal.timeout(JIRA_REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      throw new Error(
-        `Jira: ${path} did not answer within ${JIRA_REQUEST_TIMEOUT_MS / 1000}s.`,
-        { cause: error },
-      );
+    if (isTimeout(error)) {
+      throw timeoutError(path, error);
     }
     throw error;
   }
@@ -249,10 +274,8 @@ export async function fetchJiraIssue(
   const issueKey = getIssueKey(issueId);
   const credentials = await resolveJiraCredentials();
 
-  const response = await fetchJira(
-    `/rest/api/3/issue/${issueKey}${options.names ? "?expand=names" : ""}`,
-    credentials,
-  );
+  const issuePath = `/rest/api/3/issue/${issueKey}${options.names ? "?expand=names" : ""}`;
+  const response = await fetchJira(issuePath, credentials);
   const loginReason = response.headers?.get?.("x-seraph-loginreason");
 
   if (response.status === 401 || loginReason === "AUTHENTICATED_FAILED") {
@@ -262,13 +285,13 @@ export async function fetchJiraIssue(
   }
 
   if (!response.ok) {
-    const errorMessage = await response.text();
+    const errorMessage = await readJiraBody(issuePath, () => response.text());
     throw new Error(
       `Jira: Failed to fetch issue ${issueKey}. ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`,
     );
   }
 
-  const data = await response.json();
+  const data = await readJiraBody(issuePath, () => response.json());
 
   if (isJiraError(data)) {
     const errorMessage =
@@ -376,6 +399,7 @@ interface JiraUser {
 // writing its assignee needs Assign Issues.
 async function jiraAssignFailure(
   response: Response,
+  path: string,
   issueKey: string,
   step: "caller" | "issue" | "assignee",
 ): Promise<Error> {
@@ -396,7 +420,7 @@ async function jiraAssignFailure(
     return new Error(`Jira: Issue ${issueKey} was not found.`);
   }
 
-  const errorMessage = await response.text();
+  const errorMessage = await readJiraBody(path, () => response.text());
   const detail = `${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
 
   if (response.status === 400 && step === "assignee") {
@@ -417,23 +441,37 @@ export async function assignJiraIssue(
   const issueKey = getIssueKey(issueId);
   const credentials = await resolveJiraCredentials();
 
+  const myselfPath = "/rest/api/3/myself";
+  const assigneePath = `/rest/api/3/issue/${issueKey}?fields=assignee`;
   const [myselfResponse, issueResponse] = await Promise.all([
-    fetchJira("/rest/api/3/myself", credentials),
-    fetchJira(`/rest/api/3/issue/${issueKey}?fields=assignee`, credentials),
+    fetchJira(myselfPath, credentials),
+    fetchJira(assigneePath, credentials),
   ]);
 
   if (!myselfResponse.ok) {
-    throw await jiraAssignFailure(myselfResponse, issueKey, "caller");
+    throw await jiraAssignFailure(
+      myselfResponse,
+      myselfPath,
+      issueKey,
+      "caller",
+    );
   }
 
   if (!issueResponse.ok) {
-    throw await jiraAssignFailure(issueResponse, issueKey, "issue");
+    throw await jiraAssignFailure(
+      issueResponse,
+      assigneePath,
+      issueKey,
+      "issue",
+    );
   }
 
-  const me = (await myselfResponse.json()) as JiraUser;
-  const issue = (await issueResponse.json()) as {
+  const me = await readJiraBody<JiraUser>(myselfPath, () =>
+    myselfResponse.json(),
+  );
+  const issue = await readJiraBody<{
     fields?: { assignee?: JiraUser | null };
-  };
+  }>(assigneePath, () => issueResponse.json());
   const assignee = issue.fields?.assignee;
   const displayName = me.displayName ?? "you";
 
@@ -463,7 +501,7 @@ export async function assignJiraIssue(
   });
 
   if (!putResponse.ok) {
-    throw await jiraAssignFailure(putResponse, issueKey, "assignee");
+    throw await jiraAssignFailure(putResponse, path, issueKey, "assignee");
   }
 
   return { outcome: "assigned", displayName };

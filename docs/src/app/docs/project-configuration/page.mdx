@@ -236,7 +236,7 @@ worktree branch --clickup 9hx --dry-run
 2. Read the `Rule:` line: it says whether a rule, the built-in mapping or nothing chose the prefix.
 3. Find the field and value in the list. Each has its id and name, and a ready line such as
    `- when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance`.
-4. Paste the line under the provider's `branchType`, add `type: chore` (or `bugfix`, `feature`) beneath it,
+4. Paste the line under the provider's `branchType`, or the shared `branchType` for `Type` and `Labels` when the shared list decided (the dry run marks any other field with the list it belongs in), add `type: chore` (or `bugfix`, `feature`) beneath it,
    and run the dry run again. Its `Rule:` line now names your rule by position.
 
 A value with an id is written by id. A value without one, such as a ClickUp tag, is written by name. Fields
