@@ -303,9 +303,10 @@ async function resolveGitHubToken(): Promise<ResolvedGitHubToken> {
 async function githubFailure(
   prefix: string,
   response: Response,
+  path: string,
   tokenSource?: GitHubTokenSource,
 ): Promise<Error> {
-  const errorMessage = await response.text();
+  const errorMessage = await readGitHubBody(path, () => response.text());
   const message = `${prefix} ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
   if (response.status === 401 && tokenSource === "stored") {
     return new Error(
@@ -323,6 +324,35 @@ async function githubFailure(
 interface GitHubRequestOptions {
   method?: string;
   body?: unknown;
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
+// The path names the call; the headers, which carry the token, never reach the
+// message.
+function timeoutError(path: string, cause: unknown): Error {
+  return new Error(
+    `GitHub: ${path} did not answer within ${GITHUB_REQUEST_TIMEOUT_MS / 1000}s.`,
+    { cause },
+  );
+}
+
+// The request's signal also bounds reading the body, so a body that stalls
+// after the headers arrive rejects with the same TimeoutError as the fetch.
+async function readGitHubBody<T>(
+  path: string,
+  read: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (isTimeout(error)) {
+      throw timeoutError(path, error);
+    }
+    throw error;
+  }
 }
 
 async function fetchGitHub(
@@ -350,13 +380,8 @@ async function fetchGitHub(
   try {
     return await fetch(`https://api.github.com${path}`, init);
   } catch (error) {
-    // The path names the call; the headers, which carry the token, never
-    // reach the message.
-    if (error instanceof Error && error.name === "TimeoutError") {
-      throw new Error(
-        `GitHub: ${path} did not answer within ${GITHUB_REQUEST_TIMEOUT_MS / 1000}s.`,
-        { cause: error },
-      );
+    if (isTimeout(error)) {
+      throw timeoutError(path, error);
     }
     throw error;
   }
@@ -394,20 +419,21 @@ export async function fetchGitHubIssue(issueId: number | string) {
     }
   }
 
-  const response = await fetchGitHub(
-    `/repos/${owner}/${name}/issues/${normalizedIssueId}`,
-    token,
-  );
+  const issuePath = `/repos/${owner}/${name}/issues/${normalizedIssueId}`;
+  const response = await fetchGitHub(issuePath, token);
 
   if (!response.ok) {
     throw await githubFailure(
       `GitHub: Failed to fetch issue ${normalizedIssueId} from ${describeGitHubRepository(repository)}.`,
       response,
+      issuePath,
       tokenSource,
     );
   }
 
-  const issue = (await response.json()) as GitHubIssueApiResponse;
+  const issue = await readGitHubBody<GitHubIssueApiResponse>(issuePath, () =>
+    response.json(),
+  );
   const pullRequest = issue.pull_request
     ? {
         headBranch: await fetchGitHubPullRequestHeadBranch(
@@ -484,16 +510,14 @@ async function fetchGitHubPullRequestHeadBranch(
   token?: string,
 ): Promise<string | null> {
   try {
-    const response = await fetchGitHub(
-      `/repos/${repository.owner}/${repository.name}/pulls/${number}`,
-      token,
-    );
+    const pullPath = `/repos/${repository.owner}/${repository.name}/pulls/${number}`;
+    const response = await fetchGitHub(pullPath, token);
     if (!response.ok) {
       return null;
     }
-    const pull = (await response.json()) as {
+    const pull = await readGitHubBody<{
       head?: { ref?: string; repo?: { full_name?: string } | null };
-    };
+    }>(pullPath, () => response.json());
     const origin =
       repository.source === "origin"
         ? repository
@@ -520,11 +544,14 @@ export async function fetchGitHubLogin(
     throw await githubFailure(
       "GitHub: Failed to resolve the authenticated user.",
       response,
+      "/user",
       source,
     );
   }
 
-  const user = (await response.json()) as { login: string };
+  const user = await readGitHubBody<{ login: string }>("/user", () =>
+    response.json(),
+  );
 
   return user.login;
 }
@@ -552,16 +579,17 @@ export async function assignGitHubIssue(issueId: number | string): Promise<{
   const { token, source } = await requireGitHubToken();
   const login = await fetchGitHubLogin({ token, source });
 
-  const response = await fetchGitHub(
-    `/repos/${owner}/${name}/issues/${normalizedIssueId}/assignees`,
-    token,
-    { method: "POST", body: { assignees: [login] } },
-  );
+  const assigneesPath = `/repos/${owner}/${name}/issues/${normalizedIssueId}/assignees`;
+  const response = await fetchGitHub(assigneesPath, token, {
+    method: "POST",
+    body: { assignees: [login] },
+  });
 
   if (!response.ok) {
     const failure = await githubFailure(
       `GitHub: Failed to assign issue ${normalizedIssueId} in ${describeGitHubRepository(repository)}.`,
       response,
+      assigneesPath,
       source,
     );
     // A fine-grained token without Issues write is refused here with a 403
@@ -574,7 +602,10 @@ export async function assignGitHubIssue(issueId: number | string): Promise<{
   // Confirmed against the response rather than assumed: GitHub documents that an
   // assignee change made without push access is silently ignored, which is a 201
   // whose assignees never gained the login.
-  const issue = (await response.json()) as GitHubIssueApiResponse;
+  const issue = await readGitHubBody<GitHubIssueApiResponse>(
+    assigneesPath,
+    () => response.json(),
+  );
   const assignees = issue.assignees ?? [];
 
   return {
