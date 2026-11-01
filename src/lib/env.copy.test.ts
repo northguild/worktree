@@ -132,3 +132,28 @@ describe("copyEnvFilesFromRootPath — copy patterns, against a real repository"
     expect(copied).toEqual(["config/master.key"]);
   });
 });
+
+// #202: git lists a gitignored nested repository as one directory entry ending
+// in `/`, and the pathspecs do not filter it. Expected values are the real
+// files only: `.env` and the `.dev.vars` beside the nested repositories.
+describe("copyEnvFilesFromRootPath — a gitignored nested repository, against a real repository", () => {
+  it("copies the real env files and skips a nested worktree and a nested git init", async () => {
+    write(repo, "README.md");
+    git("add", "README.md");
+    git("commit", "-q", "-m", "initial");
+    git("worktree", "add", "-q", "linked", "-b", "linked-branch");
+    git("init", "-q", "plain");
+    write(repo, ".gitignore", "linked/\nplain/\n.env\n.dev.vars\n");
+    write(repo, ".env", "root");
+    write(repo, "app/.dev.vars", "app");
+
+    const copied = await copyEnvFilesFromRootPath(destination);
+
+    expect(copied.sort()).toEqual([".env", "app/.dev.vars"]);
+    expect(fs.readFileSync(path.join(destination, ".env"), "utf8")).toBe(
+      "root",
+    );
+    expect(fs.existsSync(path.join(destination, "linked"))).toBe(false);
+    expect(fs.existsSync(path.join(destination, "plain"))).toBe(false);
+  });
+});

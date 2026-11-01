@@ -70,7 +70,11 @@ async function gitListIgnoredEnvFiles(
     { cwd: gitRootPath, trim: false },
   );
 
-  return result.split("\0").filter(Boolean);
+  // A gitignored nested repository (a `git init` or a linked worktree inside
+  // this one) is listed as a single directory entry ending in `/`, and the
+  // pathspecs above do not filter it. A file path never ends in `/`, so such an
+  // entry is a directory and copyFileSync would throw on it.
+  return result.split("\0").filter((entry) => entry && !entry.endsWith("/"));
 }
 
 /**
