@@ -5236,12 +5236,15 @@ describe("branch command — --linear with no identifier", () => {
     delete process.env.CI;
     resetProjectConfigCache();
     output = captureOutput();
-    vi.spyOn(git, "gitGetConfigValue").mockImplementation((key: string) => {
-      if (key === "has-called-config") return Promise.resolve("true");
-      if (key === "defaultSourceBranch") return Promise.resolve("origin/main");
-      if (key === "linear.apiKey") return Promise.resolve("lin_api_test");
-      return Promise.resolve("");
-    });
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+      (key: string) => {
+        if (key === "has-called-config") return Promise.resolve("true");
+        if (key === "defaultSourceBranch")
+          return Promise.resolve("origin/main");
+        if (key === "linear.apiKey") return Promise.resolve("lin_api_test");
+        return Promise.resolve("");
+      },
+    );
     vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
     vi.spyOn(git, "gitFetch").mockResolvedValue("");
     vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
@@ -5251,7 +5254,7 @@ describe("branch command — --linear with no identifier", () => {
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
     vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
     vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
-    vi.spyOn(git, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
     vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
     mockInput.mockImplementation(async (config: any) => config.default);
     mockRunInstallSkipped();
