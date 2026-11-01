@@ -199,6 +199,16 @@ export function formatBranchTypeRule(rule: BranchTypeRule) {
 }
 
 /**
+ * `Type` and `Labels` mean the same on every provider, so a shared `branchType`
+ * rule may name them. Any other field is one provider's own. Case does not
+ * count: an English Jira's only labels field has the id `labels`, and a rule
+ * naming it finds every other provider's `Labels` by name (`findField`).
+ */
+export function isPortableField(field: IssueField) {
+  return sameName(field.id, "Type") || sameName(field.id, "Labels");
+}
+
+/**
  * One line to paste into a `branchType` list: the value by id when it has one
  * (ids survive a renamed option and another language), by name when it does
  * not, with the names as a comment. For the shared list (`shared`), the
@@ -210,10 +220,7 @@ export function pasteReadyLine(
   value: FieldValue,
   shared = false,
 ) {
-  const byName =
-    shared &&
-    value.name !== undefined &&
-    (field.id === "Type" || field.id === "Labels");
+  const byName = shared && value.name !== undefined && isPortableField(field);
   const wanted =
     value.id !== undefined && !byName
       ? formatWhenValue({ id: value.id })
