@@ -2832,18 +2832,14 @@ describe("gitFindBranchCheckout", () => {
     return [`worktree ${path}`, `HEAD ${hash}`, `branch refs/heads/${branch}`];
   }
 
-  function mockList(stdout: string, currentBranch = "main") {
-    mockRun
-      .mockResolvedValueOnce(currentBranch)
-      .mockResolvedValueOnce(rootPath)
-      .mockResolvedValueOnce(stdout);
+  function mockList(stdout: string) {
+    mockRun.mockResolvedValueOnce(rootPath).mockResolvedValueOnce(stdout);
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     expectCommands(
-      "git branch --show-current",
       "git rev-parse --show-toplevel",
       "git worktree list --porcelain",
     );
@@ -2858,7 +2854,6 @@ describe("gitFindBranchCheckout", () => {
       path: `${treesPath}/feat`,
       pathExists: true,
       inWorktreesRoot: true,
-      isCurrent: false,
     });
   });
 
@@ -2870,18 +2865,16 @@ describe("gitFindBranchCheckout", () => {
       path: `${treesPath}/gone`,
       pathExists: false,
       inWorktreesRoot: true,
-      isCurrent: false,
     });
   });
 
   it("finds a branch checked out outside the root, such as the main checkout", async () => {
-    mockList(porcelain(record(rootPath, "main")), "other");
+    mockList(porcelain(record(rootPath, "main")));
 
     expect(await gitFindBranchCheckout("main")).toEqual({
       path: rootPath,
       pathExists: true,
       inWorktreesRoot: false,
-      isCurrent: false,
     });
   });
 
@@ -2890,20 +2883,6 @@ describe("gitFindBranchCheckout", () => {
 
     expect(await gitFindBranchCheckout("x")).toMatchObject({
       inWorktreesRoot: false,
-    });
-  });
-
-  it("marks the worktree you are standing in as current", async () => {
-    mockList(
-      porcelain(record(rootPath, "main"), record(`${treesPath}/here`, "here")),
-      "here",
-    );
-
-    expect(await gitFindBranchCheckout("here")).toEqual({
-      path: `${treesPath}/here`,
-      pathExists: true,
-      inWorktreesRoot: true,
-      isCurrent: true,
     });
   });
 
