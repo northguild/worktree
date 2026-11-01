@@ -11,6 +11,7 @@ import {
   parseClickUpTaskId,
   resolveClickUpToken,
   resolveClickUpWorkspaceId,
+  startClickUpTask,
 } from "./clickup.js";
 
 // Built at runtime: a literal in this shape trips GitHub push protection.
@@ -893,5 +894,453 @@ describe("the shared branchType list for ClickUp", () => {
     expect(
       (await getClickUpBranchNaming(clickUpTask(["chore"]), "9hx")).branchName,
     ).toBe("feat/CU-9hx-tidy");
+  });
+
+  // Shapes follow ClickUp's OpenAPI definitions, read 2026-11-01:
+  // Get Task (status{status,type}, list{id}), Get List (statuses[] with
+  // status, type, orderindex) and Update Task (200 answers a task).
+  describe("startClickUpTask", () => {
+    const BASE = "https://api.clickup.com/api/v2";
+
+    function startTask(
+      type: string,
+      status = "to do",
+      overrides: Record<string, unknown> = {},
+    ) {
+      return taskPayload({
+        status: { status, type },
+        list: { id: "901" },
+        ...overrides,
+      });
+    }
+
+    // Deliberately not in orderindex order, so "first in the array" and
+    // "lowest orderindex" give different answers (the entry's rule).
+    const STATUSES = [
+      { status: "review", type: "custom", orderindex: 3 },
+      { status: "to do", type: "open", orderindex: 0 },
+      { status: "in progress", type: "custom", orderindex: 1 },
+      { status: "qa", type: "custom", orderindex: 2 },
+      { status: "complete", type: "done", orderindex: 4 },
+      { status: "closed", type: "closed", orderindex: 5 },
+    ];
+
+    function stubSequence(...answers: unknown[]) {
+      const fetchSpy = vi.fn();
+      for (const answer of answers) {
+        fetchSpy.mockResolvedValueOnce(answer);
+      }
+      vi.stubGlobal("fetch", fetchSpy);
+      return fetchSpy;
+    }
+
+    function calls(fetchSpy: ReturnType<typeof vi.fn>) {
+      return fetchSpy.mock.calls.map(([url, init]) => [
+        (init as RequestInit).method,
+        url,
+      ]);
+    }
+
+    const movedTask = (status: string) => startTask("custom", status);
+
+    it("moves an open task to the lowest-orderindex custom status", async () => {
+      stubToken();
+      const fetchSpy = stubSequence(
+        respond(200, startTask("open")),
+        respond(200, { statuses: STATUSES }),
+        respond(200, movedTask("in progress")),
+      );
+
+      await expect(startClickUpTask("9hx")).resolves.toEqual({
+        outcome: "started",
+        from: "to do",
+        to: "in progress",
+      });
+
+      expect(calls(fetchSpy)).toEqual([
+        ["GET", `${BASE}/task/9hx`],
+        ["GET", `${BASE}/list/901`],
+        ["PUT", `${BASE}/task/9hx`],
+      ]);
+      const [, put] = fetchSpy.mock.calls[2] as [string, RequestInit];
+      expect(put.body).toBe('{"status":"in progress"}');
+      for (const [, init] of fetchSpy.mock.calls as [string, RequestInit][]) {
+        expect(init.headers).toEqual({
+          "Content-Type": "application/json",
+          Authorization: TOKEN,
+        });
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+      }
+    });
+
+    it("sends the custom-id query on Get Task and Update Task, not Get List", async () => {
+      stubTokenAndWorkspace("9012345");
+      const fetchSpy = stubSequence(
+        respond(200, startTask("open", "to do", { custom_id: "DEV-123" })),
+        respond(200, { statuses: STATUSES }),
+        respond(200, movedTask("in progress")),
+      );
+
+      await startClickUpTask("DEV-123");
+
+      const query = "?custom_task_ids=true&team_id=9012345";
+      expect(calls(fetchSpy)).toEqual([
+        ["GET", `${BASE}/task/DEV-123${query}`],
+        ["GET", `${BASE}/list/901`],
+        ["PUT", `${BASE}/task/DEV-123${query}`],
+      ]);
+    });
+
+    it("accepts an echoed status that differs only in case", async () => {
+      stubToken();
+      stubSequence(
+        respond(200, startTask("open")),
+        respond(200, { statuses: STATUSES }),
+        respond(200, movedTask("IN PROGRESS")),
+      );
+
+      await expect(startClickUpTask("9hx")).resolves.toMatchObject({
+        outcome: "started",
+      });
+    });
+
+    it("reports a custom-type task as already started, with no List read or write", async () => {
+      stubToken();
+      const fetchSpy = stubSequence(
+        respond(200, startTask("custom", "in review")),
+      );
+
+      await expect(startClickUpTask("9hx")).resolves.toEqual({
+        outcome: "already-started",
+        status: "in review",
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["done", "complete"],
+      ["closed", "closed"],
+      ["somethingnew", "weird"],
+    ])("leaves a %s task alone with no List read or write", async (type, status) => {
+      stubToken();
+      const fetchSpy = stubSequence(respond(200, startTask(type, status)));
+
+      await expect(startClickUpTask("9hx")).resolves.toEqual({
+        outcome: "left-alone",
+        status,
+        type,
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports a List with no custom status and writes nothing", async () => {
+      stubToken();
+      const fetchSpy = stubSequence(
+        respond(200, startTask("open")),
+        respond(200, {
+          statuses: [
+            { status: "to do", type: "open", orderindex: 0 },
+            { status: "complete", type: "done", orderindex: 1 },
+          ],
+        }),
+      );
+
+      await expect(startClickUpTask("9hx")).resolves.toEqual({
+        outcome: "no-in-progress-status",
+        status: "to do",
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not treat an unknown status type as an in-progress target", async () => {
+      stubToken();
+      const fetchSpy = stubSequence(
+        respond(200, startTask("open")),
+        respond(200, {
+          statuses: [
+            { status: "backlog", type: "active", orderindex: 0 },
+            { status: "complete", type: "done", orderindex: 1 },
+          ],
+        }),
+      );
+
+      await expect(startClickUpTask("9hx")).resolves.toEqual({
+        outcome: "no-in-progress-status",
+        status: "to do",
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("refuses an invalid id before any request", async () => {
+      const fetchSpy = stubSequence();
+
+      await expect(startClickUpTask("a b")).rejects.toMatchObject({
+        code: "invalid_value",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("refuses a custom id with no workspace id before any request", async () => {
+      stubTokenAndWorkspace("");
+      const fetchSpy = stubSequence();
+
+      await expect(startClickUpTask("DEV-1")).rejects.toMatchObject({
+        name: "MissingValueError",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    // The three requests each map 401/403, 404 and 429 to the existing texts.
+    describe.each([
+      ["Get Task", 0, "ClickUp: Unable to find task 9hx."],
+      ["Get List", 1, "ClickUp: Unable to find list 901."],
+      ["Update Task", 2, "ClickUp: Unable to find task 9hx."],
+    ])("a failing %s", (_name, index, notFound) => {
+      function sequenceFailing(failure: unknown) {
+        const answers = [
+          respond(200, startTask("open")),
+          respond(200, { statuses: STATUSES }),
+          respond(200, movedTask("in progress")),
+        ];
+        answers[index] = failure as ReturnType<typeof respond>;
+        return stubSequence(...answers);
+      }
+
+      it.each([
+        401, 403,
+      ])("reports authentication on HTTP %i", async (status) => {
+        stubToken();
+        sequenceFailing(respond(status, {}));
+
+        await expect(startClickUpTask("9hx")).rejects.toThrow(
+          "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
+        );
+      });
+
+      it("reports not found on HTTP 404", async () => {
+        stubToken();
+        sequenceFailing(respond(404, { err: "not found" }));
+
+        await expect(startClickUpTask("9hx")).rejects.toThrow(notFound);
+      });
+
+      it("says so on HTTP 429", async () => {
+        stubToken();
+        sequenceFailing(respond(429, {}));
+
+        await expect(startClickUpTask("9hx")).rejects.toThrow(
+          "ClickUp: Rate limited. ClickUp limits requests per API token; wait a moment and try again.",
+        );
+      });
+    });
+
+    it("keeps the Get Task not-found text word for word", async () => {
+      stubToken();
+      stubSequence(respond(404, {}));
+
+      await expect(startClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Unable to find task 9hx.",
+      );
+    });
+
+    it("carries the status line, ClickUp's err and the edit-access hint when the write is refused", async () => {
+      stubToken();
+      const refused = respond(400, { err: "Status does not exist" });
+      refused.statusText = "Bad Request";
+      stubSequence(
+        respond(200, startTask("open")),
+        respond(200, { statuses: STATUSES }),
+        refused,
+      );
+
+      const failure = startClickUpTask("9hx");
+
+      await expect(failure).rejects.toThrow(
+        /^ClickUp: Failed to move task 9hx to "in progress"\. 400 Bad Request: Status does not exist\. Moving a task needs edit access to it\.$/,
+      );
+    });
+
+    it("still gives the hint when the refusal has no err", async () => {
+      stubToken();
+      stubSequence(
+        respond(200, startTask("open")),
+        respond(200, { statuses: STATUSES }),
+        respond(500, "<html>"),
+      );
+
+      await expect(startClickUpTask("9hx")).rejects.toThrow(
+        /500.*Moving a task needs edit access to it\./,
+      );
+    });
+
+    it("fails when the echoed status is not the chosen one", async () => {
+      stubToken();
+      stubSequence(
+        respond(200, startTask("open")),
+        respond(200, { statuses: STATUSES }),
+        respond(200, movedTask("to do")),
+      );
+
+      await expect(startClickUpTask("9hx")).rejects.toThrow(
+        'ClickUp: Task 9hx did not move to "in progress"; it is in "to do".',
+      );
+    });
+
+    it("fails when a 2xx write answer is not a task", async () => {
+      stubToken();
+      stubSequence(
+        respond(200, startTask("open")),
+        respond(200, { statuses: STATUSES }),
+        respond(200, { ok: true }),
+      );
+
+      await expect(startClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Unexpected response for task 9hx.",
+      );
+    });
+
+    it("reports a timeout on the write and names ClickUp, not the token", async () => {
+      stubToken();
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(respond(200, startTask("open")))
+        .mockResolvedValueOnce(respond(200, { statuses: STATUSES }))
+        .mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const failure = startClickUpTask("9hx");
+
+      await expect(failure).rejects.toThrow(
+        "ClickUp: the request did not answer within 15s.",
+      );
+      await expect(failure).rejects.not.toThrow(/pk_/);
+    });
+
+    it.each([
+      ["Get Task", 0],
+      ["Get List", 1],
+      ["Update Task", 2],
+    ])("turns a non-timeout fetch failure on %s into a fixed ClickUp message", async (_name, index) => {
+      for (const message of [
+        "fetch failed",
+        `Headers.append: "${TOKEN}\nX" is invalid`,
+      ]) {
+        stubToken();
+        const fetchSpy = vi.fn();
+        const answers = [
+          respond(200, startTask("open")),
+          respond(200, { statuses: STATUSES }),
+        ];
+        for (const answer of answers.slice(0, index)) {
+          fetchSpy.mockResolvedValueOnce(answer);
+        }
+        fetchSpy.mockRejectedValueOnce(new TypeError(message));
+        vi.stubGlobal("fetch", fetchSpy);
+
+        const failure = startClickUpTask("9hx");
+
+        await expect(failure).rejects.toThrow(
+          "ClickUp: the request could not be sent.",
+        );
+        await expect(failure).rejects.toThrow(/^ClickUp: /);
+        await expect(failure).rejects.not.toThrow(TOKEN);
+      }
+    });
+
+    it.each([
+      [
+        "a body that is not JSON",
+        () => {
+          const answer = respond(200, null);
+          answer.json.mockRejectedValue(new SyntaxError("Unexpected token <"));
+          return answer;
+        },
+      ],
+      [
+        "a missing status object",
+        () => respond(200, taskPayload({ list: { id: "901" } })),
+      ],
+      [
+        "a status without a type",
+        () =>
+          respond(
+            200,
+            taskPayload({ status: { status: "to do" }, list: { id: "901" } }),
+          ),
+      ],
+      [
+        "a status without a name",
+        () =>
+          respond(
+            200,
+            taskPayload({ status: { type: "open" }, list: { id: "901" } }),
+          ),
+      ],
+      [
+        "a missing list",
+        () =>
+          respond(
+            200,
+            taskPayload({ status: { status: "to do", type: "open" } }),
+          ),
+      ],
+      [
+        "a list without an id",
+        () =>
+          respond(
+            200,
+            taskPayload({
+              status: { status: "to do", type: "open" },
+              list: {},
+            }),
+          ),
+      ],
+    ])("reports %s on Get Task as an unexpected response", async (_name, answer) => {
+      stubToken();
+      stubSequence(answer());
+
+      await expect(startClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Unexpected response for task 9hx.",
+      );
+    });
+
+    it.each([
+      ["an item missing orderindex", [{ status: "a", type: "custom" }]],
+      [
+        "a string orderindex",
+        [{ status: "a", type: "custom", orderindex: "1" }],
+      ],
+      ["an item missing its name", [{ type: "custom", orderindex: 1 }]],
+      ["statuses that is not an array", "nope"],
+    ])("reports Get List with %s as an unexpected response", async (_name, statuses) => {
+      stubToken();
+      stubSequence(respond(200, startTask("open")), respond(200, { statuses }));
+
+      await expect(startClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Unexpected response for list 901.",
+      );
+    });
+
+    it("never puts the token in a thrown message", async () => {
+      const failures = [
+        respond(401, {}),
+        respond(404, {}),
+        respond(429, {}),
+        respond(500, { err: "boom" }),
+      ];
+      for (const failure of failures) {
+        stubToken();
+        stubSequence(
+          respond(200, startTask("open")),
+          respond(200, { statuses: STATUSES }),
+          failure,
+        );
+        const error = await startClickUpTask("9hx").catch((e: Error) => e);
+
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain(TOKEN);
+        expect((error as Error).message).toMatch(/^ClickUp: /);
+      }
+    });
   });
 });
