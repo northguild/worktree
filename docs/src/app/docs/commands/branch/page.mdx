@@ -477,7 +477,8 @@ tells them apart:
 
 Opening an existing worktree creates nothing, so it copies no env files, installs nothing and assigns or moves no
 issue, and `--source`, `--assign`, `--start` and `--install` are ignored. It passes `--no-open`, `--no-agent` and any
-brief through to the same opener as a new worktree. It prints no [JSON document](#json-output); a
+brief through to the same opener as a new worktree. With a brief, the question says that `y` starts a new
+agent there, beside any agent already running in it. It prints no [JSON document](#json-output); a
 non-interactive run refuses instead, so `--json` never reaches it.
 
 ## JSON output

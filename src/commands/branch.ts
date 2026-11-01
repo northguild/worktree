@@ -520,8 +520,14 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         `${exists} Run \`worktree open ${branchName}\` to open it, or choose another branch name.`,
       );
     }
+    // A yes with a brief starts an agent in a tree that may already have one,
+    // the risk D2 gives for not opening unasked, so the question names it.
+    const question =
+      brief === undefined
+        ? `${exists} Open it instead?`
+        : `${exists} Open it and hand the brief to a new agent there? One may already be running in it.`;
     const reopen = await askConfirm(
-      { message: `${exists} Open it instead?` },
+      { message: question },
       { value: "whether to open the existing worktree", flag: "worktree open" },
     );
     if (!reopen) {
