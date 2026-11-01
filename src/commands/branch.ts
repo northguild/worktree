@@ -2,6 +2,7 @@ import { Args, Flags } from "@oclif/core";
 import {
   fetchClickUpTask,
   getClickUpBranchNaming,
+  startClickUpTask,
 } from "../integrations/clickup.js";
 import {
   assignGitHubIssue,
@@ -137,9 +138,12 @@ issue to you; a Jira issue someone else holds is left alone.
 
 --start (or linear.autoStart) moves a --linear issue in a backlog or unstarted
 state to its team's first started state once the worktree exists; other states
-are left where they are. --no-start never does. Without either, a terminal is
-asked once and a non-interactive run starts. It needs a key with the Write
-permission.
+are left where they are. It needs a key with the Write permission.
+--start (or clickup.autoStart) moves a --clickup task in an open status to the
+List's first in-progress status; a task already in an in-progress or review
+status, a finished one and a List with no in-progress status are left where they
+are. It needs edit access to the task. --no-start never moves either. Without
+--start or the key, a terminal is asked once and a non-interactive run starts.
 
 --linear with no identifier lists your own unstarted and started Linear issues
 and asks you to pick one, then carries on as if you had typed its identifier.
@@ -160,9 +164,9 @@ url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
 url|null} or null
 assigned: true if the issue is yours after the run, false if it is not (held
 by someone else, or the attempt failed), null if none was attempted
-started: true if the Linear issue is in a started state after the run (moved
-or already there), false if it is not (left alone, its team has no started
-state, or the attempt failed), null if none was attempted
+started: true if the Linear issue or ClickUp task is in a started state after
+the run (moved or already there), false if it is not (left alone, no started
+state to move to, or the attempt failed), null if none was attempted
 installed: {ran:true, command, steps[], from, inferred, ok, reason?} or
 {ran:false, reason}
 command is the step that failed, else the last that ran; steps are the ones
@@ -264,7 +268,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     start: Flags.boolean({
       allowNo: true,
       description:
-        "Move the issue to its team's first started state once the worktree exists, when it is in a backlog or unstarted state (--linear only; not supported for --github, and not yet for --jira or --clickup)",
+        "Move the issue to its first started state once the worktree exists, when it is in a backlog or unstarted state: a --linear issue to its team's, a --clickup task in an open status to its List's first in-progress status (not supported for --github, and not yet for --jira)",
     }),
     // D13: the way to write branchType rules against a real issue. It is a
     // `branch` flag rather than a command so that the name it prints is the one
@@ -827,6 +831,50 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
   }
 
   /**
+   * Same contract as `startLinearIssue`: nothing here aborts `branch` (D7).
+   * `startClickUpTask` throws a `ClickUp:` error on every failure and writes
+   * only once it has decided to, so every path that is not "in a started status
+   * now" reports `false`. Messages never carry a header or the token.
+   */
+  private async startClickUpTask(taskIdFlag: string): Promise<boolean> {
+    const taskKey = taskIdFlag.trim();
+    const spinner = createSpinner(
+      `Moving ClickUp task ${taskKey} to in progress`,
+    ).start();
+
+    try {
+      const result = await startClickUpTask(taskIdFlag);
+      switch (result.outcome) {
+        case "started":
+          spinner.succeed(
+            `Moved ${taskKey} from ${result.from} to ${result.to}`,
+          );
+          return true;
+        case "already-started":
+          spinner.succeed(`${taskKey} is already started (${result.status})`);
+          return true;
+        case "left-alone": {
+          const message = `${taskKey} is in ${result.status} (a ${result.type} status), so it was not moved to in progress.`;
+          spinner.warn(message);
+          this.recordWarning(message);
+          return false;
+        }
+        case "no-in-progress-status": {
+          const message = `${taskKey} was not moved to in progress: its List has no in-progress status (it is in ${result.status}).`;
+          spinner.warn(message);
+          this.recordWarning(message);
+          return false;
+        }
+      }
+    } catch (error) {
+      const message = `Could not move ${taskKey} to in progress. ${error instanceof Error ? error.message : String(error)}`;
+      spinner.warn(message);
+      this.recordWarning(message);
+      return false;
+    }
+  }
+
+  /**
    * The identifier of one of the viewer's own unstarted or started issues,
    * chosen at the terminal (D5, D6). The spinner is stopped before the menu
    * opens: one left running redraws over inquirer's lines. Titles and state
@@ -1217,6 +1265,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // Only --start warns on another provider: --no-start asks for no move, so
     // a wrapper may pass it on every run, as --no-assign is.
     let startLinear = false;
+    let startClickUp = false;
     if (flags.start && flags.github) {
       this.warn(
         "Moving an issue to started is not supported for GitHub issues.",
@@ -1225,9 +1274,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       this.warn(
         "Moving an issue to started is not supported for Jira issues yet.",
       );
-    } else if (flags.start && flags.clickup) {
-      this.warn(
-        "Moving an issue to started is not supported for ClickUp tasks yet.",
+    } else if (flags.clickup) {
+      startClickUp = await this.shouldStartIssue(
+        "clickup.autoStart",
+        flags.start,
       );
     } else if (flags.linear) {
       startLinear = await this.shouldStartIssue(
@@ -1246,6 +1296,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     let started: boolean | null = null;
     if (startLinear && flags.linear) {
       started = await this.startLinearIssue(flags.linear);
+    } else if (startClickUp && flags.clickup) {
+      started = await this.startClickUpTask(flags.clickup);
     }
     // Env files first: the agent starts working immediately, so it has to find a
     // worktree that is already complete. The editor stays last so its "Worktree

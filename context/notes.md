@@ -16,3 +16,11 @@ Branch-local, for a person. Nothing reads this; `/feature-close` deletes it.
 - `configuration/page.mdx:273`: "in any other status type" has no stated antecedent, since the sentence never says which type moves. "Already in progress" does not say a review status is left too (D1 treats every `custom` type as started).
 - `config.test.ts:1666` (pre-existing): the title promises an order it does not assert; the new bare-run test now pins it.
 - The swap experiment on the bare-run test was the coder's claim; the reviewer confirmed its conclusion by reading, not by running it.
+
+## Phase 3 — `branch --clickup` starts the task
+
+- The `--start` flag text's "when it is in a backlog or unstarted state" reads as covering both providers, then gives ClickUp a different condition (`branch.ts:271`). The shared prompt says "Move this issue to started?" for a task.
+- Thin test pins: the spinner lines a person sees ("Moved 9hx from…", `spinner.warn`; Linear's twin has the same gap), a declined prompt on `--clickup`, the exit code on `left-alone` and `no-in-progress-status`, and the spinner route's redaction. Warning strings are the coder's wording.
+- The guide now says a 401, 403 or 404 on the write carries no edit-access hint, and no test would fail if one were added; the seam is the Update Task row of the `describe.each` in `clickup.test.ts`.
+- The no-leak test's comment ("branch adds nothing of its own") no longer describes it: it now pins that the warnings route redacts a token-shaped value.
+- Guide wording: "Three requests follow" is literal only for an open task; "If it does not, the List counts as having no in-progress status" holds for an empty `statuses`, while an absent key warns "Unexpected response".

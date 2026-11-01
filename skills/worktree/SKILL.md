@@ -112,6 +112,11 @@ worktree branch --linear ENG-123 --no-start
 # needs clickup.workspaceId. A short id is typed without CU- (CU-9hx is refused)
 worktree branch --clickup 9hx
 worktree branch --clickup DEV-123
+
+# ClickUp — move an open-status task to the List's first in-progress status once
+# the worktree exists (needs edit access to the task). --no-start skips it for one run.
+worktree branch --clickup 9hx --start
+worktree branch --clickup 9hx --no-start
 ```
 
 `--github`, `--jira`, `--linear` and `--clickup` are mutually exclusive. `--assign` and
@@ -119,9 +124,9 @@ worktree branch --clickup DEV-123
 skips the assignment with a warning, because assignment is not supported for
 them yet. `--linear` alone warns nothing about assignment.
 
-`--start` and `--no-start` also need one of the four (exit `2` otherwise), and only `--linear`
-acts on them: `--start` with `--github` warns that it is not supported, with `--jira` or
-`--clickup` that it is not supported yet, and the run carries on. `--no-start` never warns. With neither flag,
+`--start` and `--no-start` also need one of the four (exit `2` otherwise), and `--linear` and
+`--clickup` act on them: `--start` with `--github` warns that it is not supported, with `--jira`
+that it is not supported yet, and the run carries on. `--no-start` never warns. With neither flag,
 `linear.autoStart` decides whether a `--linear` issue is moved to its team's started
 state: `true` always, `false` never, and unset means you are asked once ("Move this
 issue to started?") and the answer is saved to the key. A non-interactive run starts and
@@ -131,6 +136,14 @@ and a warning names the state. One that is already started is reported as it is,
 `started: true` and no warning. The move happens after the worktree exists, never on a dry run or
 when an existing worktree is reopened, and a failure (a key without the Write
 permission, say) warns and never changes the exit code.
+
+`--clickup` follows the same order with `clickup.autoStart` as its key: `true` always, `false`
+never, unset asks once and saves the answer, and a non-interactive run moves the task and saves
+nothing. Only a task whose status type is `open` moves, to the List's first `custom` status by
+position. One already in a `custom` status (In Progress, In Review) is reported as it is, with
+`started: true` and no warning. One in a `done` or `closed` status or any other type, or in a List
+with no `custom` status, is left where it is, a warning names its status and `started` is `false`.
+It needs edit access to the task, and happens at the same point as the Linear move.
 
 With neither flag, `github.autoAssign` (for `--github`) or `jira.autoAssign`
 (for `--jira`) decides whether the issue is assigned: `true` always, `false`
@@ -186,7 +199,7 @@ live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) 
 **Issue content is used for the branch name and nothing else, with one exception: the Linear menu.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
 `--jira`, `--linear` and `--clickup` read the issue's number or key, its title (Jira:
 summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
-workflow state and its team's started states (names, types and positions, never the description); `--github` also reads whether the
+workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
 refused, naming `worktree checkout <branch>` when its branch is on `origin`
 and its name is only letters, digits, `_`, `.`, `/` and `-`, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
@@ -254,7 +267,7 @@ Flags for agent mode:
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
-| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state once the worktree exists, or not; only a backlog or unstarted issue moves, and a `--start` with no issue flag exits `2` |
+| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, or the `--clickup` task to its List's first in-progress status, once the worktree exists, or not; only a backlog or unstarted issue (Linear) or an open-status task (ClickUp) moves, and a `--start` with no issue flag exits `2` |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
@@ -264,9 +277,10 @@ Defaults when non-interactive:
   48 characters at the last dash. With no issue, the branch name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or
   `jira.autoAssign`, then assign. The default is never saved.
-- **Start (Linear):** `--start`/`--no-start`, then `linear.autoStart`, then start: a
-  non-interactive `--linear` run moves a backlog or unstarted issue to started unless
-  `--no-start` or `linear.autoStart false`. The default is never saved, and a failed
+- **Start (Linear, ClickUp):** `--start`/`--no-start`, then `linear.autoStart` or
+  `clickup.autoStart`, then start: a non-interactive `--linear` run moves a backlog or
+  unstarted issue to started, and a non-interactive `--clickup` run moves an open-status task
+  to the List's first in-progress status, unless `--no-start` or the key is `false`. The default is never saved, and a failed
   move warns and changes no exit code.
 - **Install:** on. The command is your `postCreate`, else the steps under
   `postCreate` in `.worktree.yml` (run in order, the first failure stops the
@@ -310,7 +324,7 @@ document:
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`,
   `{provider:"clickup",key,url}`, or `null`; `url` can itself be `null`.
 - `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), `null` when no assignment was attempted.
-- `started` is `true` when the `--linear` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, its team has no started state, or the attempt failed), `null` when none was attempted.
+- `started` is `true` when the `--linear` issue or `--clickup` task is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), `null` when none was attempted.
 - `herdr` and `agent` are `null` when skipped. `agent.command` leaves the brief
   out. `agent.name` is `null` where this CLI named nothing: a detached
   start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a

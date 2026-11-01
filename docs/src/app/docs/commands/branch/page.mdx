@@ -21,6 +21,8 @@ worktree branch --linear <issue-id>
 worktree branch --linear <issue-id> --start
 worktree branch --linear <issue-id> --no-start
 worktree branch --clickup <task-id>
+worktree branch --clickup <task-id> --start
+worktree branch --clickup <task-id> --no-start
 worktree branch --jira <issue-id> --dry-run
 worktree branch <name> --agent "<prompt>"
 worktree branch <name> --agent-file <path>
@@ -311,14 +313,15 @@ worktree branch --linear --no-start
 ### Moving the issue to started
 
 `--start` moves the Linear issue to its team's first started state once the worktree exists, and `--no-start`
-skips it for that one run. It works with `--linear`; `--start` with `--github`, `--jira` or `--clickup` warns that
-it is not supported (yet, for Jira and ClickUp) and carries on, and `--no-start` there warns nothing. On its own
+skips it for that one run. It works with `--linear` and with `--clickup` (see
+[Moving the ClickUp task to in progress](#moving-the-clickup-task-to-in-progress)); `--start` with `--github` or
+`--jira` warns that it is not supported (yet, for Jira) and carries on, and `--no-start` there warns nothing. On its own
 either flag exits `2`, as `--assign` does, because there is no issue to act on. The decision is made in this order:
 
 1. `--start` or `--no-start`.
-2. [`linear.autoStart`](/docs/configuration#linear-integration-notes): `true` starts, `false` never does.
+2. [`linear.autoStart`](/docs/configuration#linear-integration-notes) (or `clickup.autoStart` for `--clickup`): `true` starts, `false` never does.
 3. A non-interactive run starts. The default is not saved, so one unattended run does not settle the key.
-4. Otherwise you are asked "Move this issue to started?" once, and your answer is saved to `linear.autoStart` so the question is not repeated.
+4. Otherwise you are asked "Move this issue to started?" once, and your answer is saved to `linear.autoStart` (`clickup.autoStart` for `--clickup`) so the question is not repeated.
 
 A configured `false` is respected in every mode; pass `--start` to override it for one run.
 
@@ -343,6 +346,34 @@ worktree config linear.autoStart true    # always start, stop asking
   comments. Moving an issue needs a key with the Write permission; see the
   [Linear guide](/docs/guides/linear-integration#moving-the-issue-to-started).
 
+### Moving the ClickUp task to in progress
+
+With `--clickup`, `--start` and `--no-start` decide in the same order, with
+[`clickup.autoStart`](/docs/configuration#clickup-integration-notes) as the key, and the question and its saved
+answer name that key. The write happens at the same point: after the worktree exists, before the env files, the
+install and the opener, and never when reopening an existing worktree. A dry run ignores `--start`, asks nothing and
+moves nothing.
+
+```bash
+worktree branch --clickup 9hx --start
+worktree branch --clickup 9hx --no-start
+worktree config clickup.autoStart true    # always start, stop asking
+```
+
+- **Only a task in an open status moves.** ClickUp tells statuses apart by type. A task whose status type is
+  `open` (To Do, say) goes to the List's first `custom` status by position, which is the nearest ClickUp has to
+  "in progress". A task already in a `custom` status (In Progress, In Review) is reported as already started and
+  not moved, so `started` is `true`. A task in a `done` or `closed` status, or any other type, is a warning and is
+  left where it is, and so is a List with no `custom` status; `started` is `false` for those. Each outcome is said
+  in words, with the status names.
+- **A non-interactive run with the key unset moves the task**, without saving anything. `false` or `--no-start`
+  still skips it.
+- **The worktree is the deliverable.** A move that fails (no network, a rate limit, a refused write, an answer that
+  does not show the new status) warns with the reason and carries on with the exit code the run would have had.
+  The warning appears in `warnings` and `started` is `false`. Moving a task needs edit access to it.
+- **It reads the task's status and its List's statuses**, never its description or comments. See the
+  [ClickUp guide](/docs/guides/clickup-integration#moving-the-task-to-in-progress).
+
 ## ClickUp Task Branching
 
 Use the `--clickup` flag (short: `-c`) to create a suggested branch name from a task in your ClickUp Workspace. It
@@ -364,7 +395,7 @@ cannot be combined with `--github`, `--jira` or `--linear`. See the [ClickUp gui
 
 ClickUp authentication requires one configuration key, `northguild.worktree.clickup.apiToken`, your ClickUp personal
 API token. Without it the command offers to run `worktree config`, and when there is still no token (or the run is
-non-interactive) exits `2` with `missing_value`. Assigning the task is not supported yet.
+non-interactive) exits `2` with `missing_value`. Assigning the task is not supported yet; [moving it to in progress](#moving-the-clickup-task-to-in-progress) is.
 
 ## Agent Dispatch
 
@@ -429,7 +460,8 @@ animates; progress goes to stderr as plain lines.
 
 - A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign` or `jira.autoAssign` assigns
   the issue (without saving the key); `false` or `--no-assign` still skips it. An unset `linear.autoStart` moves a
-  `--linear` issue to started the same way; `false` or `--no-start` still skips it.
+  `--linear` issue to started the same way, and an unset `clickup.autoStart` moves a `--clickup` task to in progress;
+  `false` or `--no-start` still skips it.
 - A prompt with none fails at once, exit `2`, with one line on stderr:
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`), and a `--linear` with no identifier
@@ -449,8 +481,9 @@ With `--dry-run`, steps 2 to 9 do not happen: the command stops after naming, se
 3. Creates a branch from your configured source branch (`--source`, else your `defaultSourceBranch`, else the
    file's, else `origin/main`).
 4. Adds a worktree under `<repo>.worktrees/<branch-name>`.
-5. Moves the issue to started, when creating from `--linear` and starting is enabled — see
-   [Moving the issue to started](#moving-the-issue-to-started). A failure warns and the run carries on.
+5. Moves the issue to started, when creating from `--linear` or `--clickup` and starting is enabled — see
+   [Moving the issue to started](#moving-the-issue-to-started) and
+   [Moving the ClickUp task to in progress](#moving-the-clickup-task-to-in-progress). A failure warns and the run carries on.
 6. Copies the gitignored env files into the new worktree, and the gitignored files the project file lists
    under `copy` — see [Environment Files](/docs/guides/env-files) and
    [Copy files](/docs/project-configuration#copy-files).
@@ -497,7 +530,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
 | `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}` or `{provider:"clickup", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
 | `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, or a Jira issue is held by someone else); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
-| `started` | `true` once the Linear issue is in a started state (moved, or already there); `false` when it is not (left alone, its team has no started state, or the attempt failed); `null` when none was attempted (no `--linear`, `--no-start`, a configured `false`, or a declined prompt) |
+| `started` | `true` once the Linear issue or ClickUp task is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (neither `--linear` nor `--clickup`, `--no-start`, a configured `false`, or a declined prompt) |
 | `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
 | `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`) or `"lockfile"` |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |

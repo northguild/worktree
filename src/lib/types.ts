@@ -162,9 +162,10 @@ export interface BranchDocument {
   /** `null` when no assignment was attempted. */
   assigned: boolean | null;
   /**
-   * `true` when the Linear issue is in a started state after the run (moved or
-   * already there), `false` when it is not (left alone, no started state, or
-   * the attempt failed), `null` when none was attempted.
+   * `true` when the Linear issue or ClickUp task is in a started state after
+   * the run (moved or already there), `false` when it is not (left alone, no
+   * started state to move to, or the attempt failed), `null` when none was
+   * attempted.
    */
   started: boolean | null;
   envFilesCopied: string[];

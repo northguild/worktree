@@ -483,6 +483,11 @@ jira:
     - when: { Tags: hotfix }
       type: bugfix
 `);
+        vi.spyOn(clickupIntegration, "startClickUpTask").mockResolvedValue({
+          outcome: "started",
+          from: "to do",
+          to: "in progress",
+        });
         vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue({
           id: "9hx",
           customId: null,
@@ -1856,11 +1861,6 @@ jira:
           "DEV-1",
           "Moving an issue to started is not supported for Jira issues yet.",
         ],
-        [
-          "clickup",
-          "9hx",
-          "Moving an issue to started is not supported for ClickUp tasks yet.",
-        ],
       ])("--start with --%s warns and carries on", async (provider, id, message) => {
         vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
         vi.spyOn(branch as any, "getBranchName").mockResolvedValue({
@@ -1922,6 +1922,7 @@ jira:
         await branch.run();
 
         expect(getConfig).not.toHaveBeenCalledWith("linear.autoStart");
+        expect(getConfig).not.toHaveBeenCalledWith("clickup.autoStart");
         expect(mockConfirm).not.toHaveBeenCalled();
         expect(mockStart).not.toHaveBeenCalled();
       });
@@ -2036,6 +2037,18 @@ jira:
       url: "https://app.clickup.com/t/86abc",
       tags: [] as string[],
     };
+
+    // `clickup.autoStart` is unset in every case here outside "starting the
+    // task", which under D4 attempts a start. These cases are about naming, so
+    // the write is stubbed explicitly rather than the key being set to
+    // `false`, which would hide that default.
+    beforeEach(() => {
+      vi.spyOn(clickupIntegration, "startClickUpTask").mockResolvedValue({
+        outcome: "started",
+        from: "to do",
+        to: "in progress",
+      });
+    });
 
     function stubConfig(values: Record<string, string> = {}) {
       const config: Record<string, string> = {
@@ -2242,6 +2255,277 @@ jira:
       );
       expect(mockAssign).not.toHaveBeenCalled();
       expect(create).toHaveBeenCalled();
+    });
+
+    describe("starting the task", () => {
+      // Expected values come from the plan, not from the code: precedence from
+      // D4 (flag, then clickup.autoStart, then non-interactive true and not
+      // saved, then a saved prompt), the order of the write from D6 (after
+      // gitCreateWorktree, before the env files), the warnings from D7 (a
+      // failure names the task and the reason, exit 0, never the token) and
+      // `started` from D8 (true / false / null).
+      const started = {
+        outcome: "started",
+        from: "to do",
+        to: "in progress",
+      } as const;
+      let calls: string[];
+      let mockStart: ReturnType<typeof vi.spyOn>;
+      let mockCreate: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        calls = [];
+        stubConfig();
+        vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+          shortTask,
+        );
+        mockInput.mockImplementation(async (c: any) => c.default);
+        mockCreate = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockImplementation(async () => {
+            calls.push("create");
+            return "/path/to/worktree";
+          });
+        mockCopyEnvFiles.mockImplementation(async () => {
+          calls.push("env");
+          return [];
+        });
+        mockStart = vi
+          .spyOn(clickupIntegration, "startClickUpTask")
+          .mockImplementation(async () => {
+            calls.push("start");
+            return started;
+          });
+        vi.spyOn(branch, "warn").mockImplementation((input: any) => input);
+      });
+
+      async function go(flags: Record<string, unknown>) {
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { clickup: "9hx", ...flags },
+        });
+        return branch.run();
+      }
+
+      it("--start moves the task right after the worktree exists, before the env files", async () => {
+        const document = await go({ start: true });
+
+        expect(mockStart).toHaveBeenCalledWith("9hx");
+        expect(calls).toEqual(["create", "start", "env"]);
+        expect(document?.started).toBe(true);
+        expect(branch.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining("Moving an issue to started"),
+        );
+      });
+
+      it("never moves the task when the creation fails", async () => {
+        mockCreate.mockRejectedValue(new Error("git failed"));
+
+        await expect(go({ start: true })).rejects.toThrow("git failed");
+
+        expect(mockStart).not.toHaveBeenCalled();
+      });
+
+      it("--no-start makes no call and reports null", async () => {
+        const document = await go({ start: false });
+
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(document?.started).toBeNull();
+      });
+
+      it("clickup.autoStart true starts without asking", async () => {
+        stubConfig({ "clickup.autoStart": "true" });
+
+        const document = await go({});
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockStart).toHaveBeenCalledTimes(1);
+        expect(document?.started).toBe(true);
+      });
+
+      it("clickup.autoStart false never starts, and --start still wins over it", async () => {
+        stubConfig({ "clickup.autoStart": "false" });
+
+        expect((await go({}))?.started).toBeNull();
+        expect(mockStart).not.toHaveBeenCalled();
+
+        expect((await go({ start: true }))?.started).toBe(true);
+        expect(mockStart).toHaveBeenCalledTimes(1);
+      });
+
+      it("asks once when the key is unset and saves the answer under the key", async () => {
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
+        mockConfirm.mockResolvedValue(true);
+
+        const document = await go({});
+
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Move this issue to started? (saved as clickup.autoStart; change it later with `worktree config clickup.autoStart <true|false>`)",
+        });
+        expect(mockSet).toHaveBeenCalledWith("clickup.autoStart", "true");
+        expect(document?.started).toBe(true);
+      });
+
+      it("asks before the worktree is created", async () => {
+        mockConfirm.mockImplementation(async () => {
+          calls.push("ask");
+          return true;
+        });
+
+        await go({});
+
+        expect(calls.slice(0, 2)).toEqual(["ask", "create"]);
+      });
+
+      it("a non-interactive run with the key unset starts and saves nothing", async () => {
+        setNonInteractive(true);
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
+
+        const document = await go({});
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockSet).not.toHaveBeenCalled();
+        expect(mockStart).toHaveBeenCalledTimes(1);
+        expect(document?.started).toBe(true);
+      });
+
+      it("already-started reports true", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "already-started",
+          status: "in review",
+        });
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(true);
+        expect(document?.warnings).toEqual([]);
+      });
+
+      it.each([
+        [
+          "left-alone",
+          { outcome: "left-alone", status: "complete", type: "closed" },
+          "9hx is in complete (a closed status), so it was not moved to in progress.",
+        ],
+        [
+          "no-in-progress-status",
+          { outcome: "no-in-progress-status", status: "to do" },
+          "9hx was not moved to in progress: its List has no in-progress status (it is in to do).",
+        ],
+      ])("%s warns with the task and the reason, and reports false", async (_label, result, message) => {
+        mockStart.mockResolvedValue(result as any);
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([message]);
+        expect(mockCreate).toHaveBeenCalled();
+      });
+
+      it("a thrown failure warns, reports false, exits 0 and keeps the worktree", async () => {
+        const originalExitCode = process.exitCode;
+        process.exitCode = undefined;
+        mockStart.mockRejectedValue(
+          new Error(
+            'ClickUp: Failed to move task 9hx to "in progress". 400 Bad Request: Status does not exist. Moving a task needs edit access to it.',
+          ),
+        );
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([
+          'Could not move 9hx to in progress. ClickUp: Failed to move task 9hx to "in progress". 400 Bad Request: Status does not exist. Moving a task needs edit access to it.',
+        ]);
+        expect(document?.path).toBe("/path/to/worktree");
+        expect(process.exitCode).toBeUndefined();
+        expect(calls).toContain("env");
+        process.exitCode = originalExitCode;
+      });
+
+      it("never lets the stored token into the warnings", async () => {
+        // Phase 1 pins that the integration's own messages never hold the
+        // token; this pins that branch adds nothing of its own to a warning.
+        stubConfig({ "clickup.apiToken": "pk_test1234567890abcdef" });
+        mockStart.mockRejectedValue(
+          new Error("ClickUp: rejected the token pk_test1234567890abcdef", {
+            cause: new Error("sent pk_test1234567890abcdef"),
+          }),
+        );
+
+        const document = await go({ start: true });
+
+        expect(document?.warnings).toHaveLength(1);
+        expect(JSON.stringify(document?.warnings)).not.toContain(
+          "pk_test1234567890abcdef",
+        );
+      });
+
+      it("carries started on the document of a failed install", async () => {
+        mockRunInstall.mockResolvedValue({
+          ran: true,
+          command: "npm ci",
+          steps: ["npm ci"],
+          from: "lockfile",
+          inferred: true,
+          ok: false,
+          reason: "exited with code 1",
+        });
+        const originalExitCode = process.exitCode;
+        const command = new Branch(["--json"], await loadConfig());
+        (command as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { clickup: "9hx", start: true },
+        });
+        (command as any).parsed = true;
+        const output = captureOutput();
+
+        try {
+          await (command as any)._run();
+          expect(output.document()).toMatchObject({
+            installed: { ran: true, ok: false },
+            started: true,
+          });
+          expect(calls).toEqual(["create", "start", "env"]);
+        } finally {
+          output.restore();
+          process.exitCode = originalExitCode;
+        }
+      });
+
+      it("does not move the task when the branch already has a worktree", async () => {
+        vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue({
+          path: "/repo.worktrees/feature/CU-9hx-add-dark-mode",
+          pathExists: true,
+          inWorktreesRoot: true,
+          isCurrent: false,
+        });
+        mockConfirm.mockResolvedValue(true);
+
+        const result = await go({ start: true });
+
+        expect(result).toBeUndefined();
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(mockCreate).not.toHaveBeenCalled();
+      });
+
+      it("a dry run never calls it and never asks", async () => {
+        const dryRun = vi
+          .spyOn(branch as any, "reportDryRun")
+          .mockReturnValue(undefined);
+
+        await go({ "dry-run": true, start: true });
+
+        expect(dryRun).toHaveBeenCalled();
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockCreate).not.toHaveBeenCalled();
+      });
     });
 
     describe("with --json", () => {
