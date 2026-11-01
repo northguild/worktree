@@ -2502,7 +2502,6 @@ jira:
           path: "/repo.worktrees/feature/CU-9hx-add-dark-mode",
           pathExists: true,
           inWorktreesRoot: true,
-          isCurrent: false,
         });
         mockConfirm.mockResolvedValue(true);
 
