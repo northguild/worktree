@@ -1818,7 +1818,6 @@ jira:
           path: "/repo.worktrees/feature/ENG-123-add-dark-mode",
           pathExists: true,
           inWorktreesRoot: true,
-          isCurrent: false,
         });
         mockConfirm.mockResolvedValue(true);
 
@@ -4144,7 +4143,6 @@ jira:
         path: worktreePath,
         pathExists: true,
         inWorktreesRoot: true,
-        isCurrent: false,
         ...over,
       });
     };
@@ -4264,6 +4262,19 @@ jira:
         open: false,
         agent: true,
         brief: "implement it",
+      });
+    });
+
+    it("A, interactive with a brief: says a yes starts a new agent there", async () => {
+      checkout();
+      mockCreate();
+      mockConfirm.mockResolvedValue(true);
+
+      await run({ agent: "implement it" });
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        message:
+          'Branch "feat" already has a worktree at /repo.worktrees/feat. Open it and hand the brief to a new agent there? One may already be running in it.',
       });
     });
 
@@ -4988,7 +4999,6 @@ describe("branch command — approval of the project's postCreate steps", () => 
       path: "/repo.worktrees/feature/test",
       pathExists: true,
       inWorktreesRoot: true,
-      isCurrent: false,
     });
 
     const error = await run().then(
