@@ -674,3 +674,120 @@ export async function listAssignedLinearIssues(): Promise<{
 
   return { issues, hasMore: pageInfo.hasNextPage };
 }
+
+// D6: the identifiers travel in the `filter` variable, never in the query text.
+const ISSUE_STATES_QUERY = `query IssueStates($filter: IssueFilter!, $first: Int!) {
+  issues(filter: $filter, first: $first, includeArchived: true) {
+    nodes { identifier state { type } }
+  }
+}`;
+
+// The chunk size: Linear's documented default page (the plan's section 8).
+const ISSUE_STATES_CHUNK_SIZE = 50;
+
+// D9: WorkflowState.type's documented vocabulary (Linear's schema.graphql). A
+// value outside it is kept as unknown rather than as text.
+const LINEAR_STATE_TYPES: ReadonlySet<string> = new Set([
+  "triage",
+  "backlog",
+  "unstarted",
+  "started",
+  "completed",
+  "canceled",
+  "duplicate",
+]);
+
+function issueStatesFilter(identifiers: string[]) {
+  return {
+    or: identifiers.map((identifier) => {
+      const dash = identifier.lastIndexOf("-");
+      return {
+        team: { key: { eq: identifier.slice(0, dash) } },
+        number: { eq: Number(identifier.slice(dash + 1)) },
+      };
+    }),
+  };
+}
+
+function parseIssueState(
+  node: unknown,
+): { identifier: string; type: string } | undefined {
+  if (!isRecord(node) || !isRecord(node.state)) {
+    return undefined;
+  }
+
+  const { identifier, state } = node;
+
+  if (typeof identifier !== "string" || typeof state.type !== "string") {
+    return undefined;
+  }
+
+  return { identifier, type: state.type };
+}
+
+/**
+ * D5-D7, D9, D12: the state type of each identifier, in one `issues` query per
+ * 50 (sequential chunks beyond that), matched back by the returned identifier.
+ * Every requested identifier is in the map: its type when Linear returned it and
+ * the type is documented, `null` otherwise. Identifiers must already be in the
+ * `TEAM-123` shape (the caller validates, D9). A node missing a field, or any
+ * `errors` entry, rejects the whole answer; failures throw a `Linear:` error
+ * (a network failure is rethrown as is). It does not decide what a failure means.
+ */
+export async function fetchLinearIssueStates(
+  identifiers: string[],
+): Promise<Map<string, string | null>> {
+  const wanted = [...new Set(identifiers.map((id) => id.trim().toUpperCase()))];
+  const states = new Map<string, string | null>(wanted.map((id) => [id, null]));
+
+  if (wanted.length === 0) {
+    return states;
+  }
+
+  const apiKey = await resolveLinearApiKey();
+  const unexpected = "Linear: Unexpected response reading issue states.";
+
+  for (let i = 0; i < wanted.length; i += ISSUE_STATES_CHUNK_SIZE) {
+    const chunk = wanted.slice(i, i + ISSUE_STATES_CHUNK_SIZE);
+
+    const response = await fetchLinear(
+      ISSUE_STATES_QUERY,
+      { filter: issueStatesFilter(chunk), first: chunk.length },
+      apiKey,
+    );
+    const body = await readLinearAnswer(response, {
+      failed: (answer) =>
+        `Linear: Failed to read issue states. ${failureDetail(response, answer)}`,
+      unexpected,
+    });
+
+    // D7: any entry fails the answer, whether or not it carries a message.
+    if (Array.isArray(body.errors) && body.errors.length > 0) {
+      throw new Error(
+        `Linear: Failed to read issue states.${withMessages(body)}`,
+      );
+    }
+
+    const connection = isRecord(body.data) ? body.data.issues : undefined;
+    const nodes = isRecord(connection) ? connection.nodes : undefined;
+
+    if (!Array.isArray(nodes)) {
+      throw new Error(unexpected);
+    }
+
+    for (const node of nodes) {
+      const issue = parseIssueState(node);
+      if (!issue) {
+        throw new Error(unexpected);
+      }
+      if (states.has(issue.identifier)) {
+        states.set(
+          issue.identifier,
+          LINEAR_STATE_TYPES.has(issue.type) ? issue.type : null,
+        );
+      }
+    }
+  }
+
+  return states;
+}

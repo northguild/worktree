@@ -10,3 +10,11 @@ Branch-local and advisory. Nothing reads this file, and `/feature-close` deletes
 - `toThrow("Invalid issue identifier.")` is a substring match, so a value appended after the period would still pass. The old message does fail it.
 - The `fatal: not a git repository` fixture in `issue-link.test.ts` is pass-through text, not what `--local` prints outside a repository.
 - A failed write's warning keeps execFile's trailing newline, in `--json` too. `branch.ts:897` interpolates `error.message` the same way.
+
+## Phase 2 — `fetchLinearIssueStates` in the Linear integration
+
+- `fetchLinearIssueStates` does not check the identifier shape; its one caller's source, `gitGetBranchIssueLinks`, already does. `ENG1` would send `number: { eq: null }`, and matching on the returned identifier keeps that safe in direction.
+- No test pins sequential chunks (`Promise.all` would pass) or the `.trim()`, which §4.2 does not ask for.
+- Two test titles claim more than they assert: `includeArchived` is a literal in the query rather than a variable, and the timeout test does not assert the key's absence.
+- `errors: []` proceeding is unasserted. A non-array `errors` beside a `canceled` node also proceeds, read from the condition rather than probed. D7 says "any `errors` array", and a GraphQL server should not send one.
+- `parseIssueState` narrows by hand as `listAssignedLinearIssues` does, rather than with `zod`, because §4.2 names that function as its model.
