@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os, { EOL } from "node:os";
 import path from "node:path";
-import { expectCommands, mockRun } from "../test-setup.js";
+import { expectCommands, mockRun, mockRunCapturing } from "../test-setup.js";
 import * as agent from "./agent.js";
 import * as cli from "./cli.js";
 import {
@@ -33,9 +33,11 @@ import {
   isSafeToRemove,
 } from "./git.js";
 import { setNonInteractive } from "./interaction.js";
+import * as issueLink from "./issue-link.js";
 import type {
   AgentSession,
   WorktreeAgent,
+  WorktreeIssue,
   WorktreeListEntry,
 } from "./types.js";
 
@@ -3038,5 +3040,297 @@ describe("gitGetTopLevelPath", () => {
     vi.spyOn(cli, "run").mockResolvedValueOnce("/work/repo.worktrees/x");
 
     expect(await gitGetTopLevelPath()).toBe("/work/repo.worktrees/x");
+  });
+});
+
+// D4 is the only source of these answers: a canceled issue makes a worktree
+// removable in exactly one place, a live remote with every commit on it, and
+// nowhere else. Every other row is the answer isSafeToRemove gave before the
+// signal existed (CLEANUP-DATA-LOSS-PLAN §3), written out here by hand.
+describe("isSafeToRemove with an issue signal", () => {
+  const canceled: WorktreeIssue = {
+    provider: "linear",
+    key: "ENG-1",
+    state: "canceled",
+    remoteConfirmed: true,
+  };
+
+  function liveRemote(
+    overrides: Partial<WorktreeListEntry> = {},
+  ): WorktreeListEntry {
+    return {
+      path: "/repo/project.worktrees/test",
+      branchName: "feature/test",
+      pathExists: true,
+      remote: "origin/feature/test",
+      remoteExists: true,
+      ahead: 0,
+      behind: 0,
+      uncommittedChanges: 0,
+      issue: canceled,
+      ...overrides,
+    };
+  }
+
+  it.each<[string, Partial<WorktreeListEntry>, boolean]>([
+    ["canceled, live remote, ahead 0", {}, true],
+    ["canceled, live remote, ahead 0, behind 5", { behind: 5 }, true],
+    [
+      "canceled, ahead 0, remote did not confirm the tip",
+      { issue: { ...canceled, remoteConfirmed: false } },
+      false,
+    ],
+    [
+      "canceled, ahead 0, confirmation never taken",
+      { issue: { ...canceled, remoteConfirmed: undefined } },
+      false,
+    ],
+    ["canceled, live remote, ahead 3", { ahead: 3 }, false],
+    ["canceled, live remote, ahead never counted", { ahead: undefined }, false],
+    [
+      "canceled, live remote, ahead 3 but mergedInto set (merged is the other clause's word)",
+      { ahead: 3, mergedInto: "origin/main" },
+      false,
+    ],
+    [
+      "canceled, live remote, uncommitted changes",
+      { uncommittedChanges: 2 },
+      false,
+    ],
+    [
+      "canceled, live remote, a live agent",
+      { agent: { name: "a", pid: 1, live: true } },
+      false,
+    ],
+    [
+      "canceled, no remote, unmerged commits",
+      { remote: "", remoteExists: false, ahead: 4 },
+      false,
+    ],
+    [
+      "canceled, gone remote, unmerged commits",
+      { remoteExists: false, ahead: 4 },
+      false,
+    ],
+    ["canceled, directory gone", { pathExists: false, ahead: undefined }, true],
+  ])("%s", (_name, overrides, expected) => {
+    expect(isSafeToRemove(liveRemote(overrides))).toBe(expected);
+  });
+
+  // Linear's documented state types other than canceled (plan §2 vocabulary).
+  // Each row is confirmed and level with its remote, so the state is the only
+  // thing that can make it false.
+  it.each([
+    "triage",
+    "backlog",
+    "unstarted",
+    "started",
+    "completed",
+    "duplicate",
+  ])("a %s issue on a live remote keeps today's answer, false", (state) => {
+    expect(isSafeToRemove(liveRemote({ issue: { ...canceled, state } }))).toBe(
+      false,
+    );
+  });
+
+  it("a record with no state keeps today's answer on a live remote", () => {
+    expect(
+      isSafeToRemove(
+        liveRemote({ issue: { provider: "linear", key: "ENG-1" } }),
+      ),
+    ).toBe(false);
+  });
+
+  it("no issue keeps today's answer on a live remote", () => {
+    expect(isSafeToRemove(liveRemote({ issue: undefined }))).toBe(false);
+  });
+
+  it("a non-canceled issue changes nothing where carriesNoKnownWork already decides", () => {
+    expect(
+      isSafeToRemove(
+        liveRemote({
+          remote: "",
+          remoteExists: false,
+          issue: { provider: "linear", key: "ENG-1", state: "started" },
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("gitGetWorktreeList issue link", () => {
+  const rootPath = "/repo/project";
+  const onePath = `${rootPath}.worktrees/feature/one`;
+  const twoPath = `${rootPath}.worktrees/feature/two`;
+
+  // Two worktrees. feature/one tracks a remote that still exists and is level
+  // with it; feature/two tracks nothing and is not ahead of the base.
+  function mockTwoWorktrees() {
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("  origin/feature/one")
+      .mockResolvedValueOnce("feature/one origin/feature/one\nfeature/two ")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(
+        [
+          porcelainRecord(onePath, "feature/one"),
+          porcelainRecord(twoPath, "feature/two"),
+        ].join("\n"),
+      )
+      .mockResolvedValueOnce("origin/main")
+      // feature/one: ahead 0, behind 4, then status
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("4")
+      .mockResolvedValueOnce("")
+      // feature/two: ahead 0, then status
+      .mockResolvedValueOnce("0")
+      .mockResolvedValueOnce("");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    mockRun.mockReset();
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list --porcelain",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      `git rev-list --count @{u}..HEAD (cwd: ${onePath})`,
+      `git rev-list --count HEAD..@{u} (cwd: ${onePath})`,
+      `git status -s (cwd: ${onePath})`,
+      `git rev-list --count origin/main..HEAD (cwd: ${twoPath})`,
+      `git status -s (cwd: ${twoPath})`,
+    );
+    mockTwoWorktrees();
+  });
+
+  // The list is also what `remove` calls. With no option the argv sequence is
+  // the one written out here by hand from the code before this change, and no
+  // `git config` of any form is among it.
+  it("issues exactly the same git calls as before, and no git config, without options", async () => {
+    const gather = vi.spyOn(issueLink, "gatherIssueLinks");
+
+    const worktrees = await gitGetWorktreeList();
+
+    expect(mockRun.mock.calls.map(([file, args]) => [file, ...args])).toEqual([
+      ["git", "fetch", "--prune"],
+      ["git", "--no-pager", "branch", "-r"],
+      [
+        "git",
+        "for-each-ref",
+        "--format=%(refname:short) %(upstream:short)",
+        "refs/heads",
+      ],
+      ["git", "branch", "--show-current"],
+      ["git", "rev-parse", "--show-toplevel"],
+      ["git", "worktree", "list", "--porcelain"],
+      ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+      ["git", "rev-list", "--count", "@{u}..HEAD"],
+      ["git", "rev-list", "--count", "HEAD..@{u}"],
+      ["git", "status", "-s"],
+      ["git", "rev-list", "--count", "origin/main..HEAD"],
+      ["git", "status", "-s"],
+    ]);
+    const configCalls = [...mockRun.mock.calls, ...mockRunCapturing.mock.calls]
+      .map(([file, args]) => [file, ...args].join(" "))
+      .filter((call) => /\bconfig\b/.test(call));
+    expect(configCalls).toEqual([]);
+    expect(gather).not.toHaveBeenCalled();
+    expect(worktrees.map((wt) => wt.issue)).toEqual([undefined, undefined]);
+  });
+
+  it("gathers once, passes the warning handler, and sets issue by branch name", async () => {
+    const onIssueWarning = vi.fn();
+    const gather = vi.spyOn(issueLink, "gatherIssueLinks").mockResolvedValue(
+      new Map([
+        [
+          "feature/one",
+          {
+            provider: "linear",
+            key: "ENG-1",
+            state: "canceled",
+            remoteConfirmed: true,
+          },
+        ],
+      ]),
+    );
+
+    const worktrees = await gitGetWorktreeList({
+      includeIssues: true,
+      onIssueWarning,
+    });
+
+    expect(gather).toHaveBeenCalledTimes(1);
+    expect(gather).toHaveBeenCalledWith({
+      lookup: true,
+      onWarning: onIssueWarning,
+      runGit: expect.any(Function),
+    });
+    expect(worktrees.map((wt) => wt.issue)).toEqual([
+      {
+        provider: "linear",
+        key: "ENG-1",
+        state: "canceled",
+        remoteConfirmed: true,
+      },
+      undefined,
+    ]);
+
+    // The runner handed to the gather is the bounded one `gitFetch` uses, not a
+    // bare `run`: a dead remote must not hang cleanup (§2).
+    mockRun.mockClear();
+    mockRun.mockResolvedValue("");
+    const { runGit } = gather.mock.calls[0]?.[0] ?? {};
+    await runGit?.(["ls-remote", "--heads", "--end-of-options", "origin"]);
+    expect(mockRun).toHaveBeenCalledWith(
+      "git",
+      ["ls-remote", "--heads", "--end-of-options", "origin"],
+      expect.objectContaining({ timeout: 60_000 }),
+    );
+    setNonInteractive(true);
+    await runGit?.(["ls-remote", "--heads", "--end-of-options", "origin"]);
+    expect(mockRun).toHaveBeenLastCalledWith(
+      "git",
+      ["ls-remote", "--heads", "--end-of-options", "origin"],
+      expect.objectContaining({ env: { GIT_TERMINAL_PROMPT: "0" } }),
+    );
+    // feature/one tracks a live remote, level with it: the canceled clause is
+    // what makes it removable (D4). feature/two is removable on its own count.
+    expect(worktrees.map((wt) => wt.safeToRemove)).toEqual([true, true]);
+  });
+
+  it("leaves a live-remote worktree unremovable when the issue is not canceled", async () => {
+    vi.spyOn(issueLink, "gatherIssueLinks").mockResolvedValue(
+      new Map([
+        [
+          "feature/one",
+          {
+            provider: "linear",
+            key: "ENG-1",
+            state: "started",
+            remoteConfirmed: true,
+          },
+        ],
+      ]),
+    );
+
+    const worktrees = await gitGetWorktreeList({ includeIssues: true });
+
+    expect(worktrees.map((wt) => wt.safeToRemove)).toEqual([false, true]);
+  });
+
+  it("does not need a warning handler", async () => {
+    const gather = vi
+      .spyOn(issueLink, "gatherIssueLinks")
+      .mockResolvedValue(new Map());
+
+    await gitGetWorktreeList({ includeIssues: true });
+
+    expect(gather).toHaveBeenCalledTimes(1);
   });
 });

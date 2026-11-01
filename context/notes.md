@@ -18,3 +18,14 @@ Branch-local and advisory. Nothing reads this file, and `/feature-close` deletes
 - Two test titles claim more than they assert: `includeArchived` is a literal in the query rather than a variable, and the timeout test does not assert the key's absence.
 - `errors: []` proceeding is unasserted. A non-array `errors` beside a `canceled` node also proceeds, read from the condition rather than probed. D7 says "any `errors` array", and a GraphQL server should not send one.
 - `parseIssueState` narrows by hand as `listAssignedLinearIssues` does, rather than with `zod`, because §4.2 names that function as its model.
+
+## Phase 3 — The gather and the verdict read the signal
+
+- `delete issue.state` in the gather's catch cannot run on a half-applied answer, because nothing after `states` is assigned can throw. It is harmless.
+- `lookup` has no production caller passing `false`; §4.3 specifies the parameter. A failed record read with no key warns with `Linear:` text, which sits against D8's silence but is practically unreachable, because earlier `git` calls would already have failed.
+- `await gitGetBranchIssueLinks().catch(...)` inside a `try` is against `typescript/error-handling.md`'s preference for `.catch` on fire-and-forget only.
+- The shared-identifier test asserts the de-duplicated request, not that both branches get the state; a real-repo run shows they do. "Failed lookup means not removable" is pinned by composing two units, not end to end.
+- The remote-check warning overstates a partial failure: with two remotes and one failing, the healthy remote's branches were considered.
+- A canceled record on a branch with no worktree, or one that cannot qualify, still costs an `ls-remote`, bounded at one per remote.
+- `gatherIssueLinks` uses a dynamic `import()`, the only one in non-test `src`, because a static one is a cycle; moving `showVisibly` to a leaf module would remove half of the reason.
+- `git.test.ts:3120` cites "plan §2 vocabulary"; the vocabulary is in §1. The B4 assertions sit in the middle of `gathers once...` and would read better as their own test.

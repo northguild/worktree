@@ -90,6 +90,16 @@ export interface WorktreeChurn {
   deletions: number;
 }
 
+export interface WorktreeIssue {
+  provider: "linear";
+  key: string;
+  state?: string;
+  // D4's `ls-remote` answer, taken only for a canceled branch: true when the
+  // branch's remote reports the same tip as the local tracking ref. Undefined is
+  // unconfirmed. Internal to the verdict; no document and no renderer reads it.
+  remoteConfirmed?: boolean;
+}
+
 export interface WorktreeListEntry extends WorktreeListBaseEntry {
   remote: string;
   // Commits this worktree carries that its comparison base does not — `@{u}`
@@ -124,6 +134,10 @@ export interface WorktreeListEntry extends WorktreeListBaseEntry {
   uncommittedChanges?: number;
   safeToRemove?: boolean;
   agent?: WorktreeAgent;
+  // Undefined means no record, or no lookup was asked for. `state` is the issue's
+  // state type from Linear's documented vocabulary (D9) and is absent whenever it
+  // is unknown, which is never safe.
+  issue?: WorktreeIssue;
 }
 
 // The documents `--json` prints on stdout, one per run (D6). A count or value

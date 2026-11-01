@@ -34,6 +34,9 @@ interface WorktreeListNameOptions {
   // Off by default for the same reason: the figure is only taken under
   // `list --churn`, and `cleanup` and `remove` must not start printing it.
   churn?: boolean;
+  // Off by default for the same reason: the state is only read under
+  // `list --issues` and `cleanup`, and `remove` must not start printing it.
+  issues?: boolean;
 }
 
 // `[done]` comes first because a finished session is neither of the others,
@@ -61,7 +64,11 @@ function agentDetail(agent: WorktreeAgent): string {
 export function worktreeListEntryToListName(
   wt: WorktreeListEntry,
   color: ColorName = "gray",
-  { agents = false, churn = false }: WorktreeListNameOptions = {},
+  {
+    agents = false,
+    churn = false,
+    issues = false,
+  }: WorktreeListNameOptions = {},
 ): string {
   const details = [];
   if (!wt.pathExists) {
@@ -114,6 +121,13 @@ export function worktreeListEntryToListName(
   }
   if (agents && wt.agent) {
     details.push(agentDetail(wt.agent));
+  }
+  // The key was validated and the state is one of the documented types (D9), so
+  // nothing from Linear's own text reaches the terminal here.
+  if (issues && wt.issue) {
+    details.push(
+      `Linear ${wt.issue.key}: ${wt.issue.state ?? "state unknown"}`,
+    );
   }
 
   const currentStr = wt.isCurrent ? chalk.green(" (Current)") : "";
