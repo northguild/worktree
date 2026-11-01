@@ -220,6 +220,7 @@ const PERSONAL_KEYS = new Set([
   "jira.autoAssign",
   "github.autoAssign",
   "linear.autoStart",
+  "clickup.autoStart",
 ]);
 const PERSONAL_SECTIONS = new Set(["herdr", "agent"]);
 const SECRET_KEYS = new Set<string>(SECRET_CONFIG_NAMES);

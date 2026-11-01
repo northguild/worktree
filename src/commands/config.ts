@@ -589,12 +589,13 @@ export default class Config extends BaseCommand {
       }
     }
 
-    // Two keys, one confirm. The token is required and secret, so it is asked
+    // Three keys, one confirm. The token is required and secret, so it is asked
     // like `linear.apiKey`; the workspace id matters only to a custom task id
     // and most Workspaces have those off, so an empty answer skips it (as
     // `herdr.agent` and `postCreate` accept empty) and a non-interactive run
-    // takes that empty default instead of failing. Nothing is validated against
-    // ClickUp here: the token is checked when `branch --clickup` first uses it.
+    // takes that empty default instead of failing. The start select comes last,
+    // shaped like Linear's. Nothing is validated against ClickUp here: the
+    // token is checked when `branch --clickup` first uses it.
     if (
       hasClickUpPrompt &&
       (await this.confirmGroup(
@@ -647,6 +648,37 @@ export default class Config extends BaseCommand {
             clickUpWorkspaceId.trim(),
           );
         }
+      }
+
+      if (shouldPrompt("clickup.autoStart")) {
+        // Same shape as `linear.autoStart` (D10): anything but an explicit
+        // "true" or "false" is normalised to the "ask me" choice.
+        const storedClickUpAutoStart =
+          await gitGetConfigValue("clickup.autoStart");
+        const clickUpAutoStartDefault =
+          storedClickUpAutoStart === "true" ||
+          storedClickUpAutoStart === "false"
+            ? storedClickUpAutoStart
+            : "";
+        const clickUpAutoStart = await askSelect<"true" | "false" | "">(
+          {
+            message:
+              "Should `branch --clickup` move the task to in progress once the worktree exists?",
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              // Tri-state through unset (D4): also the way to keep being asked.
+              { name: "Ask me each time", value: "" },
+            ],
+            default: clickUpAutoStartDefault,
+          },
+          {
+            value: "clickup.autoStart",
+            flag: "worktree config clickup.autoStart <true|false>",
+            fallback: clickUpAutoStartDefault,
+          },
+        );
+        await gitSetConfigValue("clickup.autoStart", clickUpAutoStart);
       }
     }
 

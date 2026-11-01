@@ -468,7 +468,7 @@ file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
 that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
 `herdr.*`, `agent.command`, `jira.email`, `*.autoAssign`,
-`linear.autoStart`) in the file is ignored
+`linear.autoStart`, `clickup.autoStart`) in the file is ignored
 with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
 `clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
 `2` (`invalid_value`) before anything is created. An unknown key only warns. A
@@ -516,6 +516,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `linear.autoStart` | `true` or `false` | whether `--linear` moves the issue to a started state once the worktree exists; unset means ask (start when non-interactive); moving needs a key with the Write permission |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
+| `clickup.autoStart` | `true` or `false` | whether `--clickup` moves the task to in progress once the worktree exists; unset means ask (move when non-interactive); moving needs edit access to the task |
 | `branchPrefix.feature` | `feature/` | auto-prefix on Feature issues, on Linear issues with no bug, chore or maintenance label, and on ClickUp tasks with no such tag |
 | `branchPrefix.bugfix` | `fix/` | auto-prefix on Bug issues, on Linear issues labelled `bug`, and on ClickUp tasks tagged `bug` |
 | `branchPrefix.chore` | `chore/` | auto-prefix on Task issues, on Linear issues labelled `chore` or `maintenance`, and on ClickUp tasks tagged so |

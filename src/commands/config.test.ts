@@ -212,6 +212,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("github.autoAssign");
       expect(mockConsoleLog).toHaveBeenCalledWith("jira.autoAssign");
       expect(mockConsoleLog).toHaveBeenCalledWith("linear.autoStart");
+      expect(mockConsoleLog).toHaveBeenCalledWith("clickup.autoStart");
     });
 
     it("should handle --missing flag with no missing values", async () => {
@@ -1876,6 +1877,155 @@ describe("config command", () => {
       expect(mockSet).not.toHaveBeenCalledWith(
         "clickup.workspaceId",
         expect.anything(),
+      );
+    });
+  });
+
+  // Expected values: plan #131 phase 2 "Done when" and D10 — the select sits in
+  // the ClickUp group after the workspace id, offers the three choices Linear's
+  // does, and a stored `true`/`false` is preselected while anything else is
+  // "Ask me each time".
+  describe("clickup.autoStart prompt (D10)", () => {
+    const startMessage =
+      "Should `branch --clickup` move the task to in progress once the worktree exists?";
+    const groupMessage = "Do you want to configure ClickUp integration?";
+    const withStored = (stored: string) =>
+      vi
+        .spyOn(gitConfig, "gitGetConfigValue")
+        .mockImplementation((key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "clickup.autoStart") return Promise.resolve(stored);
+          return Promise.resolve("");
+        });
+    const parseRun = (flags: Record<string, unknown>) => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          names: "clickup.autoStart",
+          ...flags,
+        },
+      });
+    };
+
+    it.each([
+      ["true", "true"],
+      ["false", "false"],
+      ["", ""],
+      ["maybe", ""],
+    ])("should preselect the choice for a stored clickup.autoStart of %j", async (stored, expected) => {
+      mockSelect.mockResolvedValue(expected);
+      withStored(stored);
+      parseRun({ yes: false });
+
+      await config.run();
+
+      // `--names clickup.autoStart` prompts only this key: one select, no input.
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+      expect(mockSelect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: startMessage,
+          choices: [
+            { name: "Yes, always", value: "true" },
+            { name: "No, never", value: "false" },
+            { name: "Ask me each time", value: "" },
+          ],
+          default: expected,
+        }),
+      );
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["Yes, always", "true"],
+      ["No, never", "false"],
+      ["Ask me each time", ""],
+    ])("should write the %s answer to clickup.autoStart as %j", async (_label, answer) => {
+      mockSelect.mockResolvedValue(answer);
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      withStored(answer === "true" ? "false" : "true");
+      parseRun({ yes: false });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "clickup.autoStart",
+        answer,
+      );
+    });
+
+    it.each([
+      ["false", "false"],
+      ["true", "true"],
+      ["", ""],
+    ])("should take a stored clickup.autoStart of %j without exiting 2 when non-interactive", async (stored, expected) => {
+      setNonInteractive(true);
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      withStored(stored);
+      parseRun({ yes: true });
+
+      await config.run();
+
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "clickup.autoStart",
+        expected,
+      );
+    });
+
+    it("should offer an unset clickup.autoStart on a --missing run", async () => {
+      mockSelect.mockResolvedValue("");
+      vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+      parseRun({ missing: true, yes: false });
+
+      await config.run();
+
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not offer a settled clickup.autoStart on a --missing run", async () => {
+      withStored("false");
+      parseRun({ missing: true, yes: false });
+
+      await config.run();
+
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it("should ask the token, the workspace id and then the select in the ClickUp group", async () => {
+      mockConfirm.mockImplementation(
+        async ({ message }) => message === groupMessage,
+      );
+      mockInput.mockImplementation(async ({ message }) =>
+        message === "ClickUp API token" ? "pk_x" : "12345",
+      );
+      mockSelect.mockResolvedValueOnce("true");
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      parseRun({ names: undefined });
+
+      await config.run();
+
+      expect(mockInput.mock.calls[0][0].message).toBe("ClickUp API token");
+      expect(mockInput.mock.calls[1][0].message).toContain(
+        "ClickUp workspace id",
+      );
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+      expect(mockInput.mock.invocationCallOrder[1]).toBeLessThan(
+        mockSelect.mock.invocationCallOrder[0],
+      );
+      expect(mockSelect).toHaveBeenCalledWith(
+        expect.objectContaining({ message: startMessage }),
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "clickup.autoStart",
+        "true",
       );
     });
   });
