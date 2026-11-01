@@ -137,6 +137,13 @@ describe("branch command", () => {
       outcome: "assigned",
       displayName: "Ada Lovelace",
     });
+    // An unset `jira.autoStart` attempts a move (D9), so a --jira case that is
+    // not about starting must not reach Jira's API.
+    vi.spyOn(jiraIntegration, "startJiraIssue").mockResolvedValue({
+      outcome: "started",
+      from: "To Do",
+      to: "In Progress",
+    });
   });
 
   describe("basic functionality", () => {
@@ -1401,6 +1408,369 @@ jira:
         { fetch: false },
       );
     });
+
+    describe("starting the issue", () => {
+      // Expected values come from the plan, not from the code: precedence from
+      // D9 (flag, then jira.autoStart, then non-interactive true and not
+      // saved, then a saved prompt), the order of the write from D11 (after
+      // gitCreateWorktree, before the env files), `started` from D10 (true /
+      // false / null), and the messages from the Linear and ClickUp rows in
+      // docs/src/app/docs/commands/branch/page.mdx plus D7 (the empty-list
+      // message names the Transition Issues permission).
+      const started = {
+        outcome: "started",
+        from: "To Do",
+        to: "In Progress",
+      } as const;
+      let calls: string[];
+      let mockStart: ReturnType<typeof vi.spyOn>;
+      let mockCreate: ReturnType<typeof vi.spyOn>;
+
+      function stubConfig(values: Record<string, string> = {}) {
+        const config: Record<string, string> = {
+          "has-called-config": "true",
+          defaultSourceBranch: "origin/main",
+          "jira.host": "example.atlassian.net",
+          "jira.email": "test@example.com",
+          "jira.apiToken": "token",
+          ...values,
+        };
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) => Promise.resolve(config[key] ?? ""),
+        );
+      }
+
+      beforeEach(() => {
+        calls = [];
+        stubConfig();
+        vi.spyOn(
+          jiraIntegration,
+          "getJiraBranchNameFromIssue",
+        ).mockResolvedValue("DEV-123-add-dark-mode");
+        mockInput.mockImplementation(async (c: any) => c.default);
+        mockCreate = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockImplementation(async () => {
+            calls.push("create");
+            return "/path/to/worktree";
+          });
+        mockCopyEnvFiles.mockImplementation(async () => {
+          calls.push("env");
+          return [];
+        });
+        mockStart = vi
+          .spyOn(jiraIntegration, "startJiraIssue")
+          .mockImplementation(async () => {
+            calls.push("start");
+            return started;
+          });
+        vi.spyOn(branch, "warn").mockImplementation((input: any) => input);
+      });
+
+      async function go(flags: Record<string, unknown>) {
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { jira: "dev-123", assign: false, ...flags },
+        });
+        return branch.run();
+      }
+
+      it("--start moves the issue right after the worktree exists, before the env files", async () => {
+        const document = await go({ start: true });
+
+        expect(mockStart).toHaveBeenCalledTimes(1);
+        expect(mockStart).toHaveBeenCalledWith("dev-123");
+        expect(calls).toEqual(["create", "start", "env"]);
+        expect(document?.started).toBe(true);
+        expect(branch.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining("Moving an issue to started"),
+        );
+      });
+
+      it("reports the move on the spinner", async () => {
+        await go({ start: true });
+
+        const spinner = vi
+          .mocked(ora)
+          .mock.results.map((r) => r.value)
+          .find((s) =>
+            s.succeed.mock.calls.some(
+              ([text]: [string]) =>
+                text === "Moved DEV-123 from To Do to In Progress",
+            ),
+          );
+        expect(spinner).toBeDefined();
+        expect(vi.mocked(ora)).toHaveBeenCalledWith(
+          expect.stringContaining("Moving Jira issue DEV-123 to in progress"),
+        );
+      });
+
+      it("never moves the issue when the creation fails", async () => {
+        mockCreate.mockRejectedValue(new Error("git failed"));
+
+        await expect(go({ start: true })).rejects.toThrow("git failed");
+
+        expect(mockStart).not.toHaveBeenCalled();
+      });
+
+      it("--no-start makes no call and reports null", async () => {
+        const document = await go({ start: false });
+
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(document?.started).toBeNull();
+      });
+
+      it("jira.autoStart true starts without asking", async () => {
+        stubConfig({ "jira.autoStart": "true" });
+
+        const document = await go({});
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockStart).toHaveBeenCalledTimes(1);
+        expect(document?.started).toBe(true);
+      });
+
+      it("jira.autoStart false never starts, and --start still wins over it", async () => {
+        stubConfig({ "jira.autoStart": "false" });
+
+        expect((await go({}))?.started).toBeNull();
+        expect(mockStart).not.toHaveBeenCalled();
+
+        expect((await go({ start: true }))?.started).toBe(true);
+        expect(mockStart).toHaveBeenCalledTimes(1);
+      });
+
+      it("ignores the Linear and ClickUp keys", async () => {
+        stubConfig({
+          "linear.autoStart": "true",
+          "clickup.autoStart": "true",
+          "jira.autoStart": "false",
+        });
+
+        expect((await go({}))?.started).toBeNull();
+        expect(mockStart).not.toHaveBeenCalled();
+      });
+
+      it("asks once when the key is unset and saves the answer under the key", async () => {
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
+        mockConfirm.mockResolvedValue(true);
+
+        const document = await go({});
+
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Move this issue to started? (saved as jira.autoStart; change it later with `worktree config jira.autoStart <true|false>`)",
+        });
+        expect(mockSet).toHaveBeenCalledWith("jira.autoStart", "true");
+        expect(document?.started).toBe(true);
+      });
+
+      it("asks before the worktree is created", async () => {
+        mockConfirm.mockImplementation(async () => {
+          calls.push("ask");
+          return true;
+        });
+
+        await go({});
+
+        expect(calls.slice(0, 2)).toEqual(["ask", "create"]);
+      });
+
+      it("a non-interactive run with the key unset starts and saves nothing", async () => {
+        setNonInteractive(true);
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
+
+        const document = await go({});
+
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockSet).not.toHaveBeenCalled();
+        expect(mockStart).toHaveBeenCalledTimes(1);
+        expect(document?.started).toBe(true);
+      });
+
+      it("already-started reports true without a warning", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "already-started",
+          status: "In Progress",
+        });
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(true);
+        expect(document?.warnings).toEqual([]);
+        expect(
+          vi
+            .mocked(ora)
+            .mock.results.some((r) =>
+              r.value.succeed.mock.calls.some(
+                ([text]: [string]) =>
+                  text === "DEV-123 is already started (In Progress)",
+              ),
+            ),
+        ).toBe(true);
+      });
+
+      it.each([
+        [
+          "left-alone",
+          { outcome: "left-alone", status: "Done", category: "done" },
+          "DEV-123 is in Done (status category done), so it was not moved to in progress.",
+        ],
+        [
+          "ambiguous",
+          {
+            outcome: "ambiguous",
+            status: "To Do",
+            targets: ["In Progress", "In Review"],
+          },
+          "DEV-123 was not moved to in progress: Jira offers more than one in-progress status from To Do (In Progress, In Review), so none was chosen. Move it in Jira.",
+        ],
+      ])("%s warns with the issue and the reason, and reports false", async (_label, result, message) => {
+        mockStart.mockResolvedValue(result as any);
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([message]);
+        expect(mockCreate).toHaveBeenCalled();
+      });
+
+      it("no-in-progress-transition warns, reports false, and names the Transition Issues permission (D7)", async () => {
+        // Jira answers an empty list both when the workflow offers none and
+        // when the caller lacks the permission, so the text must carry both.
+        mockStart.mockResolvedValue({
+          outcome: "no-in-progress-transition",
+          status: "To Do",
+        });
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toHaveLength(1);
+        const [warning] = document?.warnings ?? [];
+        expect(warning).toContain("DEV-123");
+        expect(warning).toContain("To Do");
+        expect(warning).toContain("Transition Issues");
+        expect(warning).toMatch(/workflow/);
+        expect(mockCreate).toHaveBeenCalled();
+      });
+
+      it("a thrown Jira failure warns, reports false, exits 0 and keeps the worktree", async () => {
+        const originalExitCode = process.exitCode;
+        process.exitCode = undefined;
+        mockStart.mockRejectedValue(
+          new Error(
+            'Jira: Failed to move DEV-123 to "In Progress". 400 Bad Request: it may need a field set in Jira.',
+          ),
+        );
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([
+          'Could not move DEV-123 to in progress. Jira: Failed to move DEV-123 to "In Progress". 400 Bad Request: it may need a field set in Jira.',
+        ]);
+        expect(document?.path).toBe("/path/to/worktree");
+        expect(process.exitCode).toBeUndefined();
+        expect(calls).toContain("env");
+        process.exitCode = originalExitCode;
+      });
+
+      it("a rejected request does not abort the run, and the token stays out of the warning", async () => {
+        // fetchJira rethrows a non-timeout fetch error as it came, and undici
+        // can quote the Authorization value in a header error's message.
+        const secret = "Basic dGVzdEBleGFtcGxlLmNvbTp0b2tlbg==";
+        stubConfig({ "jira.apiToken": "tok-secret-123" });
+        mockStart.mockRejectedValue(
+          new TypeError(`${secret} is an invalid header value`, {
+            cause: new Error(`sent ${secret} tok-secret-123`),
+          }),
+        );
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.path).toBe("/path/to/worktree");
+        expect(document?.warnings).toHaveLength(1);
+        expect(document?.warnings[0]).toContain("DEV-123");
+        const text = JSON.stringify(document?.warnings);
+        expect(text).not.toContain(secret);
+        expect(text).not.toContain("dGVzdEBleGFtcGxlLmNvbTp0b2tlbg");
+        expect(text).not.toContain("tok-secret-123");
+        expect(calls).toContain("env");
+      });
+
+      it("carries started on the document of a failed install", async () => {
+        mockRunInstall.mockResolvedValue({
+          ran: true,
+          command: "npm ci",
+          steps: ["npm ci"],
+          from: "lockfile",
+          inferred: true,
+          ok: false,
+          reason: "exited with code 1",
+        });
+        const originalExitCode = process.exitCode;
+        const command = new Branch(["--json"], await loadConfig());
+        (command as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { jira: "dev-123", assign: false, start: true },
+        });
+        (command as any).parsed = true;
+        const output = captureOutput();
+
+        try {
+          await (command as any)._run();
+          expect(output.document()).toMatchObject({
+            installed: { ran: true, ok: false },
+            started: true,
+          });
+          expect(calls).toEqual(["create", "start", "env"]);
+        } finally {
+          output.restore();
+          process.exitCode = originalExitCode;
+        }
+      });
+
+      it("does not move the issue when the branch already has a worktree", async () => {
+        vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue({
+          path: "/repo.worktrees/feature/DEV-123-add-dark-mode",
+          pathExists: true,
+          inWorktreesRoot: true,
+        });
+        mockConfirm.mockResolvedValue(true);
+
+        const result = await go({ start: true });
+
+        expect(result).toBeUndefined();
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(mockCreate).not.toHaveBeenCalled();
+      });
+
+      it("a dry run never calls it and never asks", async () => {
+        const dryRun = vi
+          .spyOn(branch as any, "reportDryRun")
+          .mockReturnValue(undefined);
+        vi.spyOn(jiraIntegration, "getJiraBranchNaming").mockResolvedValue({
+          branchName: "DEV-123-add-dark-mode",
+          kind: null,
+          fields: [],
+          match: { source: "built-in" },
+          warnings: [],
+        } as any);
+
+        await go({ "dry-run": true, start: true });
+
+        expect(dryRun).toHaveBeenCalled();
+        expect(mockStart).not.toHaveBeenCalled();
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockCreate).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe("--linear flag", () => {
@@ -1855,11 +2225,6 @@ jira:
           "42",
           "Moving an issue to started is not supported for GitHub issues.",
         ],
-        [
-          "jira",
-          "DEV-1",
-          "Moving an issue to started is not supported for Jira issues yet.",
-        ],
       ])("--start with --%s warns and carries on", async (provider, id, message) => {
         vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
         vi.spyOn(branch as any, "getBranchName").mockResolvedValue({
@@ -1904,7 +2269,6 @@ jira:
 
       it.each([
         ["github", "42"],
-        ["jira", "DEV-1"],
       ])("a plain --%s run never reads linear.autoStart or asks", async (provider, id) => {
         vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
         vi.spyOn(branch as any, "getBranchName").mockResolvedValue({
@@ -3214,7 +3578,7 @@ jira:
 
           (branch as any).parse = vi.fn().mockResolvedValue({
             args: {},
-            flags: { jira: "dev-123", ...flags },
+            flags: { jira: "dev-123", start: false, ...flags },
           });
         }
 

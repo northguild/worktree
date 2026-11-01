@@ -165,7 +165,8 @@ whitespace is refused with exit `2`, and nothing is stored.
 - `jira.autoStart` whether `--jira` also moves the issue to in progress once the worktree exists: `true`
   always (an issue already in progress or done, or with no single in-progress status to move to, is left
   where it is), `false` never, unset means you are asked once and your answer is saved. See
-  [Configuration](/docs/configuration#jira-integration-notes).
+  [Configuration](/docs/configuration#jira-integration-notes) and
+  [Moving the issue to in progress](/docs/guides/jira-integration#moving-the-issue-to-in-progress).
 
 The Jira keys are asked together behind one confirm. The `jira.autoAssign` prompt is asked after the token
 and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".

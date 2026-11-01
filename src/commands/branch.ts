@@ -14,6 +14,7 @@ import {
   assignJiraIssue,
   getJiraBranchNameFromIssue,
   getJiraBranchNaming,
+  startJiraIssue,
 } from "../integrations/jira.js";
 import {
   fetchLinearIssue,
@@ -143,8 +144,13 @@ are left where they are. It needs a key with the Write permission.
 --start (or clickup.autoStart) moves a --clickup task in an open status to the
 List's first in-progress status; a task already in an in-progress or review
 status, a finished one and a List with no in-progress status are left where they
-are. It needs edit access to the task. --no-start never moves either. Without
---start or the key, a terminal is asked once and a non-interactive run starts.
+are. It needs edit access to the task.
+--start (or jira.autoStart) moves a --jira issue in the To Do status category to
+the one in-progress status its workflow offers from there; an issue already in
+progress, a finished one, and a workflow offering none or several in-progress
+statuses are left where they are. It needs the Transition Issues permission.
+--no-start never moves any. Without --start or the key, a terminal is asked once
+and a non-interactive run starts.
 
 --linear with no identifier lists your own unstarted and started Linear issues
 and asks you to pick one, then carries on as if you had typed its identifier.
@@ -165,9 +171,9 @@ url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
 url|null} or null
 assigned: true if the issue is yours after the run, false if it is not (held
 by someone else, or the attempt failed), null if none was attempted
-started: true if the Linear issue or ClickUp task is in a started state after
-the run (moved or already there), false if it is not (left alone, no started
-state to move to, or the attempt failed), null if none was attempted
+started: true if the Linear issue, ClickUp task or Jira issue is in a started
+state after the run (moved or already there), false if it is not (left alone,
+no started state to move to, or the attempt failed), null if none was attempted
 installed: {ran:true, command, steps[], from, inferred, ok, reason?} or
 {ran:false, reason}
 command is the step that failed, else the last that ran; steps are the ones
@@ -269,7 +275,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     start: Flags.boolean({
       allowNo: true,
       description:
-        "Move the issue to its first started state once the worktree exists, when it is in a backlog or unstarted state: a --linear issue to its team's, a --clickup task in an open status to its List's first in-progress status (not supported for --github, and not yet for --jira)",
+        "Move the issue to its first started state once the worktree exists, when it is in a backlog or unstarted state: a --linear issue to its team's, a --clickup task in an open status to its List's first in-progress status, a --jira issue in the To Do category to the in-progress status its workflow offers (not supported for --github)",
     }),
     // D13: the way to write branchType rules against a real issue. It is a
     // `branch` flag rather than a command so that the name it prints is the one
@@ -882,6 +888,68 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
   }
 
   /**
+   * Same contract as `startClickUpTask`: nothing here aborts `branch` (D11).
+   * `startJiraIssue` writes only once it has decided to, so every path that is
+   * not "in progress now" reports `false`.
+   *
+   * `fetchJira` rethrows a non-timeout fetch error as it came, and undici can
+   * quote the Authorization value in such a message. So only a `Jira:` error,
+   * which the integration composed, is shown; anything else is named by its
+   * type alone.
+   */
+  private async startJiraIssue(issueIdFlag: string): Promise<boolean> {
+    const issueKey = issueIdFlag.trim().toUpperCase();
+    const spinner = createSpinner(
+      `Moving Jira issue ${issueKey} to in progress`,
+    ).start();
+
+    try {
+      const result = await startJiraIssue(issueIdFlag);
+      switch (result.outcome) {
+        case "started":
+          spinner.succeed(
+            `Moved ${issueKey} from ${result.from} to ${result.to}`,
+          );
+          return true;
+        case "already-started":
+          spinner.succeed(`${issueKey} is already started (${result.status})`);
+          return true;
+        case "left-alone": {
+          const message = `${issueKey} is in ${result.status} (status category ${result.category}), so it was not moved to in progress.`;
+          spinner.warn(message);
+          this.recordWarning(message);
+          return false;
+        }
+        case "no-in-progress-transition": {
+          // D7: Jira answers an empty list both when the workflow has no such
+          // transition and when the caller lacks the permission, and the same
+          // outcome covers a list with no in-progress target, so the text
+          // claims none of the causes.
+          const message = `${issueKey} was not moved to in progress: Jira offered no in-progress transition from ${result.status}. Its workflow may have none, or your account may lack the Transition Issues permission on the project.`;
+          spinner.warn(message);
+          this.recordWarning(message);
+          return false;
+        }
+        case "ambiguous": {
+          const message = `${issueKey} was not moved to in progress: Jira offers more than one in-progress status from ${result.status} (${result.targets.join(", ")}), so none was chosen. Move it in Jira.`;
+          spinner.warn(message);
+          this.recordWarning(message);
+          return false;
+        }
+      }
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.message.startsWith("Jira:")
+          ? error.message
+          : `The request to Jira failed (${error instanceof Error ? error.name : "unknown error"}).`;
+      const message = `Could not move ${issueKey} to in progress. ${reason}`;
+      spinner.warn(message);
+      this.recordWarning(message);
+      return false;
+    }
+  }
+
+  /**
    * The identifier of one of the viewer's own unstarted or started issues,
    * chosen at the terminal (D5, D6). The spinner is stopped before the menu
    * opens: one left running redraws over inquirer's lines. Titles and state
@@ -1279,14 +1347,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // a wrapper may pass it on every run, as --no-assign is.
     let startLinear = false;
     let startClickUp = false;
+    let startJira = false;
     if (flags.start && flags.github) {
       this.warn(
         "Moving an issue to started is not supported for GitHub issues.",
       );
-    } else if (flags.start && flags.jira) {
-      this.warn(
-        "Moving an issue to started is not supported for Jira issues yet.",
-      );
+    } else if (flags.jira) {
+      startJira = await this.shouldStartIssue("jira.autoStart", flags.start);
     } else if (flags.clickup) {
       startClickUp = await this.shouldStartIssue(
         "clickup.autoStart",
@@ -1311,6 +1378,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       started = await this.startLinearIssue(flags.linear);
     } else if (startClickUp && flags.clickup) {
       started = await this.startClickUpTask(flags.clickup);
+    } else if (startJira && flags.jira) {
+      started = await this.startJiraIssue(flags.jira);
     }
     // Env files first: the agent starts working immediately, so it has to find a
     // worktree that is already complete. The editor stays last so its "Worktree
