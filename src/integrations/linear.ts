@@ -87,8 +87,21 @@ export async function resolveLinearApiKey(): Promise<string> {
   return apiKey;
 }
 
-// Every Linear request is bounded. The timeout message matches TIMEOUT_MESSAGE
-// in base-command.ts; it names no header and never the key.
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
+// The timeout message matches TIMEOUT_MESSAGE in base-command.ts; it names no
+// header and never the key.
+function timeoutError(cause: unknown): Error {
+  return new Error(
+    `Linear: the request did not answer within ${LINEAR_REQUEST_TIMEOUT_MS / 1000}s.`,
+    { cause },
+  );
+}
+
+// Every Linear request is bounded, body included: the signal also aborts a
+// body that stalls after the headers arrive (see readBody).
 export async function fetchLinear(
   query: string,
   variables: Record<string, unknown>,
@@ -103,11 +116,8 @@ export async function fetchLinear(
       signal: AbortSignal.timeout(LINEAR_REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      throw new Error(
-        `Linear: the request did not answer within ${LINEAR_REQUEST_TIMEOUT_MS / 1000}s.`,
-        { cause: error },
-      );
+    if (isTimeout(error)) {
+      throw timeoutError(error);
     }
     throw error;
   }
@@ -117,13 +127,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+// A body that is not JSON is an unexpected response; one that timed out is a
+// timeout, not a parse failure.
 async function readBody(
   response: Response,
 ): Promise<LinearGraphqlResponse | undefined> {
   try {
     const body: unknown = await response.json();
     return isRecord(body) ? (body as LinearGraphqlResponse) : undefined;
-  } catch {
+  } catch (error) {
+    if (isTimeout(error)) {
+      throw timeoutError(error);
+    }
     return undefined;
   }
 }

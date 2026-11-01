@@ -1109,6 +1109,21 @@ describe("startLinearIssue", () => {
       );
     });
 
+    // The fetch signal also bounds the body: headers in time and a body that
+    // stalls past 15s rejects response.json() with the signal's TimeoutError.
+    it("reports a body that stalls past the timeout as a timeout", async () => {
+      stubKey();
+      const answer = respond(200, null);
+      answer.json.mockRejectedValue(
+        new DOMException("timed out", "TimeoutError"),
+      );
+      stubFetch(answer);
+
+      await expect(fetchLinearIssue("ENG-123")).rejects.toThrow(
+        "Linear: the request did not answer within 15s.",
+      );
+    });
+
     it("fails on a malformed body", async () => {
       const message = await failure(
         respond(200, { data: { issue: { identifier: "ENG-123" } } }),
