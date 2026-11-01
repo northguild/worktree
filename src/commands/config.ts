@@ -440,6 +440,35 @@ export default class Config extends BaseCommand {
         );
         await gitSetConfigValue("jira.autoAssign", jiraAutoAssign);
       }
+
+      if (shouldPrompt("jira.autoStart")) {
+        // Same shape as `clickup.autoStart` (D9): anything but an explicit
+        // "true" or "false" is normalised to the "ask me" choice.
+        const storedJiraAutoStart = await gitGetConfigValue("jira.autoStart");
+        const jiraAutoStartDefault =
+          storedJiraAutoStart === "true" || storedJiraAutoStart === "false"
+            ? storedJiraAutoStart
+            : "";
+        const jiraAutoStart = await askSelect<"true" | "false" | "">(
+          {
+            message:
+              "Should `branch --jira` move the issue to in progress once the worktree exists?",
+            choices: [
+              { name: "Yes, always", value: "true" },
+              { name: "No, never", value: "false" },
+              // Tri-state through unset: also the way to keep being asked.
+              { name: "Ask me each time", value: "" },
+            ],
+            default: jiraAutoStartDefault,
+          },
+          {
+            value: "jira.autoStart",
+            flag: "worktree config jira.autoStart <true|false>",
+            fallback: jiraAutoStartDefault,
+          },
+        );
+        await gitSetConfigValue("jira.autoStart", jiraAutoStart);
+      }
     }
 
     // Both GitHub keys sit behind one confirm, in the shape the Jira and Herdr

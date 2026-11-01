@@ -218,6 +218,7 @@ const PERSONAL_KEYS = new Set([
   "agent.command",
   "jira.email",
   "jira.autoAssign",
+  "jira.autoStart",
   "github.autoAssign",
   "linear.autoStart",
   "clickup.autoStart",
