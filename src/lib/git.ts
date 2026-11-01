@@ -352,18 +352,16 @@ export interface BranchCheckout {
   path: string;
   pathExists: boolean;
   inWorktreesRoot: boolean;
-  isCurrent: boolean;
 }
 
 // Where a branch name is already checked out, from git's own listing and never
 // a path computed from the name. Unlike gitGetWorktrees it keeps the main
 // checkout, anything outside `<root>.worktrees/` and the current worktree, and
-// reports those facts instead of filtering on them. A detached record carries
+// reports where the match sits instead of filtering on it. A detached record carries
 // DETACHED_LABEL, which no real branch name can equal.
 export async function gitFindBranchCheckout(
   branchName: string,
 ): Promise<BranchCheckout | undefined> {
-  const currentBranch = await getCurrentBranchName();
   const worktreesRootPath = await gitGetAbsoluteWorktreesPath();
   const result = await run("git", ["worktree", "list", "--porcelain"]);
 
@@ -378,7 +376,6 @@ export async function gitFindBranchCheckout(
     path: match.path,
     pathExists: fs.existsSync(match.path),
     inWorktreesRoot: match.path.startsWith(`${worktreesRootPath}/`),
-    isCurrent: currentBranch === branchName,
   };
 }
 
