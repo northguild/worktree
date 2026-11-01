@@ -98,6 +98,7 @@ worktree config postCreate "pnpm install"
 worktree config github.autoAssign true
 worktree config jira.autoAssign true
 worktree config linear.autoStart true
+worktree config clickup.autoStart true
 worktree config --list
 worktree config --list --missing
 worktree config --missing
@@ -150,6 +151,7 @@ time". The last leaves the key unset, clearing any stored answer, which is the "
 `jira.apiToken`, `linear.apiKey` or `clickup.apiToken` prompt empty, or answering with only spaces, keeps any token you already have,
 rather than clearing it. A pasted value is stored without surrounding whitespace.
 `clickup.workspaceId` is optional and only matters for custom task ids such as `DEV-123`: an empty answer skips it and writes nothing, a non-interactive run skips it rather than failing, and under `--missing` pressing Enter skips its prompt too.
+The ClickUp group asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/docs/configuration#clickup-integration-notes).
 A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey` and `clickup.apiToken`) with a value that is only
 whitespace is refused with exit `2`, and nothing is stored.
 

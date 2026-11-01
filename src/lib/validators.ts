@@ -190,6 +190,7 @@ export async function isValidConfigValue(
     case "github.autoAssign":
     case "jira.autoAssign":
     case "linear.autoStart":
+    case "clickup.autoStart":
       return isValidBoolean(value);
     case "herdr.focus":
       return isValidBoolean(value);

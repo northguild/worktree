@@ -10,6 +10,7 @@ export const CONFIG_NAMES = [
   "linear.autoStart",
   "clickup.apiToken",
   "clickup.workspaceId",
+  "clickup.autoStart",
   "github.token",
   "github.autoAssign",
   "github.repository",

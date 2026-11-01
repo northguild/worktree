@@ -18,7 +18,8 @@ The generated branch name is shown as the default in the prompt, so you can acce
 
 `--clickup` cannot be combined with `--github`, `--jira` or `--linear`. `--assign` does not work with `--clickup`:
 assigning a ClickUp task is not supported yet, so the flag warns `Assignment is not supported for ClickUp tasks yet.`
-and the worktree is still created.
+and the worktree is still created. `--start` does work: it [moves the task to in progress](#moving-the-task-to-in-progress)
+once the worktree exists.
 
 ## Task Ids
 
@@ -72,7 +73,38 @@ With `--json`, `issue` is `{"provider":"clickup","key":"DEV-123","url":"https://
 the task's custom id when it has one, otherwise its short id, and the `url` is the one ClickUp returns (`null` only if
 ClickUp sent none).
 
+When the task is moved to in progress (below), `worktree` also reads the task's current status and its List's
+statuses, with their type and position. That is all it reads for the move; the description and comments are still
+never requested.
+
 Requests to ClickUp are cut off after 15 seconds.
+
+## Moving the Task to In Progress
+
+`--start` moves the task once the worktree exists, and `--no-start` skips it for that one run. Without either,
+[`clickup.autoStart`](/docs/configuration#clickup-integration-notes) decides: `true` moves, `false` never does, and
+unset asks once in a terminal and saves the answer under that key. **A non-interactive run with the key unset moves
+the task** and saves nothing, so pass `--no-start` or set the key to `false` if a script must not write to ClickUp.
+The full order and where it sits in a run are in the [branch command](/docs/commands/branch#moving-the-clickup-task-to-in-progress).
+
+```bash
+worktree branch --clickup 9hx --start
+worktree branch --clickup 9hx --no-start
+worktree config clickup.autoStart true
+```
+
+Three requests follow, each cut off after 15 seconds: the task (its status and List), the List (its statuses), and
+the update.
+
+- A task in an `open`-type status moves to the List's first `custom`-type status by position, by name.
+- A task already in a `custom`-type status (In Progress, In Review) is not moved, and the document's `started` is `true`.
+- A task in a `done`- or `closed`-type status, or any other type, is left alone with a warning and `started` is `false`,
+  as it is for a List with no `custom` status. Nothing is written in those cases.
+- The move counts only when ClickUp's answer shows the new status. Any failure is a warning, `started` is `false`,
+  and the worktree and exit code are unaffected.
+- Moving a task needs edit access to it. A write ClickUp refuses with a 400 or a 5xx, or any status not named here,
+  gets a warning that says so. A 401 or 403 reads as the authentication message, a 404 as the not-found message and
+  a 429 as the rate-limit message.
 
 ## Authentication Resolution
 
@@ -117,8 +149,8 @@ Only custom task ids need it. It is the numeric id of your Workspace, which Clic
 
 ## What Is Not Verified Yet
 
-This integration was written from ClickUp's API documentation and has not been run against a live Workspace. Four
-things are assumptions:
+This integration was written from ClickUp's API documentation and has not been run against a live Workspace. These
+are assumptions:
 
 - Whether a custom id in a branch name links the branch to its task in ClickUp's GitHub App. A short id with `CU-`
   is the form ClickUp documents; a custom id is not confirmed.
@@ -127,6 +159,15 @@ things are assumptions:
 - Whether a short id can ever contain a hyphen. It is assumed not, which is how `9hx` and `DEV-123` are told apart.
 - The tag rule is a guess carried over from the Linear integration: `bug`, `chore` and `maintenance` may not be how
   your team tags tasks. Task types are not used.
+- The status `type` values. The move assumes `open` for a task not yet started and `custom` for a List's own
+  statuses. If ClickUp uses other values, nothing is moved and a warning says so.
+- Whether a List that inherits its Space's statuses reports them. If it does not, the List counts as having no
+  in-progress status and nothing is moved.
+- Whether the first `custom` status is the one your team means by in progress. It is the first one by position, so
+  a List that starts with Backlog or Ready moves tasks there.
+
+ClickUp's answer to a write your token may not make is also unconfirmed: it may be a 401, a 403, a 404 or another
+status, and a 401, 403 or 404 reads as that status's own message, without the edit-access hint.
 
 ClickUp's exact status for a task your token cannot see is also unconfirmed, so a 401 and a 403 both report
 `Authentication failed. Please verify clickup.apiToken in your config.`

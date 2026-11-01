@@ -32,6 +32,7 @@ config.
 - `linear.autoStart` (`true` or `false`, unset means you are asked, or the issue is started when non-interactive)
 - `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
 - `clickup.workspaceId` (optional; your ClickUp Workspace id, a number, needed only for custom task ids like `DEV-123`)
+- `clickup.autoStart` (`true` or `false`, unset means you are asked, or the task is moved to in progress when non-interactive)
 - `branchPrefix.feature` (example: `feature/`)
 - `branchPrefix.bugfix` (example: `fix/`)
 - `branchPrefix.chore` (example: `chore/`)
@@ -269,6 +270,12 @@ worktree config linear.autoStart true
 - `worktree branch --clickup <task-id>` reads tasks from the ClickUp Workspace your token belongs to.
 - `clickup.apiToken` is required. `clickup.workspaceId` is optional and is needed only when you pass a custom task id
   such as `DEV-123`; a short id such as `9hx` never needs it. An empty answer to its prompt skips it.
+- `clickup.autoStart` is optional and decides whether `--clickup` also moves the task to in progress once the worktree exists. It has three states, like `linear.autoStart`: `true` always moves it (a task already in progress, or done, closed or in any other status type, is left where it is, as it is when the List has no in-progress status), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it moves the task, under the same rule, and saves nothing. Moving a task needs edit access to it; the [branch command](/docs/commands/branch#moving-the-clickup-task-to-in-progress) and the [ClickUp guide](/docs/guides/clickup-integration#moving-the-task-to-in-progress) say which statuses move. To set it directly:
+
+```bash
+worktree config clickup.autoStart true
+```
+
 - The branch prefix comes from the task's tags: `bug` uses `branchPrefix.bugfix`,
   `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`. A `clickup.branchType`
   list, or a shared top-level `branchType` list, in `.worktree.yml` replaces this mapping; see [Branch-type rules](/docs/project-configuration#branch-type-rules).
