@@ -189,6 +189,10 @@ Fields with a value (2), each with a line to paste into jira.branchType:
   each of its values with its id where it has one. Empty fields are left out. Each value comes with a line to
   paste into a `branchType` list; see
   [Writing rules with a dry run](/docs/project-configuration#writing-rules-with-a-dry-run).
+- **Provider-only fields** are marked when the shared list decided. Any field but `Type` and `Labels`, in either case, is
+  that provider's own, so the dry run names `<provider>.branchType` beside it as the list to paste its lines into: a
+  shared rule naming it never matches the other providers and does not warn on a real run. A provider's own list
+  replaces the shared one for that provider, so copy across any shared rules you still want there.
 - **Jira field names** come from `?expand=names` on the issue request, which a dry run always asks for. The
   paste-ready lines name ids, except that `Type` and `Labels` are by name when the shared `branchType` list decided, because an id belongs to one provider.
 
@@ -197,7 +201,7 @@ With `--json` a dry run prints one document, not the [`branch` document](#json-o
 ```json
 {"dryRun":true,"branch":"chore/DEV-123-tidy-the-billing-job","issue":{"provider":"jira","key":"DEV-123","url":"https://acme.atlassian.net/browse/DEV-123"},
  "kind":"chore","match":{"source":"rule","position":1,"rule":"when: { customfield_10359: { id: \"10301\" } }, type: chore"},
- "fields":[{"id":"customfield_10359","name":"Work Category","values":[{"id":"10301","name":"Maintenance","when":"- when: { customfield_10359: { id: \"10301\" } }   # Work Category = Maintenance"}]}],
+ "fields":[{"id":"customfield_10359","name":"Work Category","pasteInto":"jira.branchType","values":[{"id":"10301","name":"Maintenance","when":"- when: { customfield_10359: { id: \"10301\" } }   # Work Category = Maintenance"}]}],
  "warnings":[]}
 ```
 
@@ -207,7 +211,7 @@ With `--json` a dry run prints one document, not the [`branch` document](#json-o
 | `branch`, `issue` | the name `branch` would give, and the issue it came from, as in the `branch` document |
 | `kind` | `feature`, `bugfix` or `chore`; `null` when no prefix applies |
 | `match` | `{source:"rule", position, rule}` for the rule that matched, `{source:"built-in"}` or `{source:"none"}` |
-| `fields` | the non-empty fields: `{id, name, values:[{id, name, when}]}`. `id` or `name` is `null` where the value has none (a GitHub label has both; a ClickUp tag has a name only); `when` is the paste-ready line |
+| `fields` | the non-empty fields: `{id, name, pasteInto, values:[{id, name, when}]}`. `pasteInto` is the list the field's lines belong in; `id` or `name` is `null` where the value has none (a GitHub label has both; a ClickUp tag has a name only); `when` is the paste-ready line |
 | `warnings` | the same as in the `branch` document, such as a rule naming a field the issue does not have |
 
 ## Installing dependencies

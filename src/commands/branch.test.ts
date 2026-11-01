@@ -4715,6 +4715,85 @@ branchType:
       expect(output.stdout()).not.toContain("{ id:");
     });
 
+    // A Jira-only field pasted into the shared list never matches elsewhere, and
+    // on a real run it does not warn, so the output says where it belongs.
+    it("points a provider-only field at the provider's own list when the shared list decided", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: bugfix\n");
+      vi.spyOn(jiraIntegration, "getJiraBranchNaming").mockResolvedValue({
+        branchName: "chore/DEV-7-fix-login-bug",
+        kind: "chore",
+        fields: [
+          {
+            id: "customfield_10359",
+            name: "Work Category",
+            values: [{ id: "10301", name: "Maintenance" }],
+          },
+          // As an English Jira emits it: this id, no id on the values, no alias.
+          { id: "labels", name: "Labels", values: [{ name: "chore" }] },
+        ],
+        match: { source: "none" },
+      });
+
+      await runDry({ jira: "dev-7" });
+
+      const text = output.stdout();
+      expect(text).toContain("except where a field says otherwise:");
+      expect(text).toContain(
+        "Work Category (id customfield_10359) - only jira has this field: paste into jira.branchType, not branchType",
+      );
+      // `labels` finds every other provider's Labels by name, so it stays shared.
+      expect(text).toContain("  Labels (id labels)\n");
+    });
+
+    it("names each field's list in the --json when the shared list decided", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: bugfix\n");
+      vi.spyOn(jiraIntegration, "getJiraBranchNaming").mockResolvedValue({
+        branchName: "DEV-7-fix-login-bug",
+        kind: undefined,
+        fields: [
+          {
+            id: "customfield_10359",
+            name: "Work Category",
+            values: [{ id: "10301", name: "Maintenance" }],
+          },
+          { id: "labels", name: "Labels", values: [{ name: "chore" }] },
+        ],
+        match: { source: "none" },
+      });
+
+      await runDry({ jira: "dev-7" }, ["--json"]);
+
+      const doc = output.document() as any;
+      expect(doc.fields.map((f: any) => f.pasteInto)).toEqual([
+        "jira.branchType",
+        "branchType",
+      ]);
+    });
+
+    it("says nothing about another list when the provider's own decided", async () => {
+      projectFile(
+        'jira:\n  branchType:\n    - when: { customfield_10359: { id: "10301" } }\n      type: chore\n',
+      );
+      vi.spyOn(jiraIntegration, "getJiraBranchNaming").mockResolvedValue({
+        branchName: "chore/DEV-7-fix-login-bug",
+        kind: "chore",
+        fields: [
+          {
+            id: "customfield_10359",
+            name: "Work Category",
+            values: [{ id: "10301", name: "Maintenance" }],
+          },
+        ],
+        match: { source: "none" },
+      });
+
+      await runDry({ jira: "dev-7" });
+
+      const text = output.stdout();
+      expect(text).toContain("each with a line to paste into jira.branchType:");
+      expect(text).toContain("  Work Category (id customfield_10359)\n");
+    });
+
     it("keeps the id lines when the provider's own list decided", async () => {
       projectFile(FILE);
       githubIssue({ type: { id: 9, name: "Bug" } });
@@ -4789,6 +4868,7 @@ branchType:
           {
             id: "Labels",
             name: "Labels",
+            pasteInto: "github.branchType",
             values: [
               {
                 id: "5",
