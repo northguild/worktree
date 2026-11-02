@@ -14,6 +14,7 @@ import {
 import { run, runCapturing } from "./cli.js";
 import { gitGetConfigValue } from "./config.js";
 import { isNonInteractive } from "./interaction.js";
+import { gatherIssueLinks } from "./issue-link.js";
 import { createSpinner, isProgressEnabled } from "./progress.js";
 import { askConfirm } from "./prompt.js";
 import type {
@@ -451,12 +452,30 @@ export function isSafeToRemove(wt: WorktreeListEntry): boolean {
     // as "no remote and no work" and meant "no remote". That is the incident.
     return carriesNoKnownWork(wt);
   }
-  return false;
+  // D4: the one clause a tracker may change. A canceled issue is the tracker's
+  // opinion, not a git fact, so it counts only where every commit the branch
+  // carries is on its live remote — `ahead` here is a count against `@{u}` —
+  // and the remote itself reported that tip, because `fetch --prune` refreshes
+  // one remote and a tracking ref on another can be stale.
+  // `behind` is not consulted: commits only the remote has are not lost.
+  return (
+    wt.ahead === 0 &&
+    wt.issue?.state === "canceled" &&
+    wt.issue.remoteConfirmed === true
+  );
 }
 
 interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
   includeAgents?: boolean;
   includeChurn?: boolean;
+  // Reads the issue each branch is linked to and, where a key is configured,
+  // its state type. Off by default: `remove` must not pay for it (D8, D11).
+  includeIssues?: boolean;
+  // With `includeIssues`: warn once when records exist and no key is set (D8).
+  // `cleanup` leaves it off and stays silent; `list --issues` turns it on.
+  warnWithoutIssueKey?: boolean;
+  // Receives the one warning a failed read or lookup produces (D7).
+  onIssueWarning?: (message: string) => void;
 }
 
 // The session's own name and pid, plus the liveness `cleanup` weighs and the two
@@ -651,6 +670,9 @@ export async function gitGetWorktreeList({
   includeCurrent = false,
   includeAgents = false,
   includeChurn = false,
+  includeIssues = false,
+  warnWithoutIssueKey = false,
+  onIssueWarning = () => {},
 }: GitGetWorktreeListOptions = {}) {
   const remoteBranches = await gitGetRemoteBranches();
   const tracking = await gitGetLocalBranchesTracking();
@@ -666,6 +688,20 @@ export async function gitGetWorktreeList({
   // paid four ways for an answer that cannot differ between them. Same
   // reasoning as the session lookup above. See §4.1 and §5 R1.
   const comparisonBase = await gitGetComparisonBase();
+  // Once for the whole run and only on request, like the sessions above: the
+  // record read, the key read, one Linear request per 50 identifiers (D6, D11)
+  // and, for canceled branches only, one `ls-remote` per remote (D4). It never
+  // throws. `runGitFetch` is handed in because issue-link.ts cannot import this
+  // file without a cycle; it carries the same timeout and non-interactive
+  // environment as `gitFetch`.
+  const issues = includeIssues
+    ? await gatherIssueLinks({
+        lookup: true,
+        warnWithoutKey: warnWithoutIssueKey,
+        onWarning: onIssueWarning,
+        runGit: (args) => runGitFetch(args),
+      })
+    : undefined;
 
   const worktreeList: WorktreeListEntry[] = [];
 
@@ -685,9 +721,10 @@ export async function gitGetWorktreeList({
     );
     // Only where the answer can change a verdict, because it is three more
     // subprocesses in a serial loop with four callers (#63 §5 R1). A worktree
-    // tracking a remote branch that still exists is never removable whatever it
-    // carries — `isSafeToRemove`'s last clause — and one that is not ahead of
-    // its base is already disposable without anybody asking. A truthy `ahead`
+    // tracking a remote branch that still exists is removable only through
+    // `isSafeToRemove`'s last clause (a canceled issue, with `ahead` 0 against
+    // `@{u}`, which needs no merge probe) — and one that is not ahead of its
+    // base is already disposable without anybody asking. A truthy `ahead`
     // is also what guarantees a base resolved, which is what makes
     // `comparisonBase` safe to hand over here: `countAhead` reaches the count
     // only through a base that is not empty.
@@ -731,6 +768,7 @@ export async function gitGetWorktreeList({
       // Empty without includeAgents, so this is undefined for every caller that
       // did not ask — no separate branch needed to keep the field off.
       agent: await toWorktreeAgent(sessions, path),
+      issue: issues?.get(branchName),
     };
 
     worktreeList.push({

@@ -177,6 +177,14 @@ worktree list --churn
 
 Each worktree with commits ahead gets `Churn: +120 -8, 5 files` beside `Ahead:` (not one whose branch is already merged): the lines added, the lines removed and the files touched, as `git diff --shortstat` counts them against the same base. Only committed work counts, and the figure is left out where it could not be taken. It costs one more git call per worktree, so it is off by default.
 
+To show each worktree's Linear issue and whether it is canceled:
+
+```bash
+worktree list --issues
+```
+
+Worktrees made with `branch --linear` get `Linear ENG-123: canceled` (or the issue's other state type, or `state unknown`). It asks Linear for the states when `linear.apiKey` is set (one request per 50 linked branches), and `safeToRemove` then counts a canceled issue, including the remote check: `list` runs the same `git ls-remote` as `cleanup`, when an issue is canceled. It is `cleanup`'s verdict only with `--agents` as well, and not for the worktree you are in. With records but no key, it warns once. Without `--issues`, `list` reads no record, sends no request and runs no `ls-remote`.
+
 ### Reopen a worktree in your editor
 
 ```bash
@@ -212,6 +220,8 @@ worktree cleanup
 ```
 
 The cleanup command targets worktrees that are considered safe to remove, for example branches whose remote no longer exists, and local worktrees with no tracked remote. Either way the worktree has to be carrying nothing — no uncommitted changes, and no commits that have not been pushed. A commit count that could not be taken is never read as a zero, so a worktree whose directory still exists is held back rather than swept when it cannot be checked.
+
+A worktree whose Linear issue is canceled is removed too, when it tracks a live remote and the remote confirms every commit is there: no uncommitted changes, no live agent, nothing unpushed. This applies to branches made with `branch --linear`, which records the issue in git config. `cleanup` asks Linear for the issue state on every run when `linear.apiKey` is set, and asks the remote for the branch's tip when an issue is canceled; if Linear fails it warns once and decides as it did before, and if a remote fails it warns once and keeps the canceled branches on that remote, while branches on a remote that answered are still judged. The branch has to track its remote, so push it with `-u`. A canceled branch whose commits it cannot confirm is reported under its own heading.
 
 A worktree that an agent session is working in is held back and reported as skipped. A session that is only idle does not hold anything back. That includes a session Herdr started for you, found through `herdr agent list`, as well as one in your own terminal. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
 
@@ -346,6 +356,7 @@ worktree branch --github 42 --json --agent-file brief.md
 With `--agents`, each entry also has `agent`: `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`.
 `herdrAgent` is the name Herdr gives the agent (for example `wt-42-fix-login`, the same as `branch --json`'s `herdr.agent`), or its pane id (for example `w4P:p1`) when Herdr reports no name.
 With `--churn`, each entry also has `churn`: `{files,insertions,deletions}` for its committed work, or `null` when it could not be taken.
+With `--issues`, each entry also has `issue`: `null` when no Linear issue is recorded, else `{provider,key,state}` with `state` the issue's state type or `null` when it could not be read. `safeToRemove` matches `cleanup`'s verdict only with `--agents` and `--issues` (and never for the current worktree); plain `list --json` does not weigh agent sessions or canceled issues.
 
 `remove --json` gives `{"removed":[{branch,path}],"herdrSpacesClosed":[…],"warnings":[]}`. Nothing removed is
 never reported as a success.

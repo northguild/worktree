@@ -5,6 +5,7 @@ import { resetProjectConfigCache } from "../lib/project-config.js";
 import { expectCommands } from "../test-setup.js";
 import {
   fetchLinearIssue,
+  fetchLinearIssueStates,
   getLinearBranchNameFromIssue,
   getLinearBranchNaming,
   getLinearBranchType,
@@ -1530,5 +1531,375 @@ describe("listAssignedLinearIssues", () => {
       'query { viewer { assignedIssues( first: 50 orderBy: updatedAt filter: { state: { type: { in: ["unstarted", "started"] } } } ) { nodes { identifier title state { name type } } pageInfo { hasNextPage } } } }',
     );
     expect(body.query).not.toContain("$");
+  });
+});
+
+describe("fetchLinearIssueStates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProjectConfigCache();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const UNEXPECTED = "Linear: Unexpected response reading issue states.";
+  const AUTH =
+    "Linear: Authentication failed. Please verify linear.apiKey in your config.";
+
+  function statesPayload(nodes: unknown[]) {
+    return { data: { issues: { nodes } } };
+  }
+
+  function node(identifier: string, type: string) {
+    return { identifier, state: { type } };
+  }
+
+  it("maps each returned identifier to its state type", async () => {
+    stubKey();
+    stubFetch(
+      respond(
+        200,
+        statesPayload([node("ENG-1", "canceled"), node("OPS-22", "started")]),
+      ),
+    );
+
+    await expect(fetchLinearIssueStates(["ENG-1", "OPS-22"])).resolves.toEqual(
+      new Map([
+        ["ENG-1", "canceled"],
+        ["OPS-22", "started"],
+      ]),
+    );
+  });
+
+  // The seven values are WorkflowState.type's documented vocabulary in
+  // Linear's schema.graphql (plan section 1).
+  it.each([
+    "triage",
+    "backlog",
+    "unstarted",
+    "started",
+    "completed",
+    "canceled",
+    "duplicate",
+  ])("keeps the documented type %s", async (type) => {
+    stubKey();
+    stubFetch(respond(200, statesPayload([node("ENG-1", type)])));
+
+    const states = await fetchLinearIssueStates(["ENG-1"]);
+
+    expect(states.get("ENG-1")).toBe(type);
+  });
+
+  it("maps a type outside the documented vocabulary to null", async () => {
+    stubKey();
+    stubFetch(respond(200, statesPayload([node("ENG-1", "\u001b[31mevil")])));
+
+    const states = await fetchLinearIssueStates(["ENG-1"]);
+
+    expect(states).toEqual(new Map([["ENG-1", null]]));
+  });
+
+  it("maps a requested identifier the answer omits to null", async () => {
+    stubKey();
+    stubFetch(respond(200, statesPayload([node("ENG-1", "canceled")])));
+
+    const states = await fetchLinearIssueStates(["ENG-1", "ENG-2"]);
+
+    expect(states).toEqual(
+      new Map([
+        ["ENG-1", "canceled"],
+        ["ENG-2", null],
+      ]),
+    );
+  });
+
+  it("ignores a returned identifier that was not requested", async () => {
+    stubKey();
+    stubFetch(respond(200, statesPayload([node("ENG-9", "canceled")])));
+
+    const states = await fetchLinearIssueStates(["ENG-1"]);
+
+    expect(states).toEqual(new Map([["ENG-1", null]]));
+  });
+
+  it("sends a constant query and the filter, first and archive flag as variables", async () => {
+    stubKey();
+    const fetchSpy = stubFetch(respond(200, statesPayload([])));
+
+    await fetchLinearIssueStates(["ENG-123", "ops-7"]);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.linear.app/graphql");
+    expect(init.headers.Authorization).toBe(API_KEY);
+    const body = JSON.parse(init.body);
+    // Expected text is the plan's section 4.2 query.
+    expect(body.query.replace(/\s+/g, " ")).toBe(
+      "query IssueStates($filter: IssueFilter!, $first: Int!) { issues(filter: $filter, first: $first, includeArchived: true) { nodes { identifier state { type } } } }",
+    );
+    expect(body.query).not.toMatch(/ENG|OPS|123/i);
+    // Expected variables are D6's filter shape, split at the last "-".
+    expect(body.variables).toEqual({
+      filter: {
+        or: [
+          { team: { key: { eq: "ENG" } }, number: { eq: 123 } },
+          { team: { key: { eq: "OPS" } }, number: { eq: 7 } },
+        ],
+      },
+      first: 2,
+    });
+  });
+
+  it("de-duplicates and upper-cases the identifiers", async () => {
+    stubKey();
+    const fetchSpy = stubFetch(
+      respond(200, statesPayload([node("ENG-1", "canceled")])),
+    );
+
+    const states = await fetchLinearIssueStates(["eng-1", "ENG-1", "Eng-1"]);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.variables).toEqual({
+      filter: { or: [{ team: { key: { eq: "ENG" } }, number: { eq: 1 } }] },
+      first: 1,
+    });
+    expect(states).toEqual(new Map([["ENG-1", "canceled"]]));
+  });
+
+  it("makes two requests of 50 and 1 for 51 identifiers", async () => {
+    const ids = Array.from({ length: 51 }, (_, i) => `ENG-${i + 1}`);
+    stubKey();
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        respond(200, statesPayload([node("ENG-1", "canceled")])),
+      )
+      .mockResolvedValueOnce(
+        respond(200, statesPayload([node("ENG-51", "started")])),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const states = await fetchLinearIssueStates(ids);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const first = JSON.parse(fetchSpy.mock.calls[0][1].body).variables;
+    const second = JSON.parse(fetchSpy.mock.calls[1][1].body).variables;
+    expect(first.first).toBe(50);
+    expect(first.filter.or).toHaveLength(50);
+    expect(second.first).toBe(1);
+    expect(second.filter.or).toEqual([
+      { team: { key: { eq: "ENG" } }, number: { eq: 51 } },
+    ]);
+    expect(states.size).toBe(51);
+    expect(states.get("ENG-1")).toBe("canceled");
+    expect(states.get("ENG-51")).toBe("started");
+    expect(states.get("ENG-2")).toBeNull();
+  });
+
+  it("makes no request and reads no key for an empty list", async () => {
+    const run = vi.spyOn(cli, "run");
+    const fetchSpy = stubFetch(respond(200, statesPayload([])));
+
+    await expect(fetchLinearIssueStates([])).resolves.toEqual(new Map());
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["identifier", { state: { type: "canceled" } }],
+    ["state type", { identifier: "ENG-1", state: {} }],
+    ["state", { identifier: "ENG-1", state: null }],
+    ["node", "ENG-1"],
+  ])("rejects the whole answer when a node lacks its %s", async (_field, bad) => {
+    stubKey();
+    stubFetch(respond(200, statesPayload([node("ENG-2", "canceled"), bad])));
+
+    await expect(fetchLinearIssueStates(["ENG-1", "ENG-2"])).rejects.toThrow(
+      UNEXPECTED,
+    );
+  });
+
+  it.each([
+    ["missing issues", { data: {} }],
+    ["missing nodes", { data: { issues: {} } }],
+    ["non-array nodes", { data: { issues: { nodes: {} } } }],
+  ])("rejects an answer with %s", async (_case, payload) => {
+    stubKey();
+    stubFetch(respond(200, payload));
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toThrow(UNEXPECTED);
+  });
+
+  // D7: any `errors` entry fails the answer, a message or not.
+  it.each([
+    ["no message", { extensions: { code: "X" } }],
+    ["an empty entry", {}],
+    ["a non-string message", { message: 42 }],
+  ])("rejects a partial answer whose errors entry has %s", async (_case, entry) => {
+    stubKey();
+    stubFetch(
+      respond(200, {
+        ...statesPayload([node("ENG-1", "canceled")]),
+        errors: [entry],
+      }),
+    );
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toThrow(
+      "Linear: Failed to read issue states.",
+    );
+  });
+
+  // D7: a failure in any chunk makes every state in the run unknown.
+  it.each([
+    [
+      "an errors entry",
+      () =>
+        respond(200, {
+          ...statesPayload([node("ENG-51", "canceled")]),
+          errors: [{ message: "late failure" }],
+        }),
+      "Linear: Failed to read issue states. late failure",
+    ],
+    [
+      "a 500",
+      () => respond(500, {}),
+      "Linear: Failed to read issue states. 500",
+    ],
+  ])("rejects the whole call when the second chunk fails with %s", async (_case, second, message) => {
+    const ids = Array.from({ length: 51 }, (_, i) => `ENG-${i + 1}`);
+    stubKey();
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        respond(200, statesPayload([node("ENG-1", "canceled")])),
+      )
+      .mockResolvedValueOnce(second());
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchLinearIssueStates(ids)).rejects.toThrow(message);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  // fetchLinear rethrows a non-timeout failure as is; Phase 3's D7 branch
+  // tells it from a `Linear:` error.
+  it("rethrows a network failure as the same error", async () => {
+    stubKey();
+    const failure = new TypeError("fetch failed");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(failure));
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toBe(failure);
+  });
+
+  it("rejects a partial answer that carries errors, keeping Linear's message", async () => {
+    stubKey();
+    stubFetch(
+      respond(200, {
+        ...statesPayload([node("ENG-1", "canceled")]),
+        errors: [{ message: "partial failure" }],
+      }),
+    );
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toThrow(
+      "Linear: Failed to read issue states. partial failure",
+    );
+  });
+
+  it("reports an unreadable body as unexpected", async () => {
+    stubKey();
+    stubFetch({
+      ok: true,
+      status: 200,
+      statusText: "",
+      json: vi.fn().mockRejectedValue(new SyntaxError("bad json")),
+    });
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toThrow(UNEXPECTED);
+  });
+
+  it("fails on a 401 with the authentication message", async () => {
+    stubKey();
+    stubFetch(respond(401, {}));
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toThrow(AUTH);
+  });
+
+  it("fails on an AUTHENTICATION_ERROR body with the authentication message", async () => {
+    stubKey();
+    stubFetch(
+      respond(200, {
+        errors: [{ extensions: { code: "AUTHENTICATION_ERROR" } }],
+      }),
+    );
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toThrow(AUTH);
+  });
+
+  it("fails on a RATELIMITED body with the rate-limit message", async () => {
+    stubKey();
+    stubFetch(
+      respond(400, { errors: [{ extensions: { code: "RATELIMITED" } }] }),
+    );
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toThrow(
+      "Linear: Rate limited.",
+    );
+  });
+
+  it("fails on a 500 with the status", async () => {
+    stubKey();
+    stubFetch({ ...respond(500, {}), statusText: "Server Error" });
+
+    await expect(fetchLinearIssueStates(["ENG-1"])).rejects.toThrow(
+      "Linear: Failed to read issue states. 500 Server Error.",
+    );
+  });
+
+  it("rejects a request that never answers, naming the call and not the key", async () => {
+    stubKey();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(
+      AbortSignal.abort(new DOMException("timed out", "TimeoutError")),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            if (init.signal?.aborted) {
+              reject(init.signal.reason);
+            }
+          }),
+      ),
+    );
+
+    const failure = fetchLinearIssueStates(["ENG-1"]);
+
+    await expect(failure).rejects.toThrow(
+      "Linear: the request did not answer within 15s.",
+    );
+    expect(AbortSignal.timeout).toHaveBeenCalledWith(15_000);
+  });
+
+  it.each([
+    ["a 401", () => respond(401, {})],
+    ["a 500", () => respond(500, {})],
+    ["a rate limit", () => respond(429, {})],
+    ["an errors entry", () => respond(200, { errors: [{ message: "nope" }] })],
+    ["a malformed node", () => respond(200, statesPayload([{}]))],
+  ])("never puts the key in the message of %s", async (_case, answer) => {
+    stubKey();
+    stubFetch(answer());
+
+    const failure = await fetchLinearIssueStates(["ENG-1"]).then(
+      () => undefined,
+      (error: Error) => error,
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure?.message).not.toContain(API_KEY);
+    expect(failure?.message).not.toMatch(/lin_api_/);
   });
 });

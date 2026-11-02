@@ -14,6 +14,7 @@ import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
 import { runInstall } from "../lib/install.js";
 import { setNonInteractive } from "../lib/interaction.js";
+import * as issueLink from "../lib/issue-link.js";
 import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
@@ -129,6 +130,8 @@ describe("branch command", () => {
     vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
     vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
     vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+    // The record is git config; only the cases that are about it look at it.
+    vi.spyOn(issueLink, "gitSetBranchIssueLink").mockResolvedValue();
     vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
       login: "octocat",
       assigned: true,
@@ -2301,6 +2304,187 @@ jira:
         expect(mockStart).not.toHaveBeenCalled();
         expect(mockConfirm).not.toHaveBeenCalled();
         expect(mockCreate).not.toHaveBeenCalled();
+      });
+    });
+
+    // Expected values come from plan #114 section 4.1 and D1-D3: one write of
+    // the identifier the API returned (never the flag text), after the worktree
+    // exists and before the start arm, for --linear only, and a failed write
+    // warns and carries on.
+    describe("recording the issue link", () => {
+      let calls: string[];
+      let mockLink: ReturnType<typeof vi.spyOn>;
+      let mockCreate: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        calls = [];
+        stubConfig();
+        vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue(
+          linearIssue,
+        );
+        mockInput.mockImplementation(async (c: any) => c.default);
+        mockCreate = vi
+          .spyOn(git, "gitCreateWorktree")
+          .mockImplementation(async () => {
+            calls.push("create");
+            return "/path/to/worktree";
+          });
+        mockLink = vi
+          .spyOn(issueLink, "gitSetBranchIssueLink")
+          .mockImplementation(async () => {
+            calls.push("link");
+          });
+        vi.spyOn(linearIntegration, "startLinearIssue").mockImplementation(
+          async () => {
+            calls.push("start");
+            return { outcome: "started", from: "Todo", to: "In Progress" };
+          },
+        );
+        mockCopyEnvFiles.mockImplementation(async () => {
+          calls.push("env");
+          return [];
+        });
+      });
+
+      async function go(flags: Record<string, unknown>) {
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { linear: "ENG-123", ...flags },
+        });
+        return branch.run();
+      }
+
+      it("writes linear:ENG-123 once, after the worktree and before the start arm and the env files", async () => {
+        await go({ start: true });
+
+        expect(mockLink).toHaveBeenCalledTimes(1);
+        expect(mockLink).toHaveBeenCalledWith(
+          "feature/ENG-123-add-dark-mode",
+          "ENG-123",
+        );
+        expect(calls).toEqual(["create", "link", "start", "env"]);
+      });
+
+      it("writes it whatever --start decides", async () => {
+        await go({ start: false });
+
+        expect(mockLink).toHaveBeenCalledTimes(1);
+        expect(calls).toEqual(["create", "link", "env"]);
+      });
+
+      it("records the identifier the API returned, not the flag text", async () => {
+        // A moved issue: Linear answers a request for ENG-123 with OPS-9, so
+        // neither the flag nor its upper-cased form is the identifier.
+        vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue({
+          ...linearIssue,
+          identifier: "OPS-9",
+        });
+
+        await go({ linear: "eng-123" });
+
+        expect(mockLink).toHaveBeenCalledWith(expect.any(String), "OPS-9");
+      });
+
+      it("records the name edited at the prompt, not the derived one", async () => {
+        mockInput.mockResolvedValue("feature/my-own-name");
+
+        await go({});
+
+        expect(mockCreate).toHaveBeenCalledWith(
+          "feature/my-own-name",
+          "origin/main",
+          { fetch: false },
+        );
+        expect(mockLink).toHaveBeenCalledWith("feature/my-own-name", "ENG-123");
+      });
+
+      it("writes nothing when the creation fails", async () => {
+        mockCreate.mockRejectedValue(new Error("git failed"));
+
+        await expect(go({})).rejects.toThrow("git failed");
+
+        expect(mockLink).not.toHaveBeenCalled();
+      });
+
+      it("writes nothing on a dry run", async () => {
+        vi.spyOn(branch as any, "reportDryRun").mockReturnValue(undefined);
+
+        await go({ "dry-run": true });
+
+        expect(mockCreate).not.toHaveBeenCalled();
+        expect(mockLink).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["github", "42"],
+        ["jira", "DEV-1"],
+        ["clickup", "86abc"],
+      ])("writes nothing for --%s", async (provider, id) => {
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+          (key: string) =>
+            Promise.resolve(
+              {
+                "has-called-config": "true",
+                defaultSourceBranch: "origin/main",
+                "jira.host": "acme.atlassian.net",
+                "jira.email": "a@b.c",
+                "jira.apiToken": "t",
+                "clickup.apiToken": "pk_test",
+              }[key] ?? "",
+            ),
+        );
+        vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
+        vi.spyOn(branch as any, "getBranchName").mockResolvedValue({
+          branchName: "feature/x",
+          issue: { provider, key: id, url: null },
+        });
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { [provider]: id, assign: false },
+        });
+
+        await branch.run();
+
+        expect(mockCreate).toHaveBeenCalled();
+        expect(mockLink).not.toHaveBeenCalled();
+      });
+
+      it("writes nothing for a plain branch with no issue", async () => {
+        vi.spyOn(branch as any, "verifyConfig").mockResolvedValue(undefined);
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: { branchName: "feature/plain" },
+          flags: {},
+        });
+
+        await branch.run();
+
+        expect(mockCreate).toHaveBeenCalled();
+        expect(mockLink).not.toHaveBeenCalled();
+      });
+
+      it("a failed write warns, names the branch, keeps the run going and reaches the document", async () => {
+        // What `run` rejects with for a locked config: execFile's message, a
+        // "Command failed" line then git's stderr (observed with real git).
+        mockLink.mockRejectedValue(
+          new Error(
+            "Command failed: git config branch.feat.worktreeIssue linear:ENG-1\nerror: could not lock config file .git/config: File exists\n",
+          ),
+        );
+
+        const document = await go({ start: true });
+
+        // The branch and the consequence are the first line; git's own lines
+        // follow, so they cannot split the sentence.
+        expect(document?.warnings).toHaveLength(1);
+        expect(document?.warnings[0]?.split("\n")[0]).toBe(
+          'Could not record the Linear link for "feature/ENG-123-add-dark-mode", so cleanup will not see its Linear state. Command failed: git config branch.feat.worktreeIssue linear:ENG-1',
+        );
+        expect(document?.warnings[0]).toContain(
+          "error: could not lock config file .git/config: File exists",
+        );
+        expect(document?.path).toBe("/path/to/worktree");
+        // The run went on past the failed write.
+        expect(calls).toEqual(["create", "start", "env"]);
       });
     });
 
@@ -4898,6 +5082,36 @@ jira:
       expectNothingDone();
     });
 
+    it("A, interactive: a reopen with --linear records no link", async () => {
+      checkout();
+      mockCreate();
+      mockConfirm.mockResolvedValue(true);
+      vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue({
+        identifier: "ENG-123",
+        title: "Add dark mode",
+        url: "https://linear.app/acme/issue/ENG-123/add-dark-mode",
+        labels: [],
+      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            key === "has-called-config"
+              ? "true"
+              : key === "defaultSourceBranch"
+                ? "origin/main"
+                : key === "linear.apiKey"
+                  ? "lin_api_test"
+                  : "",
+          ),
+      );
+      const link = vi.spyOn(issueLink, "gitSetBranchIssueLink");
+
+      await run({ linear: "ENG-123" });
+
+      expect(mockOpenWorktreePath).toHaveBeenCalled();
+      expect(link).not.toHaveBeenCalled();
+    });
+
     it("A, interactive: hands the run's own open, agent and brief to the opener", async () => {
       checkout();
       mockCreate();
@@ -5993,6 +6207,7 @@ describe("branch command — --linear with no identifier", () => {
     vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
     vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
     vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    vi.spyOn(issueLink, "gitSetBranchIssueLink").mockResolvedValue();
     mockInput.mockImplementation(async (config: any) => config.default);
     mockRunInstallSkipped();
     list = vi
@@ -6146,6 +6361,18 @@ describe("branch command — --linear with no identifier", () => {
 
       expect(fetchIssue).toHaveBeenCalledWith("ENG-9");
       expect(document?.issue).toMatchObject({ key: "ENG-9" });
+    });
+
+    it("records the picked issue's link once the worktree exists", async () => {
+      mockSelect.mockResolvedValue("ENG-9");
+
+      await runPick(["--linear"]);
+
+      expect(issueLink.gitSetBranchIssueLink).toHaveBeenCalledTimes(1);
+      expect(issueLink.gitSetBranchIssueLink).toHaveBeenCalledWith(
+        expect.stringContaining("ENG-9"),
+        "ENG-9",
+      );
     });
 
     it("shows a title and a state name with their control and formatting characters escaped", async () => {

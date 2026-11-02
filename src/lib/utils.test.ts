@@ -618,3 +618,63 @@ describe("worktreeListEntryToListName churn detail", () => {
     expect(result).not.toContain("Churn");
   });
 });
+
+describe("worktreeListEntryToListName issue details", () => {
+  function entry(issue?: WorktreeListEntry["issue"]): WorktreeListEntry {
+    return {
+      path: "/path/to/worktree",
+      branchName: "feature/test",
+      remote: "origin/feature/test",
+      pathExists: true,
+      remoteExists: true,
+      issue,
+    };
+  }
+
+  it("appends the issue and its state type when asked", () => {
+    const result = worktreeListEntryToListName(
+      entry({ provider: "linear", key: "ENG-123", state: "canceled" }),
+      "gray",
+      { issues: true },
+    );
+
+    expect(result).toContain("Linear ENG-123: canceled");
+  });
+
+  it("says the state is unknown when the record has none", () => {
+    const result = worktreeListEntryToListName(
+      entry({ provider: "linear", key: "ENG-123" }),
+      "gray",
+      { issues: true },
+    );
+
+    expect(result).toContain("Linear ENG-123: state unknown");
+  });
+
+  it("places it after the other details", () => {
+    const result = worktreeListEntryToListName(
+      {
+        ...entry({ provider: "linear", key: "ENG-123" }),
+        uncommittedChanges: 2,
+      },
+      "gray",
+      { issues: true },
+    );
+
+    expect(result).toContain("2 uncommitted changes, Linear ENG-123");
+  });
+
+  it("prints nothing without the option, though the field is populated", () => {
+    const result = worktreeListEntryToListName(
+      entry({ provider: "linear", key: "ENG-123", state: "canceled" }),
+    );
+
+    expect(result).not.toContain("Linear");
+  });
+
+  it("prints nothing for an entry with no issue", () => {
+    expect(
+      worktreeListEntryToListName(entry(), "gray", { issues: true }),
+    ).not.toContain("Linear");
+  });
+});

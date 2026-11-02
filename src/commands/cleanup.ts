@@ -58,6 +58,22 @@ function isHeldBackAsUncountable(wt: WorktreeListEntry): boolean {
   return wt.safeToRemove !== true && !!wt.aheadUnknownReason;
 }
 
+// The tracker's opinion that informs without deciding: the issue is canceled,
+// but `isSafeToRemove` did not clear the worktree, and none of the sets above
+// claimed it. What is left is a canceled branch whose commits are not confirmed
+// on their remote: unpushed commits, a tip the remote did not confirm (a stale
+// tracking ref, an unreachable remote), or no live remote at all. A canceled
+// worktree held back for uncommitted changes or a live agent whose commits ARE
+// confirmed is claimed by those headings first. Excluding the other sets is
+// done by the caller, as for the uncountable set. See #114 D4 and section 4.4.
+function isCanceledButUnconfirmed(wt: WorktreeListEntry): boolean {
+  return (
+    wt.safeToRemove !== true &&
+    !!wt.pathExists &&
+    wt.issue?.state === "canceled"
+  );
+}
+
 // D6: why this worktree qualified, in the order isSafeToRemove decides it.
 //
 // Every branch returns a non-empty string, which is the whole point. After
@@ -73,6 +89,13 @@ function removalReason(wt: WorktreeListEntry): string {
     // Returned before any count is consulted, so this says nothing about
     // commits — deliberately. See §9 Q5.
     return "Path does not exist";
+  }
+  if (wt.remoteExists && wt.issue?.state === "canceled") {
+    // A worktree on a live remote qualifies only through D4's last clause, and
+    // `remoteReason` below would mislabel it "Remote removed". The key was
+    // validated at the boundary and the state is one of the documented types,
+    // so nothing from Linear's own text is printed here (D9).
+    return `Linear issue ${wt.issue.key} canceled, no unpushed commits`;
   }
   const remoteReason = wt.remote ? "Remote removed" : "No tracked remote";
   // Two ways to carry nothing, and they are not the same finding. "No unpushed
@@ -169,13 +192,33 @@ export default class Cleanup extends BaseCommand {
     });
   }
 
+  // Rendered with the ordinary detail list, the issue detail and the agent
+  // detail: the details carry the count of unpushed commits or of uncommitted
+  // changes, which is what tells a reader why the canceled issue did not decide,
+  // and the issue detail names the key that did. Agents are on, like the
+  // uncountable heading above, because a canceled worktree an agent is living in
+  // lands here when its tip is unconfirmed, and losing the session's name would
+  // drop the more actionable of the two facts.
+  private logCanceledUnconfirmed(held: WorktreeListEntry[]) {
+    const count = held.length;
+    this.log(
+      `Skipped ${chalk.bold(count)} worktree ${count === 1 ? "branch whose Linear issue is canceled but whose commits are not confirmed on its remote" : "branches whose Linear issue is canceled but whose commits are not confirmed on their remote"}:`,
+    );
+    held.forEach((wt) => {
+      this.log(
+        `- ${worktreeListEntryToListName(wt, "yellow", { issues: true, agents: true })}`,
+      );
+    });
+  }
+
   // Each section is guarded here rather than at the call sites, which carry one
-  // kind of hold-back far more often than all three at once. An unguarded
+  // kind of hold-back far more often than all four at once. An unguarded
   // heading would read "Skipped 0 worktree branches …".
   private logHeldBack(
     skipped: WorktreeListEntry[],
     agentSkipped: WorktreeListEntry[],
     uncountable: WorktreeListEntry[],
+    canceledUnconfirmed: WorktreeListEntry[],
   ) {
     if (skipped.length > 0) {
       this.logSkipped(skipped);
@@ -186,6 +229,9 @@ export default class Cleanup extends BaseCommand {
     if (agentSkipped.length > 0) {
       this.logSkippedForAgents(agentSkipped);
     }
+    if (canceledUnconfirmed.length > 0) {
+      this.logCanceledUnconfirmed(canceledUnconfirmed);
+    }
   }
 
   public async run(): Promise<void> {
@@ -194,9 +240,15 @@ export default class Cleanup extends BaseCommand {
     // The override overrules the verdict, not the lookup (D6): sessions are
     // always gathered so that what it sweeps past can be named. The sweep itself
     // is classified on copies with the agent stripped and the verdict re-derived,
-    // so the removed set and the three hold-back headings are what they were
+    // so the removed set and the four hold-back headings are what they were
     // before agents existed. `gathered` keeps the originals for the naming.
-    const gathered = await gitGetWorktreeList({ includeAgents: true });
+    const gathered = await gitGetWorktreeList({
+      includeAgents: true,
+      // The Linear signal is read on every run and is silent without a key
+      // (#114 D8); a failed lookup warns once and leaves the verdict as it was.
+      includeIssues: true,
+      onIssueWarning: (message) => this.warn(message),
+    });
     const allWorktrees = flags["ignore-agents"]
       ? gathered.map((wt) => {
           const bare = { ...wt, agent: undefined };
@@ -218,11 +270,21 @@ export default class Cleanup extends BaseCommand {
         !agentSkipped.includes(wt),
     );
 
+    // Last of all, and minus every set above, so a worktree is under one heading.
+    const canceledUnconfirmed = allWorktrees.filter(
+      (wt) =>
+        isCanceledButUnconfirmed(wt) &&
+        !skipped.includes(wt) &&
+        !agentSkipped.includes(wt) &&
+        !uncountable.includes(wt),
+    );
+
     if (
       worktrees.length === 0 &&
       skipped.length === 0 &&
       agentSkipped.length === 0 &&
-      uncountable.length === 0
+      uncountable.length === 0 &&
+      canceledUnconfirmed.length === 0
     ) {
       spinner.succeed("No stale worktree branches found.");
       return;
@@ -234,7 +296,7 @@ export default class Cleanup extends BaseCommand {
     // reach the success line above and look identical to a clean sweep.
     if (worktrees.length === 0) {
       spinner.info("No stale worktree branches can be removed safely.");
-      this.logHeldBack(skipped, agentSkipped, uncountable);
+      this.logHeldBack(skipped, agentSkipped, uncountable, canceledUnconfirmed);
       return;
     }
 
@@ -252,7 +314,7 @@ export default class Cleanup extends BaseCommand {
 
     // Reported in both paths: --force means "do not ask me", not "do not tell
     // me". See CLEANUP-DATA-LOSS-PLAN §4.2.
-    this.logHeldBack(skipped, agentSkipped, uncountable);
+    this.logHeldBack(skipped, agentSkipped, uncountable, canceledUnconfirmed);
 
     // Only what the override swept past: removed here, but held back by the
     // agent-aware verdict. Without the flag that set is empty by construction,

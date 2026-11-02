@@ -159,6 +159,36 @@ describe("list command", () => {
     );
   });
 
+  it("reads the issue link and renders it with --issues, and warns through the command", async () => {
+    withFlags({ agents: false, issues: true });
+
+    const mockGetWorktreeList = vi
+      .spyOn(git, "gitGetWorktreeList")
+      .mockResolvedValue([
+        {
+          path: "/tmp/project.worktrees/feature/one",
+          branchName: "feature/one",
+          remote: "",
+          pathExists: true,
+          issue: { provider: "linear", key: "ENG-123", state: "canceled" },
+        },
+      ]);
+    vi.spyOn(utils, "worktreeListEntryToListName").mockRestore();
+    const logSpy = vi.spyOn(list, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(list, "warn").mockImplementation((m) => m);
+
+    await list.run();
+
+    const options = mockGetWorktreeList.mock.calls[0]?.[0];
+    expect(options).toMatchObject({
+      includeIssues: true,
+      warnWithoutIssueKey: true,
+    });
+    options?.onIssueWarning?.("Linear: a warning");
+    expect(warnSpy).toHaveBeenCalledWith("Linear: a warning");
+    expect(logSpy.mock.calls[0]?.[0]).toContain("Linear ENG-123: canceled");
+  });
+
   it("performs the session lookup and renders agent details with --agents", async () => {
     withFlags({ agents: true });
 
@@ -404,6 +434,113 @@ describe("list command", () => {
       expect(without.worktrees[0]).not.toHaveProperty("churn");
     });
 
+    // D10 gives the shape; `remoteConfirmed` is internal and no document has it.
+    it("has an issue key only with --issues: null, or {provider, key, state}", async () => {
+      const worktrees: WorktreeListEntry[] = [
+        {
+          path: "/tmp/p.worktrees/a",
+          branchName: "a",
+          remote: "",
+          issue: {
+            provider: "linear",
+            key: "ENG-123",
+            state: "canceled",
+            remoteConfirmed: true,
+          },
+        },
+        { path: "/tmp/p.worktrees/b", branchName: "b", remote: "" },
+      ];
+      const gather = vi
+        .spyOn(git, "gitGetWorktreeList")
+        .mockResolvedValue(worktrees);
+
+      await runJson({ issues: true });
+
+      expect(gather).toHaveBeenCalledWith(
+        expect.objectContaining({
+          includeIssues: true,
+          warnWithoutIssueKey: true,
+        }),
+      );
+      const { worktrees: entries } = output.document() as {
+        worktrees: Record<string, unknown>[];
+      };
+      expect(entries[0].issue).toEqual({
+        provider: "linear",
+        key: "ENG-123",
+        state: "canceled",
+      });
+      expect(entries[1]).toHaveProperty("issue", null);
+      expect(output.stdout()).not.toContain("remoteConfirmed");
+    });
+
+    it("reports a record whose state could not be read as state null, with one warning and one document", async () => {
+      vi.spyOn(git, "gitGetWorktreeList").mockImplementation(
+        async (options) => {
+          options?.onIssueWarning?.(
+            "Linear: could not read issue states. Canceled issues were not considered.",
+          );
+          return [
+            {
+              path: "/tmp/p.worktrees/a",
+              branchName: "a",
+              remote: "",
+              issue: { provider: "linear", key: "ENG-123" },
+            },
+          ];
+        },
+      );
+
+      await runJson({ issues: true });
+
+      expect(output.stdout().trim().split("\n")).toHaveLength(1);
+      const { worktrees: entries } = output.document() as {
+        worktrees: Record<string, unknown>[];
+      };
+      expect(entries[0].issue).toEqual({
+        provider: "linear",
+        key: "ENG-123",
+        state: null,
+      });
+      const warnings = output
+        .stderr()
+        .split("\n")
+        .filter((line) => line.includes("could not read issue states"));
+      expect(warnings).toHaveLength(1);
+    });
+
+    it("without --issues reads no record, asks nothing and adds no issue key", async () => {
+      // The entry carries a canceled, confirmed issue and a verdict of false:
+      // the flag decides, so the document must show neither.
+      const gather = vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([
+        {
+          path: "/tmp/p.worktrees/a",
+          branchName: "a",
+          remote: "",
+          safeToRemove: false,
+          issue: {
+            provider: "linear",
+            key: "ENG-123",
+            state: "canceled",
+            remoteConfirmed: true,
+          },
+        },
+      ]);
+
+      await runJson({ agents: false });
+
+      const options = gather.mock.calls[0]?.[0] ?? {};
+      expect(options).not.toHaveProperty("includeIssues", true);
+      expect(options).not.toHaveProperty("onIssueWarning");
+      expect(options).not.toHaveProperty("warnWithoutIssueKey");
+      const { worktrees: entries } = output.document() as {
+        worktrees: Record<string, unknown>[];
+      };
+      expect(entries[0]).not.toHaveProperty("issue");
+      expect(entries[0].safeToRemove).toBe(false);
+      expect(output.stdout()).not.toContain("ENG-123");
+    });
+
     it("is non-interactive, so the spinner never animates and prints go to stderr", async () => {
       vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([]);
 
@@ -453,6 +590,7 @@ describe("list command — --help", () => {
       "sessionId",
       "herdrAgent",
       "churn",
+      "issue",
     ]) {
       expect(help).toContain(key);
     }
@@ -473,6 +611,13 @@ describe("list command — flag definitions", () => {
   it("keeps the --churn description", () => {
     expect(List.flags.churn.description).toBe(
       "Show how much each worktree has changed: files, insertions and deletions",
+    );
+  });
+
+  it("defines --issues with no short alias", () => {
+    expect(List.flags.issues.char).toBeUndefined();
+    expect(List.flags.issues.description).toBe(
+      "Show each worktree's Linear issue and whether it is canceled",
     );
   });
 });

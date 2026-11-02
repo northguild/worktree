@@ -367,7 +367,14 @@ document:
 `remote` is `null` when the branch tracks nothing, and `ahead`, `behind`,
 `pathExists`, `remoteExists` and `uncommittedChanges` are `null` when they
 could not be taken. `current` and `safeToRemove` are never `null`: they read
-`false` when unknown. `mergedInto` is `null` when the branch is not known to be
+`false` when unknown. `safeToRemove` is the verdict `cleanup` acts on only with
+`--agents` and `--issues`, and never for the current worktree; without them `list` does not weigh agent sessions or
+canceled Linear issues.
+With `--issues`, each entry also has `issue`: `null` when no Linear issue is
+recorded, else `{provider,key,state}`, where `state` is the issue's state type
+(`canceled`, `started`, ...) or `null` when it could not be read (one warning on
+stderr; stdout is still one document). It asks Linear, and runs `git ls-remote`
+when an issue is canceled, so use it only when you want that. `mergedInto` is `null` when the branch is not known to be
 merged. With `--churn`, each entry also has `churn`:
 `{files,insertions,deletions}` for its committed work, or `null` (never `0`) when
 it could not be taken. With `--agents`, each entry also has `agent`:
@@ -443,6 +450,14 @@ worktree list --churn
 # files touched, against the same base `Ahead:` counts from. One more git call
 # per worktree, so off by default; left out where it could not be taken.
 
+# Show each worktree's Linear issue and whether it is canceled
+worktree list --issues
+# Reads the `branch.<name>.worktreeIssue` records `branch --linear` makes, asks
+# Linear for the state types (needs linear.apiKey; one request per 50 branches),
+# and, where an issue is canceled, asks the branch's remote with `git ls-remote`
+# before calling it safeToRemove. With records and no key it warns once. Without
+# the flag `list` reads no record, sends no request and runs no `ls-remote`.
+
 # Reopen a worktree in your editor
 worktree open feature/add-bulk-actions
 
@@ -452,7 +467,8 @@ worktree rm feature/add-bulk-actions          # alias
 worktree remove feature/add-bulk-actions --force  # skip confirmation
 
 # Remove all stale worktrees (no unmerged commits, nothing uncommitted,
-# remote gone or never set, no live agent session)
+# no live agent session; and either the remote gone or never set, or a
+# canceled Linear issue whose commits are all on the remote)
 worktree cleanup
 worktree cleanup --force                      # skip confirmation
 worktree cleanup --ignore-agents              # sweep even worktrees an agent is in
@@ -465,6 +481,20 @@ for as long as the worktree exists; `cleanup` compares the change itself against
 the comparison base and names the base it landed in — `(Remote removed, merged
 into origin/main)`. A branch that has gained a commit since it was merged is
 carrying real work again and is held back.
+
+A branch made with `branch --linear` carries a record of its issue in git config
+(`branch.<name>.worktreeIssue`). When `linear.apiKey` is set, `cleanup` reads those
+issues' state types from Linear on every run, and a worktree tracking a live remote
+branch is removed when the issue is `canceled` (no other state counts), it has no
+uncommitted changes and no live agent, it is not ahead of its tracking ref, and the
+remote confirms the branch's tip (`git ls-remote`, once per remote). It is listed as
+`Linear issue ENG-123 canceled, no unpushed commits`. A canceled branch that fails the
+unpushed or confirmation test is reported under `Skipped … whose Linear issue is
+canceled but whose commits are not confirmed on …` and kept. A failed Linear lookup is one
+warning, and the run decides as it did without the signal. A remote that cannot be asked is
+one warning too: the canceled branches on that remote are kept, and those on a remote that
+answered are still judged. The branch has to track its
+remote (push with `-u`); with no key or no record `cleanup` makes no request.
 
 A worktree an agent session is working in is never removed by `cleanup`; it
 is reported as skipped instead. A session that is only idle (an agent left at
@@ -543,7 +573,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
 | `jira.autoAssign` | `true` or `false` | whether `--jira` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.autoStart` | `true` or `false` | whether `--jira` moves the issue to its in-progress status once the worktree exists; unset means ask (move when non-interactive); moving needs the Transition Issues permission |
-| `linear.apiKey` | `lin_api_...` | `--linear` flag |
+| `linear.apiKey` | `lin_api_...` | `--linear` flag; also read by `cleanup` and `list --issues` for canceled issues |
 | `linear.autoStart` | `true` or `false` | whether `--linear` moves the issue to a started state once the worktree exists; unset means ask (start when non-interactive); moving needs a key with the Write permission |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
@@ -684,7 +714,7 @@ worktree branch --linear ENG-123
 
 `linear.apiKey` is the only required Linear key. Without it `branch --linear` exits `2`
 (`missing_value`) before any worktree is created, and a non-interactive run
-never prompts for it.
+never prompts for it. `cleanup` and `list --issues` also read the key, but never require it: without one they make no request.
 
 Source: `docs/guides/linear-integration`, `src/integrations/linear.ts`
 

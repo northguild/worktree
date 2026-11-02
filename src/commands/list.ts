@@ -16,12 +16,16 @@ import { worktreeListEntryToListName } from "../lib/utils.js";
  * `agent` is left out entirely without `--agents`, because the lookup was
  * never made — `null` there means "looked, and none lives here". `churn` is
  * left out without `--churn` for the same reason; with it, `null` means the
- * figure could not be taken and a genuine empty diff is all zeros.
+ * figure could not be taken and a genuine empty diff is all zeros. `issue` is
+ * left out without `--issues`; with it, `null` means no recorded link and
+ * `state` is `null` when the type could not be read. Only provider, key and the
+ * state type are copied, so the internal remote confirmation never leaves.
  */
 function toEntryDocument(
   entry: WorktreeListEntry,
   withAgents: boolean,
   withChurn: boolean,
+  withIssues: boolean,
 ): WorktreeListEntryDocument {
   const document: WorktreeListEntryDocument = {
     branch: entry.branchName,
@@ -64,6 +68,16 @@ function toEntryDocument(
       : null;
   }
 
+  if (withIssues) {
+    document.issue = entry.issue
+      ? {
+          provider: entry.issue.provider,
+          key: entry.issue.key,
+          state: entry.issue.state ?? null,
+        }
+      : null;
+  }
+
   return document;
 }
 
@@ -84,6 +98,10 @@ With --agents each entry also has agent: null, or {name, sessionId,
 herdrAgent, live, interactive, waiting}, where all but name can be null.
 With --churn each entry also has churn: null, or {files, insertions,
 deletions}. null, never 0, when it could not be taken; committed work only.
+With --issues each entry also has issue: null when no Linear issue is recorded,
+else {provider, key, state}. state is the issue's state type, such as
+canceled, or null when it could not be read. safeToRemove then counts a
+canceled issue, and a canceled branch is checked against its remote.
 On failure: {error:{code, message, details?}} on stdout.
 
 Exit codes:
@@ -96,6 +114,7 @@ Exit codes:
     "<%= config.bin %> <%= command.id %>",
     "<%= config.bin %> <%= command.id %> --agents",
     "<%= config.bin %> <%= command.id %> --churn",
+    "<%= config.bin %> <%= command.id %> --issues",
     "<%= config.bin %> <%= command.id %> --json",
   ];
 
@@ -107,6 +126,10 @@ Exit codes:
     churn: Flags.boolean({
       description:
         "Show how much each worktree has changed: files, insertions and deletions",
+    }),
+    issues: Flags.boolean({
+      description:
+        "Show each worktree's Linear issue and whether it is canceled",
     }),
   };
 
@@ -120,6 +143,15 @@ Exit codes:
       includeCurrent: true,
       includeAgents: flags.agents,
       includeChurn: flags.churn,
+      // Only with the flag: no record read, no request and no `ls-remote`
+      // without it (#114 D8), and the call keeps the shape it had before.
+      ...(flags.issues
+        ? {
+            includeIssues: true,
+            warnWithoutIssueKey: true,
+            onIssueWarning: (message: string) => this.warn(message),
+          }
+        : {}),
     });
     spinner.stop();
 
@@ -129,14 +161,18 @@ Exit codes:
     if (!this.jsonEnabled()) {
       worktrees.forEach((wt) => {
         this.log(
-          `- ${worktreeListEntryToListName(wt, "gray", { agents: flags.agents, churn: flags.churn })}`,
+          `- ${worktreeListEntryToListName(wt, "gray", {
+            agents: flags.agents,
+            churn: flags.churn,
+            issues: flags.issues,
+          })}`,
         );
       });
     }
 
     return {
       worktrees: worktrees.map((wt) =>
-        toEntryDocument(wt, flags.agents, flags.churn),
+        toEntryDocument(wt, flags.agents, flags.churn, flags.issues),
       ),
     };
   }

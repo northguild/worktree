@@ -40,6 +40,7 @@ import {
 } from "../lib/git.js";
 import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
+import { gitSetBranchIssueLink } from "../lib/issue-link.js";
 import { createSpinner } from "../lib/progress.js";
 import {
   ensurePostCreateApproved,
@@ -1370,6 +1371,18 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     const projectPath = await gitCreateWorktree(branchName, sourceBranch, {
       fetch: false,
     });
+    // The branch is linked to its issue only once the worktree exists (D3), from
+    // the identifier the API returned, and whatever `--start` decides. A failed
+    // write costs `cleanup` its Linear signal for this branch and nothing else.
+    if (issue?.provider === "linear") {
+      try {
+        await gitSetBranchIssueLink(branchName, issue.key);
+      } catch (error) {
+        this.warn(
+          `Could not record the Linear link for "${branchName}", so cleanup will not see its Linear state. ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
     // An issue moves only once a worktree exists for it (D6), and before the
     // env files, install and opener so a later failure still leaves the tree
     // the work started in.
