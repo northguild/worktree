@@ -31,6 +31,24 @@ const ENV_FILE_PATHSPECS = [
 const NODE_MODULES_PATHSPEC = ":(glob,exclude)**/node_modules/**";
 
 /**
+ * Whether copyFileSync can copy this path as a file. A link to nothing (ENOENT)
+ * or a link loop (ELOOP) is not one. Any other stat error keeps the path, so
+ * the copy below fails on it loudly and names the file, rather than the file
+ * vanishing from the list in silence.
+ */
+function isRegularFile(filePath: string) {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ELOOP") {
+      return false;
+    }
+    return true;
+  }
+}
+
+/**
  * What git is not carrying into the new worktree, of the shapes above.
  *
  * `--others --ignored --exclude-standard` is the selection: untracked *and*
@@ -74,7 +92,21 @@ async function gitListIgnoredEnvFiles(
   // this one) is listed as a single directory entry ending in `/`, and the
   // pathspecs above do not filter it. A file path never ends in `/`, so such an
   // entry is a directory and copyFileSync would throw on it.
-  return result.split("\0").filter((entry) => entry && !entry.endsWith("/"));
+  //
+  // A gitignored symlink to a directory is listed bare, with no trailing `/`,
+  // so the suffix cannot tell it from a file; only the filesystem can. stat
+  // follows the link, which is what copyFileSync does too: a link to a file is
+  // copied as that file's content, while a link to a directory (ENOTSUP on
+  // macOS) or to nothing (ENOENT) would abort the loop and strand every entry
+  // after it.
+  return result
+    .split("\0")
+    .filter(
+      (entry) =>
+        entry &&
+        !entry.endsWith("/") &&
+        isRegularFile(path.join(gitRootPath, entry)),
+    );
 }
 
 /**
