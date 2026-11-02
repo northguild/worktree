@@ -58,11 +58,51 @@ export function isJiraIssue(response: unknown): response is JiraIssue {
   );
 }
 
-function normalizeJiraHost(host: string): string {
+export function normalizeJiraHost(host: string): string {
   return host
     .trim()
     .replace(/^https?:\/\//i, "")
     .replace(/\/+$/, "");
+}
+
+/**
+ * A pasted URL as it may be quoted in a refusal: no query or fragment, which
+ * can hold a token, and no `user:secret@`, which `lib/redact.ts` masks only
+ * for some shapes (D8).
+ */
+function quotablePastedUrl(input: string): string {
+  return input.replace(/[?#].*$/s, "").replace(/^(https?:\/\/)[^/]*@/i, "$1");
+}
+
+export interface JiraIssueReference {
+  key: string;
+  /** Present only when the input was a URL, which names a site. */
+  host?: string;
+}
+
+/**
+ * Reads an issue key from what `--jira` was given. Anything not starting with
+ * `http://` or `https://` is handed back untouched for the existing validator
+ * (D1); any other URL is refused (D6, D8). The host is only reported: the
+ * caller compares it with `jira.host` and never requests it.
+ */
+export function parseJiraIssueReference(input: string): JiraIssueReference {
+  if (!/^https?:\/\//i.test(input)) {
+    return { key: input };
+  }
+
+  const match =
+    /^https?:\/\/([^/@]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)\/?$/i.exec(
+      input.replace(/[?#].*$/s, ""),
+    );
+  if (!match) {
+    throw new InvalidValueError(
+      `Jira: expected an issue key or a URL like https://<host>/browse/<KEY-number>, got "${quotablePastedUrl(input)}".`,
+    );
+  }
+
+  const [, host, key] = match;
+  return { key, host };
 }
 
 function getIssueKey(issueId: string): string {

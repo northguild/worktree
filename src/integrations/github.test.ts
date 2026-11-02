@@ -16,6 +16,7 @@ import {
   type GitHubIssueTypeApiResponse,
   getGitHubBranchNameFromIssue,
   getGitHubBranchNaming,
+  parseGitHubIssueReference,
   parseGitHubRepositoryFromRemote,
 } from "./github.js";
 
@@ -1706,5 +1707,88 @@ describe("the shared branchType list for GitHub", () => {
     expect(
       (await getGitHubBranchNaming(issue({ labels: ["chore"] }))).branchName,
     ).toBe("mine/42-fix-login-bug");
+  });
+});
+
+describe("parseGitHubIssueReference", () => {
+  // Expected values come from GitHub's documented URL forms, never from the
+  // parser: an issue is `/{owner}/{repo}/issues/{number}` (the `html_url` of
+  // the REST "Get an issue" and the one README.md's --json example shows) and
+  // a pull request is `/{owner}/{repo}/pull/{number}`.
+  it("reads the number and repository from an issue URL", () => {
+    expect(
+      parseGitHubIssueReference("https://github.com/acme/demo/issues/42"),
+    ).toEqual({ number: "42", repository: { owner: "acme", name: "demo" } });
+  });
+
+  it("reads a pull request URL so the existing pull request refusal can fire", () => {
+    expect(
+      parseGitHubIssueReference("https://github.com/acme/demo/pull/7"),
+    ).toEqual({ number: "7", repository: { owner: "acme", name: "demo" } });
+  });
+
+  it("accepts www.github.com and http", () => {
+    expect(
+      parseGitHubIssueReference("http://www.github.com/acme/demo/issues/42"),
+    ).toEqual({ number: "42", repository: { owner: "acme", name: "demo" } });
+  });
+
+  // RFC 3986: a query and a fragment are not part of the path, so neither
+  // names a different issue; a trailing slash is the same path.
+  it.each([
+    "https://github.com/acme/demo/issues/42/",
+    "https://github.com/acme/demo/issues/42#issuecomment-1",
+    "https://github.com/acme/demo/issues/42?x=1",
+    "https://github.com/acme/demo/issues/42/?x=1#issuecomment-1",
+  ])("ignores the slash, query and fragment of %s", (url) => {
+    expect(parseGitHubIssueReference(url)).toEqual({
+      number: "42",
+      repository: { owner: "acme", name: "demo" },
+    });
+  });
+
+  it.each([
+    "42",
+    "#42",
+    " 42 ",
+    "abc",
+    "",
+    "git@github.com:acme/demo",
+  ])("hands %j back untouched as the number", (value) => {
+    expect(parseGitHubIssueReference(value)).toEqual({ number: value });
+  });
+
+  it.each([
+    ["https://github.com/acme/demo", "https://github.com/acme/demo"],
+    [
+      "https://github.com/acme/demo/commits/main?token=s3cret#frag",
+      "https://github.com/acme/demo/commits/main",
+    ],
+    [
+      "https://github.com/acme/demo/issues/abc",
+      "https://github.com/acme/demo/issues/abc",
+    ],
+    [
+      "https://gitlab.com/acme/demo/issues/42",
+      "https://gitlab.com/acme/demo/issues/42",
+    ],
+    [
+      "https://user:s3cret@github.com/acme/demo/issues/42?token=abc#frag",
+      "https://github.com/acme/demo/issues/42",
+    ],
+  ])("refuses %s, quoting %s and naming the shape", (value, quoted) => {
+    let error: unknown;
+    try {
+      parseGitHubIssueReference(value);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(InvalidValueError);
+    const message = (error as Error).message;
+    expect(message).toContain(
+      "https://github.com/<owner>/<repo>/issues/<number>",
+    );
+    expect(message).toContain(`"${quoted}"`);
+    expect(message).not.toMatch(/s3cret|token|abc#|frag|user:/);
   });
 });

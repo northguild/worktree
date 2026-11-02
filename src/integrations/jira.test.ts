@@ -4,6 +4,7 @@ import * as git from "../lib/git.js";
 import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import * as prompt from "../lib/prompt.js";
+import { InvalidValueError } from "../lib/prompt.js";
 import { expectCommands } from "../test-setup.js";
 import {
   assignJiraIssue,
@@ -11,6 +12,8 @@ import {
   getJiraBranchNameFromIssue,
   getJiraBranchNaming,
   getJiraIssueFields,
+  normalizeJiraHost,
+  parseJiraIssueReference,
   startJiraIssue,
   validateJiraCredentials,
 } from "./jira.js";
@@ -2072,5 +2075,80 @@ jira:
     expect((await getJiraBranchNaming("dev-7")).branchName).toBe(
       "feat/DEV-7-fix-login-bug",
     );
+  });
+});
+
+describe("normalizeJiraHost", () => {
+  it("strips the scheme and trailing slash", () => {
+    expect(normalizeJiraHost("https://acme.atlassian.net/")).toBe(
+      "acme.atlassian.net",
+    );
+  });
+});
+
+describe("parseJiraIssueReference", () => {
+  // Atlassian's browse URL form is `/browse/{key}`, the one branch.test.ts
+  // already asserts for a Jira issue link.
+  it("reads the key and host from a browse URL", () => {
+    expect(
+      parseJiraIssueReference("https://acme.atlassian.net/browse/DEV-1"),
+    ).toEqual({ key: "DEV-1", host: "acme.atlassian.net" });
+  });
+
+  it("keeps the host of a self-hosted site and the case of the key", () => {
+    expect(
+      parseJiraIssueReference("http://jira.example.com:8080/browse/dev-12"),
+    ).toEqual({ key: "dev-12", host: "jira.example.com:8080" });
+  });
+
+  // RFC 3986: query and fragment are not part of the path.
+  it.each([
+    "https://acme.atlassian.net/browse/DEV-1/",
+    "https://acme.atlassian.net/browse/DEV-1#comment-10",
+    "https://acme.atlassian.net/browse/DEV-1?focusedCommentId=1",
+    "https://acme.atlassian.net/browse/DEV-1/?a=b#c",
+  ])("ignores the slash, query and fragment of %s", (url) => {
+    expect(parseJiraIssueReference(url)).toEqual({
+      key: "DEV-1",
+      host: "acme.atlassian.net",
+    });
+  });
+
+  it.each([
+    "DEV-123",
+    "dev-123",
+    " DEV-123 ",
+    "abc",
+    "",
+    "42",
+  ])("hands %j back untouched as the key", (value) => {
+    expect(parseJiraIssueReference(value)).toEqual({ key: value });
+  });
+
+  it.each([
+    [
+      "https://acme.atlassian.net/jira/software/projects/DEV/boards/1?selectedIssue=DEV-1#x",
+      "https://acme.atlassian.net/jira/software/projects/DEV/boards/1",
+    ],
+    [
+      "https://acme.atlassian.net/browse/DEV",
+      "https://acme.atlassian.net/browse/DEV",
+    ],
+    [
+      "https://user:s3cret@acme.atlassian.net/browse/DEV-1?token=abc#frag",
+      "https://acme.atlassian.net/browse/DEV-1",
+    ],
+  ])("refuses %s, quoting %s and naming the shape", (value, quoted) => {
+    let error: unknown;
+    try {
+      parseJiraIssueReference(value);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(InvalidValueError);
+    const message = (error as Error).message;
+    expect(message).toContain("https://<host>/browse/<KEY-number>");
+    expect(message).toContain(`"${quoted}"`);
+    expect(message).not.toMatch(/s3cret|token|selectedIssue|frag|user:/);
   });
 });

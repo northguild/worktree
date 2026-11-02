@@ -400,6 +400,46 @@ async function requireGitHubToken(): Promise<ResolvedGitHubToken> {
   return resolveGitHubToken();
 }
 
+/**
+ * A pasted URL as it may be quoted in a refusal: no query or fragment, which
+ * can hold a token, and no `user:secret@`, which `lib/redact.ts` masks only
+ * for some shapes (D8).
+ */
+function quotablePastedUrl(input: string): string {
+  return input.replace(/[?#].*$/s, "").replace(/^(https?:\/\/)[^/]*@/i, "$1");
+}
+
+export interface GitHubIssueReference {
+  number: string;
+  /** Present only when the input was a URL, which names a repository. */
+  repository?: { owner: string; name: string };
+}
+
+/**
+ * Reads an issue number from what `--github` was given. A pull request URL
+ * parses too, so it reaches the existing pull request refusal. Anything not
+ * starting with `http://` or `https://` is handed back untouched for the
+ * existing validators (D1); any other URL is refused (D6, D8).
+ */
+export function parseGitHubIssueReference(input: string): GitHubIssueReference {
+  if (!/^https?:\/\//i.test(input)) {
+    return { number: input };
+  }
+
+  const match =
+    /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?$/i.exec(
+      input.replace(/[?#].*$/s, ""),
+    );
+  if (!match) {
+    throw new InvalidValueError(
+      `GitHub: expected an issue number or a URL like https://github.com/<owner>/<repo>/issues/<number>, got "${quotablePastedUrl(input)}".`,
+    );
+  }
+
+  const [, owner, name, number] = match;
+  return { number, repository: { owner, name } };
+}
+
 export async function fetchGitHubIssue(issueId: number | string) {
   const normalizedIssueId = String(issueId).trim();
 

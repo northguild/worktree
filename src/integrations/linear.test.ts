@@ -2,6 +2,7 @@ import * as cli from "../lib/cli.js";
 import * as config from "../lib/config.js";
 import * as git from "../lib/git.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
+import { InvalidValueError } from "../lib/prompt.js";
 import { expectCommands } from "../test-setup.js";
 import {
   fetchLinearIssue,
@@ -9,7 +10,9 @@ import {
   getLinearBranchNameFromIssue,
   getLinearBranchNaming,
   getLinearBranchType,
+  getLinearWorkspace,
   listAssignedLinearIssues,
+  parseLinearIssueReference,
   resolveLinearApiKey,
   startLinearIssue,
   validateLinearCredentials,
@@ -1901,5 +1904,95 @@ describe("fetchLinearIssueStates", () => {
     expect(failure).toBeInstanceOf(Error);
     expect(failure?.message).not.toContain(API_KEY);
     expect(failure?.message).not.toMatch(/lin_api_/);
+  });
+});
+
+describe("parseLinearIssueReference", () => {
+  // The `url` Linear's "Get issue by ID" returns, as cited at the top of this
+  // file: `https://linear.app/{workspace}/issue/{identifier}/{slug}`.
+  it("reads the identifier and workspace from an issue URL with its title slug", () => {
+    expect(
+      parseLinearIssueReference(
+        "https://linear.app/acme/issue/ENG-123/add-dark-mode",
+      ),
+    ).toEqual({ identifier: "ENG-123", workspace: "acme" });
+  });
+
+  it("reads an issue URL without the title slug", () => {
+    expect(
+      parseLinearIssueReference("https://linear.app/acme/issue/ENG-123"),
+    ).toEqual({ identifier: "ENG-123", workspace: "acme" });
+  });
+
+  // RFC 3986: query and fragment are not part of the path.
+  it.each([
+    "https://linear.app/acme/issue/ENG-123/",
+    "https://linear.app/acme/issue/ENG-123/add-dark-mode/",
+    "https://linear.app/acme/issue/ENG-123/add-dark-mode#comment-1",
+    "https://linear.app/acme/issue/ENG-123?x=1",
+    "https://linear.app/acme/issue/ENG-123/add-dark-mode/?x=1#comment-1",
+  ])("ignores the slash, query and fragment of %s", (url) => {
+    expect(parseLinearIssueReference(url)).toEqual({
+      identifier: "ENG-123",
+      workspace: "acme",
+    });
+  });
+
+  it.each([
+    "ENG-123",
+    "eng-123",
+    " ENG-123 ",
+    "abc",
+    "",
+  ])("hands %j back untouched as the identifier", (value) => {
+    expect(parseLinearIssueReference(value)).toEqual({ identifier: value });
+  });
+
+  it.each([
+    [
+      "https://linear.app/acme/team/ENG/active?token=s3cret#frag",
+      "https://linear.app/acme/team/ENG/active",
+    ],
+    ["https://linear.app/acme/issue/ENG", "https://linear.app/acme/issue/ENG"],
+    [
+      "https://example.com/acme/issue/ENG-1",
+      "https://example.com/acme/issue/ENG-1",
+    ],
+    [
+      "https://user:s3cret@linear.app/acme/issue/ENG-1/x/y?token=abc#frag",
+      "https://linear.app/acme/issue/ENG-1/x/y",
+    ],
+  ])("refuses %s, quoting %s and naming the shape", (value, quoted) => {
+    let error: unknown;
+    try {
+      parseLinearIssueReference(value);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(InvalidValueError);
+    const message = (error as Error).message;
+    expect(message).toContain(
+      "https://linear.app/<workspace>/issue/<ID-number>",
+    );
+    expect(message).toContain(`"${quoted}"`);
+    expect(message).not.toMatch(/s3cret|token|frag|user:/);
+  });
+});
+
+describe("getLinearWorkspace", () => {
+  it("reads the workspace slug from the url the API returns", () => {
+    expect(
+      getLinearWorkspace("https://linear.app/acme/issue/ENG-123/add-dark-mode"),
+    ).toBe("acme");
+  });
+
+  it.each([
+    null,
+    undefined,
+    "",
+    "not a url",
+    "https://example.com/acme/issue/ENG-1",
+  ])("gives undefined for %j", (value) => {
+    expect(getLinearWorkspace(value)).toBeUndefined();
   });
 });
