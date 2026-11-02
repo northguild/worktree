@@ -253,6 +253,11 @@ export interface WorktreeListEntryDocument {
   agent?: WorktreeListAgentDocument | null;
   /** Present only with `--churn`; `null` when the figure could not be taken. */
   churn?: WorktreeChurn | null;
+  /**
+   * Present only with `--issues`; `null` when the branch has no recorded
+   * link. `state` is the Linear state type, `null` when it could not be read.
+   */
+  issue?: { provider: "linear"; key: string; state: string | null } | null;
 }
 
 export interface WorktreeListDocument {

@@ -3268,6 +3268,7 @@ describe("gitGetWorktreeList issue link", () => {
     expect(gather).toHaveBeenCalledTimes(1);
     expect(gather).toHaveBeenCalledWith({
       lookup: true,
+      warnWithoutKey: false,
       onWarning: onIssueWarning,
       runGit: expect.any(Function),
     });
@@ -3322,6 +3323,21 @@ describe("gitGetWorktreeList issue link", () => {
     const worktrees = await gitGetWorktreeList({ includeIssues: true });
 
     expect(worktrees.map((wt) => wt.safeToRemove)).toEqual([false, true]);
+  });
+
+  it("asks the gather to warn about a missing key only when the caller does (D8)", async () => {
+    const gather = vi
+      .spyOn(issueLink, "gatherIssueLinks")
+      .mockResolvedValue(new Map());
+
+    await gitGetWorktreeList({
+      includeIssues: true,
+      warnWithoutIssueKey: true,
+    });
+
+    expect(gather).toHaveBeenCalledWith(
+      expect.objectContaining({ lookup: true, warnWithoutKey: true }),
+    );
   });
 
   it("does not need a warning handler", async () => {

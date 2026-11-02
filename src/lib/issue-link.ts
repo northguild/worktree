@@ -95,6 +95,8 @@ const NOT_CONSIDERED = "Canceled issues were not considered.";
 const READ_FAILED = `Linear: could not read the recorded issue links. ${NOT_CONSIDERED}`;
 const REMOTE_FAILED =
   "Git: could not ask a remote about a canceled issue's branch. Canceled branches on a remote that did not answer were kept.";
+const NO_KEY =
+  'Linear: no API key is set, so issue states were not read. Canceled issues were not considered. Run "worktree config" to set linear.apiKey.';
 const LOOKUP_FAILED = `Linear: could not read issue states. ${NOT_CONSIDERED}`;
 
 function lookupWarning(
@@ -218,14 +220,18 @@ async function confirmRemoteTips(
  * type of each, from one Linear request per 50 identifiers (D6, D11), and for
  * canceled ones the remote's confirmation of the tip (D4). It never throws and never warns more
  * than once: a failed read, a missing key that throws, or a failed lookup is
- * "no signal" (D7). No key, or no record, means no request and no warning (D8).
+ * "no signal" (D7). No key, or no record, means no request, and no warning unless `warnWithoutKey` (D8).
  */
 export async function gatherIssueLinks({
   lookup,
+  warnWithoutKey = false,
   onWarning,
   runGit,
 }: {
   lookup: boolean;
+  // D8: `list --issues` is asked for, so records with no key set are worth one
+  // warning there. `cleanup` runs every time and stays silent.
+  warnWithoutKey?: boolean;
   onWarning: (message: string) => void;
   // The bounded, non-interactive runner for a call that waits on a remote
   // (`runGitFetch` in git.ts). Passed in because importing git.ts from here
@@ -250,11 +256,12 @@ export async function gatherIssueLinks({
       issues.set(branch, { provider: "linear", key });
     }
 
-    if (
-      lookup &&
-      links.size > 0 &&
-      (await gitGetConfigValue("linear.apiKey"))
-    ) {
+    const hasKey =
+      lookup && links.size > 0 && !!(await gitGetConfigValue("linear.apiKey"));
+    if (lookup && links.size > 0 && !hasKey && warnWithoutKey) {
+      warning = NO_KEY;
+    }
+    if (hasKey) {
       const { fetchLinearIssueStates } = await import(
         "../integrations/linear.js"
       );

@@ -177,6 +177,14 @@ worktree list --churn
 
 Each worktree with commits ahead gets `Churn: +120 -8, 5 files` beside `Ahead:` (not one whose branch is already merged): the lines added, the lines removed and the files touched, as `git diff --shortstat` counts them against the same base. Only committed work counts, and the figure is left out where it could not be taken. It costs one more git call per worktree, so it is off by default.
 
+To show each worktree's Linear issue and whether it is canceled:
+
+```bash
+worktree list --issues
+```
+
+Worktrees made with `branch --linear` get `Linear ENG-123: canceled` (or the issue's other state type, or `state unknown`). It asks Linear for the states when `linear.apiKey` is set (one request per 50 linked branches), and `safeToRemove` then counts a canceled issue, including the remote check: `list` runs the same `git ls-remote` as `cleanup`, when an issue is canceled. It is `cleanup`'s verdict only with `--agents` as well, and not for the worktree you are in. With records but no key, it warns once. Without `--issues`, `list` reads no record, sends no request and runs no `ls-remote`.
+
 ### Reopen a worktree in your editor
 
 ```bash
@@ -348,6 +356,7 @@ worktree branch --github 42 --json --agent-file brief.md
 With `--agents`, each entry also has `agent`: `null`, or `{name,sessionId,herdrAgent,live,interactive,waiting}`.
 `herdrAgent` is the name Herdr gives the agent (for example `wt-42-fix-login`, the same as `branch --json`'s `herdr.agent`), or its pane id (for example `w4P:p1`) when Herdr reports no name.
 With `--churn`, each entry also has `churn`: `{files,insertions,deletions}` for its committed work, or `null` when it could not be taken.
+With `--issues`, each entry also has `issue`: `null` when no Linear issue is recorded, else `{provider,key,state}` with `state` the issue's state type or `null` when it could not be read. `safeToRemove` matches `cleanup`'s verdict only with `--agents` and `--issues` (and never for the current worktree); plain `list --json` does not weigh agent sessions or canceled issues.
 
 `remove --json` gives `{"removed":[{branch,path}],"herdrSpacesClosed":[…],"warnings":[]}`. Nothing removed is
 never reported as a success.

@@ -37,3 +37,11 @@ Branch-local and advisory. Nothing reads this file, and `/feature-close` deletes
 - `!!wt.pathExists` in the new predicate cannot be false in a real run, and the state test in `removalReason` is equivalent on real inputs. §4.4 asks for the first.
 - The "prints one warning" test counts a call its own mock makes, so it pins the pass-through; the one-warning rule is pinned in the gather tests. "removes it under --force too" uses a hand-set `safeToRemove`, so the real removal is proved only by the reviewer's real-repository runs.
 - A transient `could not lock config file .git/config` in `src/agent-mode.test.ts` during one coder run did not reproduce in 24 runs and its cause is not established. The same text in passing runs is the mocked rejection at `branch.test.ts:2106`.
+
+## Phase 5 — `list --issues` and its `--json` key
+
+- `README.md:323` and `SKILL.md:304` ("Bounded calls") do not list `ls-remote`'s 60 s. Incomplete rather than false, and outside §7's rows.
+- The Linear guide and `SKILL.md:199` still open with "Issue content is used for the branch name and nothing else, with one exception", though a state type now feeds a removal. The guide's "workflow metadata" paragraph makes that defensible.
+- `faq/page.mdx` and `herdr-spaces/page.mdx` list the reasons a worktree is held back without naming "commits not confirmed"; what they say about closing spaces is still true.
+- In `SKILL.md` the `issue` text sits mid-paragraph, between the `safeToRemove` and `mergedInto` sentences, and the `--help` text wraps with an orphan `recorded,` line. `README.md:186` discusses `safeToRemove` under a human example, though that key exists only in `--json`.
+- The exact missing-key warning text has no §8 row; its form follows `linear.ts:83`. The `list.test.ts` "exactly one warning" count comes from its stub; the real rule is pinned in `issue-link.test.ts`.

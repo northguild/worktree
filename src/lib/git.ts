@@ -471,6 +471,9 @@ interface GitGetWorktreeListOptions extends GitGetWorktreesOptions {
   // Reads the issue each branch is linked to and, where a key is configured,
   // its state type. Off by default: `remove` must not pay for it (D8, D11).
   includeIssues?: boolean;
+  // With `includeIssues`: warn once when records exist and no key is set (D8).
+  // `cleanup` leaves it off and stays silent; `list --issues` turns it on.
+  warnWithoutIssueKey?: boolean;
   // Receives the one warning a failed read or lookup produces (D7).
   onIssueWarning?: (message: string) => void;
 }
@@ -668,6 +671,7 @@ export async function gitGetWorktreeList({
   includeAgents = false,
   includeChurn = false,
   includeIssues = false,
+  warnWithoutIssueKey = false,
   onIssueWarning = () => {},
 }: GitGetWorktreeListOptions = {}) {
   const remoteBranches = await gitGetRemoteBranches();
@@ -693,6 +697,7 @@ export async function gitGetWorktreeList({
   const issues = includeIssues
     ? await gatherIssueLinks({
         lookup: true,
+        warnWithoutKey: warnWithoutIssueKey,
         onWarning: onIssueWarning,
         runGit: (args) => runGitFetch(args),
       })

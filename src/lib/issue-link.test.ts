@@ -161,6 +161,7 @@ describe("gatherIssueLinks", () => {
   const noGit = vi.fn().mockRejectedValue(new Error("unexpected git call"));
   const gather = (options: {
     lookup: boolean;
+    warnWithoutKey?: boolean;
     onWarning: (message: string) => void;
     runGit?: (args: string[]) => Promise<string>;
   }) => gatherIssueLinks({ runGit: noGit, ...options });
@@ -205,6 +206,65 @@ describe("gatherIssueLinks", () => {
       provider: "linear",
       key: "ENG-1",
     });
+  });
+
+  // D8: `list --issues` is the caller that asks to be told; `cleanup` does not.
+  it("warns once when records exist, no key is set and the caller asked to be told (D8)", async () => {
+    records(["feature/a", "ENG-1"], ["feature/b", "ENG-2"]);
+    apiKey("");
+    const states = vi.spyOn(linear, "fetchLinearIssueStates");
+    const onWarning = vi.fn();
+
+    const result = await gather({
+      lookup: true,
+      warnWithoutKey: true,
+      onWarning,
+    });
+
+    expect(states).not.toHaveBeenCalled();
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(onWarning).toHaveBeenCalledWith(
+      'Linear: no API key is set, so issue states were not read. Canceled issues were not considered. Run "worktree config" to set linear.apiKey.',
+    );
+    expect(result.get("feature/a")).toEqual({
+      provider: "linear",
+      key: "ENG-1",
+    });
+  });
+
+  it("does not warn about a missing key when no record exists or a key is set", async () => {
+    vi.spyOn(cli, "runCapturing").mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    });
+    apiKey("");
+    const onWarning = vi.fn();
+    await gather({ lookup: true, warnWithoutKey: true, onWarning });
+    expect(onWarning).not.toHaveBeenCalled();
+
+    records(["feature/a", "ENG-1"]);
+    apiKey("lin_api_key");
+    vi.spyOn(linear, "fetchLinearIssueStates").mockResolvedValue(
+      new Map([["ENG-1", "started"]]),
+    );
+    await gather({ lookup: true, warnWithoutKey: true, onWarning });
+    expect(onWarning).not.toHaveBeenCalled();
+  });
+
+  it("does not warn about a missing key when the records could not be read: one warning at most", async () => {
+    vi.spyOn(cli, "runCapturing").mockResolvedValue({
+      stdout: "",
+      stderr: "boom",
+      exitCode: 128,
+    });
+    apiKey("");
+    const onWarning = vi.fn();
+
+    await gather({ lookup: true, warnWithoutKey: true, onWarning });
+
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(onWarning.mock.calls[0][0]).toContain("could not read the recorded");
   });
 
   it("makes no request with a key but no records, and does not read the key", async () => {

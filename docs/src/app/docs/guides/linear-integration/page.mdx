@@ -80,7 +80,26 @@ When the issue is moved to started (below), `worktree` also reads the issue's cu
 and type) and its team's started states (id, name and position). That is workflow metadata: still no description,
 no comments, and nothing from it reaches an agent. The state names are printed.
 
+[`cleanup`](/docs/commands/cleanup#canceled-linear-issues) and [`list --issues`](/docs/commands/list#showing-linear-issues)
+read one more thing: the **type** of the state of each issue a worktree is linked to (`canceled`, `started` and so on),
+by identifier, in one request per 50 issues. They never read the state's name, title, labels, description or
+comments, and nothing from that request reaches an agent or a `--json` document beyond the type itself.
+
 Requests to Linear are cut off after 15 seconds.
+
+## The issue link and cleaning up
+
+`branch --linear` records the issue in git config as `branch.<name>.worktreeIssue = linear:ENG-123`, once the
+worktree exists. The record follows the branch through a rename and goes when `cleanup` deletes the branch;
+worktrees made before it existed, or any other way, have none.
+
+[`cleanup`](/docs/commands/cleanup#canceled-linear-issues) reads the record on every run, and asks Linear when a record exists and
+`linear.apiKey` is set. A worktree whose issue is `canceled` is removed even though its remote branch still exists,
+provided it holds no uncommitted changes, no live agent works in it, and the remote confirms every commit is there
+(`cleanup` runs `git ls-remote --heads` for this). Any other state leaves the verdict alone, and so does any
+failure: a failed lookup is one warning and `cleanup` decides as it did before. `cleanup --force` skips the prompt,
+so a script that uses it starts removing these worktrees. [`list --issues`](/docs/commands/list#showing-linear-issues)
+shows the same states without removing anything.
 
 ## Moving the issue to started
 
@@ -145,4 +164,4 @@ worktree is still created.
 
 The key is stored locally in git config and never sent anywhere except to Linear. `worktree` never prints it:
 any `lin_api_` key that would reach the output is replaced first. The key is checked the first time `--linear`
-uses it; `worktree config` refuses a key that is only whitespace but does not check it with Linear.
+uses it (`cleanup` and `list --issues` use it without checking it first: a rejected key is one warning there); `worktree config` refuses a key that is only whitespace but does not check it with Linear.

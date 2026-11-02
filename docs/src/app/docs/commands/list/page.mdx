@@ -12,9 +12,11 @@ List known worktrees managed for the current repository.
 worktree list
 worktree list --agents
 worktree list --churn
+worktree list --issues
 worktree list --json
 worktree list --agents --json
 worktree list --churn --json
+worktree list --issues --json
 ```
 
 Use this before `open`, `remove`, or cleanup decisions.
@@ -25,6 +27,7 @@ Use this before `open`, `remove`, or cleanup decisions.
 | --- | --- | --- |
 | `--agents` | `-a` | Show the agent session living in each worktree |
 | `--churn` | | Show how much each worktree has changed: files, insertions and deletions |
+| `--issues` | | Show each worktree's Linear issue and whether it is canceled |
 | `--json` | | Print one JSON document on stdout instead of the list, and run [non-interactively](/docs/commands/branch#non-interactive-runs) |
 
 ## Showing agent sessions
@@ -99,6 +102,35 @@ edits are not part of it; they are counted separately as `N uncommitted changes`
   exactly what it ran before, and [`remove`](/docs/commands/remove) and [`cleanup`](/docs/commands/cleanup)
   never show it.
 
+## Showing Linear issues
+
+A worktree made with [`branch --linear`](/docs/commands/branch) carries a record of its Linear issue in git
+config. `--issues` reads those records and shows, beside each linked worktree, the issue and the type of its
+state:
+
+```text
+- feature/eng-123-dark-mode (Linear ENG-123: canceled)
+- feature/eng-124-export (Ahead: 2, Linear ENG-124: started)
+- feature/eng-125-search (Linear ENG-125: state unknown)
+```
+
+- **It asks Linear.** With at least one record and [`linear.apiKey`](/docs/configuration) set, `list` sends one
+  request per 50 linked branches, cut off after 15 seconds. Only the state type is read, never the state's name.
+  A worktree with no record shows no `Linear` detail.
+- **It can ask a remote.** Under `--issues`, `safeToRemove` counts a canceled issue as
+  [`cleanup`](/docs/commands/cleanup#canceled-linear-issues) does, which includes the remote's
+  confirmation of the tip; a live session counts only with `--agents`. So when an issue is canceled, `list --issues` runs `git ls-remote --heads` against the
+  remote that branch tracks, once per remote, bounded to 60 seconds. Without `--issues`, `list` runs no `ls-remote`.
+- **`state unknown`** means the type could not be read: the lookup failed, Linear did not return the issue, or the
+  type is not one Linear documents.
+- **With records but no key**, `list --issues` prints one warning saying so and shows every state as unknown.
+  If Linear cannot be reached it prints one warning and does the same, and a remote that does not answer the
+  `ls-remote` is one warning too, keeping that remote's canceled branches as not removable. A warning never changes the exit code,
+  and never carries the key.
+
+Without `--issues`, `list` reads no record, sends no request, runs no `ls-remote` and its output is
+unchanged. [`remove`](/docs/commands/remove) never reads them.
+
 ## Ahead and behind counts
 
 `Ahead:` counts commits this worktree carries that its comparison base does not.
@@ -164,12 +196,13 @@ and any warning go to stderr. It implies a [non-interactive run](/docs/commands/
 | `ahead`, `behind` | the [counts above](#ahead-and-behind-counts) as numbers |
 | `mergedInto` | the base whose commits already contain all of this branch's changes; `null` when not known to be merged |
 | `uncommittedChanges` | the number of uncommitted changes; `null` when the directory is gone, as there is nothing to count |
-| `safeToRemove` | the verdict [`cleanup`](/docs/commands/cleanup) acts on |
+| `safeToRemove` | the verdict [`cleanup`](/docs/commands/cleanup) acts on, from the data this run gathered. `cleanup` weighs agent sessions and canceled Linear issues; `list` does so only with `--agents` and `--issues`, so without them it can report `false` for a worktree `cleanup` would remove through a canceled issue, and `true` for one it would hold back for a live session. With both flags it is `cleanup`'s verdict, except for the worktree you are in (`current: true`), which `cleanup` never considers |
 | `churn` | only with `--churn`: `{files, insertions, deletions}` for the committed work, [as above](#showing-churn), or `null` when it could not be taken. All zeros means the diff was taken and was empty |
+| `issue` | only with `--issues`: `null` when the branch has no recorded Linear issue, otherwise `{provider, key, state}`: `provider` is `"linear"`, `key` the identifier such as `ENG-123`, and `state` the issue's state type (`canceled`, `started`, ...) or `null` when it could not be read. Only the type is read, never the state's name |
 | `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}`. `waiting` is `true` for a live session that is idle between turns or blocked on a question, whether or not it is interactive. `herdrAgent` is the name Herdr gives the agent, as `branch --json` reports it in `herdr.agent`, or the agent's pane id when Herdr reports no name |
 
 **A count or flag that could not be taken is `null`, never `0` and never left out.** `ahead` and `uncommittedChanges` are
-`null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, `churn` is `null` when no figure was taken for the worktree, and
+`null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, `churn` is `null` when no figure was taken for the worktree, `issue.state` is `null` when the type could not be read (a warning goes to stderr, and stdout is still one document), and
 inside `agent` any of `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` is `null` when the
 source did not say. A `0` always means the count was taken and is zero.
 
