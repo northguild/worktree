@@ -143,10 +143,16 @@ describe("GitHub integration", () => {
   // Forms and sources are the plan's §8 table: git-clone "GIT URLS"
   // (https://git-scm.com/docs/git-clone#_git_urls), GitHub's "Using SSH over
   // the HTTPS port" (ssh.github.com is github.com), RFC 4343 (host names are
-  // case insensitive). Port ignored is D6.
+  // case insensitive). Port ignored is D6. git takes `git+ssh` and `ssh+git`
+  // as `ssh` (connect.c `get_protocol`), and www.github.com redirects git to
+  // github.com; the regex parseGitHubRemote replaced read both (#225).
   it.each([
     "ssh://git@ssh.github.com:443/acme/widgets.git",
     "ssh://git@github.com/acme/widgets.git",
+    "git+ssh://git@github.com/acme/widgets.git",
+    "ssh+git://git@github.com/acme/widgets.git",
+    "https://www.github.com/acme/widgets.git",
+    "git@WWW.GitHub.com:acme/widgets.git",
     "git@GitHub.com:acme/widgets",
     "https://user@github.com/acme/widgets.git",
     "git://github.com/acme/widgets.git",

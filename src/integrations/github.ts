@@ -160,10 +160,14 @@ export interface GitHubRemote {
 const GITHUB_COM = "github.com";
 
 // `[scheme://][user[:password]@]host[:port]/path`, for the schemes git clones
-// over (https://git-scm.com/docs/git-clone#_git_urls). IPv6 literals are not
-// GitHub hosts and are not read.
+// over (https://git-scm.com/docs/git-clone#_git_urls), plus `git+ssh` and
+// `ssh+git`, which git still takes as `ssh` (connect.c `get_protocol`). IPv6
+// literals are not GitHub hosts and are not read.
 const URL_REMOTE =
-  /^(?:ssh|git|https?):\/\/(?:[^@/]*@)?([^/:@\s]+)(?::\d*)?\/(.+)$/i;
+  /^(?:ssh|git|git\+ssh|ssh\+git|https?):\/\/(?:[^@/]*@)?([^/:@\s]+)(?::\d*)?\/(.+)$/i;
+// Names for github.com itself: SSH over the HTTPS port, and the `www.` host,
+// which answers git with a redirect to github.com.
+const GITHUB_COM_ALIASES = new Set(["ssh.github.com", "www.github.com"]);
 const ANY_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 // scp-like `[user@]host:[/]path`, which git takes only when no `/` comes
 // before the first `:`; `[^/:@]+` for the host keeps it so.
@@ -173,7 +177,8 @@ const SCP_REMOTE = /^(?:[^@/:]+@)?([^/:@\s]+):\/?(.+)$/;
  * Host, owner and name of any git remote URL (D6), or undefined when the value
  * is not a remote of that shape or its owner and name are not ones GitHub
  * allows (`isValidGitHubRepository`). The host is lower-cased, any port is
- * dropped, and `ssh.github.com` (SSH over the HTTPS port) is `github.com`.
+ * dropped, and `ssh.github.com` (SSH over the HTTPS port) and `www.github.com`
+ * are `github.com`.
  * Whether the host is one to talk to is the caller's decision.
  */
 export function parseGitHubRemote(remoteUrl: string): GitHubRemote | undefined {
@@ -199,7 +204,11 @@ export function parseGitHubRemote(remoteUrl: string): GitHubRemote | undefined {
   }
 
   const host = rawHost.toLowerCase();
-  return { host: host === "ssh.github.com" ? GITHUB_COM : host, owner, name };
+  return {
+    host: GITHUB_COM_ALIASES.has(host) ? GITHUB_COM : host,
+    owner,
+    name,
+  };
 }
 
 /**

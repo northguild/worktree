@@ -97,8 +97,9 @@ token to a new host on its own.
   `github.host`, or unset it to use github.com.
 - On github.com, a non-GitHub `origin` keeps its usual error and adds how to set an Enterprise host.
 
-Every common remote form is read: `https://`, `ssh://`, `git://` and the scp-like `git@host:owner/repo.git`. The
-host is compared ignoring case, and a port is ignored, since an SSH port is not the API's port.
+Every common remote form is read: `https://`, `ssh://` (and its older spellings `git+ssh://` and `ssh+git://`),
+`git://` and the scp-like `git@host:owner/repo.git`. The host is compared ignoring case, and a port is ignored,
+since an SSH port is not the API's port. `ssh.github.com` and `www.github.com` count as `github.com`.
 
 ### Authenticate
 
