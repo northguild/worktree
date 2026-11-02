@@ -6354,6 +6354,12 @@ describe("branch command — --linear with no identifier", () => {
       });
     });
 
+    it("confirms no workspace for a pick: none was pasted (D5)", async () => {
+      await runPick(["--linear"]);
+
+      expect(output.stderr()).not.toContain("could not confirm");
+    });
+
     it("carries a different pick, not the first one", async () => {
       mockSelect.mockResolvedValue("ENG-9");
 
@@ -6570,6 +6576,407 @@ describe("branch command — --linear with no identifier", () => {
       expect(output.document()).toMatchObject({
         issue: { provider: "linear", key: "ENG-1" },
       });
+    });
+  });
+});
+
+// #127: a pasted issue URL is read once in `run()` and everything after it sees
+// the bare number, key or identifier. Expected values come from the plan's §8
+// table: GitHub's `/{owner}/{repo}/issues/{n}` form, Atlassian's
+// `/browse/{key}`, Linear's `/{workspace}/issue/{ID}/{slug}` (the `url` its
+// API returns); a refusal is `invalid_value`, exit 2 (the error table in
+// docs/src/app/docs/commands/branch/page.mdx); and no refusal quotes a query,
+// fragment or userinfo (D8).
+describe("branch command — issue URLs", () => {
+  const originalExitCode = process.exitCode;
+  let output: ReturnType<typeof captureOutput>;
+  let config: Record<string, string>;
+
+  const GITHUB_URL = "https://github.com/acme/demo/issues/42";
+  const JIRA_URL = "https://example.atlassian.net/browse/DEV-123";
+  const LINEAR_URL = "https://linear.app/acme/issue/ENG-123/add-dark-mode";
+  const linearIssue = {
+    identifier: "ENG-123",
+    title: "Add dark mode",
+    url: LINEAR_URL,
+    labels: [] as string[],
+  };
+
+  // `_run`, as oclif does: it prints the returned document and routes a throw
+  // to `catch`, which is where exit 2 and `invalid_value` come from.
+  async function runJson(flags: Record<string, unknown>) {
+    const command = new Branch(["--json"], await loadConfig());
+    (command as any).parse = vi.fn().mockResolvedValue({ args: {}, flags });
+    (command as any).parsed = true;
+    vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+      opener: "none",
+    });
+    await (command as any)._run();
+    return output.document();
+  }
+
+  const everything = () => output.stdout() + output.stderr();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    resetProjectConfigCache();
+    output = captureOutput();
+    config = {
+      "has-called-config": "true",
+      defaultSourceBranch: "origin/main",
+      "jira.host": "example.atlassian.net",
+      "jira.email": "test@example.com",
+      "jira.apiToken": "token",
+      "linear.apiKey": "lin_api_test",
+      "branchPrefix.feature": "feature/",
+    };
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key: string) =>
+      Promise.resolve(config[key] ?? ""),
+    );
+    vi.mocked(input).mockImplementation(async (c: any) => c.default);
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockResolvedValue({
+      status: "absent-path",
+    });
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/nonexistent");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(issueLink, "gitSetBranchIssueLink").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
+    vi.spyOn(githubIntegration, "resolveGitHubRepository").mockResolvedValue({
+      owner: "acme",
+      name: "demo",
+      source: "github.repository",
+    });
+    vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+      number: 42,
+      title: "Add dark mode",
+      state: "open",
+      htmlUrl: GITHUB_URL,
+      type: null,
+      labels: [],
+      pullRequest: null,
+    } as any);
+    vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
+      login: "octocat",
+      assigned: true,
+    });
+    vi.spyOn(jiraIntegration, "getJiraBranchNameFromIssue").mockResolvedValue(
+      "DEV-123-add-dark-mode",
+    );
+    vi.spyOn(jiraIntegration, "assignJiraIssue").mockResolvedValue({
+      outcome: "assigned",
+      displayName: "Ada Lovelace",
+    });
+    vi.spyOn(jiraIntegration, "startJiraIssue").mockResolvedValue({
+      outcome: "started",
+      from: "To Do",
+      to: "In Progress",
+    });
+    vi.spyOn(linearIntegration, "fetchLinearIssue").mockResolvedValue(
+      linearIssue,
+    );
+    vi.spyOn(linearIntegration, "startLinearIssue").mockResolvedValue({
+      outcome: "started",
+      from: "Todo",
+      to: "In Progress",
+    });
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("no network"));
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+  });
+
+  describe("--github", () => {
+    it("fetches the number the URL names", async () => {
+      await runJson({ github: GITHUB_URL, assign: false });
+
+      expect(githubIntegration.fetchGitHubIssue).toHaveBeenCalledWith(42);
+      expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+        "42-add-dark-mode",
+        "origin/main",
+        { fetch: false },
+      );
+    });
+
+    it("compares the repository case-insensitively and ignores a fragment", async () => {
+      await runJson({
+        github: "https://github.com/ACME/Demo/issues/42#issuecomment-1",
+        assign: false,
+      });
+
+      expect(githubIntegration.fetchGitHubIssue).toHaveBeenCalledWith(42);
+    });
+
+    it("refuses another repository, naming both and github.repository, with no request", async () => {
+      // From origin, so only the advice can supply "github.repository".
+      vi.mocked(githubIntegration.resolveGitHubRepository).mockResolvedValue({
+        owner: "acme",
+        name: "demo",
+        source: "origin",
+      });
+      const document = await runJson({
+        github: "https://github.com/other/thing/issues/42",
+      });
+
+      expect(document).toMatchObject({ error: { code: "invalid_value" } });
+      expect((document.error as any).message).toContain("other/thing");
+      expect((document.error as any).message).toContain("acme/demo");
+      expect((document.error as any).message).toContain("github.repository");
+      expect(process.exitCode).toBe(2);
+      expect(githubIntegration.fetchGitHubIssue).not.toHaveBeenCalled();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("assigns the number the URL names", async () => {
+      await runJson({ github: GITHUB_URL, assign: true });
+
+      expect(githubIntegration.assignGitHubIssue).toHaveBeenCalledWith(42);
+    });
+
+    it("keeps --json's issue as {provider, number, url} from the API, not the pasted text", async () => {
+      vi.mocked(githubIntegration.fetchGitHubIssue).mockResolvedValue({
+        number: 42,
+        title: "Add dark mode",
+        state: "open",
+        htmlUrl: "https://github.com/acme/demo/issues/42",
+        type: null,
+        labels: [],
+        pullRequest: null,
+      } as any);
+
+      const document = await runJson({
+        github: "https://www.github.com/acme/demo/issues/42?x=1",
+        assign: false,
+      });
+
+      expect(document.issue).toEqual({
+        provider: "github",
+        number: 42,
+        url: "https://github.com/acme/demo/issues/42",
+      });
+    });
+
+    it("works with --dry-run", async () => {
+      const document = await runJson({
+        github: GITHUB_URL,
+        "dry-run": true,
+      });
+
+      expect(githubIntegration.fetchGitHubIssue).toHaveBeenCalledWith(42);
+      expect(document).toMatchObject({
+        dryRun: true,
+        branch: "42-add-dark-mode",
+      });
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("leaves a typed number exactly as before", async () => {
+      vi.mocked(githubIntegration.resolveGitHubRepository).mockClear();
+
+      await runJson({ github: "#42", assign: false });
+
+      expect(githubIntegration.fetchGitHubIssue).toHaveBeenCalledWith(42);
+      expect(githubIntegration.resolveGitHubRepository).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("--jira", () => {
+    it("fetches the key the URL names when its host is jira.host", async () => {
+      await runJson({ jira: JIRA_URL, start: false, assign: false });
+
+      expect(jiraIntegration.getJiraBranchNameFromIssue).toHaveBeenCalledWith(
+        "DEV-123",
+        expect.any(Function),
+      );
+    });
+
+    it("compares the host after the config's scheme and slash are stripped, case-insensitively", async () => {
+      config["jira.host"] = "https://Example.Atlassian.net/";
+
+      await runJson({ jira: JIRA_URL, start: false, assign: false });
+
+      expect(jiraIntegration.getJiraBranchNameFromIssue).toHaveBeenCalledWith(
+        "DEV-123",
+        expect.any(Function),
+      );
+    });
+
+    it("refuses another host, naming both, and requests neither", async () => {
+      const document = await runJson({
+        jira: "https://evil.example.com/browse/DEV-123",
+      });
+
+      expect(document).toMatchObject({ error: { code: "invalid_value" } });
+      expect((document.error as any).message).toContain("evil.example.com");
+      expect((document.error as any).message).toContain(
+        "example.atlassian.net",
+      );
+      expect((document.error as any).message).not.toContain(
+        "set jira.host to evil.example.com",
+      );
+      expect(process.exitCode).toBe(2);
+      expect(jiraIntegration.getJiraBranchNameFromIssue).not.toHaveBeenCalled();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("assigns and starts the key the URL names", async () => {
+      await runJson({ jira: JIRA_URL, start: true, assign: true });
+
+      expect(jiraIntegration.assignJiraIssue).toHaveBeenCalledWith("DEV-123");
+      expect(jiraIntegration.startJiraIssue).toHaveBeenCalledWith("DEV-123");
+    });
+
+    it("works with --dry-run", async () => {
+      const naming = vi
+        .spyOn(jiraIntegration, "getJiraBranchNaming")
+        .mockResolvedValue({
+          branchName: "DEV-123-add-dark-mode",
+          kind: undefined,
+          fields: [],
+          match: { source: "none" },
+        });
+      const document = await runJson({ jira: JIRA_URL, "dry-run": true });
+
+      expect(naming).toHaveBeenCalledWith(
+        "DEV-123",
+        expect.objectContaining({ dryRun: true }),
+      );
+      expect(document).toMatchObject({ dryRun: true });
+    });
+  });
+
+  describe("--linear", () => {
+    it("creates the branch when the API's url carries the same workspace", async () => {
+      const document = await runJson({ linear: LINEAR_URL, start: false });
+
+      expect(linearIntegration.fetchLinearIssue).toHaveBeenCalledTimes(1);
+      expect(linearIntegration.fetchLinearIssue).toHaveBeenCalledWith(
+        "ENG-123",
+      );
+      expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+        "feature/ENG-123-add-dark-mode",
+        "origin/main",
+        { fetch: false },
+      );
+      expect(document.issue).toEqual({
+        provider: "linear",
+        key: "ENG-123",
+        url: LINEAR_URL,
+      });
+    });
+
+    it("compares the workspace case-insensitively", async () => {
+      await runJson({
+        linear: "https://linear.app/ACME/issue/ENG-123",
+        start: false,
+      });
+
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("refuses a workspace the API does not confirm, before any worktree", async () => {
+      vi.mocked(linearIntegration.fetchLinearIssue).mockResolvedValue({
+        ...linearIssue,
+        url: "https://linear.app/other/issue/ENG-123/add-dark-mode",
+      });
+
+      const document = await runJson({ linear: LINEAR_URL, start: true });
+
+      expect(document).toMatchObject({ error: { code: "invalid_value" } });
+      expect((document.error as any).message).toContain("acme");
+      expect((document.error as any).message).toContain("other");
+      expect(process.exitCode).toBe(2);
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      expect(linearIntegration.startLinearIssue).not.toHaveBeenCalled();
+    });
+
+    it("warns, and carries on, when the API gives no url", async () => {
+      vi.mocked(linearIntegration.fetchLinearIssue).mockResolvedValue({
+        ...linearIssue,
+        url: null,
+      } as any);
+
+      const document = await runJson({ linear: LINEAR_URL, start: false });
+
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+      expect(document.warnings).toEqual([
+        expect.stringContaining("could not confirm"),
+      ]);
+    });
+
+    it("starts the identifier the URL names", async () => {
+      await runJson({ linear: LINEAR_URL, start: true });
+
+      expect(linearIntegration.startLinearIssue).toHaveBeenCalledWith(
+        "ENG-123",
+      );
+    });
+
+    it("works with --dry-run", async () => {
+      const document = await runJson({ linear: LINEAR_URL, "dry-run": true });
+
+      expect(document).toMatchObject({
+        dryRun: true,
+        branch: "feature/ENG-123-add-dark-mode",
+      });
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a refusal leaks nothing of the pasted value (D8)", () => {
+    it.each([
+      [
+        "a GitHub query",
+        { github: "https://github.com/other/thing/issues/9?token=SECRETQ" },
+      ],
+      [
+        "GitHub userinfo",
+        { github: "https://user:SECRETU@github.com/acme/demo/issues/9" },
+      ],
+      [
+        "a GitHub fragment",
+        { github: "https://github.com/acme/demo/wiki/Home#SECRETQ" },
+      ],
+      [
+        "a Jira query",
+        { jira: "https://evil.example.com/browse/DEV-1?token=SECRETQ" },
+      ],
+      [
+        "Jira userinfo",
+        { jira: "https://user:SECRETU@example.atlassian.net/browse/DEV-1" },
+      ],
+      [
+        "a Linear query",
+        {
+          linear: "https://linear.app/other/issue/ENG-123?token=SECRETQ",
+          start: false,
+        },
+      ],
+      [
+        "Linear userinfo",
+        { linear: "https://user:SECRETU@linear.app/acme/issue/ENG-123" },
+      ],
+    ])("%s", async (_label, flags) => {
+      vi.mocked(linearIntegration.fetchLinearIssue).mockResolvedValue({
+        ...linearIssue,
+        url: "https://linear.app/acme/issue/ENG-123/add-dark-mode",
+      });
+
+      const document = await runJson(flags);
+
+      expect(document).toMatchObject({ error: { code: "invalid_value" } });
+      expect(everything()).not.toContain("SECRETQ");
+      expect(everything()).not.toContain("SECRETU");
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
   });
 });

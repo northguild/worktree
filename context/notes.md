@@ -13,3 +13,18 @@ Branch-local, advisory. `/feature-close` deletes this file.
 - The Jira test titled "keeps the host of a self-hosted site" is really a Cloud custom domain; Data Center is #126.
 - A URL with a trailing space is refused; one with a leading space falls through to the existing validator,
   which echoes it whole, query included — today's behaviour, kept by D1.
+
+## From Phase 2 (Gate 2, FAIL → loopback 1 → PASS WITH NOTES)
+
+- The Jira refusal test guards only the exact wording "set jira.host to evil.example.com"; asserting no
+  "set jira.host" at all would be stronger.
+- Untested: `--jira <url>` with `jira.host` unset (the `if (configured && …)` skip, then the missing-config
+  error and no `fetch`) — worth pinning, since a fallback to the pasted host there would be the D4 leak.
+- Untested end to end in `branch`: a `/pull/<n>` URL reaching the existing `worktree checkout` refusal (§8 row;
+  parser side covered in `github.test.ts`); a Linear workspace mismatch under `--dry-run`; D7 for Linear (the
+  pasted and API URL are the same fixture string) and for Jira (no `--json` URL test).
+- `(await getTeamConfigValue("jira.host")) ?? ""` in `branch.ts` — the `?? ""` is dead; the value is typed `string`.
+- `pastedLinearWorkspace` is instance state carried from `normalizeIssueUrls` to `getLinearIssueBranchName`
+  rather than a passed value.
+- The coder wrote the implementation before the tests; the four expectations it then corrected all trace to
+  the docs or to tests on main.
