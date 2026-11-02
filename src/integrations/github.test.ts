@@ -511,9 +511,13 @@ describe("GitHub integration", () => {
     const issue = await fetchGitHubIssue(13);
 
     expect(issue.number).toBe(13);
-    expect(runSpy).toHaveBeenCalledWith("gh", ["auth", "token"], {
-      timeout: 10_000,
-    });
+    expect(runSpy).toHaveBeenCalledWith(
+      "gh",
+      ["auth", "token", "--hostname", "github.com"],
+      {
+        timeout: 10_000,
+      },
+    );
     expect(runSpy).not.toHaveBeenCalledWith("git", [
       "config",
       "northguild.worktree.github.token",
@@ -724,7 +728,7 @@ describe("GitHub integration", () => {
     ]);
     expect(runSpy).not.toHaveBeenCalledWith(
       "gh",
-      ["auth", "token"],
+      ["auth", "token", "--hostname", "github.com"],
       expect.anything(),
     );
     expect(runSpy).toHaveBeenCalledTimes(1);

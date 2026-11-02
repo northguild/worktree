@@ -17,3 +17,14 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   (`quotablePastedUrl`, `projectFileValue`).
 - **Credentials in the unparseable-remote message.** It echoes the remote whole, `user:password@` included —
   HEAD's behaviour, not new, but Phase 3's new messages should honour §8's no-token-shaped-string row.
+
+## Phase 2 — Ask gh for github.com's token by name
+
+- **The stored-token-wins negative assertion is narrower than it reads.** `not.toHaveBeenCalledWith("gh",
+  [<exact argv>], …)` rules out one argv only; the test is sound because of `toHaveBeenCalledTimes(1)`
+  beside it. Asserting no call has `"gh"` as its file would survive that count being relaxed.
+- **Stale `expectCommands` strings.** Six declarations in `github.test.ts` still say `"gh auth token"`
+  while `describeRunCall` renders `gh auth token --hostname github.com`; it only feeds the afterEach
+  `console.warn`, but the text names the old argv.
+- **Two plans' `D`-labels side by side** in `github.ts`: the new `// D4` comment sits under another plan's
+  `// D5` (the gh timeout). Naming the plan (`#120 D4`) would disambiguate.

@@ -101,8 +101,9 @@ the built-in mapping above is not used. See
 Authentication is resolved in this order:
 
 1. Existing `github.token` in local git config.
-2. `gh auth token` from GitHub CLI. The token is read on each run and is **never saved** to git config, so
-   it cannot go stale or sit in clear text.
+2. `gh auth token --hostname github.com` from GitHub CLI. The token is read on each run and is **never saved**
+   to git config, so it cannot go stale or sit in clear text. Because the host is named, neither `GH_HOST` nor a
+   `gh` login to another host supplies it.
 3. Interactive prompt for a token, then save to local git config. A non-interactive run has no prompt: it exits
    `2` naming `worktree config github.token <token>` or `gh auth login`, and never prints a token.
 

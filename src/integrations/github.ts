@@ -313,12 +313,14 @@ function getGitHubHeaders(token?: string): Record<string, string> {
 const GH_AUTH_TOKEN_TIMEOUT_MS = 10_000;
 const GITHUB_REQUEST_TIMEOUT_MS = 15_000;
 
-async function getGitHubTokenFromGhCli(): Promise<string> {
+// D4. Always name the host: without `--hostname` gh picks its default host
+// (`GH_HOST`, else the single configured one), which need not be this one.
+async function getGitHubTokenFromGhCli(host: string): Promise<string> {
   if (!(await commandExists("gh"))) {
     return "";
   }
   try {
-    return await run("gh", ["auth", "token"], {
+    return await run("gh", ["auth", "token", "--hostname", host], {
       timeout: GH_AUTH_TOKEN_TIMEOUT_MS,
     });
   } catch {
@@ -338,7 +340,7 @@ interface ResolvedGitHubToken {
 }
 
 async function resolveGitHubToken(): Promise<ResolvedGitHubToken> {
-  const ghToken = await getGitHubTokenFromGhCli();
+  const ghToken = await getGitHubTokenFromGhCli("github.com");
   // Never stored: `gh` owns this token and refreshes it, and a copy in git
   // config would outlive it, win over `gh` from then on, and sit in clear.
   if (ghToken) {
