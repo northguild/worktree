@@ -60,3 +60,17 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   repository you may be asked for one" — nothing is prompted off github.com (the paragraph above says so).
 - **The `#github-enterprise` anchor is confirmed by analogy with existing headings, not by a build.**
 - Phase 3's notes on guide paragraph order and the dangling `#github-enterprise` links are resolved here.
+
+## Phase 5 — Pasted Enterprise issue URLs
+
+- **The branch-level host check cannot fire in a real run.** `hostOf(resolved) !== host` in
+  `readGitHubReference` compares two values that both come from `resolveGitHubHost()`; only a mock reaches it.
+  Harmless defence in depth.
+- **`isUrl` in `branch.ts` copies the parser's scheme test.** A drift would parse an Enterprise URL against
+  the github.com default — the refusing direction, but a copy all the same.
+- **No test pins user-info lookalikes on an Enterprise host** (`https://ghe.example.com@evil.test/…`,
+  `https://x@ghe.example.com/…`); both are refused today. A pasted URL with a port is refused too.
+- **No branch-level test of an invalid `github.host` with a pasted URL**; the re-check is tested at
+  `resolveGitHubRepository`, which still runs before any request.
+- Phase 3's note on a pasted github.com URL being read under an Enterprise host is closed by this phase.
+- `skills/worktree/SKILL.md:217` was outside the phase's Files line and was made untrue by it; fixed here.

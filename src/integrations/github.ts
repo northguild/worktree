@@ -354,7 +354,7 @@ export async function resolveGitHubRepository(): Promise<ResolvedGitHubRepositor
   };
 }
 
-function hostOf(repository: ResolvedGitHubRepository): string {
+export function hostOf(repository: ResolvedGitHubRepository): string {
   return repository.host ?? GITHUB_COM;
 }
 
@@ -600,8 +600,15 @@ export interface GitHubIssueReference {
  * parses too, so it reaches the existing pull request refusal. Anything not
  * starting with `http://` or `https://` is handed back untouched for the
  * existing validators (D1); any other URL is refused (D6, D8).
+ *
+ * A URL has to be on `host`, the one `github.host` names (#120 D11), compared
+ * case-insensitively (D6); `www.github.com` also passes for github.com. The
+ * URL's host is only matched, never requested.
  */
-export function parseGitHubIssueReference(input: string): GitHubIssueReference {
+export function parseGitHubIssueReference(
+  input: string,
+  host: string = GITHUB_COM,
+): GitHubIssueReference {
   // A paste can carry surrounding whitespace; a typed id is trimmed later by
   // its own validator, so only the URL test and match see the trimmed value.
   const value = input.trim();
@@ -609,13 +616,16 @@ export function parseGitHubIssueReference(input: string): GitHubIssueReference {
     return { number: input };
   }
 
-  const match =
-    /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?$/i.exec(
-      value.replace(/[?#].*$/s, ""),
-    );
+  const escapedHost = host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hostPattern =
+    host.toLowerCase() === GITHUB_COM ? "(?:www\\.)?github\\.com" : escapedHost;
+  const match = new RegExp(
+    `^https?://${hostPattern}/([^/]+)/([^/]+)/(?:issues|pull)/(\\d+)/?$`,
+    "i",
+  ).exec(value.replace(/[?#].*$/s, ""));
   if (!match) {
     throw new InvalidValueError(
-      `GitHub: expected an issue number or a URL like https://github.com/<owner>/<repo>/issues/<number>, got "${quotablePastedUrl(value)}".`,
+      `GitHub: expected an issue number or a URL like https://${host}/<owner>/<repo>/issues/<number>, got "${quotablePastedUrl(value)}".`,
     );
   }
 

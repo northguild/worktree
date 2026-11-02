@@ -23,6 +23,9 @@ A [non-interactive run](/docs/commands/branch#non-interactive-runs) takes it wit
 A pasted URL must be an issue (or pull request) URL of the repository chosen as described under [Forks](#forks),
 compared ignoring case. A URL for another repository exits `2` with `invalid_value`, naming both and
 `github.repository`, before anything is created; set `github.repository` to that repository, or pass the number.
+The URL's host must be `github.host` (`github.com`, or `www.github.com`, when it is unset), compared ignoring case;
+a URL on any other host exits `2` with `invalid_value` before anything is created, and the URL's host is never
+contacted.
 
 ## Forks
 

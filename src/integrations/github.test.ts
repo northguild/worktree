@@ -1913,6 +1913,68 @@ describe("parseGitHubIssueReference", () => {
     expect(message).toContain(`"${quoted}"`);
     expect(message).not.toMatch(/s3cret|token|abc#|frag|user:/);
   });
+
+  // #120 D11, D6: a pasted URL's host must be the configured one. The shape is
+  // GHES's documented issue URL, `https://<host>/<owner>/<repo>/issues/<n>`
+  // (the same as github.com's with the host swapped); DNS names compare
+  // case-insensitively (RFC 4343).
+  describe("on a GitHub Enterprise host (#120 D11)", () => {
+    const GHE = "ghe.example.com";
+    const repository = { owner: "acme", name: "widgets" };
+
+    it.each([
+      "https://ghe.example.com/acme/widgets/issues/42",
+      "https://GHE.Example.com/acme/widgets/issues/42",
+      "http://ghe.example.com/acme/widgets/pull/42/?x=1#issuecomment-1",
+    ])("reads %s when the host is ghe.example.com", (url) => {
+      expect(parseGitHubIssueReference(url, GHE)).toEqual({
+        number: "42",
+        repository,
+      });
+    });
+
+    it("refuses the same URL when the host is github.com", () => {
+      expect(() =>
+        parseGitHubIssueReference(
+          "https://ghe.example.com/acme/widgets/issues/42",
+        ),
+      ).toThrow(InvalidValueError);
+    });
+
+    it.each([
+      "https://github.com/acme/widgets/issues/42",
+      "https://www.github.com/acme/widgets/issues/42",
+      "https://other.example.com/acme/widgets/issues/42",
+      "https://www.ghe.example.com/acme/widgets/issues/42",
+      "https://ghe.example.com.evil.test/acme/widgets/issues/42",
+    ])("refuses %s when the host is ghe.example.com", (url) => {
+      expect(() => parseGitHubIssueReference(url, GHE)).toThrow(
+        InvalidValueError,
+      );
+    });
+
+    it("names the configured host's shape, without query, fragment or user info", () => {
+      let error: unknown;
+      try {
+        parseGitHubIssueReference(
+          "https://user:s3cret@github.com/acme/widgets/issues/42?token=abc#frag",
+          GHE,
+        );
+      } catch (caught) {
+        error = caught;
+      }
+      const message = (error as Error).message;
+      expect(message).toContain(
+        "https://ghe.example.com/<owner>/<repo>/issues/<number>",
+      );
+      expect(message).toContain('"https://github.com/acme/widgets/issues/42"');
+      expect(message).not.toMatch(/s3cret|token|abc|frag|user:/);
+    });
+
+    it("hands a bare number back untouched", () => {
+      expect(parseGitHubIssueReference("42", GHE)).toEqual({ number: "42" });
+    });
+  });
 });
 
 // #120: `--github` and `--assign` on a configured GitHub Enterprise host. Every

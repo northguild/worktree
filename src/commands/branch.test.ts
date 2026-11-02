@@ -9,6 +9,7 @@ import * as githubIntegration from "../integrations/github.js";
 import * as herdr from "../integrations/herdr.js";
 import * as jiraIntegration from "../integrations/jira.js";
 import * as linearIntegration from "../integrations/linear.js";
+import { run } from "../lib/cli.js";
 import * as gitConfig from "../lib/config.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import * as git from "../lib/git.js";
@@ -6761,6 +6762,98 @@ describe("branch command — issue URLs", () => {
         provider: "github",
         number: 42,
         url: "https://github.com/acme/demo/issues/42",
+      });
+    });
+
+    // #120 D11: on a configured Enterprise host a pasted URL must be on that
+    // host, and its host is never requested. The API base is GHES's
+    // `https://<host>/api/v3` (GHES REST quickstart).
+    describe("with github.host set (#120 D11)", () => {
+      const GHE_URL = "https://ghe.example.com/acme/widgets/issues/42";
+
+      beforeEach(() => {
+        config["github.host"] = "ghe.example.com";
+        resetProjectConfigCache();
+        vi.mocked(githubIntegration.resolveGitHubRepository).mockResolvedValue({
+          owner: "acme",
+          name: "widgets",
+          source: "origin",
+          host: "ghe.example.com",
+        });
+      });
+
+      it("fetches a URL on that host from https://ghe.example.com/api/v3", async () => {
+        vi.mocked(githubIntegration.resolveGitHubRepository).mockRestore();
+        vi.mocked(githubIntegration.fetchGitHubIssue).mockRestore();
+        vi.mocked(run).mockImplementation(async (file, args) => {
+          if (file === "gh") {
+            return "gho_enterprisetoken000000000000000000";
+          }
+          if (args?.join(" ") === "remote get-url origin") {
+            return "git@ghe.example.com:acme/widgets.git";
+          }
+          throw new Error(`error: unexpected ${file} ${args?.join(" ")}`);
+        });
+        const issueResponse = {
+          number: 42,
+          title: "Add dark mode",
+          state: "open",
+          html_url: GHE_URL,
+          user: {
+            login: "octocat",
+            html_url: "https://ghe.example.com/octocat",
+          },
+          labels: [],
+          assignees: [],
+        };
+        const fetchSpy = vi
+          .spyOn(globalThis, "fetch")
+          .mockResolvedValueOnce(new Response("{}", { status: 404 }))
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify(issueResponse), { status: 200 }),
+          );
+
+        const document = await runJson({ github: GHE_URL, assign: false });
+
+        expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([
+          "https://ghe.example.com/api/v3/repos/acme/widgets",
+          "https://ghe.example.com/api/v3/repos/acme/widgets/issues/42",
+        ]);
+        // D8: --json keeps its shape, with the URL the API returned.
+        expect(document.issue).toEqual({
+          provider: "github",
+          number: 42,
+          url: GHE_URL,
+        });
+      });
+
+      it.each([
+        ["github.com", "https://github.com/acme/widgets/issues/42"],
+        ["another host", "https://other.example.com/acme/widgets/issues/42"],
+      ])("refuses a URL on %s with exit 2 before any request", async (_label, url) => {
+        const document = await runJson({ github: url });
+
+        expect(document).toMatchObject({ error: { code: "invalid_value" } });
+        expect((document.error as any).message).toContain(
+          "https://ghe.example.com/<owner>/<repo>/issues/<number>",
+        );
+        expect(process.exitCode).toBe(2);
+        expect(githubIntegration.fetchGitHubIssue).not.toHaveBeenCalled();
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it("refuses a URL whose host is not the host of the repository this run reads", async () => {
+        vi.mocked(githubIntegration.resolveGitHubRepository).mockResolvedValue({
+          owner: "acme",
+          name: "widgets",
+          source: "origin",
+        });
+        const document = await runJson({ github: GHE_URL });
+
+        expect(document).toMatchObject({ error: { code: "invalid_value" } });
+        expect(process.exitCode).toBe(2);
+        expect(githubIntegration.fetchGitHubIssue).not.toHaveBeenCalled();
       });
     });
 
