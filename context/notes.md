@@ -48,3 +48,15 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   Enterprise host is read from that host (never requested) until Phase 5.
 - Phase 1's two notes aimed here are met: Enterprise URL tests pin `fetchGitHub` to `githubApiBaseUrl`, and
   the unparseable-remote message now goes through `redactSecrets`, with a test.
+
+## Phase 4 — Enterprise how-to in the guide, FAQ and skill
+
+- **Node 23 reads as covered for `NODE_USE_SYSTEM_CA` but is not.** The guide says "Node.js 22.19 or 24.6
+  and later"; Node lists it as added in v24.6.0 and v22.19.0 only, and `engines` allows 23.x. Reword as
+  "22.19+ on the 22 line, or 24.6+".
+- **No headless route for `*.ghe.com`.** `GH_ENTERPRISE_TOKEN` is correctly scoped to Server hosts; gh's
+  environment manual says `GH_TOKEN` covers "a subdomain of ghe.com", and the guide does not say so.
+- **A pre-existing guide sentence is untrue on an Enterprise host**: "the first time you assign on such a
+  repository you may be asked for one" — nothing is prompted off github.com (the paragraph above says so).
+- **The `#github-enterprise` anchor is confirmed by analogy with existing headings, not by a build.**
+- Phase 3's notes on guide paragraph order and the dangling `#github-enterprise` links are resolved here.
