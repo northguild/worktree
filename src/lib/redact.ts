@@ -15,3 +15,13 @@ const TOKEN_SHAPES =
 export function redactSecrets(text: string): string {
   return text.replace(URL_CREDENTIALS, "$1***@").replace(TOKEN_SHAPES, "***");
 }
+
+/**
+ * A pasted URL as it may be quoted in a refusal: no query or fragment, which
+ * can hold a token, and no `user:secret@`, which `redactSecrets` masks only
+ * for some shapes (#127 D8). Shared by the `--github`, `--jira` and `--linear`
+ * URL parsers, so a fix to what it strips reaches all three refusals.
+ */
+export function quotablePastedUrl(input: string): string {
+  return input.replace(/[?#].*$/s, "").replace(/^(https?:\/\/)[^/]*@/i, "$1");
+}

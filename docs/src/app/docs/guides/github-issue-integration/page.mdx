@@ -13,11 +13,16 @@ The issue is read from your repository, or from the one it was forked from; see
 ```bash
 worktree branch --github 42
 worktree branch --github "#42"
+worktree branch --github https://github.com/acme/widgets/issues/42
 worktree branch --github 42 --assign
 ```
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
 A [non-interactive run](/docs/commands/branch#non-interactive-runs) takes it without asking.
+
+A pasted URL must be an issue (or pull request) URL of the repository chosen as described under [Forks](#forks),
+compared ignoring case. A URL for another repository exits `2` with `invalid_value`, naming both and
+`github.repository`, before anything is created; set `github.repository` to that repository, or pass the number.
 
 ## Forks
 

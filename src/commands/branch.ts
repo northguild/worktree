@@ -9,17 +9,23 @@ import {
   describeGitHubRepository,
   fetchGitHubIssue,
   getGitHubBranchNaming,
+  parseGitHubIssueReference,
+  resolveGitHubRepository,
 } from "../integrations/github.js";
 import {
   assignJiraIssue,
   getJiraBranchNameFromIssue,
   getJiraBranchNaming,
+  normalizeJiraHost,
+  parseJiraIssueReference,
   startJiraIssue,
 } from "../integrations/jira.js";
 import {
   fetchLinearIssue,
   getLinearBranchNaming,
+  getLinearWorkspace,
   listAssignedLinearIssues,
+  parseLinearIssueReference,
   startLinearIssue,
 } from "../integrations/linear.js";
 import { BaseCommand, readAgentBrief } from "../lib/base-command.js";
@@ -225,16 +231,16 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }),
     github: Flags.string({
       char: "g",
-      description: "Create a branch from a GitHub issue (issue number)",
+      description: "Create a branch from a GitHub issue (issue number or URL)",
     }),
     jira: Flags.string({
       char: "j",
-      description: "Create a branch from a Jira issue (issue ID)",
+      description: "Create a branch from a Jira issue (issue ID or URL)",
     }),
     linear: Flags.string({
       char: "l",
       description:
-        "Create a branch from a Linear issue (issue identifier; omit it to pick one of yours)",
+        "Create a branch from a Linear issue (issue identifier or URL; omit it to pick one of yours)",
     }),
     clickup: Flags.string({
       char: "c",
@@ -602,6 +608,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       const issue = dryRun
         ? await fetchLinearIssue(issueIdFlag, { labelIds: true })
         : await fetchLinearIssue(issueIdFlag);
+      this.confirmPastedLinearWorkspace(issue.url);
       const naming = await getLinearBranchNaming(
         issue,
         (warning) => this.warn(warning),
@@ -616,6 +623,30 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     } catch (error) {
       spinner.fail();
       throw error;
+    }
+  }
+
+  /**
+   * D5: a pasted Linear URL names a workspace that nothing configured can be
+   * compared with, so the fetched issue's own `url` is the first place to check
+   * it. Runs right after the one fetch, before anything is created.
+   */
+  private confirmPastedLinearWorkspace(apiUrl: string | null | undefined) {
+    const pasted = this.pastedLinearWorkspace;
+    if (!pasted) {
+      return;
+    }
+    const actual = getLinearWorkspace(apiUrl);
+    if (!actual) {
+      this.warn(
+        "Linear: could not confirm that the issue is in the workspace the URL names, because the API gave no URL for it.",
+      );
+      return;
+    }
+    if (actual.toLowerCase() !== pasted.toLowerCase()) {
+      throw new InvalidValueError(
+        `Linear: the URL names the workspace "${pasted}", but the issue is in "${actual}". Pass the URL of an issue in the workspace your API key belongs to, or the identifier.`,
+      );
     }
   }
 
@@ -991,6 +1022,62 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     );
   }
 
+  /** The workspace a pasted Linear URL named, kept beside its identifier (D5). */
+  private pastedLinearWorkspace: string | undefined;
+
+  private async normalizeIssueUrls(flags: {
+    github?: string;
+    jira?: string;
+    linear?: string;
+  }): Promise<void> {
+    if (flags.github) {
+      flags.github = await this.readGitHubReference(flags.github);
+    }
+    if (flags.jira) {
+      flags.jira = await this.readJiraReference(flags.jira);
+    }
+    if (flags.linear && flags.linear !== LINEAR_PICK) {
+      const { identifier, workspace } = parseLinearIssueReference(flags.linear);
+      this.pastedLinearWorkspace = workspace;
+      flags.linear = identifier;
+    }
+  }
+
+  /** D3: the URL's repository must be the one every later step reads. */
+  private async readGitHubReference(value: string): Promise<string> {
+    const { number, repository } = parseGitHubIssueReference(value);
+    if (!repository) {
+      return number;
+    }
+    const resolved = await resolveGitHubRepository();
+    const pasted = `${repository.owner}/${repository.name}`;
+    const configured = `${resolved.owner}/${resolved.name}`;
+    if (pasted.toLowerCase() !== configured.toLowerCase()) {
+      throw new InvalidValueError(
+        `GitHub: the URL names ${pasted}, but this run reads ${configured} (${resolved.source}). Set github.repository to ${pasted} to use it, or pass the issue number.`,
+      );
+    }
+    return number;
+  }
+
+  /** D4: the URL's host must be `jira.host`; it is never requested. */
+  private async readJiraReference(value: string): Promise<string> {
+    const { key, host } = parseJiraIssueReference(value);
+    if (!host) {
+      return key;
+    }
+    const configured = normalizeJiraHost(
+      (await getTeamConfigValue("jira.host")) ?? "",
+    );
+    // Unset: the existing missing-value path reports it, and nothing is sent.
+    if (configured && host.toLowerCase() !== configured.toLowerCase()) {
+      throw new InvalidValueError(
+        `Jira: the URL names ${host}, but jira.host is ${configured}. Pass the issue key, or check that the URL is from your Jira site.`,
+      );
+    }
+    return key;
+  }
+
   /** The name for whichever issue flag was given; `undefined` when none was. */
   private async deriveFromIssue(
     flags: {
@@ -1290,6 +1377,9 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         "`worktree config clickup.apiToken <token>`",
       );
     }
+    // D2: from here on `flags.github`, `flags.jira` and `flags.linear` hold what
+    // a typed number, key or identifier holds, so no later reader sees a URL.
+    await this.normalizeIssueUrls(flags);
     // Every later read of `flags.linear` is a real identifier, as if typed (D5).
     if (flags.linear === LINEAR_PICK) {
       flags.linear = await this.pickLinearIssue();

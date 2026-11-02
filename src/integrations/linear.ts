@@ -13,6 +13,7 @@ import {
   renderBranchName,
 } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
+import { quotablePastedUrl } from "../lib/redact.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
 export interface LinearIssue {
@@ -63,6 +64,47 @@ const VIEWER_QUERY = "query { viewer { id } }";
 
 const AUTH_FAILED_MESSAGE =
   "Linear: Authentication failed. Please verify linear.apiKey in your config.";
+
+export interface LinearIssueReference {
+  identifier: string;
+  /** Present only when the input was a URL, which names a workspace. */
+  workspace?: string;
+}
+
+/**
+ * Reads an issue identifier from what `--linear` was given, with or without
+ * the title slug Linear appends to its URLs. Anything not starting with
+ * `http://` or `https://` is handed back untouched for the existing validator
+ * (D1); any other URL is refused (D6, D8).
+ */
+export function parseLinearIssueReference(input: string): LinearIssueReference {
+  // A paste can carry surrounding whitespace; a typed id is trimmed later by
+  // its own validator, so only the URL test and match see the trimmed value.
+  const value = input.trim();
+  if (!/^https?:\/\//i.test(value)) {
+    return { identifier: input };
+  }
+
+  const match =
+    /^https?:\/\/linear\.app\/([^/]+)\/issue\/([A-Za-z][A-Za-z0-9]*-\d+)(?:\/[^/]*)?\/?$/i.exec(
+      value.replace(/[?#].*$/s, ""),
+    );
+  if (!match) {
+    throw new InvalidValueError(
+      `Linear: expected an issue identifier or a URL like https://linear.app/<workspace>/issue/<ID-number>, got "${quotablePastedUrl(value)}".`,
+    );
+  }
+
+  const [, workspace, identifier] = match;
+  return { identifier, workspace };
+}
+
+/** The workspace slug in the `url` the API returns for an issue, if it has one. */
+export function getLinearWorkspace(
+  url: string | null | undefined,
+): string | undefined {
+  return /^https?:\/\/linear\.app\/([^/]+)\//i.exec(url ?? "")?.[1];
+}
 
 // D5: same shape as a Jira key.
 function getIssueIdentifier(issueId: string): string {

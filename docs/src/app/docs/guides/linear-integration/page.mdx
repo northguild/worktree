@@ -12,11 +12,14 @@ title: Linear Issue Integration
 worktree branch --linear ENG-123
 worktree branch --linear eng-123
 worktree branch -l ENG-123
+worktree branch --linear https://linear.app/acme/issue/ENG-123/fix-login
 worktree branch --linear
 ```
 
 Pass the issue identifier, the team key and number Linear shows on the issue (`ENG-123`). It is accepted in any
-case. A pasted issue URL is not accepted.
+case. A pasted issue URL, `https://linear.app/<workspace>/issue/ENG-123` with or without the title slug, is accepted
+too; the workspace in it must be the one the issue is in, or the run exits `2` with `invalid_value` before anything is
+created. If Linear returns no URL for the issue, the workspace cannot be confirmed and the run warns and carries on.
 
 Leave the identifier out (`worktree branch --linear`, with nothing after it or only another flag) and `worktree`
 lists your own unstarted and started issues, each as identifier, title and state name, and asks you to pick one.

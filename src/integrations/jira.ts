@@ -13,6 +13,7 @@ import {
   renderBranchName,
 } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
+import { quotablePastedUrl } from "../lib/redact.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
 interface JiraCredentials {
@@ -58,11 +59,45 @@ export function isJiraIssue(response: unknown): response is JiraIssue {
   );
 }
 
-function normalizeJiraHost(host: string): string {
+export function normalizeJiraHost(host: string): string {
   return host
     .trim()
     .replace(/^https?:\/\//i, "")
     .replace(/\/+$/, "");
+}
+
+export interface JiraIssueReference {
+  key: string;
+  /** Present only when the input was a URL, which names a site. */
+  host?: string;
+}
+
+/**
+ * Reads an issue key from what `--jira` was given. Anything not starting with
+ * `http://` or `https://` is handed back untouched for the existing validator
+ * (D1); any other URL is refused (D6, D8). The host is only reported: the
+ * caller compares it with `jira.host` and never requests it.
+ */
+export function parseJiraIssueReference(input: string): JiraIssueReference {
+  // A paste can carry surrounding whitespace; a typed id is trimmed later by
+  // its own validator, so only the URL test and match see the trimmed value.
+  const value = input.trim();
+  if (!/^https?:\/\//i.test(value)) {
+    return { key: input };
+  }
+
+  const match =
+    /^https?:\/\/([^/@]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)\/?$/i.exec(
+      value.replace(/[?#].*$/s, ""),
+    );
+  if (!match) {
+    throw new InvalidValueError(
+      `Jira: expected an issue key or a URL like https://<host>/browse/<KEY-number>, got "${quotablePastedUrl(value)}".`,
+    );
+  }
+
+  const [, host, key] = match;
+  return { key, host };
 }
 
 function getIssueKey(issueId: string): string {

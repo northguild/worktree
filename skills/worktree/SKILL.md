@@ -212,7 +212,7 @@ live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) 
 (`fix/DEV-123-fix-login`).
 
 **Issue content is used for the branch name and nothing else, with one exception: the Linear menu.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
-`--jira`, `--linear` and `--clickup` read the issue's number or key, its title (Jira:
+`--jira`, `--linear` and `--clickup` read the issue's number or key (`--github`, `--jira` and `--linear` also accept a pasted issue URL, refused with exit `2` if it names another repository, Jira site or Linear workspace), its title (Jira:
 summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
 workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--jira` with a start also reads the issue's status and the transitions Jira offers from it (never the description or comments); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
