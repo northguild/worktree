@@ -11,9 +11,14 @@ title: Jira Issue Integration
 ```bash
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
+worktree branch --jira https://company.atlassian.net/browse/DEV-123
 ```
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
+
+A pasted URL must be an issue's `/browse/<KEY>` URL on your `jira.host`, compared ignoring case. A URL on another
+host exits `2` with `invalid_value`, naming both hosts, and that host is never contacted, so your credentials only
+go to `jira.host`. Pass the key, or check that the URL is from your Jira site.
 
 ## How Branch Names Are Built
 

@@ -73,7 +73,12 @@ repository named by `github.repository`, else the `upstream` remote when it poin
 fork that means the original's issues, and the output names the repository whenever it is not `origin`'s. See
 [Forks](/docs/guides/github-issue-integration#forks).
 
-- The issue number can be passed as `42` or `"#42"`.
+- The issue number can be passed as `42` or `"#42"`, or as the issue's URL, `https://github.com/<owner>/<repo>/issues/42`
+  (`www.github.com` works too, and a pull request's `/pull/42` URL reaches the pull request refusal below). A
+  trailing slash, query string and fragment such as `#issuecomment-1` are ignored. The URL's repository must be
+  the one this run reads, compared ignoring case; otherwise the run exits `2` with `invalid_value`, naming both
+  repositories and pointing at `github.repository`, before the issue is fetched or anything is created. Any other URL is refused
+  the same way.
 - A pull request number is refused as a usage error, since the pull request already has a branch. The message names
   `worktree checkout <head-branch>` when that branch is on `origin` and its name is only letters, digits,
   `_`, `.`, `/` and `-`; otherwise, a fork's or `upstream`'s branch included, it says to run `worktree checkout` and pick one.
@@ -261,7 +266,11 @@ anything is opened or any agent is started, so neither lands in a tree without t
 
 Use the `--jira` flag to create a suggested branch name from an issue in your Jira workspace.
 
-- The issue ID can be passed in any case (`dev-123`, `DEV-123`, etc.).
+- The issue ID can be passed in any case (`dev-123`, `DEV-123`, etc.), or as the issue's URL,
+  `https://<host>/browse/DEV-123`. A trailing slash, query string and fragment are ignored. The URL's host must be
+  your `jira.host`, compared ignoring case; otherwise the run exits `2` with `invalid_value` naming both hosts, and
+  the URL's host is never contacted, so your credentials are only ever sent to `jira.host`. Pass the key, or check that
+  the URL is from your Jira site. Any other URL is refused the same way.
 - The generated name is pre-filled in the prompt and still editable.
 - If issue types are configured in the repository, these optional prefixes are applied:
 	- `branchPrefix.feature` for issue types like `Feature`, `Story`, and most non-bug/chore types
@@ -284,7 +293,12 @@ Jira authentication requires three configuration keys:
 Use the `--linear` flag (short: `-l`) to create a suggested branch name from an issue in your Linear workspace. It
 cannot be combined with `--github`, `--jira` or `--clickup`. See the [Linear guide](/docs/guides/linear-integration).
 
-- The issue identifier can be passed in any case (`eng-123`, `ENG-123`, etc.).
+- The issue identifier can be passed in any case (`eng-123`, `ENG-123`, etc.), or as the issue's URL,
+  `https://linear.app/<workspace>/issue/ENG-123`, with or without the title slug Linear appends. A trailing slash,
+  query string and fragment are ignored. The URL's workspace is checked against the workspace of the issue Linear
+  returns, ignoring case, after the one fetch and before anything is created; another workspace exits `2` with
+  `invalid_value`. When Linear returns no URL for the issue, the workspace cannot be confirmed, so the run warns and
+  carries on. Any other URL is refused the same way.
 - With no identifier (`worktree branch --linear`), a menu lists your own unstarted and started issues, each as identifier, title and state name, and the one you pick is used exactly as if you had typed it. Only one page of up to 50 is fetched; when more match, the prompt says so and names the way out, which is to quit and pass the identifier. If none is assigned to you the command exits `1` and says to pass an identifier. See [Picking an issue](#picking-a-linear-issue).
 - The generated name is pre-filled in the prompt and still editable.
 - Linear has no issue type, so the issue's labels pick the optional prefix, by exact name and ignoring case:
@@ -598,7 +612,7 @@ describing it goes to stderr as usual:
 | `code` | Means | Exit |
 | --- | --- | --- |
 | `missing_value` | a value with no default was not given, such as `--linear` with no identifier in a run that cannot ask or with `--dry-run`; `details` names it and the flag | `2` |
-| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github` number that is a pull request, a branch name that is already taken | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github`, `--jira` or `--linear` URL for another repository, Jira site or Linear workspace or of a shape not accepted, a `--github` number that is a pull request, a branch name that is already taken | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |
 | `failed` | anything else | `1` |

@@ -28,3 +28,13 @@ Branch-local, advisory. `/feature-close` deletes this file.
   rather than a passed value.
 - The coder wrote the implementation before the tests; the four expectations it then corrected all trace to
   the docs or to tests on main.
+
+## From Phase 3 (Gate 2, FAIL → loopback 1 → PASS WITH NOTES)
+
+- `branch/page.mdx` Linear section says "after the one fetch", which the page's step 1 and `branch.ts`'s comment
+  use for `git fetch`; "after the issue is fetched" would be unambiguous.
+- `skills/worktree/SKILL.md` says a Linear URL for another workspace is refused, but not that the run only warns
+  when Linear's API returns no `url`.
+- The GitHub bullet in `branch/page.mdx` is long and its line 80 overruns the surrounding wrap width; cosmetic.
+- The changeset the plan put in Phase 3 is owed at `/feature-close` (release.md: once per feature), `minor`,
+  covering `src/**` and `skills/**`.
