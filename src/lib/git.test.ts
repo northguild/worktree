@@ -674,6 +674,7 @@ describe("gitNukeWorktreeCmd", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
     expectCommands(
       `git worktree remove ${worktreePath}`,
       `git worktree remove ${worktreePath} --force`,
@@ -682,19 +683,36 @@ describe("gitNukeWorktreeCmd", () => {
     );
   });
 
-  it("removes, prunes and deletes the branch in that order", async () => {
+  // A prune here would also drop the record of every other worktree whose
+  // directory is gone, and the next `remove` in a cleanup run would fail on it
+  // (#214).
+  it("removes and deletes the branch in that order, without a prune", async () => {
     const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
 
     await gitNukeWorktreeCmd(target);
 
-    expect(runSpy).toHaveBeenCalledTimes(3);
+    expect(runSpy).toHaveBeenCalledTimes(2);
     expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
       "worktree",
       "remove",
       worktreePath,
     ]);
-    expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["worktree", "prune"]);
-    expect(runSpy).toHaveBeenNthCalledWith(3, "git", [
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
+      "branch",
+      "-D",
+      branchName,
+    ]);
+  });
+
+  it("prunes instead of removing when the directory is already gone, then deletes the branch", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitNukeWorktreeCmd(target);
+
+    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["worktree", "prune"]);
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
       "branch",
       "-D",
       branchName,
@@ -706,7 +724,7 @@ describe("gitNukeWorktreeCmd", () => {
 
     await gitNukeWorktreeCmd(target, { force: true });
 
-    expect(runSpy).toHaveBeenCalledTimes(3);
+    expect(runSpy).toHaveBeenCalledTimes(2);
     expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
       "worktree",
       "remove",
@@ -716,8 +734,8 @@ describe("gitNukeWorktreeCmd", () => {
   });
 
   // The sequential awaits stand in for the `&&` chain, so a failing remove has
-  // to stop the sequence rather than prune and delete the branch anyway.
-  it("does not prune or delete the branch when the remove fails", async () => {
+  // to stop the sequence rather than delete the branch anyway.
+  it("does not delete the branch when the remove fails", async () => {
     const runSpy = vi
       .spyOn(cli, "run")
       .mockRejectedValueOnce(new Error("Command failed: git worktree remove"));
@@ -729,23 +747,22 @@ describe("gitNukeWorktreeCmd", () => {
     expect(runSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("does not delete the branch when the prune fails", async () => {
+  it("does not delete the branch when the prune of a gone directory fails", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
     const runSpy = vi
       .spyOn(cli, "run")
-      .mockResolvedValueOnce("")
       .mockRejectedValueOnce(new Error("Command failed: git worktree prune"));
 
     await expect(gitNukeWorktreeCmd(target)).rejects.toThrow(
       "Command failed: git worktree prune",
     );
 
-    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenCalledTimes(1);
   });
 
   it("rejects when the branch delete fails", async () => {
     const runSpy = vi
       .spyOn(cli, "run")
-      .mockResolvedValueOnce("")
       .mockResolvedValueOnce("")
       .mockRejectedValueOnce(new Error("Command failed: git branch -D"));
 
@@ -753,12 +770,13 @@ describe("gitNukeWorktreeCmd", () => {
       "Command failed: git branch -D",
     );
 
-    expect(runSpy).toHaveBeenCalledTimes(3);
+    expect(runSpy).toHaveBeenCalledTimes(2);
   });
 });
 
 describe("gitNukeWorktreeCmd for a detached worktree", () => {
-  it("removes and prunes but runs no git branch -D, since no branch exists", async () => {
+  it("removes but runs no git branch -D, since no branch exists", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
     const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
 
     await gitNukeWorktreeCmd(
@@ -766,14 +784,13 @@ describe("gitNukeWorktreeCmd for a detached worktree", () => {
       { force: true },
     );
 
-    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenCalledTimes(1);
     expect(runSpy).toHaveBeenNthCalledWith(1, "git", [
       "worktree",
       "remove",
       "/repo/project.worktrees/d1",
       "--force",
     ]);
-    expect(runSpy).toHaveBeenNthCalledWith(2, "git", ["worktree", "prune"]);
   });
 });
 
@@ -2326,21 +2343,18 @@ describe("what the removal helpers report", () => {
     // A failed branch delete is the last command, and the only thing between it
     // and the message that says the worktree was removed.
     it("throws, and does not say it was removed, when the branch delete failed", async () => {
-      mockRun
-        .mockResolvedValueOnce("")
-        .mockResolvedValueOnce("")
-        .mockRejectedValueOnce(
-          Object.assign(new Error("Command failed: git branch -D"), {
-            stderr: `error: cannot delete branch '${branchName}' used by worktree\n`,
-          }),
-        );
+      mockRun.mockResolvedValueOnce("").mockRejectedValueOnce(
+        Object.assign(new Error("Command failed: git branch -D"), {
+          stderr: `error: cannot delete branch '${branchName}' used by worktree\n`,
+        }),
+      );
 
       await expect(
         gitNukeWorktree({ branchName, path: onePath }),
       ).rejects.toThrow(
         `Could not remove the worktree ${branchName}: error: cannot delete branch '${branchName}' used by worktree`,
       );
-      expect(mockRun).toHaveBeenCalledTimes(3);
+      expect(mockRun).toHaveBeenCalledTimes(2);
       // Any `succeed`, whatever its text, would claim the removal went through.
       expect(spinnerMocks.succeed).not.toHaveBeenCalled();
       expect(spinnerMocks.stop).toHaveBeenCalled();
@@ -2437,6 +2451,27 @@ describe("what the removal helpers report", () => {
       );
     });
 
+    // #214: a prune after the first removal used to drop git's record of the
+    // second, whose directory was already gone, and its `remove` then failed
+    // with "is not a working tree" — the branch survived and the run stopped.
+    it("gets past a worktree whose directory is already gone, deleting its branch", async () => {
+      vi.spyOn(fs, "existsSync").mockImplementation(
+        (candidate) => candidate !== twoPath,
+      );
+      mockRun.mockResolvedValue("");
+
+      await expect(
+        gitRemoveWorktreesWithProgress([entry(), two]),
+      ).resolves.toEqual([entry(), two]);
+
+      expect(mockRun.mock.calls.map(([, args]) => args)).toEqual([
+        ["worktree", "remove", onePath, "--force"],
+        ["branch", "-D", branchName],
+        ["worktree", "prune"],
+        ["branch", "-D", "feature/two"],
+      ]);
+    });
+
     it("answers with the entries it got through", async () => {
       mockRun.mockResolvedValue("");
 
@@ -2490,8 +2525,8 @@ describe("what the removal helpers report", () => {
     // the time the second throws — and it is lost with the exception rather
     // than returned. Throwing on the first entry alone would not show this.
     it("loses the entries it had already removed when a later one throws", async () => {
+      // Two commands per worktree: remove, then branch -D.
       mockRun
-        .mockResolvedValueOnce("")
         .mockResolvedValueOnce("")
         .mockResolvedValueOnce("")
         .mockRejectedValue(new Error("Command failed: git worktree remove"));

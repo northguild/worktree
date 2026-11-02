@@ -650,9 +650,9 @@ describe("remove command — the herdr closer", () => {
 
     it("reads the listing before the removal, never after", async () => {
       // D2, and the single most load-bearing ordering in the feature: the
-      // removal runs `git worktree prune`, which takes the entry out of Herdr's
-      // listing too. Resolve afterwards and the map comes back empty — every
-      // space orphaned, with nothing said about it.
+      // removal drops git's record of the worktree, which takes the entry out
+      // of Herdr's listing too. Resolve afterwards and the map comes back
+      // empty — every space orphaned, with nothing said about it.
       removalAnswers(safeWorktree);
       parseAs({ branchName: "feature/safe" });
 

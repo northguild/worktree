@@ -847,12 +847,30 @@ interface GitNukeWorktreeCmdOptions {
 // like the branch, or branches `demo` and `x/demo`) the match is ambiguous and
 // git falls back to a path relative to the cwd and fails. Only `git branch -D`
 // takes the branch name, and a detached worktree has none to delete.
+//
+// There is no prune after a successful remove: `remove` deletes the worktree's
+// own record, and a prune there would also drop the record of every other
+// worktree whose directory is already gone. The next one in a cleanup run
+// would then fail its `remove` with "is not a working tree" and keep its branch
+// (#214). A worktree whose directory is already gone is pruned instead.
 export async function gitNukeWorktreeCmd(
   { branchName, path }: WorktreeTarget,
   { force = false }: GitNukeWorktreeCmdOptions = {},
 ) {
-  await run("git", ["worktree", "remove", path, ...(force ? ["--force"] : [])]);
-  await run("git", ["worktree", "prune"]);
+  if (fs.existsSync(path)) {
+    await run("git", [
+      "worktree",
+      "remove",
+      path,
+      ...(force ? ["--force"] : []),
+    ]);
+  } else {
+    // The directory is already gone, and an earlier prune in the same run may
+    // already have dropped git's record of it, in which case `remove` refuses
+    // with "is not a working tree". Pruning drops the record either way, which
+    // is what frees the branch for the delete below.
+    await run("git", ["worktree", "prune"]);
+  }
   if (branchName !== DETACHED_LABEL) {
     await run("git", ["branch", "-D", branchName]);
   }

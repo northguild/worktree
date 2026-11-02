@@ -1785,9 +1785,9 @@ describe("cleanup command — the herdr closer", () => {
   });
 
   it("reads the listing before the removal, never after", async () => {
-    // D2. The removal runs `git worktree prune`, which takes these entries out
-    // of Herdr's listing — resolve afterwards and every space is orphaned with
-    // nothing said about it.
+    // D2. The removal drops git's record of each worktree, which takes these
+    // entries out of Herdr's listing — resolve afterwards and every space is
+    // orphaned with nothing said about it.
     await cleanup.run();
 
     expect(calls).toEqual(["list", "remove"]);
