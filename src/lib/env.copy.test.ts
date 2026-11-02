@@ -157,3 +157,27 @@ describe("copyEnvFilesFromRootPath — a gitignored nested repository, against a
     expect(fs.existsSync(path.join(destination, "plain"))).toBe(false);
   });
 });
+
+// #206: git lists a gitignored symlink to a directory bare, with no trailing
+// `/`, so only the filesystem can tell it from a file. Expected values follow
+// what copyFileSync can copy: a link to a file arrives as that file's content,
+// while a link to a directory or to nothing is skipped without stopping the
+// entries after it.
+describe("copyEnvFilesFromRootPath — gitignored symlinks, against a real repository", () => {
+  it("copies a link to a file and the files after a directory link, and skips a link to nothing", async () => {
+    write(repo, ".gitignore", ".env*\n");
+    fs.mkdirSync(path.join(repo, "d"));
+    write(repo, ".env.real", "A=1");
+    fs.symlinkSync("d", path.join(repo, ".env.a-dirlink"));
+    fs.symlinkSync("nowhere", path.join(repo, ".env.b-dangling"));
+    fs.symlinkSync(".env.real", path.join(repo, ".env.c-filelink"));
+
+    const copied = await copyEnvFilesFromRootPath(destination);
+
+    expect(copied).toEqual([".env.c-filelink", ".env.real"]);
+    expect(
+      fs.readFileSync(path.join(destination, ".env.c-filelink"), "utf8"),
+    ).toBe("A=1");
+    expect(fs.existsSync(path.join(destination, ".env.a-dirlink"))).toBe(false);
+  });
+});

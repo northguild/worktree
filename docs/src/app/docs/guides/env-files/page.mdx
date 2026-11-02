@@ -106,3 +106,7 @@ file named under `copy`.
 
 If the command printed output, the file is ignored, but it is still left behind when it sits inside a nested
 git repository, as described under [What Gets Copied](#what-gets-copied). Copy it by hand.
+
+A symlink is copied as the file it points at, so the new worktree gets a plain file with the same content.
+A symlink that points at a directory, or at nothing, is skipped and not listed; the files after it are still
+copied.

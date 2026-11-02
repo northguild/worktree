@@ -49,6 +49,7 @@ function mockGitResponses(listing: string) {
 let copyFileSync: ReturnType<typeof vi.spyOn>;
 let mkdirSync: ReturnType<typeof vi.spyOn>;
 let log: ReturnType<typeof vi.spyOn>;
+let statSync: ReturnType<typeof vi.spyOn>;
 
 // The printed list is the feature here, so it is captured rather than silenced:
 // vitest.config.ts pins FORCE_COLOR=0, which is what makes these assertions
@@ -60,6 +61,11 @@ function loggedLines(): string[] {
 beforeEach(() => {
   copyFileSync = vi.spyOn(fs, "copyFileSync").mockImplementation(() => {});
   mkdirSync = vi.spyOn(fs, "mkdirSync").mockImplementation(() => undefined);
+  // Every listed path is a regular file unless a test says otherwise; none of
+  // them exists on disk.
+  statSync = vi
+    .spyOn(fs, "statSync")
+    .mockImplementation(() => ({ isFile: () => true }) as fs.Stats);
   log = vi.spyOn(console, "log").mockImplementation(() => {});
   expectCommands(
     "git rev-parse --show-toplevel",
@@ -203,6 +209,51 @@ describe("copyEnvFilesFromRootPath", () => {
       ["/repo/docs/.env.local", `${worktreePath}/docs/.env.local`],
       ["/repo/docs/worker/.dev.vars", `${worktreePath}/docs/worker/.dev.vars`],
     ]);
+  });
+
+  it("skips a symlink to a directory, a link to nothing and a link loop, and copies the entries after them", async () => {
+    mockGitResponses(
+      nulTerminated(".env.dirlink", ".env.dangling", ".env.loop", ".env.real"),
+    );
+    statSync.mockImplementation(((filePath: string) => {
+      if (filePath === "/repo/.env.dangling") {
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      }
+      if (filePath === "/repo/.env.loop") {
+        throw Object.assign(new Error("ELOOP"), { code: "ELOOP" });
+      }
+      return { isFile: () => filePath !== "/repo/.env.dirlink" };
+    }) as typeof fs.statSync);
+
+    const copied = await copyEnvFilesFromRootPath(worktreePath);
+
+    expect(copied).toEqual([".env.real"]);
+    expect(copyFileSync.mock.calls).toEqual([
+      ["/repo/.env.real", `${worktreePath}/.env.real`],
+    ]);
+    expect(loggedLines()[0]).toBe("Copying 1 env file from /repo:");
+  });
+
+  // Only a link to nothing or a loop is skipped. Any other stat error must not
+  // make the file vanish from the list: the path is kept, and the copy fails
+  // on it with the message that names it.
+  it("keeps a path whose stat fails for another reason, so the copy names it", async () => {
+    mockGitResponses(nulTerminated(".env.locked"));
+    statSync.mockImplementation((() => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    }) as typeof fs.statSync);
+    copyFileSync.mockImplementation(() => {
+      throw new Error("EACCES: permission denied");
+    });
+
+    const thrown = await copyEnvFilesFromRootPath(worktreePath).then(
+      () => undefined,
+      (error: Error) => error,
+    );
+
+    expect(thrown?.message).toBe(
+      `Could not copy .env.locked into the new worktree at ${worktreePath}. The worktree was created — copy the file across by hand.`,
+    );
   });
 
   it("creates the destination directory first, so a wholly ignored directory does not throw ENOENT", async () => {
