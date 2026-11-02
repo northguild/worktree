@@ -13,6 +13,7 @@ import {
   renderBranchName,
 } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
+import { quotablePastedUrl } from "../lib/redact.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 
 interface JiraCredentials {
@@ -65,15 +66,6 @@ export function normalizeJiraHost(host: string): string {
     .replace(/\/+$/, "");
 }
 
-/**
- * A pasted URL as it may be quoted in a refusal: no query or fragment, which
- * can hold a token, and no `user:secret@`, which `lib/redact.ts` masks only
- * for some shapes (D8).
- */
-function quotablePastedUrl(input: string): string {
-  return input.replace(/[?#].*$/s, "").replace(/^(https?:\/\/)[^/]*@/i, "$1");
-}
-
 export interface JiraIssueReference {
   key: string;
   /** Present only when the input was a URL, which names a site. */
@@ -87,17 +79,20 @@ export interface JiraIssueReference {
  * caller compares it with `jira.host` and never requests it.
  */
 export function parseJiraIssueReference(input: string): JiraIssueReference {
-  if (!/^https?:\/\//i.test(input)) {
+  // A paste can carry surrounding whitespace; a typed id is trimmed later by
+  // its own validator, so only the URL test and match see the trimmed value.
+  const value = input.trim();
+  if (!/^https?:\/\//i.test(value)) {
     return { key: input };
   }
 
   const match =
     /^https?:\/\/([^/@]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)\/?$/i.exec(
-      input.replace(/[?#].*$/s, ""),
+      value.replace(/[?#].*$/s, ""),
     );
   if (!match) {
     throw new InvalidValueError(
-      `Jira: expected an issue key or a URL like https://<host>/browse/<KEY-number>, got "${quotablePastedUrl(input)}".`,
+      `Jira: expected an issue key or a URL like https://<host>/browse/<KEY-number>, got "${quotablePastedUrl(value)}".`,
     );
   }
 

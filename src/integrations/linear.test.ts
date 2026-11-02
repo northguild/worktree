@@ -1938,6 +1938,19 @@ describe("parseLinearIssueReference", () => {
     });
   });
 
+  // A pasted value often brings a space or newline with it; a typed
+  // identifier already tolerates that through its own trim.
+  it.each([
+    " https://linear.app/acme/issue/ENG-123/add-dark-mode",
+    "https://linear.app/acme/issue/ENG-123 ",
+    "\thttps://linear.app/acme/issue/ENG-123\n",
+  ])("reads %j despite the surrounding whitespace", (url) => {
+    expect(parseLinearIssueReference(url)).toEqual({
+      identifier: "ENG-123",
+      workspace: "acme",
+    });
+  });
+
   it.each([
     "ENG-123",
     "eng-123",

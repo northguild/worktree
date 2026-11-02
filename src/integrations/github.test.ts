@@ -1747,6 +1747,19 @@ describe("parseGitHubIssueReference", () => {
     });
   });
 
+  // A pasted value often brings a space or newline with it; a typed number
+  // already tolerates that through its own trim.
+  it.each([
+    " https://github.com/acme/demo/issues/42",
+    "https://github.com/acme/demo/issues/42 ",
+    "\thttps://github.com/acme/demo/issues/42\n",
+  ])("reads %j despite the surrounding whitespace", (url) => {
+    expect(parseGitHubIssueReference(url)).toEqual({
+      number: "42",
+      repository: { owner: "acme", name: "demo" },
+    });
+  });
+
   it.each([
     "42",
     "#42",

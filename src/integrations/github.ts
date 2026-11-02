@@ -15,6 +15,7 @@ import {
   renderBranchName,
 } from "../lib/project-config.js";
 import { askInput, assertCanPrompt, InvalidValueError } from "../lib/prompt.js";
+import { quotablePastedUrl } from "../lib/redact.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 import { isValidGitHubRepository } from "../lib/validators.js";
 
@@ -400,15 +401,6 @@ async function requireGitHubToken(): Promise<ResolvedGitHubToken> {
   return resolveGitHubToken();
 }
 
-/**
- * A pasted URL as it may be quoted in a refusal: no query or fragment, which
- * can hold a token, and no `user:secret@`, which `lib/redact.ts` masks only
- * for some shapes (D8).
- */
-function quotablePastedUrl(input: string): string {
-  return input.replace(/[?#].*$/s, "").replace(/^(https?:\/\/)[^/]*@/i, "$1");
-}
-
 export interface GitHubIssueReference {
   number: string;
   /** Present only when the input was a URL, which names a repository. */
@@ -422,17 +414,20 @@ export interface GitHubIssueReference {
  * existing validators (D1); any other URL is refused (D6, D8).
  */
 export function parseGitHubIssueReference(input: string): GitHubIssueReference {
-  if (!/^https?:\/\//i.test(input)) {
+  // A paste can carry surrounding whitespace; a typed id is trimmed later by
+  // its own validator, so only the URL test and match see the trimmed value.
+  const value = input.trim();
+  if (!/^https?:\/\//i.test(value)) {
     return { number: input };
   }
 
   const match =
     /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/(?:issues|pull)\/(\d+)\/?$/i.exec(
-      input.replace(/[?#].*$/s, ""),
+      value.replace(/[?#].*$/s, ""),
     );
   if (!match) {
     throw new InvalidValueError(
-      `GitHub: expected an issue number or a URL like https://github.com/<owner>/<repo>/issues/<number>, got "${quotablePastedUrl(input)}".`,
+      `GitHub: expected an issue number or a URL like https://github.com/<owner>/<repo>/issues/<number>, got "${quotablePastedUrl(value)}".`,
     );
   }
 

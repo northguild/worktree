@@ -1,4 +1,4 @@
-import { redactSecrets } from "./redact.js";
+import { quotablePastedUrl, redactSecrets } from "./redact.js";
 
 describe("redactSecrets", () => {
   // D10: Linear personal API keys have the shape `lin_api_` + token.
@@ -42,5 +42,24 @@ describe("redactSecrets", () => {
     expect(redactSecrets("Linear: Unable to find issue ENG-1.")).toBe(
       "Linear: Unable to find issue ENG-1.",
     );
+  });
+});
+
+describe("quotablePastedUrl", () => {
+  // #127 D8: a refusal may quote a pasted URL, but never the parts that can
+  // carry a secret: RFC 3986 userinfo, query and fragment.
+  it.each([
+    [
+      "https://github.com/acme/demo/commits/main?token=s3cret#frag",
+      "https://github.com/acme/demo/commits/main",
+    ],
+    [
+      "https://user:s3cret@acme.atlassian.net/browse/DEV-1",
+      "https://acme.atlassian.net/browse/DEV-1",
+    ],
+    ["http://tok@linear.app/acme#x", "http://linear.app/acme"],
+    ["https://linear.app/acme/issue", "https://linear.app/acme/issue"],
+  ])("quotes %s as %s", (input, quoted) => {
+    expect(quotablePastedUrl(input)).toBe(quoted);
   });
 });

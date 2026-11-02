@@ -2114,6 +2114,19 @@ describe("parseJiraIssueReference", () => {
     });
   });
 
+  // A pasted value often brings a space or newline with it; a typed key
+  // already tolerates that through its own trim.
+  it.each([
+    " https://acme.atlassian.net/browse/DEV-1",
+    "https://acme.atlassian.net/browse/DEV-1 ",
+    "\thttps://acme.atlassian.net/browse/DEV-1\n",
+  ])("reads %j despite the surrounding whitespace", (url) => {
+    expect(parseJiraIssueReference(url)).toEqual({
+      key: "DEV-1",
+      host: "acme.atlassian.net",
+    });
+  });
+
   it.each([
     "DEV-123",
     "dev-123",
