@@ -16,7 +16,9 @@ import {
   type GitHubIssueTypeApiResponse,
   getGitHubBranchNameFromIssue,
   getGitHubBranchNaming,
+  githubApiBaseUrl,
   parseGitHubIssueReference,
+  parseGitHubRemote,
   parseGitHubRepositoryFromRemote,
 } from "./github.js";
 
@@ -135,6 +137,109 @@ describe("GitHub integration", () => {
       parseGitHubRepositoryFromRemote("git@gitlab.com:northguild/worktree.git"),
     ).toThrow(
       'GitHub: Unable to determine the current repository from origin remote "git@gitlab.com:northguild/worktree.git".',
+    );
+  });
+
+  // Forms and sources are the plan's §8 table: git-clone "GIT URLS"
+  // (https://git-scm.com/docs/git-clone#_git_urls), GitHub's "Using SSH over
+  // the HTTPS port" (ssh.github.com is github.com), RFC 4343 (host names are
+  // case insensitive). Port ignored is D6.
+  it.each([
+    "ssh://git@ssh.github.com:443/acme/widgets.git",
+    "ssh://git@github.com/acme/widgets.git",
+    "git@GitHub.com:acme/widgets",
+    "https://user@github.com/acme/widgets.git",
+    "git://github.com/acme/widgets.git",
+    "  https://GITHUB.com/acme/widgets/\n",
+  ])("reads %j as github.com acme/widgets", (remoteUrl) => {
+    expect(parseGitHubRemote(remoteUrl)).toEqual({
+      host: "github.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  it.each([
+    "git@ghe.example.com:acme/widgets.git",
+    "https://ghe.example.com:8443/acme/widgets",
+    "ssh://git@ghe.example.com:2222/acme/widgets.git",
+    "git@Ghe.Example.com:/acme/widgets",
+  ])("reads %j as host ghe.example.com", (remoteUrl) => {
+    expect(parseGitHubRemote(remoteUrl)).toEqual({
+      host: "ghe.example.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  it.each([
+    // The old regex read these as github.com; the host must match exactly.
+    "https://notgithub.com/acme/widgets",
+    "https://github.com.evil.test/acme/widgets",
+    "https://evilgithub.com/acme/widgets",
+  ])("does not read %j as a github.com remote", (remoteUrl) => {
+    expect(parseGitHubRemote(remoteUrl)?.host).not.toBe("github.com");
+  });
+
+  it("keeps the host of a non-GitHub remote, leaving the decision to the caller", () => {
+    expect(parseGitHubRemote("git@gitlab.com:acme/widgets.git")).toEqual({
+      host: "gitlab.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  // Owner and name follow isValidGitHubRepository, so `..` (a path segment) and
+  // `a--b` (consecutive dashes in an owner) are not GitHub remotes.
+  it.each([
+    "https://github.com/../widgets",
+    "https://github.com/acme/..",
+    "git@github.com:a--b/widgets.git",
+    "git@github.com:acme/widgets.git.git",
+    "https://github.com/acme/widgets/extra",
+    "https://github.com/acme",
+    "https://github.com//widgets",
+    "git@github.com:acme",
+    "/home/me/acme/widgets",
+    "ftp://github.com/acme/widgets",
+    "",
+  ])("finds no repository in %j", (remoteUrl) => {
+    expect(parseGitHubRemote(remoteUrl)).toBeUndefined();
+  });
+
+  it.each([
+    "https://notgithub.com/acme/widgets",
+    "git@ghe.example.com:acme/widgets.git",
+    "https://github.com/../widgets",
+  ])("keeps the github.com-only parser throwing for %j", (remoteUrl) => {
+    expect(() => parseGitHubRepositoryFromRemote(remoteUrl)).toThrow(
+      `GitHub: Unable to determine the current repository from origin remote "${remoteUrl}".`,
+    );
+  });
+
+  it("returns owner and name only from the github.com-only parser", () => {
+    expect(
+      parseGitHubRepositoryFromRemote("ssh://git@ssh.github.com:443/a/b.git"),
+    ).toEqual({ owner: "a", name: "b" });
+  });
+
+  // §8: github.com is https://api.github.com (GitHub REST "Getting started");
+  // GHES is https://<host>/api/v3 (GHES REST quickstart); a *.ghe.com host is
+  // https://api.<host> (data residency docs). The scheme is always https (D5).
+  it.each([
+    ["github.com", "https://api.github.com"],
+    ["GitHub.com", "https://api.github.com"],
+    ["ghe.example.com", "https://ghe.example.com/api/v3"],
+    ["octocorp.ghe.com", "https://api.octocorp.ghe.com"],
+    ["OctoCorp.GHE.com", "https://api.octocorp.ghe.com"],
+  ])("gives the API base for %s", (host, expected) => {
+    expect(githubApiBaseUrl(host)).toBe(expected);
+  });
+
+  it("gives an https base for a host whose remote was http", () => {
+    const remote = parseGitHubRemote("http://ghe.example.com/acme/widgets");
+    expect(remote && githubApiBaseUrl(remote.host)).toBe(
+      "https://ghe.example.com/api/v3",
     );
   });
 

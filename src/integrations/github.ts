@@ -138,21 +138,86 @@ export interface GitHubIssueApiResponse {
   }[];
 }
 
-function parseGitHubRepositoryFromRemote(remoteUrl: string): GitHubRepository {
-  const normalizedRemoteUrl = remoteUrl.trim();
-  const match = normalizedRemoteUrl.match(
-    /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/,
-  );
+export interface GitHubRemote {
+  host: string;
+  owner: string;
+  name: string;
+}
 
+const GITHUB_COM = "github.com";
+
+// `[scheme://][user[:password]@]host[:port]/path`, for the schemes git clones
+// over (https://git-scm.com/docs/git-clone#_git_urls). IPv6 literals are not
+// GitHub hosts and are not read.
+const URL_REMOTE =
+  /^(?:ssh|git|https?):\/\/(?:[^@/]*@)?([^/:@\s]+)(?::\d*)?\/(.+)$/i;
+const ANY_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
+// scp-like `[user@]host:[/]path`, which git takes only when no `/` comes
+// before the first `:`; `[^/:@]+` for the host keeps it so.
+const SCP_REMOTE = /^(?:[^@/:]+@)?([^/:@\s]+):\/?(.+)$/;
+
+/**
+ * Host, owner and name of any git remote URL (D6), or undefined when the value
+ * is not a remote of that shape or its owner and name are not ones GitHub
+ * allows (`isValidGitHubRepository`). The host is lower-cased, any port is
+ * dropped, and `ssh.github.com` (SSH over the HTTPS port) is `github.com`.
+ * Whether the host is one to talk to is the caller's decision.
+ */
+export function parseGitHubRemote(remoteUrl: string): GitHubRemote | undefined {
+  const value = remoteUrl.trim();
+  const match =
+    URL_REMOTE.exec(value) ??
+    (ANY_SCHEME.test(value) ? null : SCP_REMOTE.exec(value));
   if (!match) {
+    return undefined;
+  }
+
+  const [, rawHost, path] = match;
+  const parts = path
+    .replace(/\/$/, "")
+    .replace(/\.git$/, "")
+    .split("/");
+  if (parts.length !== 2) {
+    return undefined;
+  }
+  const [owner, name] = parts;
+  if (isValidGitHubRepository(`${owner}/${name}`) !== true) {
+    return undefined;
+  }
+
+  const host = rawHost.toLowerCase();
+  return { host: host === "ssh.github.com" ? GITHUB_COM : host, owner, name };
+}
+
+/**
+ * The REST API's base URL for a host, and a function of the host alone (D5):
+ * `https://api.github.com`, `https://api.<host>` under `.ghe.com` (Enterprise
+ * Cloud with data residency), else `https://<host>/api/v3` (Enterprise
+ * Server). Always https, whatever scheme a remote used.
+ */
+export function githubApiBaseUrl(host: string): string {
+  const normalizedHost = host.toLowerCase();
+  if (normalizedHost === GITHUB_COM) {
+    return "https://api.github.com";
+  }
+  if (normalizedHost.endsWith(".ghe.com")) {
+    return `https://api.${normalizedHost}`;
+  }
+  return `https://${normalizedHost}/api/v3`;
+}
+
+function parseGitHubRepositoryFromRemote(remoteUrl: string): GitHubRepository {
+  const remote = parseGitHubRemote(remoteUrl);
+
+  if (remote?.host !== GITHUB_COM) {
     throw new Error(
       `GitHub: Unable to determine the current repository from origin remote "${remoteUrl}".`,
     );
   }
 
   return {
-    owner: match[1],
-    name: match[2],
+    owner: remote.owner,
+    name: remote.name,
   };
 }
 
@@ -379,7 +444,7 @@ async function fetchGitHub(
   }
 
   try {
-    return await fetch(`https://api.github.com${path}`, init);
+    return await fetch(`${githubApiBaseUrl(GITHUB_COM)}${path}`, init);
   } catch (error) {
     if (isTimeout(error)) {
       throw timeoutError(path, error);
