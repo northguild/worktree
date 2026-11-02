@@ -240,7 +240,7 @@ async function readJiraBody<T>(
 async function fetchJira(
   path: string,
   credentials: JiraCredentials,
-  init: { method?: "GET" | "PUT"; body?: unknown } = {},
+  init: { method?: "GET" | "PUT" | "POST"; body?: unknown } = {},
 ): Promise<Response> {
   const headers: Record<string, string> = {
     ...(getJiraAuthHeaders(credentials) as Record<string, string>),
@@ -505,4 +505,164 @@ export async function assignJiraIssue(
   }
 
   return { outcome: "assigned", displayName };
+}
+
+/** `from` and `to` are status names; `targets` are the names Jira offered. */
+export type JiraStart =
+  | { outcome: "started"; from: string; to: string }
+  | { outcome: "already-started"; status: string }
+  | { outcome: "left-alone"; status: string; category: string }
+  | { outcome: "no-in-progress-transition"; status: string }
+  | { outcome: "ambiguous"; status: string; targets: string[] };
+
+interface JiraStatus {
+  id?: string;
+  name?: string;
+  statusCategory?: { key?: string };
+}
+
+interface JiraTransition {
+  id?: string;
+  name?: string;
+  isAvailable?: boolean;
+  to?: JiraStatus;
+}
+
+// D8: a failed move is named in the person's terms. The messages carry the
+// issue key and the API's own text, never a header. `transitionName` is set
+// only for the write, whose 400 means the transition's screen wants a field (D4).
+async function jiraStartFailure(
+  response: Response,
+  path: string,
+  issueKey: string,
+  transitionName?: string,
+): Promise<Error> {
+  if (response.status === 401) {
+    return new Error(
+      "Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.",
+    );
+  }
+
+  if (response.status === 404) {
+    return new Error(`Jira: Issue ${issueKey} was not found.`);
+  }
+
+  const errorMessage = await readJiraBody(path, () => response.text());
+  const detail = `${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
+
+  if (response.status === 400 && transitionName) {
+    return new Error(
+      `Jira: Could not move ${issueKey} with the "${transitionName}" transition; it may need a field set in Jira. ${detail}`,
+    );
+  }
+
+  if (response.status === 409) {
+    return new Error(
+      `Jira: ${issueKey} was changed while it was being moved. Try again. ${detail}`,
+    );
+  }
+
+  return new Error(`Jira: Failed to move issue ${issueKey}. ${detail}`);
+}
+
+// D1-D7: moves a not-yet-begun issue to the one in-progress status its
+// workflow offers. Reads the status first and the transitions only when the
+// issue is in the "new" category (D5), then writes only when exactly one
+// distinct in-progress target exists (D3). A 204 is success (D6).
+export async function startJiraIssue(issueId: string): Promise<JiraStart> {
+  const issueKey = getIssueKey(issueId);
+  const credentials = await resolveJiraCredentials();
+  const unexpected = () =>
+    new Error(`Jira: Unexpected response for ${issueKey}.`);
+
+  const statusPath = `/rest/api/3/issue/${issueKey}?fields=status`;
+  const statusResponse = await fetchJira(statusPath, credentials);
+
+  if (!statusResponse.ok) {
+    throw await jiraStartFailure(statusResponse, statusPath, issueKey);
+  }
+
+  const issue = await readJiraBody<{ fields?: { status?: JiraStatus } }>(
+    statusPath,
+    () => statusResponse.json(),
+  );
+  const current = issue.fields?.status;
+  const categoryKey = current?.statusCategory?.key;
+
+  if (!current || typeof categoryKey !== "string") {
+    throw unexpected();
+  }
+
+  const status = current.name ?? "unknown";
+
+  if (categoryKey === "indeterminate") {
+    return { outcome: "already-started", status };
+  }
+
+  if (categoryKey !== "new") {
+    return { outcome: "left-alone", status, category: categoryKey };
+  }
+
+  const transitionsPath = `/rest/api/3/issue/${issueKey}/transitions`;
+  const transitionsResponse = await fetchJira(transitionsPath, credentials);
+
+  if (!transitionsResponse.ok) {
+    throw await jiraStartFailure(
+      transitionsResponse,
+      transitionsPath,
+      issueKey,
+    );
+  }
+
+  const body = await readJiraBody<{ transitions?: unknown }>(
+    transitionsPath,
+    () => transitionsResponse.json(),
+  );
+
+  if (!Array.isArray(body.transitions)) {
+    throw unexpected();
+  }
+
+  const candidates = (body.transitions as JiraTransition[]).filter(
+    (transition) =>
+      transition.isAvailable !== false &&
+      typeof transition.id === "string" &&
+      transition.to?.statusCategory?.key === "indeterminate" &&
+      transition.to.id !== current.id,
+  );
+  const targetNames: string[] = [];
+  const targetIds = new Set<string | undefined>();
+
+  for (const candidate of candidates) {
+    if (!targetIds.has(candidate.to?.id)) {
+      targetIds.add(candidate.to?.id);
+      targetNames.push(candidate.to?.name ?? "unknown");
+    }
+  }
+
+  const chosen = candidates[0];
+
+  if (!chosen) {
+    return { outcome: "no-in-progress-transition", status };
+  }
+
+  if (targetIds.size > 1) {
+    return { outcome: "ambiguous", status, targets: targetNames };
+  }
+
+  const postResponse = await fetchJira(transitionsPath, credentials, {
+    method: "POST",
+    body: { transition: { id: chosen.id } },
+  });
+
+  if (!postResponse.ok) {
+    throw await jiraStartFailure(
+      postResponse,
+      transitionsPath,
+      issueKey,
+      chosen.name ?? chosen.id,
+    );
+  }
+
+  return { outcome: "started", from: status, to: targetNames[0] };
 }

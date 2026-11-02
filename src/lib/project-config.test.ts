@@ -475,6 +475,7 @@ describe("readProjectConfig: keys outside the file's classes (D3, D4)", () => {
     ["jira.email", "jira:\n  email: a@b.co\n"],
     ["github.autoAssign", "github:\n  autoAssign: true\n"],
     ["jira.autoAssign", "jira:\n  autoAssign: true\n"],
+    ["jira.autoStart", "jira:\n  autoStart: true\n"],
     ["linear.autoStart", "linear:\n  autoStart: true\n"],
     ["clickup.autoStart", "clickup:\n  autoStart: true\n"],
   ])("warns that %s is personal and ignores it", async (key, yaml) => {
@@ -1342,6 +1343,7 @@ const PERSONAL_VALUES: Record<string, string> = {
   "agent.command": "personal-agentcmd-value",
   "jira.email": "personal-email-value",
   "jira.autoAssign": "personal-jira-assign-value",
+  "jira.autoStart": "personal-jira-start-value",
   "github.autoAssign": "personal-github-assign-value",
   "linear.autoStart": "personal-linear-start-value",
   "clickup.autoStart": "personal-clickup-start-value",

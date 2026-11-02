@@ -62,6 +62,46 @@ worktree config jira.autoAssign true
 - **A failed assignment never stops the branch.** The worktree is created either way, and `assigned` is `false`.
 - The assignment happens before the worktree is created, so a prompt is never buried behind creation output.
 
+## Moving the issue to in progress
+
+`--start` moves the Jira issue to its in-progress status once the worktree exists, and `--no-start` skips it for
+that one run. Without either, [`jira.autoStart`](/docs/configuration#jira-integration-notes) decides: `true` moves,
+`false` never does, and unset asks once in a terminal and saves the answer under that key. **A non-interactive run
+with the key unset moves the issue** and saves nothing, so pass `--no-start` or set the key to `false` if a script
+that passes `--jira` must not change an issue's status. The full order and where it sits in a run are in the
+[branch command](/docs/commands/branch#moving-the-jira-issue-to-in-progress).
+
+```bash
+worktree branch --jira DEV-123 --start
+worktree branch --jira DEV-123 --no-start
+worktree config jira.autoStart true
+```
+
+Jira workflows are per project and the statuses are renamed and translated freely, so nothing is matched by name.
+Jira groups every status into a category (To Do, In Progress, Done), and `worktree` goes by that. Up to three
+requests follow, each cut off after 15 seconds: the issue's status, the transitions Jira offers from it, and the
+transition itself.
+
+- An issue in the To Do category moves through the transition that leads to an in-progress status. When the
+  workflow offers several transitions that lead to the same status, the first is used.
+- An issue already in the In Progress category is not moved, and the document's `started` is `true`. That costs
+  one request.
+- An issue in the Done category, or in any other category, is left alone with a warning and `started` is `false`.
+- When the available transitions lead to more than one in-progress status, `worktree` does not guess which is
+  "in progress" and writes nothing. The warning lists the statuses, `started` is `false`, and you move it in Jira.
+- When Jira offers no in-progress transition, the warning says so and `started` is `false`. Jira answers with an
+  empty list both when the workflow has no such transition and when the account lacks the permission, so the
+  warning names both causes.
+- A transition whose screen has a required field is refused by Jira. The warning names the transition and says it
+  may need a field set in Jira, `started` is `false` and nothing changes.
+- Only the status changes: no assignee, comment or field is written. `--assign` and `--start` are separate
+  requests, and one failing does not affect the other.
+- **The account needs the *Browse Projects* and *Transition Issues* permissions** on the issue's project. A failed
+  move never stops the branch: the worktree is created either way, the warning appears in `warnings`, and the exit
+  code is unaffected.
+- The move happens after the worktree exists, before the env files, the install and the opener, and never when
+  reopening an existing worktree. A dry run ignores `--start` and asks nothing.
+
 ## Authentication Resolution
 
 Authentication is resolved in this order:

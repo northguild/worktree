@@ -73,7 +73,7 @@ not offer to run `worktree config` for a key the file supplies.
 | Kind of key | Keys | In the file |
 |---|---|---|
 | Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `clickup.workspaceId`, `github.repository` | Read; your git config overrides them |
-| Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `github.autoAssign`, `linear.autoStart`, `clickup.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
+| Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`, `clickup.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
 | Secret keys | `jira.apiToken`, `linear.apiKey`, `clickup.apiToken`, `github.token` | Refused; the run stops |
 
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`

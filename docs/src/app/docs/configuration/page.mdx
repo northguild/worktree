@@ -28,6 +28,7 @@ config.
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
 - `jira.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
+- `jira.autoStart` (`true` or `false`, unset means you are asked, or the issue is moved to in progress when non-interactive)
 - `linear.apiKey` (Linear personal API key, example: `lin_api_...`)
 - `linear.autoStart` (`true` or `false`, unset means you are asked, or the issue is started when non-interactive)
 - `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
@@ -243,6 +244,12 @@ worktree config github.repository <owner/repo>
 
 ```bash
 worktree config jira.autoAssign true
+```
+
+- `jira.autoStart` is optional and decides whether `--jira` also moves the issue to in progress once the worktree exists. It has three states, like `linear.autoStart`: `true` always moves it (an issue already in progress or done, or with no single in-progress status to move to, is left where it is), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it moves the issue, under the same rule, and saves nothing, so a script that passes `--jira` and must not change the issue's status needs `--no-start` or `jira.autoStart false`. Moving an issue needs the Transition Issues permission; the [branch command](/docs/commands/branch#moving-the-jira-issue-to-in-progress) and the [Jira guide](/docs/guides/jira-integration#moving-the-issue-to-in-progress) say which statuses move. To set it directly:
+
+```bash
+worktree config jira.autoStart true
 ```
 
 - Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
