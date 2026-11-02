@@ -569,6 +569,66 @@ describe("isValidConfigValue github.repository", () => {
   });
 });
 
+// Expected values come from the DNS rules the plan cites, not from the
+// validator: labels of letters, digits and hyphens, starting and ending with a
+// letter or digit (RFC 1035 section 2.3.1, a leading digit allowed by RFC 1123
+// section 2.1), each at most 63 characters, the whole at most 255 (RFC 1035
+// section 2.3.4); then #120 D7: no scheme, port, path, user info or trailing
+// dot, `github.com` is the default, and any other host under it is refused.
+describe("isValidConfigValue github.host", () => {
+  const label63 = "a".repeat(63);
+  it.each([
+    "ghe.example.com",
+    "GHE.Example.COM",
+    "github.com",
+    "GitHub.com",
+    "x.ghe.com",
+    "ghe",
+    "10.example.com",
+    "a-b.example.com",
+    "a".repeat(63) + ".example.com",
+    // Four 63-character labels and three dots is exactly 255.
+    `${label63}.${label63}.${label63}.${label63}`,
+    "github.com.example.org",
+    "notgithub.com",
+  ])("accepts %j", async (value) => {
+    expect(await isValidConfigValue("github.host", value)).toBe(true);
+  });
+
+  it.each([
+    ["an empty value", ""],
+    ["whitespace only", "   "],
+    ["a scheme", "https://ghe.example.com"],
+    ["a trailing slash", "ghe.example.com/"],
+    ["a path", "ghe.example.com/api/v3"],
+    ["a port", "ghe.example.com:8443"],
+    ["user info", "user@ghe.example.com"],
+    ["a trailing dot", "ghe.example.com."],
+    ["a leading dot", ".ghe.example.com"],
+    ["an empty label", "ghe..example.com"],
+    ["a leading hyphen", "-ghe.example.com"],
+    ["a trailing hyphen on a label", "ghe-.example.com"],
+    ["an underscore", "ghe_1.example.com"],
+    ["a space", "ghe example.com"],
+    ["a leading space", " ghe.example.com"],
+    ["a newline", "ghe.example.com\n"],
+    ["a query string", "ghe.example.com?x=1"],
+    ["a percent escape", "ghe%2eexample.com"],
+    ["a non-ASCII letter", "ghé.example.com"],
+    ["a label over 63 characters", `${"a".repeat(64)}.example.com`],
+    [
+      "a host over 255 characters",
+      `${label63}.${label63}.${label63}.${label63}.a`,
+    ],
+    ["api.github.com", "api.github.com"],
+    ["a subdomain of github.com", "ghe.GitHub.com"],
+  ])("refuses %s", async (_label, value) => {
+    expect(await isValidConfigValue("github.host", value)).toEqual(
+      expect.stringContaining("hostname"),
+    );
+  });
+});
+
 describe("validateConfigValue", () => {
   it("names InvalidConfigValueError as itself, and exits 2 as an invalid value", () => {
     const error = new InvalidConfigValueError("Invalid email address");

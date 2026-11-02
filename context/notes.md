@@ -28,3 +28,23 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   `console.warn`, but the text names the old argv.
 - **Two plans' `D`-labels side by side** in `github.ts`: the new `// D4` comment sits under another plan's
   `// D5` (the gh timeout). Naming the plan (`#120 D4`) would disambiguate.
+
+## Phase 3 — Route `--github` to the host in `github.host`
+
+- **§4 deviation, accepted at Gate 2.** `ResolvedGitHubRepository.host` is optional — present only off
+  github.com, read through `hostOf()` — where §4 says the result always carries `host`. It keeps the
+  pre-existing github.com `toEqual` assertions and `branch.test.ts` mocks unchanged and is never serialised.
+- **Guide paragraph order.** The Enterprise token paragraph sits before "A token that came from `gh` gets a
+  shorter hint…", which then reads as if it covered Enterprise; Phase 4 rewrites that guide anyway.
+- **Untested redaction.** The `redactSecrets` on `unreachableError`'s cause and on the invalid-`github.host`
+  value have no test that fails without them (defence in depth; output is redacted at print too).
+- **No Enterprise test runs the pull-request head lookup with a stored token present** — covered indirectly
+  by sharing the read's `token`.
+- **One assertion pins the exact mismatch sentence** where D9 fixes only what it must name.
+- **`MissingValueError` reads "pass `gh auth login --hostname …`"** — the class's format, odd for a command.
+- **Nested brackets** in `configuration/page.mdx:26` and `project-configuration/page.mdx:83`.
+- **Naming.** `hostOf`, `repositoryOnHost`, `unreachableError`, `unableToDetermineMessage` are not verb-first.
+- **Dangling `#github-enterprise` links** until Phase 4 adds the section; a pasted github.com URL under an
+  Enterprise host is read from that host (never requested) until Phase 5.
+- Phase 1's two notes aimed here are met: Enterprise URL tests pin `fetchGitHub` to `githubApiBaseUrl`, and
+  the unparseable-remote message now goes through `redactSecrets`, with a test.

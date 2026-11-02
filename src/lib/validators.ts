@@ -174,6 +174,37 @@ export function isValidGitHubRepository(value: string): true | string {
   return true;
 }
 
+// A bare hostname (#120 D7), because the value is put into `https://<host>/...`
+// and handed to `gh auth token --hostname`: dot-separated labels of letters,
+// digits and hyphens, each 1-63 characters starting and ending with a letter or
+// digit, at most 255 in all (RFC 1035 section 2.3.1 and 2.3.4, with a leading
+// digit allowed by RFC 1123 section 2.1). No scheme, port, path, user info or
+// trailing dot. Case is ignored. `github.com` is the default and is accepted,
+// so a repository can override a global Enterprise value; any other host under
+// it is not an Enterprise host.
+const DNS_LABEL = "[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?";
+
+/**
+ * The characters alone, for the published JSON Schema, which cannot hold the
+ * 255-character total or the `*.github.com` refusal; isValidGitHubHost has both.
+ */
+export const GITHUB_HOST_PATTERN = new RegExp(
+  `^${DNS_LABEL}(?:\\.${DNS_LABEL})*$`,
+);
+
+export function isValidGitHubHost(value: string): true | string {
+  const shape =
+    "Host must be a bare hostname, for example ghe.example.com (no scheme, port, path or trailing dot)";
+  if (value.length > 255 || !GITHUB_HOST_PATTERN.test(value)) {
+    return shape;
+  }
+  const host = value.toLowerCase();
+  if (host !== "github.com" && host.endsWith(".github.com")) {
+    return `${shape}; github.com's own subdomains are not Enterprise hosts, use github.com for the default`;
+  }
+  return true;
+}
+
 export async function isValidConfigValue(
   configName: string,
   value: string,
@@ -206,6 +237,8 @@ export async function isValidConfigValue(
       return isValidWorkspaceId(value);
     case "github.repository":
       return isValidGitHubRepository(value);
+    case "github.host":
+      return isValidGitHubHost(value);
     case "agent.command":
     // Executed in every new worktree, so it is held to the same check as the
     // other command line: its head has to be a program that exists.

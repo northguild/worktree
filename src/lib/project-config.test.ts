@@ -698,7 +698,23 @@ describe("resolveTeamConfig (D2, D3)", () => {
     });
   });
 
+  it("reads github.host from the file, git config first (#120 D7)", async () => {
+    fromOriginMain("github:\n  host: ghe.example.com\n");
+
+    expect(await resolveTeamConfig("github.host")).toEqual({
+      value: "ghe.example.com",
+      source: "project",
+    });
+
+    personal({ "github.host": "github.com" });
+    expect(await resolveTeamConfig("github.host")).toEqual({
+      value: "github.com",
+      source: "git-config",
+    });
+  });
+
   it("knows exactly the team keys the resolver covers", () => {
+    expect(isTeamConfigKey("github.host")).toBe(true);
     expect(isTeamConfigKey("github.repository")).toBe(true);
     expect(isTeamConfigKey("jira.host")).toBe(true);
     expect(isTeamConfigKey("clickup.workspaceId")).toBe(true);
@@ -1220,6 +1236,71 @@ describe("github.repository in the file (#119)", () => {
 
     expect(text).toContain("github:\n  repository: acme/widgets");
     expect((await loads(text)).github?.repository).toBe("acme/widgets");
+  });
+});
+
+describe("github.host in the file (#120 D7)", () => {
+  async function loads(content: string) {
+    fromOriginMain(content);
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("did not load");
+    return result.config;
+  }
+
+  it("loads, and is a project-file key", async () => {
+    const config = await loads("github:\n  host: ghe.example.com\n");
+
+    expect(config.github?.host).toBe("ghe.example.com");
+    expect(isProjectFileKey("github.host")).toBe(true);
+    expect(projectFileValue(config, "github.host")).toBe("ghe.example.com");
+    expect(projectFileKeys(config)).toEqual(["github.host"]);
+  });
+
+  it("loads beside github.repository", async () => {
+    const config = await loads(
+      "github:\n  host: ghe.example.com\n  repository: acme/widgets\n",
+    );
+
+    expect(config.github?.host).toBe("ghe.example.com");
+    expect(config.github?.repository).toBe("acme/widgets");
+  });
+
+  it.each([
+    "https://ghe.example.com",
+    "ghe.example.com:8443",
+    "ghe.example.com/",
+    "api.github.com",
+    "ghe.example.com.",
+    '""',
+    "[ghe.example.com]",
+  ])("fails to load with host %s, as ProjectConfigError", async (value) => {
+    const error = await failure(`github:\n  host: ${value}\n`);
+
+    expect(error.message).toContain("github.host");
+  });
+
+  it("is written by renderProjectFile and loads as written", async () => {
+    const text = renderProjectFile({ "github.host": "ghe.example.com" });
+
+    expect(text).toContain("github:\n  host: ghe.example.com");
+    expect((await loads(text)).github?.host).toBe("ghe.example.com");
+  });
+
+  // The editor flags what the pattern refuses; the load adds github.com's own
+  // subdomains and the 255-character total.
+  it("gives github.host a pattern an editor can check in the published schema", () => {
+    const { github } = projectConfigJsonSchema().properties as Record<
+      string,
+      { properties: { host: { pattern?: string; description?: string } } }
+    >;
+    const { pattern, description } = github.properties.host;
+
+    expect(description).toContain("GitHub Enterprise");
+    expect(new RegExp(pattern ?? "").test("ghe.example.com")).toBe(true);
+    expect(new RegExp(pattern ?? "").test("https://ghe.example.com")).toBe(
+      false,
+    );
+    expect(new RegExp(pattern ?? "").test("ghe.example.com:8443")).toBe(false);
   });
 });
 

@@ -14,10 +14,18 @@ import {
   getTeamConfigValue,
   renderBranchName,
 } from "../lib/project-config.js";
-import { askInput, assertCanPrompt, InvalidValueError } from "../lib/prompt.js";
-import { quotablePastedUrl } from "../lib/redact.js";
+import {
+  askInput,
+  assertCanPrompt,
+  InvalidValueError,
+  MissingValueError,
+} from "../lib/prompt.js";
+import { quotablePastedUrl, redactSecrets } from "../lib/redact.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
-import { isValidGitHubRepository } from "../lib/validators.js";
+import {
+  isValidGitHubHost,
+  isValidGitHubRepository,
+} from "../lib/validators.js";
 
 interface GitHubRepository {
   owner: string;
@@ -32,6 +40,11 @@ export type GitHubRepositorySource =
 
 export interface ResolvedGitHubRepository extends GitHubRepository {
   source: GitHubRepositorySource;
+  /**
+   * The GitHub Enterprise host the repository lives on (#120 D1, D2). Absent
+   * for github.com, so a github.com result is the shape it always was.
+   */
+  host?: string;
 }
 
 export interface GitHubIssueTypeApiResponse {
@@ -206,25 +219,36 @@ export function githubApiBaseUrl(host: string): string {
   return `https://${normalizedHost}/api/v3`;
 }
 
-function parseGitHubRepositoryFromRemote(remoteUrl: string): GitHubRepository {
+const ENTERPRISE_HOST_HINT =
+  "If this repository is on GitHub Enterprise, set its host with `worktree config github.host <host>`.";
+
+// A remote counts only when it is on the host this run talks to (#120 D2), so
+// an `upstream` or `origin` elsewhere is never read, however it parses.
+function repositoryOnHost(
+  remoteUrl: string,
+  host: string,
+): GitHubRepository | undefined {
   const remote = parseGitHubRemote(remoteUrl);
-
-  if (remote?.host !== GITHUB_COM) {
-    throw new Error(
-      `GitHub: Unable to determine the current repository from origin remote "${remoteUrl}".`,
-    );
-  }
-
-  return {
-    owner: remote.owner,
-    name: remote.name,
-  };
+  return remote?.host === host
+    ? { owner: remote.owner, name: remote.name }
+    : undefined;
 }
 
-async function readOriginRepository(): Promise<GitHubRepository> {
+function unableToDetermineMessage(remoteUrl: string): string {
+  return `GitHub: Unable to determine the current repository from origin remote "${redactSecrets(remoteUrl)}". ${ENTERPRISE_HOST_HINT}`;
+}
+
+function parseGitHubRepositoryFromRemote(remoteUrl: string): GitHubRepository {
+  const repository = repositoryOnHost(remoteUrl, GITHUB_COM);
+  if (!repository) {
+    throw new Error(unableToDetermineMessage(remoteUrl));
+  }
+  return repository;
+}
+
+async function readOriginRemoteUrl(): Promise<string> {
   try {
-    const remoteUrl = await run("git", ["remote", "get-url", "origin"]);
-    return parseGitHubRepositoryFromRemote(remoteUrl);
+    return await run("git", ["remote", "get-url", "origin"]);
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(
@@ -238,31 +262,71 @@ async function readOriginRepository(): Promise<GitHubRepository> {
   }
 }
 
-// D3: an `upstream` that is missing, or is not a GitHub URL, is not evidence
-// about GitHub issues, so either answer is "none" and resolution carries on to
-// origin. Neither case is an error.
-async function readUpstreamRepository(): Promise<GitHubRepository | undefined> {
+async function readOriginRepository(host: string): Promise<GitHubRepository> {
+  const remoteUrl = await readOriginRemoteUrl();
+  const repository = repositoryOnHost(remoteUrl, host);
+  if (repository) {
+    return repository;
+  }
+  if (host === GITHUB_COM) {
+    throw new Error(
+      `GitHub: Unable to read the origin remote for the current repository. ${unableToDetermineMessage(remoteUrl)}`,
+    );
+  }
+  throw new Error(
+    `GitHub: github.host is ${host}, but the origin remote "${redactSecrets(remoteUrl)}" is not on that host. An Enterprise host has to be named by github.host and by a remote of this clone; correct github.host, or unset it to use github.com.`,
+  );
+}
+
+// D3: an `upstream` that is missing, or is not on this run's host, is not
+// evidence about this host's issues, so either answer is "none" and resolution
+// carries on to origin. Neither case is an error.
+async function readUpstreamRepository(
+  host: string,
+): Promise<GitHubRepository | undefined> {
   let remoteUrl: string;
   try {
     remoteUrl = await run("git", ["remote", "get-url", "upstream"]);
   } catch {
     return undefined;
   }
-  try {
-    return parseGitHubRepositoryFromRemote(remoteUrl);
-  } catch {
-    return undefined;
+  return repositoryOnHost(remoteUrl, host);
+}
+
+/**
+ * The host `--github` and `--assign` talk to (#120 D1, D7): `github.host`, else
+ * github.com. Checked again here because git config can be edited by hand and
+ * the value goes into a URL and into gh's argv.
+ */
+export async function resolveGitHubHost(): Promise<string> {
+  const configured = await getTeamConfigValue("github.host");
+  if (!configured) {
+    return GITHUB_COM;
   }
+  const verdict = isValidGitHubHost(configured);
+  if (verdict !== true) {
+    throw new InvalidValueError(
+      `GitHub: github.host "${redactSecrets(configured)}" is not valid. ${verdict}`,
+    );
+  }
+  return configured.toLowerCase();
 }
 
 /**
  * The repository `--github` reads and `--assign` assigns in (D1, D6): the
- * `github.repository` key, then an `upstream` remote that is a GitHub URL, then
- * `origin`. Read and assignment both come through here, so they cannot
+ * `github.repository` key, then an `upstream` remote on the configured host,
+ * then `origin`. Read and assignment both come through here, so they cannot
  * disagree. The key is checked again here because git config can be edited by
  * hand, and the value goes into a request path.
+ *
+ * Off github.com the host has to be the resolved remote's too (#120 D2); with
+ * `github.repository` it is `origin` that must be on the host, and a remote on
+ * any other host fails before a request is made.
  */
 export async function resolveGitHubRepository(): Promise<ResolvedGitHubRepository> {
+  const host = await resolveGitHubHost();
+  const hostField = host === GITHUB_COM ? {} : { host };
+
   const configured = await getTeamConfigValue("github.repository");
   if (configured) {
     const verdict = isValidGitHubRepository(configured);
@@ -271,27 +335,43 @@ export async function resolveGitHubRepository(): Promise<ResolvedGitHubRepositor
         `GitHub: github.repository "${configured}" is not valid. ${verdict}`,
       );
     }
+    if (host !== GITHUB_COM) {
+      await readOriginRepository(host);
+    }
     const [owner, name] = configured.split("/");
-    return { owner, name, source: "github.repository" };
+    return { owner, name, source: "github.repository", ...hostField };
   }
 
-  const upstream = await readUpstreamRepository();
+  const upstream = await readUpstreamRepository(host);
   if (upstream) {
-    return { ...upstream, source: "upstream" };
+    return { ...upstream, source: "upstream", ...hostField };
   }
 
-  return { ...(await readOriginRepository()), source: "origin" };
+  return {
+    ...(await readOriginRepository(host)),
+    source: "origin",
+    ...hostField,
+  };
+}
+
+function hostOf(repository: ResolvedGitHubRepository): string {
+  return repository.host ?? GITHUB_COM;
 }
 
 /**
  * `owner/repo`, and where it came from when that is not `origin` (D4), so the
  * text for a person whose `origin` is the repository stays what it always was.
+ * Off github.com the host leads, `<host>/<owner>/<repo>` (#120 D8).
  */
 export function describeGitHubRepository(repository: ResolvedGitHubRepository) {
   const fullName = `${repository.owner}/${repository.name}`;
+  const named =
+    repository.host && repository.host !== GITHUB_COM
+      ? `${repository.host}/${fullName}`
+      : fullName;
   return repository.source === "origin"
-    ? fullName
-    : `${fullName} (${repository.source})`;
+    ? named
+    : `${named} (${repository.source})`;
 }
 
 function getGitHubHeaders(token?: string): Record<string, string> {
@@ -339,12 +419,22 @@ interface ResolvedGitHubToken {
   source: GitHubTokenSource;
 }
 
-async function resolveGitHubToken(): Promise<ResolvedGitHubToken> {
-  const ghToken = await getGitHubTokenFromGhCli("github.com");
+async function resolveGitHubToken(host: string): Promise<ResolvedGitHubToken> {
+  const ghToken = await getGitHubTokenFromGhCli(host);
   // Never stored: `gh` owns this token and refreshes it, and a copy in git
   // config would outlive it, win over `gh` from then on, and sit in clear.
   if (ghToken) {
     return { token: ghToken, source: "gh" };
+  }
+
+  // #120 D3: a token is bound to its host. The stored `github.token` and a
+  // typed one are github.com's, so off github.com there is nothing to prompt
+  // for, and an interactive run ends as a non-interactive one does.
+  if (host !== GITHUB_COM) {
+    throw new MissingValueError(
+      `a GitHub token for ${host}`,
+      `\`gh auth login --hostname ${host}\``,
+    );
   }
 
   // A token has no default, and the instructions below are for a human. The
@@ -373,12 +463,18 @@ async function githubFailure(
   response: Response,
   path: string,
   tokenSource?: GitHubTokenSource,
+  host: string = GITHUB_COM,
 ): Promise<Error> {
   const errorMessage = await readGitHubBody(path, () => response.text());
   const message = `${prefix} ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
   if (response.status === 401 && tokenSource === "stored") {
     return new Error(
       `${message}\nThe stored github.token was refused. Replace it with \`worktree config github.token <token>\`, or remove it with \`git config --unset northguild.worktree.github.token\` so \`gh auth token\` is used.`,
+    );
+  }
+  if (response.status === 401 && tokenSource === "gh" && host !== GITHUB_COM) {
+    return new Error(
+      `${message}\nGitHub refused the token. Run \`gh auth login --hostname ${host}\`.`,
     );
   }
   if (response.status === 401 && tokenSource === "gh") {
@@ -423,7 +519,26 @@ async function readGitHubBody<T>(
   }
 }
 
+// A rejection that is not a timeout is the network: DNS, TLS, a refused
+// connection. fetch's own message is a bare "fetch failed" and the reason is
+// its cause, so the host and the cause are what the person needs (#120 D9). The
+// headers, which carry the token, never reach the message.
+function unreachableError(host: string, error: unknown): Error {
+  const reason =
+    error instanceof Error && error.cause instanceof Error
+      ? error.cause
+      : error;
+  const detail = reason instanceof Error ? reason.message : String(reason);
+  return new Error(
+    `GitHub: could not reach ${host}. ${redactSecrets(detail)}`,
+    {
+      cause: error,
+    },
+  );
+}
+
 async function fetchGitHub(
+  host: string,
   path: string,
   token?: string,
   { method, body }: GitHubRequestOptions = {},
@@ -446,12 +561,15 @@ async function fetchGitHub(
   }
 
   try {
-    return await fetch(`${githubApiBaseUrl(GITHUB_COM)}${path}`, init);
+    // Redirects keep fetch's default `follow` (#120 D10): the Fetch standard
+    // drops Authorization on a cross-origin hop, and a renamed repository's
+    // old path redirects within the host.
+    return await fetch(`${githubApiBaseUrl(host)}${path}`, init);
   } catch (error) {
     if (isTimeout(error)) {
       throw timeoutError(path, error);
     }
-    throw error;
+    throw unreachableError(host, error);
   }
 }
 
@@ -459,13 +577,16 @@ async function fetchGitHub(
 // its unauthenticated probe and never needs one. A write always needs one, so
 // this is the eager counterpart: the configured token, or a freshly resolved
 // one, which may prompt for a PAT.
-async function requireGitHubToken(): Promise<ResolvedGitHubToken> {
-  const configuredToken = await gitGetConfigValue("github.token");
-  if (configuredToken) {
-    return { token: configuredToken, source: "stored" };
+async function requireGitHubToken(host: string): Promise<ResolvedGitHubToken> {
+  // The stored token is github.com's; it is not even read for another host.
+  if (host === GITHUB_COM) {
+    const configuredToken = await gitGetConfigValue("github.token");
+    if (configuredToken) {
+      return { token: configuredToken, source: "stored" };
+    }
   }
 
-  return resolveGitHubToken();
+  return resolveGitHubToken(host);
 }
 
 export interface GitHubIssueReference {
@@ -511,18 +632,21 @@ export async function fetchGitHubIssue(issueId: number | string) {
 
   const repository = await resolveGitHubRepository();
   const { owner, name } = repository;
-  let token = await gitGetConfigValue("github.token");
+  const host = hostOf(repository);
+  // The stored token is github.com's and is not read for another host (#120 D3).
+  let token =
+    host === GITHUB_COM ? await gitGetConfigValue("github.token") : "";
   let tokenSource: GitHubTokenSource | undefined = token ? "stored" : undefined;
 
   if (!token) {
-    const infoResponse = await fetchGitHub(`/repos/${owner}/${name}`);
+    const infoResponse = await fetchGitHub(host, `/repos/${owner}/${name}`);
     if (!infoResponse.ok) {
-      ({ token, source: tokenSource } = await resolveGitHubToken());
+      ({ token, source: tokenSource } = await resolveGitHubToken(host));
     }
   }
 
   const issuePath = `/repos/${owner}/${name}/issues/${normalizedIssueId}`;
-  const response = await fetchGitHub(issuePath, token);
+  const response = await fetchGitHub(host, issuePath, token);
 
   if (!response.ok) {
     throw await githubFailure(
@@ -530,6 +654,7 @@ export async function fetchGitHubIssue(issueId: number | string) {
       response,
       issuePath,
       tokenSource,
+      host,
     );
   }
 
@@ -613,7 +738,7 @@ async function fetchGitHubPullRequestHeadBranch(
 ): Promise<string | null> {
   try {
     const pullPath = `/repos/${repository.owner}/${repository.name}/pulls/${number}`;
-    const response = await fetchGitHub(pullPath, token);
+    const response = await fetchGitHub(hostOf(repository), pullPath, token);
     if (!response.ok) {
       return null;
     }
@@ -623,7 +748,7 @@ async function fetchGitHubPullRequestHeadBranch(
     const origin =
       repository.source === "origin"
         ? repository
-        : await readOriginRepository();
+        : await readOriginRepository(hostOf(repository));
     const headRepository = pull.head?.repo?.full_name?.toLowerCase();
     if (headRepository !== `${origin.owner}/${origin.name}`.toLowerCase()) {
       return null;
@@ -638,9 +763,10 @@ async function fetchGitHubPullRequestHeadBranch(
 // names the remedy for where that token actually came from.
 export async function fetchGitHubLogin(
   resolved?: ResolvedGitHubToken,
+  host: string = GITHUB_COM,
 ): Promise<string> {
-  const { token, source } = resolved ?? (await requireGitHubToken());
-  const response = await fetchGitHub("/user", token);
+  const { token, source } = resolved ?? (await requireGitHubToken(host));
+  const response = await fetchGitHub(host, "/user", token);
 
   if (!response.ok) {
     throw await githubFailure(
@@ -648,6 +774,7 @@ export async function fetchGitHubLogin(
       response,
       "/user",
       source,
+      host,
     );
   }
 
@@ -678,11 +805,12 @@ export async function assignGitHubIssue(issueId: number | string): Promise<{
   const { owner, name } = repository;
   // Resolved once and passed on, so a run that reads the token from `gh` or has
   // to prompt for a PAT does so exactly once.
-  const { token, source } = await requireGitHubToken();
-  const login = await fetchGitHubLogin({ token, source });
+  const host = hostOf(repository);
+  const { token, source } = await requireGitHubToken(host);
+  const login = await fetchGitHubLogin({ token, source }, host);
 
   const assigneesPath = `/repos/${owner}/${name}/issues/${normalizedIssueId}/assignees`;
-  const response = await fetchGitHub(assigneesPath, token, {
+  const response = await fetchGitHub(host, assigneesPath, token, {
     method: "POST",
     body: { assignees: [login] },
   });
@@ -693,6 +821,7 @@ export async function assignGitHubIssue(issueId: number | string): Promise<{
       response,
       assigneesPath,
       source,
+      host,
     );
     // A fine-grained token without Issues write is refused here with a 403
     // (recorded for #61), so the refusal names what the token needs.

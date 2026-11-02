@@ -72,7 +72,7 @@ not offer to run `worktree config` for a key the file supplies.
 
 | Kind of key | Keys | In the file |
 |---|---|---|
-| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `clickup.workspaceId`, `github.repository` | Read; your git config overrides them |
+| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `clickup.workspaceId`, `github.repository`, `github.host` | Read; your git config overrides them |
 | Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`, `clickup.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
 | Secret keys | `jira.apiToken`, `linear.apiKey`, `clickup.apiToken`, `github.token` | Refused; the run stops |
 
@@ -80,9 +80,18 @@ Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPr
 under `branchPrefix`.
 
 `github.repository` is the `owner/repo` that `--github` reads and assigns in. It is only needed when that is not the
-repository found otherwise (`upstream` when that is a GitHub remote, else `origin`), for example when your
+repository found otherwise (`upstream` when it is on `github.host` (`github.com` unless set), else `origin`), for example when your
 issues are on your fork and an `upstream` remote exists; see [Forks](/docs/guides/github-issue-integration#forks). `worktree config`
 never asks for it.
+
+`github.host` is the GitHub host that `--github` and `--assign` use, a bare hostname such as `ghe.example.com`
+(no scheme, port or path). Unset means `github.com`. A host from the file is used only when this clone has a
+remote on that host: the remote the repository is read from, or `origin` when `github.repository` names it.
+Otherwise the run fails before any request. `gh` applies `GH_ENTERPRISE_TOKEN` to any GitHub Enterprise Server
+host it is asked about, so a merged change to `github.host` is a change to where that token can go; review it like
+code, as for [`jira.host`](#jirahost-receives-everyones-credentials). Your own `github.host` in git config
+overrides the file's, and `github.com` there puts a repository back on the default. `worktree config` never
+asks for it. See [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
 
 The `branchType` lists under `jira`, `github`, `linear` and `clickup`, and the shared top-level `branchType`, are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),

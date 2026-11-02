@@ -69,7 +69,7 @@ worktree branch --github 42 --json --agent-file brief.md
 ## GitHub Issue Branching
 
 Use the `--github` flag to create a suggested branch name from an issue. The issue is read from the
-repository named by `github.repository`, else the `upstream` remote when it points at GitHub, else `origin`; in a
+repository named by `github.repository`, else the `upstream` remote when it is on `github.host` (`github.com` unless set), else `origin`; in a
 fork that means the original's issues, and the output names the repository whenever it is not `origin`'s. See
 [Forks](/docs/guides/github-issue-integration#forks).
 
@@ -101,13 +101,15 @@ By default the name is `<prefix><number>-<slug>`; a `branchName` template in `.w
 dash, so the name ends on a whole word. A single word longer than 48 characters is cut at 48. The name is the
 same whether or not you are asked, so one issue never gives two different branches.
 
-GitHub authentication is resolved in this order:
+GitHub authentication on github.com is resolved in this order:
 
 1. `northguild.worktree.github.token` from local git config.
 2. `gh auth token --hostname github.com` if GitHub CLI is installed and authenticated. It is read on each run and not saved, and neither `GH_HOST` nor a `gh` login to another host supplies it.
 3. Interactive token prompt, which is then saved in local git config. Only a typed or `worktree config`-set token is stored.
 
-A non-interactive run has no token prompt. It exits `2` with one line on stderr, which never includes a token:
+On a GitHub Enterprise host (`github.host`) the stored token is never read or sent, and there is no prompt: the token comes only from `gh auth token --hostname <host>`, and without one the run exits `2` naming `gh auth login --hostname <host>`. See [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
+
+On github.com, a non-interactive run has no token prompt. It exits `2` with one line on stderr, which never includes a token:
 
 ```text
 worktree: no default for a GitHub token; pass `worktree config github.token <token>` or run `gh auth login`

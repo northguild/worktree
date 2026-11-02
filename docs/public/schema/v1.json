@@ -194,6 +194,11 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:_[A-Za-z0-9]+)?\\/[A-Za-z0-9._-]+$",
           "description": "The owner/repo that --github reads issues from and --assign assigns in, for example acme/widgets. Only needed when that is not the upstream remote, or origin without one."
+        },
+        "host": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$",
+          "description": "The GitHub host that --github and --assign use, for example ghe.example.com for GitHub Enterprise Server. Unset means github.com. Used only when this clone has a remote on that host."
         }
       }
     },

@@ -491,6 +491,7 @@ export default class Config extends BaseCommand {
           " - Give the token access to the repositories you use worktree with",
           " - Copy your new token",
           "Leave this empty to let `gh auth token` supply one instead.",
+          "The stored token is used for github.com only; a GitHub Enterprise host's token is read from `gh auth token --hostname <host>`.",
         ];
 
         this.log(githubTokenInstructions.join(EOL) + EOL);
