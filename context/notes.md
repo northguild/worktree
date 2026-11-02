@@ -29,3 +29,11 @@ Branch-local and advisory. Nothing reads this file, and `/feature-close` deletes
 - A canceled record on a branch with no worktree, or one that cannot qualify, still costs an `ls-remote`, bounded at one per remote.
 - `gatherIssueLinks` uses a dynamic `import()`, the only one in non-test `src`, because a static one is a cycle; moving `showVisibly` to a leaf module would remove half of the reason.
 - `git.test.ts:3120` cites "plan §2 vocabulary"; the vocabulary is in §1. The B4 assertions sit in the middle of `gathers once...` and would read better as their own test.
+
+## Phase 4 — `cleanup` removes and reports canceled worktrees
+
+- Under `--ignore-agents` the new heading does not name the agent, because the classified copies have it stripped. The uncountable heading works the same way, and the user has asked to ignore agents.
+- `--force` prints nothing about what it removed, even in a terminal, and that now includes removals decided by a tracker. It predates this feature.
+- `!!wt.pathExists` in the new predicate cannot be false in a real run, and the state test in `removalReason` is equivalent on real inputs. §4.4 asks for the first.
+- The "prints one warning" test counts a call its own mock makes, so it pins the pass-through; the one-warning rule is pinned in the gather tests. "removes it under --force too" uses a hand-set `safeToRemove`, so the real removal is proved only by the reviewer's real-repository runs.
+- A transient `could not lock config file .git/config` in `src/agent-mode.test.ts` during one coder run did not reproduce in 24 runs and its cause is not established. The same text in passing runs is the mocked rejection at `branch.test.ts:2106`.

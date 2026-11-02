@@ -765,7 +765,7 @@ describe("gatherIssueLinks", () => {
       ]);
       expect(onWarning).toHaveBeenCalledTimes(1);
       expect(onWarning).toHaveBeenCalledWith(
-        "Git: could not ask a remote about a canceled issue's branch. Canceled issues were not considered.",
+        "Git: could not ask a remote about a canceled issue's branch. Canceled branches on a remote that did not answer were kept.",
       );
       expect(onWarning.mock.calls[0]?.[0]).not.toContain("secret");
     });

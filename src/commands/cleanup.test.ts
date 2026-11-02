@@ -446,7 +446,11 @@ describe("cleanup command", () => {
 
     await cleanup.run();
 
-    expect(listSpy).toHaveBeenCalledWith({ includeAgents: true });
+    expect(listSpy).toHaveBeenCalledWith({
+      includeAgents: true,
+      includeIssues: true,
+      onIssueWarning: expect.any(Function),
+    });
   });
 
   it("excludes a worktree with a live agent session and names the session", async () => {
@@ -615,12 +619,20 @@ describe("cleanup command", () => {
 
     it("gathers sessions with the flag", async () => {
       const { listSpy } = await run({ force: true, "ignore-agents": true });
-      expect(listSpy).toHaveBeenCalledWith({ includeAgents: true });
+      expect(listSpy).toHaveBeenCalledWith({
+        includeAgents: true,
+        includeIssues: true,
+        onIssueWarning: expect.any(Function),
+      });
     });
 
     it("gathers sessions without the flag", async () => {
       const { listSpy } = await run({ force: true });
-      expect(listSpy).toHaveBeenCalledWith({ includeAgents: true });
+      expect(listSpy).toHaveBeenCalledWith({
+        includeAgents: true,
+        includeIssues: true,
+        onIssueWarning: expect.any(Function),
+      });
     });
 
     it("removes the set an agent-free run removes", async () => {
@@ -1306,6 +1318,352 @@ describe("cleanup command", () => {
         const named = lines.filter((line) => line.includes(branchName));
         expect(named).toHaveLength(1);
       }
+    });
+  });
+
+  // The Linear signal (#114). Expected verdicts come from the plan's D4 matrix and
+  // section 4.4, not from `isSafeToRemove`: a canceled issue makes a worktree
+  // removable only with no uncommitted changes, no live agent, nothing unpushed
+  // and the remote's confirmation of the tip; every other canceled worktree is
+  // reported under exactly one heading. `safeToRemove` in each fixture is that
+  // table's answer, written by hand; the hold-back probes then re-derive it with
+  // the real predicate, which is the behaviour under test.
+  describe("a canceled Linear issue", () => {
+    const canceled = (
+      branch: string,
+      key: string,
+      over: Partial<WorktreeListEntry> = {},
+      remoteConfirmed: boolean | undefined = true,
+    ): WorktreeListEntry => ({
+      path: `/path/to/project.worktrees/${branch}`,
+      branchName: branch,
+      remote: `origin/${branch}`,
+      remoteExists: true,
+      ahead: 0,
+      behind: 0,
+      pathExists: true,
+      uncommittedChanges: 0,
+      issue: {
+        provider: "linear",
+        key,
+        state: "canceled",
+        ...(remoteConfirmed === undefined ? {} : { remoteConfirmed }),
+      },
+      safeToRemove: false,
+      ...over,
+    });
+
+    const liveAgent = {
+      name: "feature-agent-1f",
+      pid: 9187,
+      live: true,
+      interactive: false,
+      waiting: false,
+    };
+
+    const heading = (n: number) =>
+      n === 1
+        ? "Skipped 1 worktree branch whose Linear issue is canceled but whose commits are not confirmed on its remote:"
+        : `Skipped ${n} worktree branches whose Linear issue is canceled but whose commits are not confirmed on their remote:`;
+
+    const run = async (
+      list: WorktreeListEntry[],
+      flags: Record<string, boolean> = { force: true },
+    ) => {
+      const listSpy = vi
+        .spyOn(git, "gitGetWorktreeList")
+        .mockResolvedValue(list);
+      const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktreesWithProgress")
+        .mockImplementation(async (worktrees) => worktrees);
+      (cleanup as any).parse = vi.fn().mockResolvedValue({ flags });
+      await cleanup.run();
+      const lines = logSpy.mock.calls.map((call) => String(call[0] ?? ""));
+      const removed = (mockRemove.mock.calls[0]?.[0] ?? []).map(
+        (wt: WorktreeListEntry) => wt.branchName,
+      );
+      return { listSpy, lines, removed };
+    };
+
+    const headings = (lines: string[]) =>
+      lines.filter((l) => l.startsWith("Skipped"));
+
+    it("asks the gather for the issue signal and routes its warning to warn", async () => {
+      const warnSpy = vi
+        .spyOn(cleanup, "warn")
+        .mockImplementation((input) => input);
+      const { listSpy } = await run([safeWorktree]);
+
+      expect(listSpy).toHaveBeenCalledWith({
+        includeAgents: true,
+        includeIssues: true,
+        onIssueWarning: expect.any(Function),
+      });
+      const { onIssueWarning } = listSpy.mock.calls[0][0] as {
+        onIssueWarning: (message: string) => void;
+      };
+      onIssueWarning("Linear: nope");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith("Linear: nope");
+    });
+
+    it("lists a canceled, pushed, clean worktree with its reason and removes it", async () => {
+      const wt = canceled("feature/eng-123", "ENG-123", {
+        safeToRemove: true,
+      });
+      mockConfirm.mockResolvedValue(true);
+      const { lines, removed } = await run([wt], { force: false });
+
+      expect(lines).toContain(
+        "- feature/eng-123 (Linear issue ENG-123 canceled, no unpushed commits)",
+      );
+      expect(headings(lines)).toHaveLength(0);
+      expect(removed).toEqual(["feature/eng-123"]);
+    });
+
+    it("removes it under --force too", async () => {
+      const wt = canceled("feature/eng-123", "ENG-123", {
+        safeToRemove: true,
+      });
+      const { removed } = await run([wt], { force: true });
+
+      expect(removed).toEqual(["feature/eng-123"]);
+    });
+
+    it("keeps naming a deleted remote as the reason when the issue is not what qualified it", async () => {
+      const wt = canceled("feature/eng-5", "ENG-5", {
+        remoteExists: false,
+        safeToRemove: true,
+      });
+      mockConfirm.mockResolvedValue(false);
+      const { lines } = await run([wt], { force: false });
+
+      expect(lines).toContain(
+        "- feature/eng-5 (Remote removed, no unpushed commits)",
+      );
+    });
+
+    it("holds back one with unpushed commits, names it under the new heading and removes nothing", async () => {
+      const wt = canceled(
+        "feature/eng-124",
+        "ENG-124",
+        { ahead: 2 },
+        undefined,
+      );
+      const { lines, removed } = await run([wt]);
+
+      const at = lines.indexOf(heading(1));
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(lines[at + 1]).toBe(
+        "- feature/eng-124 (Ahead: 2, Linear ENG-124: canceled)",
+      );
+      expect(headings(lines)).toHaveLength(1);
+      expect(removed).toEqual([]);
+    });
+
+    it("holds back one level with its tracking ref whose remote did not confirm the tip", async () => {
+      const wt = canceled("feature/eng-125", "ENG-125", {}, false);
+      const { lines, removed } = await run([wt]);
+
+      const at = lines.indexOf(heading(1));
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(lines[at + 1]).toBe(
+        "- feature/eng-125 (Linear ENG-125: canceled)",
+      );
+      expect(headings(lines)).toHaveLength(1);
+      expect(removed).toEqual([]);
+    });
+
+    it("pluralises the heading and counts it as held back when nothing else is removable", async () => {
+      const list = [
+        canceled("feature/eng-124", "ENG-124", { ahead: 2 }, undefined),
+        canceled("feature/eng-125", "ENG-125", {}, false),
+      ];
+      mockConfirm.mockResolvedValue(true);
+      const { lines, removed } = await run(list, { force: false });
+
+      expect(spinnerMocks.info).toHaveBeenCalledWith(
+        "No stale worktree branches can be removed safely.",
+      );
+      expect(spinnerMocks.succeed).not.toHaveBeenCalled();
+      expect(lines).toContain(heading(2));
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(removed).toEqual([]);
+    });
+
+    it("reports the new heading beside a removal", async () => {
+      const list = [
+        safeWorktree,
+        canceled("feature/eng-125", "ENG-125", {}, false),
+      ];
+      const { lines, removed } = await run(list);
+
+      expect(lines).toContain(heading(1));
+      expect(removed).toEqual(["feature/safe"]);
+    });
+
+    it("reports a confirmed, pushed worktree with uncommitted changes under the uncommitted heading only", async () => {
+      const wt = canceled("feature/eng-126", "ENG-126", {
+        uncommittedChanges: 3,
+      });
+      const { lines, removed } = await run([wt]);
+
+      const at = lines.indexOf(
+        "Skipped 1 worktree branch that has uncommitted changes:",
+      );
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(lines[at + 1]).toContain("feature/eng-126");
+      expect(headings(lines)).toHaveLength(1);
+      expect(removed).toEqual([]);
+    });
+
+    it("reports an unconfirmed one with uncommitted changes under the new heading only, with the count", async () => {
+      // Plan 4.4 does not say which heading wins here. The uncommitted probe
+      // re-derives the verdict with the count zeroed and the tip is still
+      // unconfirmed, so it declines the entry; the new heading claims it and
+      // its details carry the count.
+      const wt = canceled(
+        "feature/eng-127",
+        "ENG-127",
+        { uncommittedChanges: 2 },
+        false,
+      );
+      const { lines, removed } = await run([wt]);
+
+      const at = lines.indexOf(heading(1));
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(lines[at + 1]).toBe(
+        "- feature/eng-127 (2 uncommitted changes, Linear ENG-127: canceled)",
+      );
+      expect(headings(lines)).toHaveLength(1);
+      expect(removed).toEqual([]);
+    });
+
+    it("reports a confirmed one with a live agent under the agent heading only", async () => {
+      const wt = canceled("feature/eng-128", "ENG-128", { agent: liveAgent });
+      const { lines, removed } = await run([wt]);
+
+      expect(lines).toContain(
+        "Skipped 1 worktree branch with a live agent session:",
+      );
+      expect(headings(lines)).toHaveLength(1);
+      expect(removed).toEqual([]);
+    });
+
+    it("reports a confirmed one with an agent and uncommitted changes under the agent heading only", async () => {
+      const wt = canceled("feature/eng-129", "ENG-129", {
+        agent: liveAgent,
+        uncommittedChanges: 2,
+      });
+      const { lines } = await run([wt]);
+
+      expect(lines).toContain(
+        "Skipped 1 worktree branch with a live agent session:",
+      );
+      expect(headings(lines)).toHaveLength(1);
+    });
+
+    it("reports an unconfirmed one with a live agent under the new heading only", async () => {
+      // Not decided by the plan: the agent probe re-derives the verdict and an
+      // unconfirmed tip still declines it, so the new heading claims it. The
+      // session is named, like the uncountable heading: it is the more
+      // actionable fact.
+      const wt = canceled(
+        "feature/eng-130",
+        "ENG-130",
+        { agent: liveAgent },
+        false,
+      );
+      const { lines } = await run([wt]);
+
+      const at = lines.indexOf(heading(1));
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(lines[at + 1]).toBe(
+        "- feature/eng-130 (Agent: feature-agent-1f, Linear ENG-130: canceled)",
+      );
+      expect(headings(lines)).toHaveLength(1);
+    });
+
+    it("reports a canceled worktree whose ahead count could not be taken under the uncountable heading only", async () => {
+      const wt = canceled(
+        "feature/eng-131",
+        "ENG-131",
+        { ahead: undefined, aheadUnknownReason: "no comparison base" },
+        undefined,
+      );
+      const { lines } = await run([wt]);
+
+      expect(
+        lines.filter((l) => l.includes("could not be counted")),
+      ).toHaveLength(1);
+      expect(headings(lines)).toHaveLength(1);
+    });
+
+    it("never reports a worktree whose issue is not canceled under the new heading", async () => {
+      const wt = canceled("feature/eng-132", "ENG-132", { ahead: 2 });
+      wt.issue = { provider: "linear", key: "ENG-132", state: "started" };
+      const { lines } = await run([wt]);
+
+      expect(headings(lines)).toHaveLength(0);
+    });
+
+    it("keeps the signal under --ignore-agents", async () => {
+      const wt = canceled("feature/eng-133", "ENG-133", { agent: liveAgent });
+      const { lines, removed } = await run([wt], {
+        force: true,
+        "ignore-agents": true,
+      });
+
+      expect(removed).toEqual(["feature/eng-133"]);
+      expect(lines).toContain(
+        "Removing 1 worktree branch despite a live agent session:",
+      );
+    });
+
+    it("still holds an unconfirmed one back under --ignore-agents", async () => {
+      const wt = canceled(
+        "feature/eng-134",
+        "ENG-134",
+        { agent: liveAgent },
+        false,
+      );
+      const { lines, removed } = await run([wt], {
+        force: true,
+        "ignore-agents": true,
+      });
+
+      expect(removed).toEqual([]);
+      expect(lines).toContain(heading(1));
+    });
+
+    it("prints one warning and removes what it would have without the signal when the lookup failed", async () => {
+      const warnSpy = vi
+        .spyOn(cleanup, "warn")
+        .mockImplementation((input) => input);
+      vi.spyOn(git, "gitGetWorktreeList").mockImplementation((async (
+        options: { onIssueWarning?: (message: string) => void } = {},
+      ) => {
+        options.onIssueWarning?.(
+          "Linear: Authentication failed; canceled issues were not considered.",
+        );
+        return [safeWorktree, unsafeWorktree];
+      }) as any);
+      vi.spyOn(cleanup, "log").mockImplementation(() => {});
+      const mockRemove = vi
+        .spyOn(git, "gitRemoveWorktreesWithProgress")
+        .mockImplementation(async (worktrees) => worktrees);
+      (cleanup as any).parse = vi
+        .fn()
+        .mockResolvedValue({ flags: { force: true } });
+
+      await cleanup.run();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Linear: Authentication failed; canceled issues were not considered.",
+      );
+      expect(mockRemove).toHaveBeenCalledWith([safeWorktree]);
     });
   });
 

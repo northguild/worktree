@@ -436,7 +436,8 @@ worktree rm feature/add-bulk-actions          # alias
 worktree remove feature/add-bulk-actions --force  # skip confirmation
 
 # Remove all stale worktrees (no unmerged commits, nothing uncommitted,
-# remote gone or never set, no live agent session)
+# no live agent session; and either the remote gone or never set, or a
+# canceled Linear issue whose commits are all on the remote)
 worktree cleanup
 worktree cleanup --force                      # skip confirmation
 worktree cleanup --ignore-agents              # sweep even worktrees an agent is in
@@ -449,6 +450,20 @@ for as long as the worktree exists; `cleanup` compares the change itself against
 the comparison base and names the base it landed in — `(Remote removed, merged
 into origin/main)`. A branch that has gained a commit since it was merged is
 carrying real work again and is held back.
+
+A branch made with `branch --linear` carries a record of its issue in git config
+(`branch.<name>.worktreeIssue`). When `linear.apiKey` is set, `cleanup` reads those
+issues' state types from Linear on every run, and a worktree tracking a live remote
+branch is removed when the issue is `canceled` (no other state counts), it has no
+uncommitted changes and no live agent, it is not ahead of its tracking ref, and the
+remote confirms the branch's tip (`git ls-remote`, once per remote). It is listed as
+`Linear issue ENG-123 canceled, no unpushed commits`. A canceled branch that fails the
+unpushed or confirmation test is reported under `Skipped … whose Linear issue is
+canceled but whose commits are not confirmed on …` and kept. A failed Linear lookup is one
+warning, and the run decides as it did without the signal. A remote that cannot be asked is
+one warning too: the canceled branches on that remote are kept, and those on a remote that
+answered are still judged. The branch has to track its
+remote (push with `-u`); with no key or no record `cleanup` makes no request.
 
 A worktree an agent session is working in is never removed by `cleanup`; it
 is reported as skipped instead. A session that is only idle (an agent left at

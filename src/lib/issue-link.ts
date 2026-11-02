@@ -93,7 +93,8 @@ export async function gitGetBranchIssueLinks(): Promise<Map<string, string>> {
 // (D7), and a failure that is not one has no message worth showing.
 const NOT_CONSIDERED = "Canceled issues were not considered.";
 const READ_FAILED = `Linear: could not read the recorded issue links. ${NOT_CONSIDERED}`;
-const REMOTE_FAILED = `Git: could not ask a remote about a canceled issue's branch. ${NOT_CONSIDERED}`;
+const REMOTE_FAILED =
+  "Git: could not ask a remote about a canceled issue's branch. Canceled branches on a remote that did not answer were kept.";
 const LOOKUP_FAILED = `Linear: could not read issue states. ${NOT_CONSIDERED}`;
 
 function lookupWarning(
