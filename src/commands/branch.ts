@@ -67,6 +67,7 @@ import {
   MissingValueError,
   type PromptSite,
 } from "../lib/prompt.js";
+import { redactSecrets } from "../lib/redact.js";
 import type {
   BranchDocument,
   BranchDryRunDocument,
@@ -850,27 +851,29 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       switch (result.outcome) {
         case "started":
           spinner.succeed(
-            `Moved ${issueKey} from ${result.from} to ${result.to}`,
+            `Moved ${issueKey} from ${showVisibly(result.from)} to ${showVisibly(result.to)}`,
           );
           return true;
         case "already-started":
-          spinner.succeed(`${issueKey} is already started (${result.state})`);
+          spinner.succeed(
+            `${issueKey} is already started (${showVisibly(result.state)})`,
+          );
           return true;
         case "left-alone": {
-          const message = `${issueKey} is in ${result.state} (a ${result.type} state), so it was not moved to started.`;
+          const message = `${issueKey} is in ${showVisibly(result.state)} (a ${showVisibly(result.type)} state), so it was not moved to started.`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;
         }
         case "no-started-state": {
-          const message = `${issueKey} was not moved to started: its team has no started state (it is in ${result.state}).`;
+          const message = `${issueKey} was not moved to started: its team has no started state (it is in ${showVisibly(result.state)}).`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;
         }
       }
     } catch (error) {
-      const message = `Could not move ${issueKey} to started. ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Could not move ${issueKey} to started. ${showVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`;
       spinner.warn(message);
       this.recordWarning(message);
       return false;
@@ -894,27 +897,29 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       switch (result.outcome) {
         case "started":
           spinner.succeed(
-            `Moved ${taskKey} from ${result.from} to ${result.to}`,
+            `Moved ${taskKey} from ${showVisibly(result.from)} to ${showVisibly(result.to)}`,
           );
           return true;
         case "already-started":
-          spinner.succeed(`${taskKey} is already started (${result.status})`);
+          spinner.succeed(
+            `${taskKey} is already started (${showVisibly(result.status)})`,
+          );
           return true;
         case "left-alone": {
-          const message = `${taskKey} is in ${result.status} (a ${result.type} status), so it was not moved to in progress.`;
+          const message = `${taskKey} is in ${showVisibly(result.status)} (a ${showVisibly(result.type)} status), so it was not moved to in progress.`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;
         }
         case "no-in-progress-status": {
-          const message = `${taskKey} was not moved to in progress: its List has no in-progress status (it is in ${result.status}).`;
+          const message = `${taskKey} was not moved to in progress: its List has no in-progress status (it is in ${showVisibly(result.status)}).`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;
         }
       }
     } catch (error) {
-      const message = `Could not move ${taskKey} to in progress. ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Could not move ${taskKey} to in progress. ${showVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`;
       spinner.warn(message);
       this.recordWarning(message);
       return false;
@@ -942,14 +947,16 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       switch (result.outcome) {
         case "started":
           spinner.succeed(
-            `Moved ${issueKey} from ${result.from} to ${result.to}`,
+            `Moved ${issueKey} from ${showVisibly(result.from)} to ${showVisibly(result.to)}`,
           );
           return true;
         case "already-started":
-          spinner.succeed(`${issueKey} is already started (${result.status})`);
+          spinner.succeed(
+            `${issueKey} is already started (${showVisibly(result.status)})`,
+          );
           return true;
         case "left-alone": {
-          const message = `${issueKey} is in ${result.status} (status category ${result.category}), so it was not moved to in progress.`;
+          const message = `${issueKey} is in ${showVisibly(result.status)} (status category ${showVisibly(result.category)}), so it was not moved to in progress.`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;
@@ -959,13 +966,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
           // transition and when the caller lacks the permission, and the same
           // outcome covers a list with no in-progress target, so the text
           // claims none of the causes.
-          const message = `${issueKey} was not moved to in progress: Jira offered no in-progress transition from ${result.status}. Its workflow may have none, or your account may lack the Transition Issues permission on the project.`;
+          const message = `${issueKey} was not moved to in progress: Jira offered no in-progress transition from ${showVisibly(result.status)}. Its workflow may have none, or your account may lack the Transition Issues permission on the project.`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;
         }
         case "ambiguous": {
-          const message = `${issueKey} was not moved to in progress: Jira offers more than one in-progress status from ${result.status} (${result.targets.join(", ")}), so none was chosen. Move it in Jira.`;
+          const message = `${issueKey} was not moved to in progress: Jira offers more than one in-progress status from ${showVisibly(result.status)} (${showVisibly(result.targets.join(", "))}), so none was chosen. Move it in Jira.`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;
@@ -974,7 +981,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     } catch (error) {
       const reason =
         error instanceof Error && error.message.startsWith("Jira:")
-          ? error.message
+          ? showVisibly(redactSecrets(error.message))
           : `The request to Jira failed (${error instanceof Error ? error.name : "unknown error"}).`;
       const message = `Could not move ${issueKey} to in progress. ${reason}`;
       spinner.warn(message);
