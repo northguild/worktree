@@ -1509,6 +1509,102 @@ jira:
         );
       });
 
+      it("shows an escape sequence in a Jira status name as text, never raw", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "started",
+          from: "\u001b[2Jfrom",
+          to: "\u001b[2Jto",
+        } as any);
+
+        await go({ start: true });
+
+        const printed = vi
+          .mocked(ora)
+          .mock.results.flatMap((r) => r.value.succeed.mock.calls)
+          .map(([text]: [string]) => text)
+          .join("\n");
+        expect(printed).toContain(
+          "Moved DEV-123 from \\x1b[2Jfrom to \\x1b[2Jto",
+        );
+        expect(printed).not.toContain("\u001b");
+      });
+
+      it("shows an escape sequence in a Jira status name in a warning as text, never raw", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "left-alone",
+          status: "\u001b[2Jx",
+          category: "\u001b[2Jc",
+        } as any);
+
+        const document = await go({ start: true });
+
+        expect(document?.warnings).toEqual([
+          "DEV-123 is in \\x1b[2Jx (status category \\x1b[2Jc), so it was not moved to in progress.",
+        ]);
+      });
+
+      it("shows an escape sequence in a Jira error message as text, never raw", async () => {
+        mockStart.mockRejectedValue(new Error("Jira: bad \u001b[2Jtext"));
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([
+          "Could not move DEV-123 to in progress. Jira: bad \\x1b[2Jtext",
+        ]);
+      });
+
+      it.each([
+        [
+          "already-started",
+          { outcome: "already-started", status: "\u001b[2Js" },
+          "DEV-123 is already started (\\x1b[2Js)",
+          "succeed",
+        ],
+        [
+          "no-in-progress-transition",
+          { outcome: "no-in-progress-transition", status: "\u001b[2Js" },
+          "DEV-123 was not moved to in progress: Jira offered no in-progress transition from \\x1b[2Js. Its workflow may have none, or your account may lack the Transition Issues permission on the project.",
+          "warn",
+        ],
+        [
+          "ambiguous",
+          {
+            outcome: "ambiguous",
+            status: "\u001b[2Js",
+            targets: ["\u001b[2Ja", "\u001b[2Jb"],
+          },
+          "DEV-123 was not moved to in progress: Jira offers more than one in-progress status from \\x1b[2Js (\\x1b[2Ja, \\x1b[2Jb), so none was chosen. Move it in Jira.",
+          "warn",
+        ],
+      ])("escapes a control character in a Jira name for %s", async (_outcome, result, expected, where) => {
+        mockStart.mockResolvedValue(result as any);
+
+        const document = await go({ start: true });
+
+        const succeeded = vi
+          .mocked(ora)
+          .mock.results.flatMap((r) => r.value.succeed.mock.calls)
+          .map(([text]: [string]) => text);
+        if (where === "succeed") {
+          expect(succeeded).toContain(expected);
+        } else {
+          expect(document?.warnings).toEqual([expected]);
+        }
+      });
+
+      it("never lets a token after a control character into the Jira warning", async () => {
+        mockStart.mockRejectedValue(
+          new Error("Jira: rejected\npk_test1234567890abcdef"),
+        );
+
+        const document = await go({ start: true });
+
+        expect(JSON.stringify(document?.warnings)).not.toContain(
+          "pk_test1234567890abcdef",
+        );
+      });
+
       it("never moves the issue when the creation fails", async () => {
         mockCreate.mockRejectedValue(new Error("git failed"));
 
@@ -2009,6 +2105,92 @@ jira:
         expect(document?.started).toBe(true);
       });
 
+      it("shows an escape sequence in a Linear state name as text, never raw", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "started",
+          from: "\u001b[2Jfrom",
+          to: "\u001b[2Jto",
+        } as any);
+
+        await go({ start: true });
+
+        const printed = vi
+          .mocked(ora)
+          .mock.results.flatMap((r) => r.value.succeed.mock.calls)
+          .map(([text]: [string]) => text)
+          .join("\n");
+        expect(printed).toContain(
+          "Moved ENG-123 from \\x1b[2Jfrom to \\x1b[2Jto",
+        );
+        expect(printed).not.toContain("\u001b");
+      });
+
+      it("shows an escape sequence in a Linear state name in a warning as text, never raw", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "left-alone",
+          state: "\u001b[2Jx",
+          type: "\u001b[2Jt",
+        } as any);
+
+        const document = await go({ start: true });
+
+        expect(document?.warnings).toEqual([
+          "ENG-123 is in \\x1b[2Jx (a \\x1b[2Jt state), so it was not moved to started.",
+        ]);
+      });
+
+      it("shows an escape sequence in a Linear error message as text, never raw", async () => {
+        mockStart.mockRejectedValue(new Error("Linear: bad \u001b[2Jtext"));
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([
+          "Could not move ENG-123 to started. Linear: bad \\x1b[2Jtext",
+        ]);
+      });
+
+      it.each([
+        [
+          "already-started",
+          { outcome: "already-started", state: "\u001b[2Js" },
+          "ENG-123 is already started (\\x1b[2Js)",
+          "succeed",
+        ],
+        [
+          "no-started-state",
+          { outcome: "no-started-state", state: "\u001b[2Js" },
+          "ENG-123 was not moved to started: its team has no started state (it is in \\x1b[2Js).",
+          "warn",
+        ],
+      ])("escapes a control character in a Linear name for %s", async (_outcome, result, expected, where) => {
+        mockStart.mockResolvedValue(result as any);
+
+        const document = await go({ start: true });
+
+        const succeeded = vi
+          .mocked(ora)
+          .mock.results.flatMap((r) => r.value.succeed.mock.calls)
+          .map(([text]: [string]) => text);
+        if (where === "succeed") {
+          expect(succeeded).toContain(expected);
+        } else {
+          expect(document?.warnings).toEqual([expected]);
+        }
+      });
+
+      it("never lets a token after a control character into the Linear warning", async () => {
+        mockStart.mockRejectedValue(
+          new Error("Linear: rejected\nlin_api_test1234567890abcdef"),
+        );
+
+        const document = await go({ start: true });
+
+        expect(JSON.stringify(document?.warnings)).not.toContain(
+          "lin_api_test1234567890abcdef",
+        );
+      });
+
       it("never moves the issue when the creation fails", async () => {
         mockCreate.mockRejectedValue(new Error("git failed"));
 
@@ -2151,6 +2333,18 @@ jira:
       it("never lets the stored key into the warnings", async () => {
         mockStart.mockRejectedValue(
           new Error("Linear: rejected the key lin_api_test1234567890abcdef"),
+        );
+
+        const document = await go({ start: true });
+
+        expect(JSON.stringify(document?.warnings)).not.toContain(
+          "lin_api_test1234567890abcdef",
+        );
+      });
+
+      it("never lets the stored key into the warnings after a control character", async () => {
+        mockStart.mockRejectedValue(
+          new Error("Linear: rejected the key\nlin_api_test1234567890abcdef"),
         );
 
         const document = await go({ start: true });
@@ -2863,6 +3057,90 @@ jira:
         expect(document?.started).toBe(true);
         expect(branch.warn).not.toHaveBeenCalledWith(
           expect.stringContaining("Moving an issue to started"),
+        );
+      });
+
+      it("shows an escape sequence in a ClickUp status name as text, never raw", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "started",
+          from: "\u001b[2Jfrom",
+          to: "\u001b[2Jto",
+        } as any);
+
+        await go({ start: true });
+
+        const printed = vi
+          .mocked(ora)
+          .mock.results.flatMap((r) => r.value.succeed.mock.calls)
+          .map(([text]: [string]) => text)
+          .join("\n");
+        expect(printed).toContain("Moved 9hx from \\x1b[2Jfrom to \\x1b[2Jto");
+        expect(printed).not.toContain("\u001b");
+      });
+
+      it("shows an escape sequence in a ClickUp status name in a warning as text, never raw", async () => {
+        mockStart.mockResolvedValue({
+          outcome: "left-alone",
+          status: "\u001b[2Jx",
+          type: "\u001b[2Jt",
+        } as any);
+
+        const document = await go({ start: true });
+
+        expect(document?.warnings).toEqual([
+          "9hx is in \\x1b[2Jx (a \\x1b[2Jt status), so it was not moved to in progress.",
+        ]);
+      });
+
+      it("shows an escape sequence in a ClickUp error message as text, never raw", async () => {
+        mockStart.mockRejectedValue(new Error("ClickUp: bad \u001b[2Jtext"));
+
+        const document = await go({ start: true });
+
+        expect(document?.started).toBe(false);
+        expect(document?.warnings).toEqual([
+          "Could not move 9hx to in progress. ClickUp: bad \\x1b[2Jtext",
+        ]);
+      });
+
+      it.each([
+        [
+          "already-started",
+          { outcome: "already-started", status: "\u001b[2Js" },
+          "9hx is already started (\\x1b[2Js)",
+          "succeed",
+        ],
+        [
+          "no-in-progress-status",
+          { outcome: "no-in-progress-status", status: "\u001b[2Js" },
+          "9hx was not moved to in progress: its List has no in-progress status (it is in \\x1b[2Js).",
+          "warn",
+        ],
+      ])("escapes a control character in a ClickUp name for %s", async (_outcome, result, expected, where) => {
+        mockStart.mockResolvedValue(result as any);
+
+        const document = await go({ start: true });
+
+        const succeeded = vi
+          .mocked(ora)
+          .mock.results.flatMap((r) => r.value.succeed.mock.calls)
+          .map(([text]: [string]) => text);
+        if (where === "succeed") {
+          expect(succeeded).toContain(expected);
+        } else {
+          expect(document?.warnings).toEqual([expected]);
+        }
+      });
+
+      it("never lets a token after a control character into the ClickUp warning", async () => {
+        mockStart.mockRejectedValue(
+          new Error("ClickUp: rejected\npk_test1234567890abcdef"),
+        );
+
+        const document = await go({ start: true });
+
+        expect(JSON.stringify(document?.warnings)).not.toContain(
+          "pk_test1234567890abcdef",
         );
       });
 
