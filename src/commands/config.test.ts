@@ -6,7 +6,11 @@ import path from "node:path";
 import { confirm, input, select } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
 import * as gitConfig from "../lib/config.js";
-import { CONFIG_NAMES, SECRET_CONFIG_NAMES } from "../lib/constants.js";
+import {
+  CONFIG_NAMES,
+  SECRET_CONFIG_NAMES,
+  UNPROMPTED_CONFIG_NAMES,
+} from "../lib/constants.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import * as projectConfig from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
@@ -358,6 +362,121 @@ describe("config command", () => {
         ...mockSelect.mock.calls,
       ].map(([prompt]) => (prompt as { message: string }).message);
       expect(asked.filter((m) => /repositor/i.test(m))).toEqual([]);
+    });
+  });
+
+  // #120 D7: github.host is stored, listed unmasked and settable by name, and
+  // the wizard never asks for it.
+  describe("github.host", () => {
+    it("is a config name, is not a secret, and is never prompted", () => {
+      expect(CONFIG_NAMES).toContain("github.host");
+      expect(SECRET_CONFIG_NAMES).not.toContain("github.host");
+      expect(UNPROMPTED_CONFIG_NAMES).toContain("github.host");
+    });
+
+    it("stores a valid host and --list shows it unmasked", async () => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "github.host", value: "ghe.example.com" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "github.host",
+        "ghe.example.com",
+      );
+
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(key === "github.host" ? "ghe.example.com" : ""),
+      );
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: false },
+      });
+      await config.run();
+
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        "github.host=ghe.example.com",
+      );
+    });
+
+    it.each([
+      "https://ghe.example.com",
+      "ghe.example.com:8443",
+      "api.github.com",
+    ])("refuses %j with exit 2 and stores nothing", async (value) => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "github.host", value },
+        flags: {},
+      });
+
+      await expect(config.run()).rejects.toMatchObject({
+        code: "invalid_value",
+        oclif: { exit: 2 },
+      });
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "github.host",
+        expect.anything(),
+      );
+    });
+
+    it("is neither listed by --missing nor asked on a --missing or bare run", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: true },
+      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("");
+      await config.run();
+      expect(mockConsoleLog).not.toHaveBeenCalledWith("github.host");
+
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("anything");
+      mockSelect.mockResolvedValue("true");
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false },
+      });
+      await config.run();
+
+      const asked = [
+        ...mockConfirm.mock.calls,
+        ...mockInput.mock.calls,
+        ...mockSelect.mock.calls,
+      ].map(([prompt]) => (prompt as { message: string }).message);
+      expect(asked.filter((m) => /host/i.test(m) && /github/i.test(m))).toEqual(
+        [],
+      );
+    });
+
+    it("the token instructions say the stored token is for github.com only", async () => {
+      mockInput.mockResolvedValue("");
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          yes: true,
+          names: "github.token",
+        },
+      });
+
+      await config.run();
+
+      const instructions = mockConsoleLog.mock.calls
+        .map(([line]: unknown[]) => String(line))
+        .join("\n");
+      expect(instructions).toContain("github.com only");
+      expect(instructions).toContain("gh auth token --hostname <host>");
     });
   });
 

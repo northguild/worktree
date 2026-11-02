@@ -66,7 +66,7 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree from
 the team keys in your git config (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`,
-`clickup.workspaceId`, `github.repository` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
+`clickup.workspaceId`, `github.repository`, `github.host` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
 secret key. A personal `postCreate` command becomes a one-step list. The file is left uncommitted for you to
 review, and the command refuses to overwrite an existing `.worktree.yml`. It takes no other argument or flag.
 
@@ -128,15 +128,20 @@ regardless, so a machine can be configured before Herdr is installed.
 
 ## GitHub Integration Keys
 
-- `github.token` for GitHub API access.
+- `github.token` for GitHub API access to github.com. It is never read for, or sent to, a GitHub Enterprise host.
 - `github.autoAssign` whether reading a GitHub issue also assigns it to you: `true` always, `false`
   never, unset means you are asked once and your answer is saved. See
   [Configuration](/docs/configuration#github-integration-notes).
 - `github.repository` the `owner/repo` that `--github` and `--assign` use, a team key that can also be set in
-  `.worktree.yml` under `github:`. Without it `worktree` uses `upstream` when that is a GitHub remote, else
+  `.worktree.yml` under `github:`. Without it `worktree` uses `upstream` when it is on `github.host` (`github.com` unless set), else
   `origin`. **The wizard never asks for it**, and `--missing` never lists it: most people have no fork. Set it by
   name, for example `worktree config github.repository acme/widgets` when your issues are on your fork. See
   [Forks](/docs/guides/github-issue-integration#forks).
+- `github.host` the GitHub host that `--github` and `--assign` use, a bare hostname such as `ghe.example.com`
+  for GitHub Enterprise. Unset means `github.com`. A team key that can also be set in `.worktree.yml` under
+  `github:`. **The wizard never asks for it**, and `--missing` never lists it. Set it by name, for example
+  `worktree config github.host ghe.example.com`. See
+  [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
 - `branchPrefix.feature` optional prefix used for `Feature` issues.
 - `branchPrefix.bugfix` optional prefix used for `Bug` issues.
 - `branchPrefix.chore` optional prefix used for `Task` issues.

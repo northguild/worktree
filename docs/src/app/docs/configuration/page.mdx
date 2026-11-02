@@ -21,9 +21,10 @@ config.
 - `herdr.agent` (example: `claude`; the agent kind that starts in every new Herdr space. Unset means no agent, unless `worktree branch` or `checkout` is given a brief, which falls back to `agent.command`'s program)
 - `agent.command` (the command `--agent` runs to hand a brief to a coding agent, example: `claude --bg`)
 - `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means the steps in `.worktree.yml`, else infer from the lockfile)
-- `github.token` (GitHub personal access token)
+- `github.token` (GitHub personal access token, for github.com only; a GitHub Enterprise host's token comes from `gh auth token --hostname <host>`)
 - `github.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
-- `github.repository` (example: `acme/widgets`; the repository `--github` reads and assigns in, only needed when it is not the repository found otherwise (`upstream` when that is a GitHub remote, else `origin`), for example when your issues are on your fork and an `upstream` remote exists; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
+- `github.repository` (example: `acme/widgets`; the repository `--github` reads and assigns in, only needed when it is not the repository found otherwise (`upstream` when it is on `github.host` (`github.com` unless set), else `origin`), for example when your issues are on your fork and an `upstream` remote exists; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
+- `github.host` (example: `ghe.example.com`; the GitHub host `--github` and `--assign` use, a bare hostname, default `github.com`; for GitHub Enterprise, which also needs a remote on that host; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
@@ -210,12 +211,13 @@ worktree config branchPrefix.chore chore/
 ## GitHub Integration Notes
 
 - `worktree branch --github <issue-number>` reads issues from the repository named by `github.repository`
-  (git config, then `.worktree.yml`), else the `upstream` remote when it points at GitHub, else `origin`. When
+  (git config, then `.worktree.yml`), else the `upstream` remote when it is on `github.host` (`github.com` unless set), else `origin`. When
   that is not `origin`'s repository, the output names it. To read a fork's own issues, or any other repository,
   set the key. It is a team key, so it can live in `.worktree.yml` under `github:`, and git config overrides it.
   See [Forks](/docs/guides/github-issue-integration#forks).
 - Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
-- If `github.token` is missing, `worktree` can attempt to use `gh auth token` (read each run, never saved) and then prompt; only a typed or configured token is stored.
+- If `github.token` is missing, `worktree` can attempt to use `gh auth token --hostname github.com` (read each run and never saved; neither `GH_HOST` nor a `gh` login to another host supplies it) and then prompt; only a typed or configured token is stored. On a GitHub Enterprise host (`github.host`) the stored token is never read or sent: the only source is `gh auth token --hostname <host>`, there is no prompt, and a missing token exits `2` naming `gh auth login --hostname <host>`.
+- `github.host` names the one GitHub host that `--github` and `--assign` use, and the clone needs a remote on it as well (the remote the repository is read from, or `origin` when `github.repository` is set). Both have to agree, or the run fails before any request. See [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
 - `github.autoAssign` decides whether reading an issue also assigns it to you. It has three states, not
   two: `true` always assigns, `false` never does, and leaving it **unset** means you are asked, once, and
   your answer is saved to this key. A non-interactive run does not ask: it assigns and saves nothing. Assigning needs a token whose account has push access to the repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.

@@ -9,7 +9,9 @@ import {
   describeGitHubRepository,
   fetchGitHubIssue,
   getGitHubBranchNaming,
+  hostOf,
   parseGitHubIssueReference,
+  resolveGitHubHost,
   resolveGitHubRepository,
 } from "../integrations/github.js";
 import {
@@ -1043,15 +1045,27 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
   }
 
-  /** D3: the URL's repository must be the one every later step reads. */
+  /**
+   * D3: the URL's repository must be the one every later step reads. #120 D11:
+   * its host must be `github.host`, which the parser enforces, and the
+   * repository this run reads must be on that host too.
+   */
   private async readGitHubReference(value: string): Promise<string> {
-    const { number, repository } = parseGitHubIssueReference(value);
+    // Only a URL names a host, so only a URL needs the configured one.
+    const isUrl = /^https?:\/\//i.test(value.trim());
+    const host = isUrl ? await resolveGitHubHost() : undefined;
+    const { number, repository } = parseGitHubIssueReference(value, host);
     if (!repository) {
       return number;
     }
     const resolved = await resolveGitHubRepository();
     const pasted = `${repository.owner}/${repository.name}`;
     const configured = `${resolved.owner}/${resolved.name}`;
+    if (hostOf(resolved) !== host) {
+      throw new InvalidValueError(
+        `GitHub: the URL is on ${host}, but this run reads ${hostOf(resolved)}. Pass the issue number, or check github.host.`,
+      );
+    }
     if (pasted.toLowerCase() !== configured.toLowerCase()) {
       throw new InvalidValueError(
         `GitHub: the URL names ${pasted}, but this run reads ${configured} (${resolved.source}). Set github.repository to ${pasted} to use it, or pass the issue number.`,

@@ -23,6 +23,9 @@ A [non-interactive run](/docs/commands/branch#non-interactive-runs) takes it wit
 A pasted URL must be an issue (or pull request) URL of the repository chosen as described under [Forks](#forks),
 compared ignoring case. A URL for another repository exits `2` with `invalid_value`, naming both and
 `github.repository`, before anything is created; set `github.repository` to that repository, or pass the number.
+The URL's host must be `github.host` (`github.com`, or `www.github.com`, when it is unset), compared ignoring case;
+a URL on any other host exits `2` with `invalid_value` before anything is created, and the URL's host is never
+contacted.
 
 ## Forks
 
@@ -30,17 +33,18 @@ compared ignoring case. A URL for another repository exits `2` with `invalid_val
 
 1. The `github.repository` key, an `owner/repo` such as `acme/widgets`. It is read from git config, then from
    `.worktree.yml`.
-2. The `upstream` remote, when it exists and points at GitHub.
+2. The `upstream` remote, when it exists and is on `github.host` (`github.com` unless you set one).
 3. The `origin` remote.
 
 With no `upstream` remote and no key, that is `origin`, as it has always been, and the output is unchanged. In a
 fork, `origin` is your copy and the issues usually live on `upstream`, so `--github 42` reads issue 42 of
-the original with no setup. An `upstream` that does not point at GitHub is skipped, not an error.
+the original with no setup. An `upstream` that is not on `github.host` is skipped, not an error.
 
 Whenever the repository is not the one behind `origin`, the output says which one it used and why. The spinner
 reads `Fetching GitHub issue #42 from acme/widgets (upstream)`, the assignment line ends `in acme/widgets
 (upstream)`, and a failure names the repository in the same form. The part in brackets is `upstream` or
-`github.repository`.
+`github.repository`. On a GitHub Enterprise host the repository is written `<host>/<owner>/<repo>`, for
+example `ghe.example.com/acme/widgets (upstream)`; on github.com the text is unchanged.
 
 If your issues are on the fork, or on a repository neither remote points at, pin it:
 
@@ -55,6 +59,85 @@ config` never asks for it, since most people have no fork, so set it by name.
 
 A token that can read your fork may not be allowed on `upstream`; a private upstream answers `404`, and the
 error names the repository it asked.
+
+## GitHub Enterprise
+
+`--github` and `--assign` work against GitHub Enterprise Server and GitHub Enterprise Cloud with data residency
+(`*.ghe.com`), one host at a time. The host is configured, not guessed from a remote, and the clone has to agree
+with it.
+
+### Set the host
+
+```bash
+worktree config github.host ghe.example.com
+```
+
+That sets it for this repository, in git config. To say it once for everyone, commit it under `github:` in
+[`.worktree.yml`](/docs/project-configuration), where a teammate can still override it from git config:
+
+```yaml
+github:
+  host: ghe.example.com
+```
+
+The value is a bare hostname, such as `ghe.example.com`: no `https://`, port, path or trailing dot. `worktree
+config` never asks for it, since most people use github.com, so set it by name. `github.com` is accepted and means
+the default, so a repository can switch back from a team-wide Enterprise value. Any other host under `github.com`,
+such as `api.github.com`, is refused.
+
+### Which remotes count
+
+The host has to be named twice, by `github.host` and by a remote of this clone. Requests go to the configured host
+only when the remote the repository was read from is on that host. When `github.repository` supplies the
+repository, `origin` has to be on the host instead. A merged `.worktree.yml` change therefore cannot send your
+token to a new host on its own.
+
+- An `upstream` on another host is skipped, as in [Forks](#forks).
+- An `origin` on another host is an error that names the remote, the host expected and `github.host`. Correct
+  `github.host`, or unset it to use github.com.
+- On github.com, a non-GitHub `origin` keeps its usual error and adds how to set an Enterprise host.
+
+Every common remote form is read: `https://`, `ssh://` (and its older spellings `git+ssh://` and `ssh+git://`),
+`git://` and the scp-like `git@host:owner/repo.git`. The host is compared ignoring case, and a port is ignored,
+since an SSH port is not the API's port. `ssh.github.com` and `www.github.com` count as `github.com`.
+
+### Authenticate
+
+The token comes from the GitHub CLI, for that host only:
+
+```bash
+gh auth login --hostname ghe.example.com
+```
+
+For a run without a stored `gh` login, such as CI, set `GH_ENTERPRISE_TOKEN` (Server hosts); `worktree` does not
+read it itself, `gh auth token --hostname <host>` returns it. See the
+[`gh` environment reference](https://cli.github.com/manual/gh_help_environment). The stored `github.token` is
+never used for an Enterprise host. See [Authentication Resolution](#authentication-resolution).
+
+### Host names
+
+A host ending in `.ghe.com` uses `https://api.<host>`. Any other host uses `https://<host>/api/v3`. The scheme is
+always `https`, whatever scheme your remote uses, so a token never travels in clear. A repository on an Enterprise
+host is written `<host>/<owner>/<repo>` in the output.
+
+### A private certificate authority
+
+Enterprise Server often has a certificate from your company's own authority, which Node does not trust. The run
+then fails with `GitHub: could not reach <host>.` and the TLS reason. Point Node at the authority's certificate
+(a PEM file) before running `worktree`:
+
+```bash
+export NODE_EXTRA_CA_CERTS=/path/to/company-ca.pem
+```
+
+or, on Node.js 22.19 or 24.6 and later, let Node trust the operating system's certificate store:
+
+```bash
+export NODE_USE_SYSTEM_CA=1
+```
+
+Both are read when Node starts, so set them in the shell before the command. See the
+[Node.js command-line reference](https://nodejs.org/api/cli.html).
 
 ## How Branch Names Are Built
 
@@ -98,11 +181,12 @@ the built-in mapping above is not used. See
 
 ## Authentication Resolution
 
-Authentication is resolved in this order:
+On github.com, authentication is resolved in this order:
 
 1. Existing `github.token` in local git config.
-2. `gh auth token` from GitHub CLI. The token is read on each run and is **never saved** to git config, so
-   it cannot go stale or sit in clear text.
+2. `gh auth token --hostname github.com` from GitHub CLI. The token is read on each run and is **never saved**
+   to git config, so it cannot go stale or sit in clear text. Because the host is named, neither `GH_HOST` nor a
+   `gh` login to another host supplies it.
 3. Interactive prompt for a token, then save to local git config. A non-interactive run has no prompt: it exits
    `2` naming `worktree config github.token <token>` or `gh auth login`, and never prints a token.
 
@@ -118,8 +202,10 @@ git config --unset northguild.worktree.github.token
 
 A token saved by an earlier version stays stored until you run that command or replace it.
 
-A token that came from `gh` gets a shorter hint: `gh auth login`, or
+On github.com, a token that came from `gh` gets a shorter hint: `gh auth login`, or
 `worktree config github.token <token>`.
+
+On a GitHub Enterprise host (`github.host`) there is one source only: `gh auth token --hostname <host>`. The stored `github.token` is never read for that host and never sent to it, and nothing is prompted for, since a typed token would be stored with no host. With no token the run exits `2` with `missing_value`, naming `gh auth login --hostname <host>`; a `401` names the same command. See [GitHub Enterprise](#github-enterprise).
 
 Reading an issue and assigning one need different amounts of access. A public repository answers an
 unauthenticated read, which is why `--github` has never required a token there. Assigning always does, and

@@ -15,6 +15,7 @@ export const CONFIG_NAMES = [
   "github.token",
   "github.autoAssign",
   "github.repository",
+  "github.host",
   "branchPrefix.feature",
   "branchPrefix.bugfix",
   "branchPrefix.chore",
@@ -40,8 +41,11 @@ export const SECRET_CONFIG_NAMES = [
 // absent from a bare run and from `--missing`. `github.repository` names a fork
 // setup's issue repository, an exception rather than something to ask everyone
 // (D7), so a prompt for it would be noise for the people with no fork.
+// `github.host` names a GitHub Enterprise host (#120 D7); most people use
+// github.com, so it is asked of no one.
 export const UNPROMPTED_CONFIG_NAMES = [
   "github.repository",
+  "github.host",
 ] as const satisfies readonly ConfigName[];
 
 // Accepted values for the `opener` config key: which destination a worktree is

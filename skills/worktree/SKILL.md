@@ -69,10 +69,12 @@ Use `branch` to create something new.
 ### Derive a branch name from a GitHub, Jira or Linear issue or a ClickUp task
 
 ```bash
-# GitHub — requires github.token in config (or gh CLI authenticated)
+# GitHub — requires github.token in config (or gh CLI authenticated). On a
+# GitHub Enterprise host (github.host) only `gh auth token --hostname <host>`
+# supplies the token; github.token is never read or sent there.
 # Reads the repository named by github.repository (git config, then
-# .worktree.yml), else the `upstream` remote when it is a GitHub URL, else
-# `origin`. When that is not origin's, the output says so, e.g.
+# .worktree.yml), else the `upstream` remote when it is on github.host
+# (github.com unless set), else `origin`. When that is not origin's, the output says so, e.g.
 # "Fetching GitHub issue #42 from acme/widgets (upstream)". If a fork's issues
 # are on the fork, pin it: worktree config github.repository <owner/repo>
 worktree branch --github 42
@@ -212,7 +214,7 @@ live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) 
 (`fix/DEV-123-fix-login`).
 
 **Issue content is used for the branch name and nothing else, with one exception: the Linear menu.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
-`--jira`, `--linear` and `--clickup` read the issue's number or key (`--github`, `--jira` and `--linear` also accept a pasted issue URL, refused with exit `2` if it names another repository, Jira site or Linear workspace), its title (Jira:
+`--jira`, `--linear` and `--clickup` read the issue's number or key (`--github`, `--jira` and `--linear` also accept a pasted issue URL, refused with exit `2` if it names another repository, GitHub host, Jira site or Linear workspace), its title (Jira:
 summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
 workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--jira` with a start also reads the issue's status and the transitions Jira offers from it (never the description or comments); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
@@ -522,7 +524,7 @@ under `northguild.worktree.*`.
 
 A repository can commit a `.worktree.yml` at its root that supplies the team keys:
 `defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host`,
-`clickup.workspaceId` and `github.repository` (written nested: `jira: { host: ... }`). Precedence per key:
+`clickup.workspaceId`, `github.repository` and `github.host` (written nested: `jira: { host: ... }`). Precedence per key:
 flag, then git config (any scope), then the file, then the built-in default. The
 file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
@@ -565,9 +567,10 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
 | `postCreate` | `pnpm install` | the install step of `branch`; unset means the steps in `.worktree.yml` (once approved with `worktree config --approve`), else infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
-| `github.token` | `ghp_...` | `--github` flag |
+| `github.token` | `ghp_...` | `--github` flag, for github.com only; a GitHub Enterprise host's token is read from `gh auth token --hostname <host>` |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
-| `github.repository` | `acme/widgets` | which repository `--github` and `--assign` use: this key (team key, also under `github:` in `.worktree.yml`), else `upstream` if a GitHub remote, else `origin`; optional, and `worktree config` never asks for it |
+| `github.repository` | `acme/widgets` | which repository `--github` and `--assign` use: this key (team key, also under `github:` in `.worktree.yml`), else `upstream` if it is on `github.host` (`github.com` unless set), else `origin`; optional, and `worktree config` never asks for it |
+| `github.host` | `ghe.example.com` | the GitHub host `--github` and `--assign` use, a bare hostname; default `github.com`; team key (also under `github:` in `.worktree.yml`); the clone also needs a remote on that host (`origin` when `github.repository` is set), or the run fails before any request; `worktree config` never asks for it |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
@@ -866,7 +869,7 @@ worktree checkout origin/feature/x   # `checkout` and `open` need the branch arg
 
 Non-interactive `remove` needs `-f` and `cleanup` needs `--force`: removal has
 no default. A missing GitHub token exits 2 and names
-`worktree config github.token <token>` or `gh auth login`; the token is never
-printed.
+`worktree config github.token <token>` or `gh auth login`, or on a GitHub
+Enterprise host `gh auth login --hostname <host>`; the token is never printed.
 
 Source: `src/commands/branch.ts`, `src/commands/cleanup.ts`, `src/commands/remove.ts`

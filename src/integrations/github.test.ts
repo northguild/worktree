@@ -5,7 +5,7 @@ import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
-import { InvalidValueError } from "../lib/prompt.js";
+import { InvalidValueError, MissingValueError } from "../lib/prompt.js";
 import { expectCommands } from "../test-setup.js";
 import {
   assignGitHubIssue,
@@ -16,7 +16,9 @@ import {
   type GitHubIssueTypeApiResponse,
   getGitHubBranchNameFromIssue,
   getGitHubBranchNaming,
+  githubApiBaseUrl,
   parseGitHubIssueReference,
+  parseGitHubRemote,
   parseGitHubRepositoryFromRemote,
 } from "./github.js";
 
@@ -135,6 +137,115 @@ describe("GitHub integration", () => {
       parseGitHubRepositoryFromRemote("git@gitlab.com:northguild/worktree.git"),
     ).toThrow(
       'GitHub: Unable to determine the current repository from origin remote "git@gitlab.com:northguild/worktree.git".',
+    );
+  });
+
+  // Forms and sources are the plan's §8 table: git-clone "GIT URLS"
+  // (https://git-scm.com/docs/git-clone#_git_urls), GitHub's "Using SSH over
+  // the HTTPS port" (ssh.github.com is github.com), RFC 4343 (host names are
+  // case insensitive). Port ignored is D6. git takes `git+ssh` and `ssh+git`
+  // as `ssh` (connect.c `get_protocol`), and www.github.com redirects git to
+  // github.com; the regex parseGitHubRemote replaced read both (#225).
+  it.each([
+    "ssh://git@ssh.github.com:443/acme/widgets.git",
+    "ssh://git@github.com/acme/widgets.git",
+    "git+ssh://git@github.com/acme/widgets.git",
+    "ssh+git://git@github.com/acme/widgets.git",
+    "https://www.github.com/acme/widgets.git",
+    "git@WWW.GitHub.com:acme/widgets.git",
+    "git@GitHub.com:acme/widgets",
+    "https://user@github.com/acme/widgets.git",
+    "git://github.com/acme/widgets.git",
+    "  https://GITHUB.com/acme/widgets/\n",
+  ])("reads %j as github.com acme/widgets", (remoteUrl) => {
+    expect(parseGitHubRemote(remoteUrl)).toEqual({
+      host: "github.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  it.each([
+    "git@ghe.example.com:acme/widgets.git",
+    "https://ghe.example.com:8443/acme/widgets",
+    "ssh://git@ghe.example.com:2222/acme/widgets.git",
+    "git@Ghe.Example.com:/acme/widgets",
+  ])("reads %j as host ghe.example.com", (remoteUrl) => {
+    expect(parseGitHubRemote(remoteUrl)).toEqual({
+      host: "ghe.example.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  it.each([
+    // The old regex read these as github.com; the host must match exactly.
+    "https://notgithub.com/acme/widgets",
+    "https://github.com.evil.test/acme/widgets",
+    "https://evilgithub.com/acme/widgets",
+  ])("does not read %j as a github.com remote", (remoteUrl) => {
+    expect(parseGitHubRemote(remoteUrl)?.host).not.toBe("github.com");
+  });
+
+  it("keeps the host of a non-GitHub remote, leaving the decision to the caller", () => {
+    expect(parseGitHubRemote("git@gitlab.com:acme/widgets.git")).toEqual({
+      host: "gitlab.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  // Owner and name follow isValidGitHubRepository, so `..` (a path segment) and
+  // `a--b` (consecutive dashes in an owner) are not GitHub remotes.
+  it.each([
+    "https://github.com/../widgets",
+    "https://github.com/acme/..",
+    "git@github.com:a--b/widgets.git",
+    "git@github.com:acme/widgets.git.git",
+    "https://github.com/acme/widgets/extra",
+    "https://github.com/acme",
+    "https://github.com//widgets",
+    "git@github.com:acme",
+    "/home/me/acme/widgets",
+    "ftp://github.com/acme/widgets",
+    "",
+  ])("finds no repository in %j", (remoteUrl) => {
+    expect(parseGitHubRemote(remoteUrl)).toBeUndefined();
+  });
+
+  it.each([
+    "https://notgithub.com/acme/widgets",
+    "git@ghe.example.com:acme/widgets.git",
+    "https://github.com/../widgets",
+  ])("keeps the github.com-only parser throwing for %j", (remoteUrl) => {
+    expect(() => parseGitHubRepositoryFromRemote(remoteUrl)).toThrow(
+      `GitHub: Unable to determine the current repository from origin remote "${remoteUrl}".`,
+    );
+  });
+
+  it("returns owner and name only from the github.com-only parser", () => {
+    expect(
+      parseGitHubRepositoryFromRemote("ssh://git@ssh.github.com:443/a/b.git"),
+    ).toEqual({ owner: "a", name: "b" });
+  });
+
+  // §8: github.com is https://api.github.com (GitHub REST "Getting started");
+  // GHES is https://<host>/api/v3 (GHES REST quickstart); a *.ghe.com host is
+  // https://api.<host> (data residency docs). The scheme is always https (D5).
+  it.each([
+    ["github.com", "https://api.github.com"],
+    ["GitHub.com", "https://api.github.com"],
+    ["ghe.example.com", "https://ghe.example.com/api/v3"],
+    ["octocorp.ghe.com", "https://api.octocorp.ghe.com"],
+    ["OctoCorp.GHE.com", "https://api.octocorp.ghe.com"],
+  ])("gives the API base for %s", (host, expected) => {
+    expect(githubApiBaseUrl(host)).toBe(expected);
+  });
+
+  it("gives an https base for a host whose remote was http", () => {
+    const remote = parseGitHubRemote("http://ghe.example.com/acme/widgets");
+    expect(remote && githubApiBaseUrl(remote.host)).toBe(
+      "https://ghe.example.com/api/v3",
     );
   });
 
@@ -406,9 +517,13 @@ describe("GitHub integration", () => {
     const issue = await fetchGitHubIssue(13);
 
     expect(issue.number).toBe(13);
-    expect(runSpy).toHaveBeenCalledWith("gh", ["auth", "token"], {
-      timeout: 10_000,
-    });
+    expect(runSpy).toHaveBeenCalledWith(
+      "gh",
+      ["auth", "token", "--hostname", "github.com"],
+      {
+        timeout: 10_000,
+      },
+    );
     expect(runSpy).not.toHaveBeenCalledWith("git", [
       "config",
       "northguild.worktree.github.token",
@@ -474,7 +589,7 @@ describe("GitHub integration", () => {
       }),
     );
 
-    const error = await fetchGitHubIssue(13).catch((e: Error) => e);
+    const error = await fetchGitHubIssue(13).catch((e: unknown) => e as Error);
 
     expect(error).toBeInstanceOf(Error);
     const { message } = error as Error;
@@ -520,7 +635,7 @@ describe("GitHub integration", () => {
       "git config northguild.worktree.github.token ghp_typed_token",
     );
 
-    const error = await fetchGitHubIssue(13).catch((e: Error) => e);
+    const error = await fetchGitHubIssue(13).catch((e: unknown) => e as Error);
 
     const { message } = error as Error;
     expect(message).toContain("The stored github.token was refused.");
@@ -553,7 +668,7 @@ describe("GitHub integration", () => {
     vi.stubGlobal("fetch", fetchSpy);
     expectCommands("gh auth token");
 
-    const error = await fetchGitHubIssue(13).catch((e: Error) => e);
+    const error = await fetchGitHubIssue(13).catch((e: unknown) => e as Error);
 
     const { message } = error as Error;
     expect(message).toContain("GitHub refused the token");
@@ -619,7 +734,7 @@ describe("GitHub integration", () => {
     ]);
     expect(runSpy).not.toHaveBeenCalledWith(
       "gh",
-      ["auth", "token"],
+      ["auth", "token", "--hostname", "github.com"],
       expect.anything(),
     );
     expect(runSpy).toHaveBeenCalledTimes(1);
@@ -647,7 +762,7 @@ describe("GitHub integration", () => {
       }),
     );
 
-    const error = await fetchGitHubLogin().catch((e: Error) => e);
+    const error = await fetchGitHubLogin().catch((e: unknown) => e as Error);
 
     expect((error as Error).message).toContain(
       'GitHub: Failed to resolve the authenticated user. 401 Unauthorized - {"message":"Bad credentials"}',
@@ -785,7 +900,7 @@ describe("GitHub integration", () => {
       }),
     );
 
-    const error = await assignGitHubIssue(42).catch((e: Error) => e);
+    const error = await assignGitHubIssue(42).catch((e: unknown) => e as Error);
 
     const { message } = error as Error;
     expect(message).toContain("The stored github.token was refused.");
@@ -813,7 +928,7 @@ describe("GitHub integration", () => {
     );
     expectCommands("gh auth token");
 
-    const error = await assignGitHubIssue(42).catch((e: Error) => e);
+    const error = await assignGitHubIssue(42).catch((e: unknown) => e as Error);
 
     const { message } = error as Error;
     expect(message).toContain("GitHub refused the token");
@@ -845,7 +960,7 @@ describe("GitHub integration", () => {
       "git config northguild.worktree.github.token ghp_typed_token",
     );
 
-    const error = await assignGitHubIssue(42).catch((e: Error) => e);
+    const error = await assignGitHubIssue(42).catch((e: unknown) => e as Error);
 
     const { message } = error as Error;
     expect(message).toContain("The stored github.token was refused.");
@@ -872,7 +987,7 @@ describe("GitHub integration", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
 
-    const error = await assignGitHubIssue(42).catch((e: Error) => e);
+    const error = await assignGitHubIssue(42).catch((e: unknown) => e as Error);
 
     expect((error as Error).message).toContain(
       "GitHub: Failed to assign issue 42 in northguild/worktree. 401 Unauthorized",
@@ -1803,5 +1918,649 @@ describe("parseGitHubIssueReference", () => {
     );
     expect(message).toContain(`"${quoted}"`);
     expect(message).not.toMatch(/s3cret|token|abc#|frag|user:/);
+  });
+
+  // #120 D11, D6: a pasted URL's host must be the configured one. The shape is
+  // GHES's documented issue URL, `https://<host>/<owner>/<repo>/issues/<n>`
+  // (the same as github.com's with the host swapped); DNS names compare
+  // case-insensitively (RFC 4343).
+  describe("on a GitHub Enterprise host (#120 D11)", () => {
+    const GHE = "ghe.example.com";
+    const repository = { owner: "acme", name: "widgets" };
+
+    it.each([
+      "https://ghe.example.com/acme/widgets/issues/42",
+      "https://GHE.Example.com/acme/widgets/issues/42",
+      "http://ghe.example.com/acme/widgets/pull/42/?x=1#issuecomment-1",
+    ])("reads %s when the host is ghe.example.com", (url) => {
+      expect(parseGitHubIssueReference(url, GHE)).toEqual({
+        number: "42",
+        repository,
+      });
+    });
+
+    it("refuses the same URL when the host is github.com", () => {
+      expect(() =>
+        parseGitHubIssueReference(
+          "https://ghe.example.com/acme/widgets/issues/42",
+        ),
+      ).toThrow(InvalidValueError);
+    });
+
+    it.each([
+      "https://github.com/acme/widgets/issues/42",
+      "https://www.github.com/acme/widgets/issues/42",
+      "https://other.example.com/acme/widgets/issues/42",
+      "https://www.ghe.example.com/acme/widgets/issues/42",
+      "https://ghe.example.com.evil.test/acme/widgets/issues/42",
+    ])("refuses %s when the host is ghe.example.com", (url) => {
+      expect(() => parseGitHubIssueReference(url, GHE)).toThrow(
+        InvalidValueError,
+      );
+    });
+
+    it("names the configured host's shape, without query, fragment or user info", () => {
+      let error: unknown;
+      try {
+        parseGitHubIssueReference(
+          "https://user:s3cret@github.com/acme/widgets/issues/42?token=abc#frag",
+          GHE,
+        );
+      } catch (caught) {
+        error = caught;
+      }
+      const message = (error as Error).message;
+      expect(message).toContain(
+        "https://ghe.example.com/<owner>/<repo>/issues/<number>",
+      );
+      expect(message).toContain('"https://github.com/acme/widgets/issues/42"');
+      expect(message).not.toMatch(/s3cret|token|abc|frag|user:/);
+    });
+
+    it("hands a bare number back untouched", () => {
+      expect(parseGitHubIssueReference("42", GHE)).toEqual({ number: "42" });
+    });
+  });
+});
+
+// #120: `--github` and `--assign` on a configured GitHub Enterprise host. Every
+// expected URL, argv and host below comes from the plan's section 8 table and
+// the documents it cites, not from the code: GHES is `https://<host>/api/v3`
+// (GHES REST quickstart), a `*.ghe.com` host is `https://api.<host>` (data
+// residency docs), gh is asked `auth token --hostname <host>` (gh manual), and
+// the error texts are D9's.
+describe("GitHub Enterprise hosts (#120)", () => {
+  const GHE_ORIGIN = "git@ghe.example.com:acme/widgets.git";
+  const STORED_PAT = "ghp_githubcomstoredpat0000000000000000";
+  const GHE_TOKEN = "gho_enterprisetoken000000000000000000";
+  const user = {
+    login: "baldurpan",
+    html_url: "https://ghe.example.com/baldurpan",
+  };
+
+  interface Setup {
+    host?: string;
+    repository?: string;
+    origin?: string;
+    upstream?: string;
+    /** What `gh auth token` answers; undefined means gh is not logged in. */
+    gh?: string;
+    /** The github.com token in git config. */
+    stored?: string;
+  }
+
+  function setup({
+    host = "ghe.example.com",
+    repository,
+    origin,
+    upstream,
+    gh,
+    stored,
+  }: Setup = {}) {
+    vi.spyOn(projectConfig, "getTeamConfigValue").mockImplementation(
+      async (name) =>
+        name === "github.host"
+          ? host
+          : name === "github.repository"
+            ? (repository ?? "")
+            : "",
+    );
+    expectCommands(
+      "git remote get-url upstream",
+      "git remote get-url origin",
+      "git config northguild.worktree.github.token",
+      `gh auth token --hostname ${host.toLowerCase()}`,
+    );
+    return vi.spyOn(cli, "run").mockImplementation(async (file, args) => {
+      if (file === "gh") {
+        if (gh === undefined) {
+          throw new Error("not logged in");
+        }
+        return gh;
+      }
+      const [subcommand, action, remote] = args ?? [];
+      if (subcommand === "remote" && action === "get-url") {
+        const url = { origin, upstream }[remote as "origin" | "upstream"];
+        if (url === undefined) {
+          throw new Error(`error: No such remote '${remote}'`);
+        }
+        return url;
+      }
+      if (args?.at(-1) === "northguild.worktree.github.token") {
+        return stored ?? "";
+      }
+      throw new Error(`unexpected call: ${file} ${args?.join(" ")}`);
+    });
+  }
+
+  const notFound = () => new Response("{}", { status: 404 });
+
+  function stubFetchSequence(...responses: unknown[]) {
+    const fetchSpy = vi.fn();
+    for (const response of responses) {
+      fetchSpy.mockResolvedValueOnce(
+        response instanceof Response ? response : makeOkJsonResponse(response),
+      );
+    }
+    vi.stubGlobal("fetch", fetchSpy);
+    return fetchSpy;
+  }
+
+  const requestedUrls = (fetchSpy: ReturnType<typeof vi.fn>) =>
+    fetchSpy.mock.calls.map(([url]) => url);
+
+  const requestHeaders = (fetchSpy: ReturnType<typeof vi.fn>) =>
+    fetchSpy.mock.calls.map(
+      ([, init]) => (init as RequestInit).headers as Record<string, string>,
+    );
+
+  const storedTokenReads = (runSpy: ReturnType<typeof setup>) =>
+    runSpy.mock.calls.filter(([, args]) =>
+      args?.includes("northguild.worktree.github.token"),
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe("routing", () => {
+    it("reads from https://<host>/api/v3, and the user lookup and assignees POST go to the same base", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      const fetchSpy = stubFetchSequence(
+        notFound(), // the unauthenticated probe
+        makeIssueApiResponse(),
+      );
+
+      const issue = await fetchGitHubIssue(42);
+
+      expect(requestedUrls(fetchSpy)).toEqual([
+        "https://ghe.example.com/api/v3/repos/acme/widgets",
+        "https://ghe.example.com/api/v3/repos/acme/widgets/issues/42",
+      ]);
+      expect(issue.repository).toEqual({
+        owner: "acme",
+        name: "widgets",
+        source: "origin",
+        host: "ghe.example.com",
+      });
+
+      const assignFetch = stubFetchSequence(
+        user,
+        makeIssueApiResponse({ assignees: [user] }),
+      );
+      await assignGitHubIssue(42);
+
+      expect(requestedUrls(assignFetch)).toEqual([
+        "https://ghe.example.com/api/v3/user",
+        "https://ghe.example.com/api/v3/repos/acme/widgets/issues/42/assignees",
+      ]);
+      expect(assignFetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+    });
+
+    it("sends requests for an x.ghe.com host to https://api.x.ghe.com", async () => {
+      setup({
+        host: "x.ghe.com",
+        origin: "git@x.ghe.com:acme/widgets.git",
+        gh: GHE_TOKEN,
+      });
+      const fetchSpy = stubFetchSequence(notFound(), makeIssueApiResponse());
+
+      await fetchGitHubIssue(42);
+
+      expect(requestedUrls(fetchSpy)).toEqual([
+        "https://api.x.ghe.com/repos/acme/widgets",
+        "https://api.x.ghe.com/repos/acme/widgets/issues/42",
+      ]);
+
+      const assignFetch = stubFetchSequence(
+        user,
+        makeIssueApiResponse({ assignees: [user] }),
+      );
+      await assignGitHubIssue(42);
+      expect(requestedUrls(assignFetch)[0]).toBe("https://api.x.ghe.com/user");
+    });
+
+    it("still requests https when the remote is http", async () => {
+      setup({
+        origin: "http://ghe.example.com/acme/widgets.git",
+        gh: GHE_TOKEN,
+      });
+      const fetchSpy = stubFetchSequence(notFound(), makeIssueApiResponse());
+
+      await fetchGitHubIssue(42);
+
+      expect(requestedUrls(fetchSpy)).toEqual([
+        "https://ghe.example.com/api/v3/repos/acme/widgets",
+        "https://ghe.example.com/api/v3/repos/acme/widgets/issues/42",
+      ]);
+    });
+
+    it("compares the configured host without regard to case", async () => {
+      setup({ host: "GHE.Example.COM", origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      const fetchSpy = stubFetchSequence(notFound(), makeIssueApiResponse());
+
+      await fetchGitHubIssue(42);
+
+      expect(requestedUrls(fetchSpy)[1]).toBe(
+        "https://ghe.example.com/api/v3/repos/acme/widgets/issues/42",
+      );
+    });
+
+    it("treats github.host github.com as the default: the same shape and base as unset", async () => {
+      setup({
+        host: "github.com",
+        origin: "git@github.com:acme/widgets.git",
+        stored: STORED_PAT,
+      });
+      const fetchSpy = stubFetchSequence(makeIssueApiResponse());
+
+      const issue = await fetchGitHubIssue(42);
+
+      expect(requestedUrls(fetchSpy)).toEqual([
+        "https://api.github.com/repos/acme/widgets/issues/42",
+      ]);
+      expect(issue.repository).toEqual({
+        owner: "acme",
+        name: "widgets",
+        source: "origin",
+      });
+    });
+
+    it("keeps fetch's default redirect handling (D10)", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      const fetchSpy = stubFetchSequence(notFound(), makeIssueApiResponse());
+
+      await fetchGitHubIssue(42);
+
+      for (const [, init] of fetchSpy.mock.calls) {
+        expect(init).not.toHaveProperty("redirect");
+      }
+    });
+
+    it("looks up a pull request's head branch on the same host and against origin", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      const fetchSpy = stubFetchSequence(
+        notFound(),
+        makeIssueApiResponse({
+          number: 7,
+          pull_request: { url: "https://ghe.example.com/api/v3/pulls/7" },
+        }),
+        { head: { ref: "feature/x", repo: { full_name: "acme/widgets" } } },
+      );
+
+      const issue = await fetchGitHubIssue(7);
+
+      expect(requestedUrls(fetchSpy)[2]).toBe(
+        "https://ghe.example.com/api/v3/repos/acme/widgets/pulls/7",
+      );
+      expect(issue.pullRequest).toEqual({ headBranch: "feature/x" });
+    });
+  });
+
+  describe("which remote counts (D2)", () => {
+    it("skips an upstream on github.com and reads origin on the Enterprise host", async () => {
+      setup({
+        origin: GHE_ORIGIN,
+        upstream: "git@github.com:northguild/worktree.git",
+        gh: GHE_TOKEN,
+      });
+      const fetchSpy = stubFetchSequence(notFound(), makeIssueApiResponse());
+
+      const issue = await fetchGitHubIssue(42);
+
+      expect(issue.repository?.source).toBe("origin");
+      expect(requestedUrls(fetchSpy)[1]).toBe(
+        "https://ghe.example.com/api/v3/repos/acme/widgets/issues/42",
+      );
+    });
+
+    it("reads an upstream that is on the Enterprise host", async () => {
+      setup({
+        origin: "git@ghe.example.com:me/widgets.git",
+        upstream: "git@ghe.example.com:acme/widgets.git",
+        gh: GHE_TOKEN,
+      });
+      const fetchSpy = stubFetchSequence(notFound(), makeIssueApiResponse());
+
+      const issue = await fetchGitHubIssue(42);
+
+      expect(issue.repository?.source).toBe("upstream");
+      expect(requestedUrls(fetchSpy)[1]).toBe(
+        "https://ghe.example.com/api/v3/repos/acme/widgets/issues/42",
+      );
+    });
+
+    it("reads github.repository on the Enterprise host when origin is on it", async () => {
+      setup({
+        repository: "acme/upstream-repo",
+        origin: "git@ghe.example.com:me/fork.git",
+        gh: GHE_TOKEN,
+      });
+      const fetchSpy = stubFetchSequence(notFound(), makeIssueApiResponse());
+
+      const issue = await fetchGitHubIssue(42);
+
+      expect(issue.repository).toEqual({
+        owner: "acme",
+        name: "upstream-repo",
+        source: "github.repository",
+        host: "ghe.example.com",
+      });
+      expect(requestedUrls(fetchSpy)[1]).toBe(
+        "https://ghe.example.com/api/v3/repos/acme/upstream-repo/issues/42",
+      );
+    });
+
+    it.each([
+      ["a github.com origin", "git@github.com:me/fork.git"],
+      ["a GitLab origin", "git@gitlab.com:me/fork.git"],
+      ["a lookalike host", "git@notghe.example.com:me/fork.git"],
+    ])("with github.repository set and %s, fails naming both hosts and github.host, before any request", async (_case, origin) => {
+      setup({ repository: "acme/widgets", origin, gh: GHE_TOKEN });
+      const fetchSpy = stubFetchSequence();
+
+      for (const call of [
+        () => fetchGitHubIssue(42),
+        () => assignGitHubIssue(42),
+      ]) {
+        const failure = await call().catch((e: unknown) => e as Error);
+
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toContain("ghe.example.com");
+        expect((failure as Error).message).toContain(origin);
+        expect((failure as Error).message).toContain("github.host");
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("fails the same way for an origin on another host without github.repository", async () => {
+      setup({ origin: "git@gitlab.com:me/fork.git", gh: GHE_TOKEN });
+      const fetchSpy = stubFetchSequence();
+
+      await expect(fetchGitHubIssue(42)).rejects.toThrow(
+        /github\.host is ghe\.example\.com, but the origin remote "git@gitlab\.com:me\/fork\.git" is not on that host/,
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("with the key unset, a non-GitHub origin keeps today's sentence and gains the github.host hint", async () => {
+      setup({ host: "", origin: "git@ghe.example.com:acme/widgets.git" });
+      const fetchSpy = stubFetchSequence();
+
+      const failure = await fetchGitHubIssue(42).catch((e: unknown) => e);
+
+      expect((failure as Error).message).toContain(
+        'GitHub: Unable to determine the current repository from origin remote "git@ghe.example.com:acme/widgets.git".',
+      );
+      expect((failure as Error).message).toContain(
+        "worktree config github.host <host>",
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      "https://evil.example.com",
+      "api.github.com",
+      "ghe.example.com:8443",
+      "ghe.example.com/",
+    ])("re-checks github.host %j where it is used: invalid_value, no remote read, no request", async (host) => {
+      const runSpy = setup({ host, origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      const fetchSpy = stubFetchSequence();
+
+      for (const call of [
+        () => fetchGitHubIssue(42),
+        () => assignGitHubIssue(42),
+      ]) {
+        const failure = await call().catch((e: unknown) => e);
+        expect(failure).toBeInstanceOf(InvalidValueError);
+        expect((failure as Error).message).toContain("github.host");
+      }
+      expect(runSpy).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("tokens are bound to hosts (D3)", () => {
+    it("asks gh for the configured host by name and sends gh's token, never the stored one", async () => {
+      const runSpy = setup({
+        origin: GHE_ORIGIN,
+        gh: GHE_TOKEN,
+        stored: STORED_PAT,
+      });
+      const fetchSpy = stubFetchSequence(notFound(), makeIssueApiResponse());
+
+      await fetchGitHubIssue(42);
+
+      expect(runSpy).toHaveBeenCalledWith(
+        "gh",
+        ["auth", "token", "--hostname", "ghe.example.com"],
+        { timeout: 10_000 },
+      );
+      expect(runSpy).not.toHaveBeenCalledWith(
+        "gh",
+        ["auth", "token", "--hostname", "github.com"],
+        expect.anything(),
+      );
+      expect(requestHeaders(fetchSpy)[1]?.Authorization).toBe(
+        `Bearer ${GHE_TOKEN}`,
+      );
+      expect(JSON.stringify(fetchSpy.mock.calls)).not.toContain(STORED_PAT);
+      expect(storedTokenReads(runSpy)).toEqual([]);
+    });
+
+    it("sends the same gh token for an assignment, and never reads the stored one", async () => {
+      const runSpy = setup({
+        origin: GHE_ORIGIN,
+        gh: GHE_TOKEN,
+        stored: STORED_PAT,
+      });
+      const fetchSpy = stubFetchSequence(
+        user,
+        makeIssueApiResponse({ assignees: [user] }),
+      );
+
+      await assignGitHubIssue(42);
+
+      expect(requestHeaders(fetchSpy).map((h) => h.Authorization)).toEqual([
+        `Bearer ${GHE_TOKEN}`,
+        `Bearer ${GHE_TOKEN}`,
+      ]);
+      expect(JSON.stringify(fetchSpy.mock.calls)).not.toContain(STORED_PAT);
+      expect(storedTokenReads(runSpy)).toEqual([]);
+    });
+
+    it("sends no Authorization to a public repository on the host, and not the stored token either", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN, stored: STORED_PAT });
+      const fetchSpy = stubFetchSequence({}, makeIssueApiResponse());
+
+      await fetchGitHubIssue(42);
+
+      for (const headers of requestHeaders(fetchSpy)) {
+        expect(headers).not.toHaveProperty("Authorization");
+      }
+    });
+
+    it.each([
+      ["interactive", false, "read"],
+      ["non-interactive", true, "read"],
+      ["interactive", false, "assign"],
+      ["non-interactive", true, "assign"],
+    ])("with no gh token, a %s %s ends in MissingValueError naming gh auth login --hostname, with no prompt", async (_mode, nonInteractive, action) => {
+      setup({ origin: GHE_ORIGIN, stored: STORED_PAT });
+      setNonInteractive(nonInteractive);
+      const fetchSpy = stubFetchSequence(notFound());
+      vi.mocked(input).mockClear();
+
+      const failure = await (action === "read"
+        ? fetchGitHubIssue(42)
+        : assignGitHubIssue(42)
+      ).catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(MissingValueError);
+      expect((failure as MissingValueError).flag).toBe(
+        "`gh auth login --hostname ghe.example.com`",
+      );
+      expect((failure as MissingValueError).oclif).toEqual({ exit: 2 });
+      expect(input).not.toHaveBeenCalled();
+      expect(JSON.stringify(fetchSpy.mock.calls)).not.toContain(STORED_PAT);
+    });
+
+    it("on a 401, tells an Enterprise gh token's owner to run gh auth login --hostname", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      stubFetchSequence(
+        notFound(),
+        new Response("{}", { status: 401, statusText: "Unauthorized" }),
+      );
+
+      const failure = (await fetchGitHubIssue(42).catch(
+        (e: unknown) => e,
+      )) as Error;
+
+      expect(failure.message).toContain("401 Unauthorized");
+      expect(failure.message).toContain(
+        "`gh auth login --hostname ghe.example.com`",
+      );
+      expect(failure.message).not.toContain("worktree config github.token");
+      expect(failure.message).not.toContain(GHE_TOKEN);
+    });
+  });
+
+  describe("messages (D8, D9)", () => {
+    it.each([
+      ["origin", { origin: GHE_ORIGIN }, "ghe.example.com/acme/widgets"],
+      [
+        "upstream",
+        { origin: "git@ghe.example.com:me/widgets.git", upstream: GHE_ORIGIN },
+        "ghe.example.com/acme/widgets (upstream)",
+      ],
+      [
+        "github.repository",
+        { origin: GHE_ORIGIN, repository: "acme/widgets" },
+        "ghe.example.com/acme/widgets (github.repository)",
+      ],
+    ])("names a failed read of the %s repository with its host first", async (_source, options, expected) => {
+      setup({ ...options, gh: GHE_TOKEN });
+      stubFetchSequence(notFound(), new Response("{}", { status: 404 }));
+
+      await expect(fetchGitHubIssue(42)).rejects.toThrow(
+        `GitHub: Failed to fetch issue 42 from ${expected}. 404`,
+      );
+    });
+
+    it("names the host on a failed assignment", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      stubFetchSequence(user, new Response("{}", { status: 404 }));
+
+      await expect(assignGitHubIssue(42)).rejects.toThrow(
+        "GitHub: Failed to assign issue 42 in ghe.example.com/acme/widgets.",
+      );
+    });
+
+    it("reports a non-timeout network failure as could not reach <host>, with the cause", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(
+          new TypeError("fetch failed", {
+            cause: new Error("unable to verify the first certificate"),
+          }),
+        ),
+      );
+
+      await expect(fetchGitHubIssue(42)).rejects.toThrow(
+        "GitHub: could not reach ghe.example.com. unable to verify the first certificate",
+      );
+    });
+
+    it("reports a network failure with no cause by its own message", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+      );
+
+      await expect(fetchGitHubIssue(42)).rejects.toThrow(
+        "GitHub: could not reach ghe.example.com. fetch failed",
+      );
+    });
+
+    it("still reports a timeout as a timeout", async () => {
+      setup({ origin: GHE_ORIGIN, gh: GHE_TOKEN });
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockRejectedValue(new DOMException("timed out", "TimeoutError")),
+      );
+
+      await expect(fetchGitHubIssue(42)).rejects.toThrow(
+        "did not answer within 15s",
+      );
+    });
+
+    it("names github.com in could not reach, on the default host too", async () => {
+      setup({
+        host: "",
+        origin: "git@github.com:acme/widgets.git",
+        stored: STORED_PAT,
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+      );
+
+      await expect(fetchGitHubIssue(42)).rejects.toThrow(
+        "GitHub: could not reach github.com.",
+      );
+    });
+
+    // redactSecrets' shapes (redact.ts): user info in a URL, and ghp_/github_pat_
+    // tokens. A remote with credentials must not reach a new message.
+    it.each([
+      ["an origin on another host", "ghe.example.com"],
+      ["a non-GitHub origin with the key unset", ""],
+    ])("never echoes credentials from %s", async (_case, host) => {
+      const secret = "ghp_remotecredential000000000000000000";
+      setup({
+        host,
+        origin: `https://user:${secret}@gitlab.com/me/fork.git`,
+        gh: GHE_TOKEN,
+      });
+      stubFetchSequence();
+
+      const failure = (await fetchGitHubIssue(42).catch(
+        (e: unknown) => e,
+      )) as Error;
+
+      expect(failure.message).toContain("gitlab.com/me/fork.git");
+      expect(failure.message).not.toContain(secret);
+      expect(failure.message).not.toMatch(/ghp_[A-Za-z0-9]{20,}/);
+    });
   });
 });

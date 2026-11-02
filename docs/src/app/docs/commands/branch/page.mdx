@@ -69,16 +69,19 @@ worktree branch --github 42 --json --agent-file brief.md
 ## GitHub Issue Branching
 
 Use the `--github` flag to create a suggested branch name from an issue. The issue is read from the
-repository named by `github.repository`, else the `upstream` remote when it points at GitHub, else `origin`; in a
+repository named by `github.repository`, else the `upstream` remote when it is on `github.host` (`github.com` unless set), else `origin`; in a
 fork that means the original's issues, and the output names the repository whenever it is not `origin`'s. See
 [Forks](/docs/guides/github-issue-integration#forks).
+
+For a GitHub Enterprise host, see [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
 
 - The issue number can be passed as `42` or `"#42"`, or as the issue's URL, `https://github.com/<owner>/<repo>/issues/42`
   (`www.github.com` works too, and a pull request's `/pull/42` URL reaches the pull request refusal below). A
   trailing slash, query string and fragment such as `#issuecomment-1` are ignored. The URL's repository must be
   the one this run reads, compared ignoring case; otherwise the run exits `2` with `invalid_value`, naming both
-  repositories and pointing at `github.repository`, before the issue is fetched or anything is created. Any other URL is refused
-  the same way.
+  repositories and pointing at `github.repository`, before the issue is fetched or anything is created. The URL's host must be
+  `github.host` (`github.com` when unset; for a GitHub Enterprise host the URL is `https://<host>/<owner>/<repo>/issues/42`),
+  compared ignoring case, and it is never contacted. Any other URL is refused the same way.
 - A pull request number is refused as a usage error, since the pull request already has a branch. The message names
   `worktree checkout <head-branch>` when that branch is on `origin` and its name is only letters, digits,
   `_`, `.`, `/` and `-`; otherwise, a fork's or `upstream`'s branch included, it says to run `worktree checkout` and pick one.
@@ -101,13 +104,15 @@ By default the name is `<prefix><number>-<slug>`; a `branchName` template in `.w
 dash, so the name ends on a whole word. A single word longer than 48 characters is cut at 48. The name is the
 same whether or not you are asked, so one issue never gives two different branches.
 
-GitHub authentication is resolved in this order:
+GitHub authentication on github.com is resolved in this order:
 
 1. `northguild.worktree.github.token` from local git config.
-2. `gh auth token` if GitHub CLI is installed and authenticated. It is read on each run and not saved.
+2. `gh auth token --hostname github.com` if GitHub CLI is installed and authenticated. It is read on each run and not saved, and neither `GH_HOST` nor a `gh` login to another host supplies it.
 3. Interactive token prompt, which is then saved in local git config. Only a typed or `worktree config`-set token is stored.
 
-A non-interactive run has no token prompt. It exits `2` with one line on stderr, which never includes a token:
+On a GitHub Enterprise host (`github.host`) the stored token is never read or sent, and there is no prompt: the token comes only from `gh auth token --hostname <host>`, and without one the run exits `2` naming `gh auth login --hostname <host>`. See [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
+
+On github.com, a non-interactive run has no token prompt. It exits `2` with one line on stderr, which never includes a token:
 
 ```text
 worktree: no default for a GitHub token; pass `worktree config github.token <token>` or run `gh auth login`
@@ -612,7 +617,7 @@ describing it goes to stderr as usual:
 | `code` | Means | Exit |
 | --- | --- | --- |
 | `missing_value` | a value with no default was not given, such as `--linear` with no identifier in a run that cannot ask or with `--dry-run`; `details` names it and the flag | `2` |
-| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github`, `--jira` or `--linear` URL for another repository, Jira site or Linear workspace or of a shape not accepted, a `--github` number that is a pull request, a branch name that is already taken | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github`, `--jira` or `--linear` URL for another repository or GitHub host, Jira site or Linear workspace or of a shape not accepted, a `--github` number that is a pull request, a branch name that is already taken | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |
 | `failed` | anything else | `1` |

@@ -16,7 +16,9 @@ import { isNonInteractive } from "./interaction.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
 import {
+  GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
+  isValidGitHubHost,
   isValidGitHubRepository,
 } from "./validators.js";
 
@@ -121,6 +123,9 @@ const step = z
     message: "a step cannot hold control or formatting characters",
   });
 
+const GITHUB_HOST_MESSAGE =
+  "host must be a bare hostname, for example ghe.example.com (no scheme, port or path), and not a subdomain of github.com";
+
 export const projectConfigSchema = z
   .object({
     defaultSourceBranch: z.string().min(1).optional(),
@@ -149,6 +154,20 @@ export const projectConfigSchema = z
           .meta({
             description:
               "The owner/repo that --github reads issues from and --assign assigns in, for example acme/widgets. Only needed when that is not the upstream remote, or origin without one.",
+          })
+          .optional(),
+        host: z
+          .string()
+          .regex(GITHUB_HOST_PATTERN, {
+            message: GITHUB_HOST_MESSAGE,
+            abort: true,
+          })
+          .refine((value) => isValidGitHubHost(value) === true, {
+            message: GITHUB_HOST_MESSAGE,
+          })
+          .meta({
+            description:
+              "The GitHub host that --github and --assign use, for example ghe.example.com for GitHub Enterprise Server. Unset means github.com. Used only when this clone has a remote on that host.",
           })
           .optional(),
       })
@@ -198,7 +217,7 @@ export function projectConfigJsonSchema() {
 const TEAM_SECTIONS: Record<string, readonly string[]> = {
   branchPrefix: ["feature", "bugfix", "chore"],
   jira: ["host", "branchType"],
-  github: ["repository", "branchType"],
+  github: ["repository", "host", "branchType"],
   linear: ["branchType"],
   clickup: ["workspaceId", "branchType"],
 };
@@ -386,6 +405,7 @@ const TEAM_CONFIG_KEYS = [
   "jira.host",
   "clickup.workspaceId",
   "github.repository",
+  "github.host",
 ] as const satisfies readonly ConfigName[];
 
 export type TeamConfigKey = (typeof TEAM_CONFIG_KEYS)[number];
@@ -410,6 +430,8 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
       return config.jira?.host;
     case "github.repository":
       return config.github?.repository;
+    case "github.host":
+      return config.github?.host;
     case "clickup.workspaceId":
       // YAML reads an unquoted 9001234 as a number; git config holds text.
       return config.clickup?.workspaceId === undefined
@@ -944,6 +966,7 @@ export function renderProjectFile(
   section("branchPrefix", "chore", values["branchPrefix.chore"]);
   section("jira", "host", values["jira.host"]);
   section("github", "repository", values["github.repository"]);
+  section("github", "host", values["github.host"]);
   section("clickup", "workspaceId", values["clickup.workspaceId"]);
   // A personal postCreate is one string; the file holds a list of steps.
   document.postCreate = values.postCreate ? [values.postCreate] : undefined;
