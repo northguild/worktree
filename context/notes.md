@@ -34,3 +34,18 @@ Non-blocking review observations. Branch-local; `/feature-close` deletes this fi
 - D10's message gives no next step for non-TLS codes; D10 settled that form.
 - Cosmetic: a stray blank line in `fetchJira`'s parameter list; the test titled "still needs jira.apiToken,
   and names only the host and the token" claims more than it asserts.
+
+## Phase 3 — Data Center assignment
+
+- The coder wrote the implementation before the tests; a key→name mutation run showed the key/name tests
+  discriminate, and every expected value traces to §8 or D8/D9.
+- On DC the "cannot determine the user" throw fires when `myself.name` is missing even if `key` is present
+  (the write body needs `name`). A key-only `myself` on an issue already assigned to that key throws rather
+  than returning `already-yours`. Untested; the seam is a `myself` with `key` and no `name`.
+- DC 403/400/404 at the assignee write keep the shared wording, which names no credential; untested on DC.
+  The DC 401 at the issue read is also unasserted.
+- The DC "Could not determine the user behind jira.apiToken …" message gives no next step
+  (`typescript/error-handling.md`); the Cloud original has the same shape.
+- The DC identity check tests `!== undefined`, so a JSON `"key": null` on both sides would read as
+  `already-yours`. `!= null` would close it. Theoretical.
+- The guide's "Assigning the issue" line is now one long unwrapped line.

@@ -2501,6 +2501,127 @@ describe("Jira Data Center", () => {
     });
   });
 
+  // Expected values: Jira DC REST reference 9.12.0, api/2/myself (key
+  // JIRAUSER10100, name fred) and PUT api/2/issue/{key}/assignee (body
+  // {"name": ...}, 204 on success, 401 for no permission to assign); D8, D9.
+  describe("assign", () => {
+    const me = { key: "JIRAUSER10100", name: "fred", displayName: "Fred F" };
+
+    function stub({
+      assignee = null,
+      myself = me,
+      putStatus = 204,
+    }: {
+      assignee?: Record<string, string> | null;
+      myself?: Record<string, string>;
+      putStatus?: number;
+    }) {
+      useSite(dc);
+      const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+        if (init.method === "PUT") {
+          return reply(putStatus, "");
+        }
+        if (url.endsWith("/rest/api/2/myself")) {
+          return reply(200, myself);
+        }
+        return reply(200, { fields: { assignee } });
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+      return fetchSpy;
+    }
+
+    const putCalls = (fetchSpy: ReturnType<typeof stub>) =>
+      fetchSpy.mock.calls.filter(([, init]) => init.method === "PUT");
+
+    it("reads myself and the assignee on v2 and assigns a free issue by name", async () => {
+      const fetchSpy = stub({});
+
+      const result = await assignJiraIssue("dev-123");
+
+      expect(result).toEqual({ outcome: "assigned", displayName: "Fred F" });
+      expect(fetchSpy.mock.calls.map(([url]) => url).sort()).toEqual([
+        "https://jira.example.com/rest/api/2/issue/DEV-123/assignee",
+        "https://jira.example.com/rest/api/2/issue/DEV-123?fields=assignee",
+        "https://jira.example.com/rest/api/2/myself",
+      ]);
+      const [[putUrl, putInit]] = putCalls(fetchSpy);
+      expect(putUrl).toBe(
+        "https://jira.example.com/rest/api/2/issue/DEV-123/assignee",
+      );
+      expect(putInit.body).toBe('{"name":"fred"}');
+      expect((putInit.headers as Record<string, string>).Authorization).toBe(
+        `Bearer ${PAT}`,
+      );
+    });
+
+    it("is already yours when the key matches, though the name differs", async () => {
+      const fetchSpy = stub({
+        assignee: { key: "JIRAUSER10100", name: "fred.renamed" },
+      });
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "already-yours",
+        displayName: "Fred F",
+      });
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("is held by another when the key differs, even with the same name", async () => {
+      const fetchSpy = stub({
+        assignee: { key: "JIRAUSER20200", name: "fred", displayName: "Other" },
+      });
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "held-by-other",
+        displayName: "Fred F",
+        heldBy: "Other",
+      });
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("falls back to the name when the assignee carries no key", async () => {
+      const fetchSpy = stub({ assignee: { name: "fred" } });
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result.outcome).toBe("already-yours");
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("throws a message naming the token, not the email, when myself has no key or name", async () => {
+      const fetchSpy = stub({ myself: { displayName: "Fred F" } });
+
+      const failure = await failureOf(assignJiraIssue("DEV-123"));
+
+      expect(failure.message).toContain("jira.apiToken");
+      expect(failure.message).not.toContain("jira.email");
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("names the Assign Issues permission on a 401 at the write", async () => {
+      stub({ putStatus: 401 });
+
+      const failure = await failureOf(assignJiraIssue("DEV-123"));
+
+      expect(failure.message).toContain("Assign Issues");
+      expect(failure.message).toContain("DEV-123");
+      expect(failure.message).not.toContain("jira.email");
+    });
+
+    it("still reports a 401 on the caller read as a bad token", async () => {
+      useSite(dc);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(401)));
+
+      const failure = await failureOf(assignJiraIssue("DEV-123"));
+
+      expect(failure.message).toContain("Please verify jira.apiToken");
+    });
+  });
+
   // Atlassian, "Changing the project key format": letter first, then letters,
   // digits or `_`. PRODUCT_2013, R2D2 and MY_EXAMPLE_PROJECT are its valid
   // examples; 2013PROJECT and PRODUCT-2012 its invalid ones.

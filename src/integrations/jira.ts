@@ -573,6 +573,8 @@ export type JiraAssignment =
 
 interface JiraUser {
   accountId?: string;
+  key?: string;
+  name?: string;
   displayName?: string;
 }
 
@@ -589,6 +591,13 @@ async function jiraAssignFailure(
   site: JiraSite,
 ): Promise<Error> {
   if (response.status === 401) {
+    // D9: on Data Center the caller was read with this same token, so a 401 at
+    // the write is the missing Assign Issues permission, not a bad token.
+    if (site.deployment === "datacenter" && step === "assignee") {
+      return new Error(
+        `Jira: The account behind jira.apiToken (a Jira Data Center personal access token) lacks the Assign Issues permission on the project of ${issueKey}.`,
+      );
+    }
     return jiraAuthFailure(site);
   }
 
@@ -662,11 +671,24 @@ export async function assignJiraIssue(
   const assignee = issue.fields?.assignee;
   const displayName = me.displayName ?? "you";
 
-  if (!me.accountId) {
-    throw new Error("Jira: Could not determine the account for jira.email.");
+  // D8: Cloud goes by accountId. Data Center goes by `key`, which survives a
+  // rename, and falls back to `name` only when either side has no `key`.
+  const isDataCenter = site.deployment === "datacenter";
+  if (isDataCenter ? !me.name : !me.accountId) {
+    throw new Error(
+      isDataCenter
+        ? "Jira: Could not determine the user behind jira.apiToken (a Jira Data Center personal access token)."
+        : "Jira: Could not determine the account for jira.email.",
+    );
   }
 
-  if (assignee?.accountId === me.accountId) {
+  const isMine = isDataCenter
+    ? me.key !== undefined && assignee?.key !== undefined
+      ? assignee.key === me.key
+      : assignee?.name === me.name
+    : assignee?.accountId === me.accountId;
+
+  if (isMine) {
     return { outcome: "already-yours", displayName };
   }
 
@@ -684,7 +706,7 @@ export async function assignJiraIssue(
   const path = jiraApiPath(site.deployment, `/issue/${issueKey}/assignee`);
   const putResponse = await fetchJira(path, site, {
     method: "PUT",
-    body: { accountId: me.accountId },
+    body: isDataCenter ? { name: me.name } : { accountId: me.accountId },
   });
 
   if (!putResponse.ok) {

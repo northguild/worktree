@@ -48,7 +48,7 @@ fields and options by id. A shared list can name the issue type as `Type`, which
 
 ## Assigning the issue
 
-`--assign` assigns the Jira issue to the account behind `jira.email` (on Jira Cloud) while the branch is created, and
+`--assign` assigns the Jira issue to the account behind `jira.email` (on Jira Cloud) or to the owner of the personal access token in `jira.apiToken` (on Jira Data Center) while the branch is created, and
 `--no-assign` skips it for one run. With neither, `jira.autoAssign` decides: `true` always assigns, `false`
 never does, and unset asks once and saves your answer. A non-interactive run (`--json`, `--yes`, CI) with the
 key unset assigns and saves nothing. This key is separate from `github.autoAssign`.
