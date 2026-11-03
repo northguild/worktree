@@ -32,9 +32,9 @@ config.
 - `jira.autoStart` (`true` or `false`, unset means you are asked, or the issue is moved to in progress when non-interactive)
 - `linear.apiKey` (Linear personal API key, example: `lin_api_...`)
 - `linear.autoStart` (`true` or `false`, unset means you are asked, or the issue is started when non-interactive)
-- `linear.agentToken` (the Linear agent app's OAuth token; secret; for a Linear agent that starts worktrees, which nothing reads yet; never asked for by `worktree config` and not allowed in `.worktree.yml`)
-- `linear.webhookSecret` (the Linear agent app's webhook signing secret; secret; nothing reads it yet; never asked for by `worktree config` and not allowed in `.worktree.yml`)
-- `linear.agentAllow` (comma-separated Linear user ids allowed to delegate an issue to the agent, example: `user-id-1,user-id-2`; nothing reads it yet; never asked for by `worktree config`, and a `linear.agentAllow` in `.worktree.yml` is ignored with a warning)
+- `linear.agentToken` (the Linear agent app's OAuth token; secret; read by `worktree linear-listen`, which starts worktrees for a Linear agent; never asked for by `worktree config` and not allowed in `.worktree.yml`)
+- `linear.webhookSecret` (the Linear agent app's webhook signing secret; secret; read by `worktree linear-listen`; never asked for by `worktree config` and not allowed in `.worktree.yml`)
+- `linear.agentAllow` (comma-separated Linear user ids allowed to delegate an issue to the agent, example: `user-id-1,user-id-2`; read by `worktree linear-listen`, and unset means only the owner of `linear.apiKey`; never asked for by `worktree config`, and a `linear.agentAllow` in `.worktree.yml` is ignored with a warning)
 - `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
 - `clickup.workspaceId` (optional; your ClickUp Workspace id, a number, needed only for custom task ids like `DEV-123`)
 - `clickup.autoStart` (`true` or `false`, unset means you are asked, or the task is moved to in progress when non-interactive)
@@ -265,7 +265,7 @@ worktree config jira.autoStart true
 ## Linear Integration Notes
 
 - `worktree branch --linear <issue-id>` reads issues from the Linear workspace your key belongs to.
-- `linear.apiKey` is required by `--linear`. [`cleanup`](/docs/commands/cleanup#canceled-linear-issues) and [`list --issues`](/docs/commands/list#showing-linear-issues) also read it, to learn whether a linked issue is canceled; they do not require it, and make no Linear request without one.
+- `linear.apiKey` is required by `--linear` and by [`linear-listen`](/docs/commands/linear-listen). [`cleanup`](/docs/commands/cleanup#canceled-linear-issues) and [`list --issues`](/docs/commands/list#showing-linear-issues) also read it, to learn whether a linked issue is canceled; they do not require it, and make no Linear request without one.
 - `linear.autoStart` is optional and decides whether `--linear` also moves the issue to a started state once the worktree exists. It has three states, like `jira.autoAssign`: `true` always starts (an issue that is already started, or is in triage, completed, canceled or duplicate, is left where it is), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it starts and saves nothing. Moving an issue needs a key with the Write permission and access to the issue's team. See [Moving the issue to started](/docs/commands/branch#moving-the-issue-to-started) for the order the decision is made in. To set it directly:
 
 ```bash

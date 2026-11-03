@@ -48,3 +48,17 @@ Branch-local and advisory. Nothing reads this file; `/feature-close` deletes it.
   is at `MAX_DETAIL_CHARS * 2`, not the constant its comment names), `prompted: true` with a non-zero exit,
   and `DEFAULT_CLI_ENTRY` resolving to a real `bin/run.js`. The identifier pattern is duplicated from
   `linear-agent.ts`; the spawner test's temp directory is never removed.
+- **Phase 5:** a signed, fresh body that does not parse as an actionable event gets `400`, as the plan's
+  Scope says — but once the signature checks, the sender is Linear and a retry fails the same way, so any
+  other webhook category or an `issue: null` session can get the webhook disabled. A `200` + "ignored" log
+  would avoid it; at least the Phase 7 guide must say to enable only Agent session events.
+- **Phase 5:** §4.1's per-identifier serialisation is still unbuilt (see the Phase 4 note); the CLI's
+  existing-branch refusal is check-then-act, so it is not a reliable second line.
+- **Phase 5:** untested — that the default allowlist reads the *personal* key's viewer (the `fetchLinear`
+  mock answers whatever key it is given), `getKeyOwnerId`'s exit-1 path, and that the start-up output omits
+  the personal key; the non-loopback reachability half of the bind test silently does nothing on a host
+  with no external IPv4. Nothing ties `--help` to the docs page's flag list automatically.
+- **Phase 5:** `getKeyOwnerId` narrows Linear's answer with `as`; no rate limit or concurrency cap on the
+  endpoint; it binds `127.0.0.1` only, so a tunnel aimed at `localhost` → `::1` is refused (say so in the
+  guide); a request on a kept-alive socket during the drain is not awaited; the docs chat's command→route
+  map (`docs/src/chat/components/MarkdownContent.tsx`) has no `worktree linear-listen` entry.

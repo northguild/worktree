@@ -191,7 +191,7 @@ and has three choices: "Yes, always", "No, never" and "Ask me each time". The la
 `--missing` goes on offering the prompt until you settle it. A direct `worktree config linear.autoStart`
 accepts only `true` or `false`.
 
-Three more Linear keys are for a Linear agent that starts worktrees, and nothing reads them yet. None is asked
+Three more Linear keys are for a Linear agent that starts worktrees, and [`worktree linear-listen`](/docs/commands/linear-listen) reads them. None is asked
 by the wizard (a bare run and `--missing` skip them), and none can be set from `.worktree.yml`: set one with
 `worktree config <key> <value>`.
 

@@ -93,7 +93,7 @@ The setup flow can configure:
 - `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
-- `linear.agentToken`, `linear.webhookSecret` and `linear.agentAllow` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`) and the Linear user ids allowed to delegate an issue to it. Nothing reads them yet; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
+- `linear.agentToken`, `linear.webhookSecret` and `linear.agentAllow` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`) and the Linear user ids allowed to delegate an issue to it. `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
 `jira.host`, `clickup.workspaceId`, `github.repository` and `github.host`, read from the default branch; your own git config overrides it. The
@@ -228,6 +228,17 @@ A worktree that an agent session is working in is held back and reported as skip
 
 With `opener` set to `herdr`, every worktree removed here also has its Herdr space closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space, taking its panes down with the directory.
 
+### Start worktrees from Linear agent delegations
+
+`worktree linear-listen` runs in a repository and starts a worktree, with your coding agent in it, whenever someone delegates a Linear issue to your agent app. It needs `linear.agentToken`, `linear.webhookSecret` and `linear.apiKey`, and a public HTTPS address for Linear to call: the listener binds `127.0.0.1` only, so a tunnel or reverse proxy in front of it is yours to set up.
+
+```bash
+worktree linear-listen
+worktree linear-listen --port 9100 --team ENG
+```
+
+Only the owner of `linear.apiKey` (or the ids in `linear.agentAllow`) can start an agent, and the agent is told the issue identifier and nothing else of the issue. See [`linear-listen`](https://northguild.github.io/worktree/docs/commands/linear-listen).
+
 ## Commands
 
 | Command                             | What it does                                        |
@@ -239,6 +250,7 @@ With `opener` set to `herdr`, every worktree removed here also has its Herdr spa
 | `worktree open [branch]`            | Open an existing worktree in your editor            |
 | `worktree remove [branch]`          | Remove one or more worktrees                        |
 | `worktree cleanup`                  | Remove stale worktrees that are safe to delete      |
+| `worktree linear-listen`            | Start a worktree for each Linear agent delegation   |
 
 For command help at any time:
 

@@ -9,6 +9,7 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/docs/commands/checkout",
   "/docs/commands/cleanup",
   "/docs/commands/config",
+  "/docs/commands/linear-listen",
   "/docs/commands/list",
   "/docs/commands/open",
   "/docs/commands/remove",

@@ -517,6 +517,29 @@ and the command still exits `0` — by then the worktree is already gone. With
 Note that `--ignore-agents` now closes a live agent's space too, taking down the
 panes it is working in along with the directory.
 
+### Start worktrees from Linear agent delegations (`linear-listen`)
+
+```bash
+# Run inside the repository to serve; stays in the foreground until Ctrl-C
+worktree linear-listen
+worktree linear-listen --port 9100 --path /hooks/linear --team ENG
+```
+
+Needs `linear.agentToken`, `linear.webhookSecret` and `linear.apiKey`, and a public HTTPS address that reaches the
+listener: it binds `127.0.0.1` only (default port `8733`, not `8787`), so a tunnel or reverse proxy is the user's
+step, not shipped. An unset key exits `2` with `missing_value` before it listens; a token Linear rejects, or a port
+in use, exits `1`.
+
+- Each delivery is checked in order: `POST` only (`405`), path (`404`), 1 MiB cap (`413`), the `Linear-Signature`
+  HMAC-SHA256 of the raw body (`401`), a valid agent session event (`400`), the body's signed `webhookTimestamp`
+  within a minute (`401`). Then `200` goes out before any work.
+- Only the owner of `linear.apiKey` may start an agent, unless `linear.agentAllow` lists user ids. `--team <KEY>`
+  ignores sessions of other teams.
+- For an accepted session it writes a `thought` to the Linear session, runs
+  `worktree branch --linear <KEY> --agent-stdin --json --yes`, and writes a `response` or an `error`. The brief
+  names only the issue identifier.
+- `kill -TERM <pid>` waits for the session in flight. A terminal `Ctrl-C` also interrupts the running `worktree branch`, which may leave a half-made worktree. A second signal exits `130` at once.
+
 ## Configuration Reference
 
 All keys are stored via `worktree config <key> <value>` in git config
@@ -576,11 +599,11 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
 | `jira.autoAssign` | `true` or `false` | whether `--jira` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.autoStart` | `true` or `false` | whether `--jira` moves the issue to its in-progress status once the worktree exists; unset means ask (move when non-interactive); moving needs the Transition Issues permission |
-| `linear.apiKey` | `lin_api_...` | `--linear` flag; also read by `cleanup` and `list --issues` for canceled issues |
+| `linear.apiKey` | `lin_api_...` | `--linear` flag, and `linear-listen` requires it; also read by `cleanup` and `list --issues` for canceled issues |
 | `linear.autoStart` | `true` or `false` | whether `--linear` moves the issue to a started state once the worktree exists; unset means ask (start when non-interactive); moving needs a key with the Write permission |
-| `linear.agentToken` | `<oauth-token>` | the Linear agent app's OAuth token; secret (listed as `***`); nothing reads it yet; `worktree config` never asks for it, and `.worktree.yml` cannot set it |
-| `linear.webhookSecret` | `<signing-secret>` | the Linear agent app's webhook signing secret; secret (listed as `***`); nothing reads it yet; `worktree config` never asks for it, and `.worktree.yml` cannot set it |
-| `linear.agentAllow` | `user-id-1,user-id-2` | the Linear user ids allowed to delegate an issue to the agent; nothing reads it yet; `worktree config` never asks for it, and `.worktree.yml` cannot set it (a `linear.agentAllow` there is ignored with a warning) |
+| `linear.agentToken` | `<oauth-token>` | the Linear agent app's OAuth token; secret (listed as `***`); read by `linear-listen`; `worktree config` never asks for it, and `.worktree.yml` cannot set it |
+| `linear.webhookSecret` | `<signing-secret>` | the Linear agent app's webhook signing secret; secret (listed as `***`); read by `linear-listen`; `worktree config` never asks for it, and `.worktree.yml` cannot set it |
+| `linear.agentAllow` | `user-id-1,user-id-2` | the Linear user ids allowed to delegate an issue to the agent; read by `linear-listen`, where unset means only the owner of `linear.apiKey`; `worktree config` never asks for it, and `.worktree.yml` cannot set it (a `linear.agentAllow` there is ignored with a warning) |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
 | `clickup.autoStart` | `true` or `false` | whether `--clickup` moves the task to in progress once the worktree exists; unset means ask (move when non-interactive); moving needs edit access to the task |

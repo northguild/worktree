@@ -1,0 +1,116 @@
+---
+title: linear-listen
+---
+
+# `worktree linear-listen`
+
+Listen for Linear agent delegations and start a worktree for each one. Run it in the repository it should
+serve. When someone delegates a Linear issue to your agent app, Linear sends a webhook here, and the listener
+runs [`worktree branch --linear`](/docs/commands/branch) for that issue, hands the new worktree to your coding
+agent, and tells Linear how it went.
+
+It is a foreground command: it stays running until you stop it with `Ctrl-C`, and it serves one repository (the one
+it is started in). It listens on `127.0.0.1` only. Making that address reachable from Linear is your step: put a
+tunnel or a reverse proxy with HTTPS in front of it and give Linear that public address as the app's webhook URL.
+The command neither opens a tunnel nor installs itself as a service.
+
+## Usage
+
+```bash
+worktree linear-listen
+worktree linear-listen --port 9100
+worktree linear-listen --team ENG
+worktree linear-listen --path /hooks/linear
+```
+
+## Flags
+
+| Flag | Alias | Description |
+| --- | --- | --- |
+| `--port` | | Port to listen on, on `127.0.0.1` only. Default `8733`; `0` lets the system pick one, and the address is printed |
+| `--path` | | URL path that receives the webhook. Default `/webhook`; it must start with `/` |
+| `--team` | | Serve only sessions whose issue is in this Linear team key (case does not matter). A session of another team is acknowledged and ignored, so another listener can own it |
+| `--non-interactive` | | Accepted like on every command; this command never prompts |
+| `--yes` | `-y` | Accepted like on every command; this command never prompts |
+
+The default port is `8733`. It is not `8787`, which this repository's own docs worker pins for local
+development, and it is not one of the ports development servers usually take (`3000`, `4000`, `5173`, `8000`,
+`8080`, `9000`). It is also below the ranges operating systems hand out to outgoing connections (32768 and up
+on Linux, 49152 and up on macOS), so nothing on your machine is likely to be holding it. On a collision, pass
+another with `--port`.
+
+## What it needs
+
+Three git config keys. If one is unset, the command exits `2` with `missing_value` before it listens, and says
+which key to set. No secret is ever printed.
+
+- [`linear.agentToken`](/docs/commands/config) the agent app's OAuth token. It writes the activities you see in
+  the Linear session.
+- [`linear.webhookSecret`](/docs/commands/config) the webhook's signing secret.
+- [`linear.apiKey`](/docs/guides/linear-integration) your personal Linear API key. `worktree branch --linear`
+  uses it to read the issue, and it identifies who the listener serves by default.
+
+Then it asks Linear who the token belongs to. If Linear rejects the token, the command exits `1` before it listens.
+
+## Who may start an agent
+
+A delegation runs a coding agent, with your credentials, on your machine, from text anyone in the Linear
+workspace can write. So only an allowed person can start one.
+
+- With [`linear.agentAllow`](/docs/commands/config) set to a comma-separated list of Linear user ids, those
+  people are allowed.
+- With it unset, only the owner of `linear.apiKey` is allowed, which Linear tells the command at start-up.
+
+A session started by anyone else gets an `error` in the Linear session and no worktree. The allowed ids are
+printed at start-up.
+
+## What happens to a delivery
+
+For each request, in this order:
+
+| Check | Answer |
+| --- | --- |
+| The method is not `POST` | `405`, with `Allow: POST` |
+| The path is not `--path` | `404` |
+| The body is over 1 MiB | `413` |
+| The `Linear-Signature` header is not the HMAC-SHA256 of the raw body under `linear.webhookSecret` | `401` |
+| The body is not JSON, or not an agent session event (`null` included) | `400` |
+| The body's signed `webhookTimestamp` is more than a minute from now, either way | `401` |
+| Otherwise | `200`, sent before any work starts |
+
+The signature is checked on the raw bytes, before the body is parsed. Freshness is judged on the
+`webhookTimestamp` inside the signed body, not on the unsigned `Linear-Timestamp` header, because a replayed
+body could carry a fresh header.
+
+After the `200`, the listener writes to the Linear session: a `thought` at once (Linear expects a first
+activity within ten seconds), then one child process, then a `response` or an `error`. The child is
+`worktree branch --linear <KEY> --agent-stdin --json --yes`, run with an argument list and no shell, with the
+brief on stdin. The brief names the issue identifier and nothing else of the issue: no title, description or
+comment reaches the agent. The identifier is checked against `^[A-Za-z][A-Za-z0-9]*-\d+$` before it reaches the
+command.
+
+- A session id seen before is ignored, so a retried delivery does nothing twice.
+- A branch that already exists is a `response` saying so, not an error.
+- A follow-up message to a running session gets a `response` saying follow-ups are not delivered to the agent.
+- The child is stopped after 15 minutes and the session gets an `error`.
+
+## Output and stopping
+
+Start-up prints the local address, the path, the team and the allowed creators on stdout. Each delivery logs one
+`status=` line on stderr with the `Linear-Delivery` id and the status it was answered with. An accepted delivery
+also logs a line per step (such as `session.done`, or `activity.failed` when Linear could not be written to), each
+starting with the same delivery id. Secrets are redacted.
+
+`SIGTERM` (`kill -TERM <pid>`) stops accepting connections and waits for the session in flight, so a worktree is
+not left half made. A `Ctrl-C` in the terminal does the same for the listener, but the terminal also sends the
+interrupt to the running `worktree branch`, which stops at once and may leave a half-made worktree; the session then
+gets an `error`. A second signal exits the listener at once, with `130`.
+
+## Exit codes
+
+| Code | Means |
+| --- | --- |
+| `0` | stopped by a signal, after the session in flight finished |
+| `130` | a second signal while stopping |
+| `1` | Linear rejected the token or the key, or the port could not be bound |
+| `2` | `linear.agentToken`, `linear.webhookSecret` or `linear.apiKey` is unset (`missing_value`), or `--path` does not start with `/` |
