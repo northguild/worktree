@@ -86,7 +86,9 @@ worktree branch --github "#42"
 worktree branch --github 42 --assign
 worktree branch --github 42 --no-assign
 
-# Jira — requires jira.host, jira.email, jira.apiToken in config
+# Jira — requires jira.host, jira.email, jira.apiToken in config on Jira Cloud;
+# on Jira Data Center (jira.deployment datacenter) jira.host and a personal
+# access token in jira.apiToken, no jira.email
 worktree branch --jira DEV-123
 worktree branch --jira dev-123
 
@@ -214,7 +216,7 @@ live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) 
 (`fix/DEV-123-fix-login`).
 
 **Issue content is used for the branch name and nothing else, with one exception: the Linear menu.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
-`--jira`, `--linear` and `--clickup` read the issue's number or key (`--github`, `--jira` and `--linear` also accept a pasted issue URL, refused with exit `2` if it names another repository, GitHub host, Jira site or Linear workspace), its title (Jira:
+`--jira`, `--linear` and `--clickup` read the issue's number or key (`--github`, `--jira` and `--linear` also accept a pasted issue URL, refused with exit `2` if it names another repository, GitHub host, Jira site (its base: the host and any context path) or Linear workspace), its title (Jira:
 summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
 workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--jira` with a start also reads the issue's status and the transitions Jira offers from it (never the description or comments); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
@@ -523,7 +525,7 @@ All keys are stored via `worktree config <key> <value>` in git config
 under `northguild.worktree.*`.
 
 A repository can commit a `.worktree.yml` at its root that supplies the team keys:
-`defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host`,
+`defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host`, `jira.deployment`,
 `clickup.workspaceId`, `github.repository` and `github.host` (written nested: `jira: { host: ... }`). Precedence per key:
 flag, then git config (any scope), then the file, then the built-in default. The
 file is read from `origin/HEAD` (`git show`), never the working copy, and
@@ -572,6 +574,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `github.repository` | `acme/widgets` | which repository `--github` and `--assign` use: this key (team key, also under `github:` in `.worktree.yml`), else `upstream` if it is on `github.host` (`github.com` unless set), else `origin`; optional, and `worktree config` never asks for it |
 | `github.host` | `ghe.example.com` | the GitHub host `--github` and `--assign` use, a bare hostname; default `github.com`; team key (also under `github:` in `.worktree.yml`); the clone also needs a remote on that host (`origin` when `github.repository` is set), or the run fails before any request; `worktree config` never asks for it |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
+| `jira.deployment` | `cloud` or `datacenter` | which Jira `jira.host` is: Jira Cloud or Jira Data Center (Server); unset means `cloud`; team key (also under `jira:` in `.worktree.yml`); `worktree config` never asks for it |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
 | `jira.autoAssign` | `true` or `false` | whether `--jira` assigns the issue to you; unset means ask (assign when non-interactive) |
@@ -693,8 +696,10 @@ worktree config jira.apiToken ATATT3xFfGF...
 worktree branch --jira DEV-123
 ```
 
-All three Jira keys are required. Missing any one causes an authentication
-error when the CLI calls the Jira API.
+On Jira Cloud all three Jira keys are required. On Jira Data Center
+(`worktree config jira.deployment datacenter`) only `jira.host` and
+`jira.apiToken`, a personal access token, are. Missing a needed one causes an
+authentication error when the CLI calls the Jira API.
 
 Source: `docs/guides/jira-integration`, `src/integrations/jira.ts`
 

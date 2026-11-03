@@ -1,6 +1,7 @@
 import { EOL } from "node:os";
 import { Args, Flags } from "@oclif/core";
 import chalk from "chalk";
+import { resolveJiraDeployment } from "../integrations/jira.js";
 import { BaseCommand } from "../lib/base-command.js";
 import { commandExists } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
@@ -26,7 +27,12 @@ import {
   summariseProjectFile,
   writeProjectFile,
 } from "../lib/project-config.js";
-import { askConfirm, askInput, askSelect } from "../lib/prompt.js";
+import {
+  askConfirm,
+  askInput,
+  askSelect,
+  InvalidValueError,
+} from "../lib/prompt.js";
 import type { ConfigName, OpenerKind } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
 import {
@@ -126,9 +132,11 @@ export default class Config extends BaseCommand {
     let count = 0;
     const hidden = await this.getHiddenConfigNames();
     const file = await this.loadFile();
+    // Data Center has no email, so `--missing` does not report one (#126 D4).
+    const skipEmail = missing && (await this.isJiraDataCenter());
 
     for (const variable of CONFIG_NAMES) {
-      if (hidden.has(variable)) {
+      if (hidden.has(variable) || (skipEmail && variable === "jira.email")) {
         continue;
       }
 
@@ -255,7 +263,11 @@ export default class Config extends BaseCommand {
     // asks what the file answers.
     if (flags.missing) {
       const configNames: ConfigName[] = [];
+      const dropEmail = await this.isJiraDataCenter();
       for (const name of applicableConfigNames) {
+        if (dropEmail && name === "jira.email") {
+          continue;
+        }
         if (!fileKeys.includes(name) && !(await gitGetConfigValue(name))) {
           configNames.push(name);
         }
@@ -263,9 +275,17 @@ export default class Config extends BaseCommand {
       return configNames;
     }
 
-    return flags.names
-      ? applicableConfigNames
-      : applicableConfigNames.filter((name) => !fileKeys.includes(name));
+    if (flags.names) {
+      return applicableConfigNames;
+    }
+
+    // Data Center has no email (#126 D4), so a bare run does not ask for one.
+    // Naming it with --names is still asking for it.
+    const dropEmail = await this.isJiraDataCenter();
+    return applicableConfigNames.filter(
+      (name) =>
+        !fileKeys.includes(name) && !(dropEmail && name === "jira.email"),
+    );
   }
 
   /**
@@ -284,6 +304,22 @@ export default class Config extends BaseCommand {
         flag: "--names <keys>",
       },
     );
+  }
+
+  /**
+   * Whether the wizard is configuring a Data Center site (#126 D2). A hand-edited
+   * value that is neither deployment is not the wizard's to reject: it asks the
+   * Cloud questions, and the Jira calls that read the key refuse it by name.
+   */
+  private async isJiraDataCenter() {
+    try {
+      return (await resolveJiraDeployment()) === "datacenter";
+    } catch (error) {
+      if (error instanceof InvalidValueError) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   private async getInputConfig(name: ConfigName, fallback: string = "") {
@@ -385,17 +421,32 @@ export default class Config extends BaseCommand {
       }
 
       if (shouldPrompt("jira.apiToken")) {
-        const jiraTokenInstructions = [
-          "To find or create your token, follow these steps:",
-          " - Go to https://id.atlassian.com/manage-profile/security/api-tokens",
-          " - Click 'Create Classic API token'",
-          " - Give your token a name and expiration date.",
-          " - Copy your new token",
-        ];
+        const dataCenter = await this.isJiraDataCenter();
+        // The Data Center steps are Atlassian's "Using Personal Access Tokens".
+        const jiraTokenInstructions = dataCenter
+          ? [
+              "To create your personal access token (Jira 8.14 or later), follow these steps:",
+              " - In Jira, select your avatar at the top right, then select 'Profile'",
+              " - Select 'Personal access tokens' in the left-hand menu",
+              " - Select 'Create token'",
+              " - Give your token a name, and optionally an expiry",
+              " - Select 'Create' and copy your new token",
+            ]
+          : [
+              "To find or create your token, follow these steps:",
+              " - Go to https://id.atlassian.com/manage-profile/security/api-tokens",
+              " - Click 'Create Classic API token'",
+              " - Give your token a name and expiration date.",
+              " - Copy your new token",
+            ];
 
         this.log(jiraTokenInstructions.join(EOL) + EOL);
         const jiraApiToken = await askInput(
-          { message: "Jira API token" },
+          {
+            message: dataCenter
+              ? "Jira personal access token"
+              : "Jira API token",
+          },
           {
             value: "jira.apiToken",
             flag: "worktree config jira.apiToken <token>",

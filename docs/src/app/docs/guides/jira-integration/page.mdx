@@ -4,7 +4,8 @@ title: Jira Issue Integration
 
 # Jira Issue Integration
 
-`worktree` can derive branch names directly from Jira issues in your Jira workspace.
+`worktree` can derive branch names directly from Jira issues in your Jira workspace, on Jira Cloud or on Jira Data Center (see
+[Jira Data Center](#jira-data-center)).
 
 ## Basic Usage
 
@@ -16,9 +17,11 @@ worktree branch --jira https://company.atlassian.net/browse/DEV-123
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
 
-A pasted URL must be an issue's `/browse/<KEY>` URL on your `jira.host`, compared ignoring case. A URL on another
-host exits `2` with `invalid_value`, naming both hosts, and that host is never contacted, so your credentials only
-go to `jira.host`. Pass the key, or check that the URL is from your Jira site.
+A pasted URL must be an issue's `/browse/<KEY>` URL on your `jira.host`. Everything before `/browse/` is compared
+with `jira.host`, ignoring case, so a site served under a context path (`https://example.com/jira`) matches only a
+URL that carries the same path. A URL on another base exits `2` with `invalid_value`, naming both, and that site
+is never contacted, so your credentials only go to `jira.host`. Pass the key, or check that the URL is from your
+Jira site.
 
 ## How Branch Names Are Built
 
@@ -45,7 +48,7 @@ fields and options by id. A shared list can name the issue type as `Type`, which
 
 ## Assigning the issue
 
-`--assign` assigns the Jira issue to the account behind `jira.email` while the branch is created, and
+`--assign` assigns the Jira issue to the account behind `jira.email` (on Jira Cloud) or to the owner of the personal access token in `jira.apiToken` (on Jira Data Center) while the branch is created, and
 `--no-assign` skips it for one run. With neither, `jira.autoAssign` decides: `true` always assigns, `false`
 never does, and unset asks once and saves your answer. A non-interactive run (`--json`, `--yes`, CI) with the
 key unset assigns and saves nothing. This key is separate from `github.autoAssign`.
@@ -111,7 +114,7 @@ transition itself.
 
 Authentication is resolved in this order:
 
-1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in git config. `jira.host` is read from git config, else from the team's `.worktree.yml`, with no prompt; a file's host receives everyone's credentials, see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials).
+1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in git config, with `jira.deployment` (default `cloud`) deciding which are needed: on `datacenter`, `jira.email` is neither required nor read and `jira.apiToken` holds a personal access token. `jira.host` is read from git config, else from the team's `.worktree.yml`, with no prompt; a file's host receives everyone's credentials, see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials).
 2. Interactive prompts for missing values, then save to local git config.
 
 ## Suggested Setup
@@ -133,10 +136,70 @@ worktree config --missing --names jira.host,jira.email,jira.apiToken,branchPrefi
 
 An empty answer to the token prompt keeps the token already stored rather than clearing it.
 
+## Jira Data Center
+
+Set the deployment once, beside the host. Jira Server (end of support 2024-02-15) is the same API, so it uses
+`datacenter` too:
+
+```bash
+worktree config jira.deployment datacenter
+worktree config jira.host https://jira.example.com
+worktree config jira.apiToken <personal-access-token>
+```
+
+`jira.deployment` is a team key (it can sit under `jira:` in `.worktree.yml`), takes exactly `cloud` or
+`datacenter`, and is never asked by `worktree config`. Unset means `cloud`, which is how every existing install
+keeps working. It is configured, not detected, because a Cloud site can have a custom domain.
+
+- **A personal access token (PAT), sent as a Bearer token.** On Data Center `worktree` sends
+  `Authorization: Bearer <jira.apiToken>`; there is no email and no Basic authentication, and a leftover
+  `jira.email` is ignored. PATs need Jira 8.14 or later (Jira Service Management 4.15 or later); older versions
+  are not supported. Create one under your avatar, **Profile**, **Personal access tokens**, **Create token**
+  ([Using Personal Access Tokens](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html)).
+- **REST API version 2.** Data Center is called at `/rest/api/2/...`; Jira Cloud stays on `/rest/api/3/...`.
+- **A context path is allowed.** `worktree config jira.host https://example.com/jira` requests
+  `https://example.com/jira/rest/api/2/...`, and a pasted URL must carry the same path.
+- **Always https.** A scheme in `jira.host` is dropped and every request goes over https, so the token is never
+  sent in clear.
+- **A private certificate authority.** If the site's certificate is signed by an authority Node does not know,
+  requests fail with a TLS code such as `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, and the error says so. Start `worktree`
+  with Node's `NODE_EXTRA_CA_CERTS` pointing at a file of the extra certificates in PEM format. Node reads it only
+  when the process starts, so set it in the shell before running `worktree`, not from inside it
+  ([Node.js CLI: `NODE_EXTRA_CA_CERTS=file`](https://nodejs.org/api/cli.html#node_extra_ca_certsfile)).
+
+  ```bash
+  NODE_EXTRA_CA_CERTS=/etc/ssl/certs/company-ca.pem worktree branch --jira DEV-123
+  ```
+- **Issue keys may contain an underscore.** A Data Center admin can allow it in the project key format, so
+  `MY_EXAMPLE_PROJECT-15` is accepted on `datacenter` and refused on `cloud`, before any request. The key still
+  starts with a letter.
+- **An unreachable site is named by host and error code only**, for example `Jira: could not reach
+  jira.example.com (ENOTFOUND).`. No header text is ever shown. This applies to Jira Cloud as well.
+- **A request that could not be made is a config problem, not a network one.** Node refuses some requests before
+  connecting: a `jira.host` it cannot parse, one carrying `user:password@`, a blocked port, or (on `datacenter`) a
+  token with characters a header cannot carry. Those read `Jira: the request to jira.example.com could not be made
+  (TypeError). Check jira.host and jira.apiToken in your config.`, naming only `jira.host` on `cloud`.
+- **A 401 names the likely fix.** On `cloud` with a host outside `atlassian.net`, the error suggests
+  `worktree config jira.deployment datacenter`; on `datacenter` with an `atlassian.net` host it says Jira Cloud
+  uses `cloud`.
+
 ## Getting a Jira API Token
+
+On Jira Cloud:
 
 1. Visit [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)
 2. Click "Create API token"
 3. Copy the generated token and use it with `worktree config jira.apiToken`
+
+On Jira Data Center (8.14 or later), create a personal access token instead, as in
+[Using Personal Access Tokens](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html):
+
+1. In Jira, select your avatar at the top right, then select **Profile**.
+2. Select **Personal access tokens** in the left-hand menu.
+3. Select **Create token**, give it a name and, if you like, an expiry.
+4. Select **Create**, copy the token and use it with `worktree config jira.apiToken`. Jira does not show it again once you select **Close**.
+
+`worktree config` shows these steps in place of the Cloud ones when `jira.deployment` is `datacenter`. See
+[Jira Data Center](#jira-data-center).
 
 The token is stored locally in git config and never sent anywhere except to your Jira instance.

@@ -7199,6 +7199,56 @@ describe("branch command — issue URLs", () => {
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
+    // #126 D6: the base is everything before /browse/, a context path included.
+    it("accepts a URL under a context path when jira.host carries the same path, ignoring case", async () => {
+      config["jira.host"] = "https://EXAMPLE.com/jira";
+
+      await runJson({
+        jira: "https://example.com/jira/browse/MY_KEY-3",
+        start: false,
+        assign: false,
+      });
+
+      expect(jiraIntegration.getJiraBranchNameFromIssue).toHaveBeenCalledWith(
+        "MY_KEY-3",
+        expect.any(Function),
+      );
+    });
+
+    it("refuses a URL under a context path when jira.host has none, naming both bases", async () => {
+      config["jira.host"] = "https://example.com";
+
+      const document = await runJson({
+        jira: "https://example.com/jira/browse/MY_KEY-3",
+      });
+
+      expect(document).toMatchObject({ error: { code: "invalid_value" } });
+      const message = (document.error as any).message as string;
+      expect(message).toContain("example.com/jira");
+      expect(message).toContain("jira.host is example.com.");
+      expect(process.exitCode).toBe(2);
+      expect(jiraIntegration.getJiraBranchNameFromIssue).not.toHaveBeenCalled();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    // #126 D4: Data Center signs in with the token alone.
+    it.each([
+      [
+        "cloud",
+        ["defaultSourceBranch", "jira.host", "jira.email", "jira.apiToken"],
+      ],
+      ["datacenter", ["defaultSourceBranch", "jira.host", "jira.apiToken"]],
+    ])("verifies the Jira names of a %s site", async (deployment, expected) => {
+      config["jira.deployment"] = deployment;
+      const verify = vi
+        .spyOn(Branch.prototype as any, "verifyConfig")
+        .mockResolvedValue(undefined);
+
+      await runJson({ jira: "DEV-123", start: false, assign: false });
+
+      expect(verify).toHaveBeenCalledWith(expected);
+    });
+
     it("assigns and starts the key the URL names", async () => {
       await runJson({ jira: JIRA_URL, start: true, assign: true });
 

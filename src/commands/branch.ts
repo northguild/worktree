@@ -20,6 +20,7 @@ import {
   getJiraBranchNaming,
   normalizeJiraHost,
   parseJiraIssueReference,
+  resolveJiraDeployment,
   startJiraIssue,
 } from "../integrations/jira.js";
 import {
@@ -581,10 +582,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         (await getJiraBranchNameFromIssue(issueKeyFlag, onWarning));
       spinner.succeed();
       // Built from the configured host, never from the credentials beside it.
-      const host = (await getTeamConfigValue("jira.host"))
-        .trim()
-        .replace(/^https?:\/\//i, "")
-        .replace(/\/+$/, "");
+      const host = normalizeJiraHost(await getTeamConfigValue("jira.host"));
       return {
         branchName,
         naming,
@@ -931,10 +929,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
    * `startJiraIssue` writes only once it has decided to, so every path that is
    * not "in progress now" reports `false`.
    *
-   * `fetchJira` rethrows a non-timeout fetch error as it came, and undici can
-   * quote the Authorization value in such a message. So only a `Jira:` error,
-   * which the integration composed, is shown; anything else is named by its
-   * type alone.
+   * Only a `Jira:` error, which the integration composed, is shown; anything
+   * else is named by its type alone. `fetchJira` already reduces an unreachable
+   * site to its host and error code (#126 D10), because undici can quote the
+   * Authorization value in the raw message.
    */
   private async startJiraIssue(issueIdFlag: string): Promise<boolean> {
     const issueKey = issueIdFlag.trim().toUpperCase();
@@ -1081,19 +1079,23 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     return number;
   }
 
-  /** D4: the URL's host must be `jira.host`; it is never requested. */
+  /**
+   * D4: the URL's base must be `jira.host`; it is never requested. The base
+   * keeps a context path, so a site under `/jira` compares on both (#126 D6).
+   */
   private async readJiraReference(value: string): Promise<string> {
-    const { key, host } = parseJiraIssueReference(value);
-    if (!host) {
+    const { key, base } = parseJiraIssueReference(value);
+    if (!base) {
       return key;
     }
     const configured = normalizeJiraHost(
       (await getTeamConfigValue("jira.host")) ?? "",
     );
     // Unset: the existing missing-value path reports it, and nothing is sent.
-    if (configured && host.toLowerCase() !== configured.toLowerCase()) {
+    const pasted = normalizeJiraHost(base);
+    if (configured && pasted.toLowerCase() !== configured.toLowerCase()) {
       throw new InvalidValueError(
-        `Jira: the URL names ${host}, but jira.host is ${configured}. Pass the issue key, or check that the URL is from your Jira site.`,
+        `Jira: the URL names ${pasted}, but jira.host is ${configured}. Pass the issue key, or check that the URL is from your Jira site.`,
       );
     }
     return key;
@@ -1367,7 +1369,12 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       : [];
 
     if (flags.jira) {
-      configNames.push("jira.host", "jira.email", "jira.apiToken");
+      // #126 D4: a Data Center site signs in with the token alone.
+      const email =
+        (await resolveJiraDeployment()) === "cloud"
+          ? ["jira.email" as const]
+          : [];
+      configNames.push("jira.host", ...email, "jira.apiToken");
     }
 
     if (flags.linear) {

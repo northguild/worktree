@@ -1304,6 +1304,79 @@ describe("github.host in the file (#120 D7)", () => {
   });
 });
 
+// #126 D2: jira.deployment is a team key, exactly `cloud` or `datacenter`.
+describe("jira.deployment in the file (#126 D2)", () => {
+  async function loads(content: string) {
+    fromOriginMain(content);
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("did not load");
+    return result.config;
+  }
+
+  it("loads as a team key, and is a project-file key", async () => {
+    const config = await loads("jira:\n  deployment: datacenter\n");
+
+    expect(config.jira?.deployment).toBe("datacenter");
+    expect(isTeamConfigKey("jira.deployment")).toBe(true);
+    expect(isProjectFileKey("jira.deployment")).toBe(true);
+    expect(projectFileValue(config, "jira.deployment")).toBe("datacenter");
+    expect(projectFileKeys(config)).toEqual(["jira.deployment"]);
+  });
+
+  it("loads beside jira.host", async () => {
+    const config = await loads(
+      "jira:\n  host: https://jira.example.com\n  deployment: datacenter\n",
+    );
+
+    expect(config.jira?.deployment).toBe("datacenter");
+    expect(config.jira?.host).toBe("https://jira.example.com");
+  });
+
+  it("reads it from the file, git config first", async () => {
+    fromOriginMain("jira:\n  deployment: datacenter\n");
+
+    expect(await resolveTeamConfig("jira.deployment")).toEqual({
+      value: "datacenter",
+      source: "project",
+    });
+
+    mockedConfig.gitGetConfigValue.mockImplementation((name: string) =>
+      Promise.resolve(name === "jira.deployment" ? "cloud" : ""),
+    );
+    expect(await resolveTeamConfig("jira.deployment")).toEqual({
+      value: "cloud",
+      source: "git-config",
+    });
+  });
+
+  it.each([
+    "server",
+    "Cloud",
+    "data-center",
+    '""',
+  ])("fails to load with deployment %s, naming the key", async (value) => {
+    const error = await failure(`jira:\n  deployment: ${value}\n`);
+
+    expect(error.message).toContain("jira.deployment");
+  });
+
+  it("is written by renderProjectFile and loads as written", async () => {
+    const text = renderProjectFile({ "jira.deployment": "datacenter" });
+
+    expect(text).toContain("jira:\n  deployment: datacenter");
+    expect((await loads(text)).jira?.deployment).toBe("datacenter");
+  });
+
+  it("is an enum of exactly cloud and datacenter in the published schema", () => {
+    const { jira } = projectConfigJsonSchema().properties as Record<
+      string,
+      { properties: { deployment: { enum?: string[] } } }
+    >;
+
+    expect(jira.properties.deployment.enum).toEqual(["cloud", "datacenter"]);
+  });
+});
+
 describe("projectFileKeys and projectFileValue (D19)", () => {
   it("lists the keys the example file sets, in the order the wizard knows them", async () => {
     fromOriginMain(EXAMPLE);

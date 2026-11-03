@@ -65,7 +65,7 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
 ### Writing the file with `--project`
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree from
-the team keys in your git config (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`,
+the team keys in your git config (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`, `jira.deployment`,
 `clickup.workspaceId`, `github.repository`, `github.host` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
 secret key. A personal `postCreate` command becomes a one-step list. The file is left uncommitted for you to
 review, and the command refuses to overwrite an existing `.worktree.yml`. It takes no other argument or flag.
@@ -164,6 +164,7 @@ whitespace is refused with exit `2`, and nothing is stored.
 ## Jira Integration Keys
 
 - `jira.host`, `jira.email` and `jira.apiToken` for Jira API access.
+- `jira.deployment` which Jira `jira.host` is: `cloud` (the default) or `datacenter`. A team key, also set under `jira:` in `.worktree.yml`, and never asked for by `worktree config`.
 - `jira.autoAssign` whether `--jira` also assigns the issue to you: `true` always, `false` never, unset
   means you are asked once and your answer is saved. See
   [Configuration](/docs/configuration#jira-integration-notes).
@@ -172,6 +173,8 @@ whitespace is refused with exit `2`, and nothing is stored.
   where it is), `false` never, unset means you are asked once and your answer is saved. See
   [Configuration](/docs/configuration#jira-integration-notes) and
   [Moving the issue to in progress](/docs/guides/jira-integration#moving-the-issue-to-in-progress).
+
+When `jira.deployment` is `datacenter` (from git config or `.worktree.yml`), the wizard does not ask for `jira.email`, a bare run, `--missing` and `--list --missing` do not count it as missing, and the token prompt reads "Jira personal access token" and shows the steps for creating one in Jira instead of the Atlassian Cloud ones. The token still goes in `jira.apiToken`. See [Jira Data Center](/docs/guides/jira-integration#jira-data-center). With `cloud` or unset, nothing changes. Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given.
 
 The Jira keys are asked together behind one confirm. The `jira.autoAssign` prompt is asked after the token
 and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
