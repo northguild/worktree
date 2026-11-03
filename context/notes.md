@@ -20,3 +20,16 @@ Branch-local and advisory. Nothing reads this file; `/feature-close` deletes it.
 - **Phase 2:** tests could pin `isAllowedCreator("a", [])` is `false` (D5 fails closed; today only an
   `undefined` creator is tried against an empty list), and the test named "a re-stringified body" does not
   actually re-stringify one.
+- **Phase 3:** `failure()` in `linear-agent-api.ts` keeps the raw error on `cause`, unredacted; Node's
+  `util.inspect` prints a cause's message. Nothing logs the error object today (`base-command.ts` prints
+  only the redacted message) — the listener must keep it that way.
+- **Phase 3:** redaction runs `redactSecrets` before stripping the token by value, so a token holding a
+  known shape mid-string can leave a prefix fragment; by-value first is strictly safer. An empty token
+  turns `split("").join("***")` into garbled text — refuse it upstream.
+- **Phase 3:** D10 says "5 s-class timeout"; the code and Phase 3's Scope use `fetchLinear`'s 15 s. A
+  15 s cap on the first `thought` is longer than Linear's 10 s first-activity window (D7) — it only bounds
+  a failure, but worth reconciling in the plan wording. The constant is now duplicated across the two
+  modules.
+- **Phase 3:** 401/403/429 become a bare "HTTP 401" with no next step; `fetchLinear` maps auth and rate
+  limits. The listener could name `linear.agentToken` on a 401. Tests were written alongside the module
+  rather than red first; every value still traces to Linear's schema or docs.
