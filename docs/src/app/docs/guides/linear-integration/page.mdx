@@ -67,7 +67,7 @@ no rule matches gets no prefix unless the list ends with `- otherwise: <kind>`. 
 
 ## What Is Read From the Issue
 
-**Issue content is used for the branch name and nothing else, with one exception: the menu.** When you leave the
+**Issue content is used for the branch name and nothing else, with two exceptions: the menu, and the opt-in context of [`worktree linear-listen`](/docs/commands/linear-listen#issue-text).** When you leave the
 identifier out, the identifier, title and state name of each of your own unstarted and started issues are shown to
 you in the menu (control and formatting characters in them shown as escapes), and only to you at the terminal: never
 in `--json`, which refuses that run, and never passed to an agent. For the issue you then name, `worktree` reads the issue's identifier, its title

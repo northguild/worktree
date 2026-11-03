@@ -198,6 +198,7 @@ by the wizard (a bare run and `--missing` skip them), and none can be set from `
 - `linear.agentToken` the Linear agent app's OAuth token. Secret: `--list` shows it as `***`.
 - `linear.webhookSecret` the signing secret of the app's webhook. Secret: `--list` shows it as `***`.
 - `linear.agentAllow` the Linear user ids allowed to delegate an issue to the agent, comma-separated.
+- `linear.agentContext` `true` or `false` (anything else is refused with exit `2`). `true` lets `worktree linear-listen` add the delegated issue's text to the agent's brief, fenced as untrusted and capped. Unset means `false`. Neither the wizard nor `.worktree.yml` sets it.
 
 ## Agent Key
 

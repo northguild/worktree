@@ -62,3 +62,14 @@ Branch-local and advisory. Nothing reads this file; `/feature-close` deletes it.
   endpoint; it binds `127.0.0.1` only, so a tunnel aimed at `localhost` → `::1` is refused (say so in the
   guide); a request on a kept-alive socket during the drain is not awaited; the docs chat's command→route
   map (`docs/src/chat/components/MarkdownContent.tsx`) has no `worktree linear-listen` entry.
+- **Phase 6:** `SKILL.md:227` says issue content is "never passed to an agent by `worktree` itself", which reads
+  as contradicting the `linear-listen` exception right after it; "never passed to an agent, except as below"
+  would fit. The success activity (`linear-agent-dispatch.ts:230`) still says the agent "has been given the
+  issue identifier", which is incomplete with `linear.agentContext` on.
+- **Phase 6:** the `linear-listen` page's list of what start-up prints (`page.mdx:112`) leaves out the new
+  "Issue context: on/off" line (line 76 mentions it). The 32 KiB `MAX_CONTEXT_BYTES` is the coder's choice;
+  D8 says only "well under 131,071".
+- **Phase 6:** correct but untested: the tilde, CRLF and trailing-backtick fence cases; the worst-case brief
+  from an all-backtick context (~98.6 KB, under the 131,071 cap); the child's `--json` at `branch` level not
+  carrying the brief (holds by construction, `base-command.ts:902`). `herdr.ts` `toHerdrError` passes Herdr's
+  own stderr through verbatim; that predates this feature and applies to any brief.

@@ -35,6 +35,7 @@ config.
 - `linear.agentToken` (the Linear agent app's OAuth token; secret; read by `worktree linear-listen`, which starts worktrees for a Linear agent; never asked for by `worktree config` and not allowed in `.worktree.yml`)
 - `linear.webhookSecret` (the Linear agent app's webhook signing secret; secret; read by `worktree linear-listen`; never asked for by `worktree config` and not allowed in `.worktree.yml`)
 - `linear.agentAllow` (comma-separated Linear user ids allowed to delegate an issue to the agent, example: `user-id-1,user-id-2`; read by `worktree linear-listen`, and unset means only the owner of `linear.apiKey`; never asked for by `worktree config`, and a `linear.agentAllow` in `.worktree.yml` is ignored with a warning)
+- `linear.agentContext` (`true` or `false`, anything else is refused; `true` lets `worktree linear-listen` add the delegated issue's text to the agent's brief, fenced as untrusted and capped at 32 KiB, and unset means `false`; never asked for by `worktree config`, and a `linear.agentContext` in `.worktree.yml` is ignored with a warning)
 - `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
 - `clickup.workspaceId` (optional; your ClickUp Workspace id, a number, needed only for custom task ids like `DEV-123`)
 - `clickup.autoStart` (`true` or `false`, unset means you are asked, or the task is moved to in progress when non-interactive)

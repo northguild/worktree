@@ -366,16 +366,16 @@ describe("config command", () => {
   });
 
   // #115 Phase 1 (D9): the keys a Linear agent listener reads. Two are
-  // credentials, all three are held in git config only and never asked.
+  // credentials, all four are held in git config only and never asked.
   describe("the Linear agent listener keys (#115 D9)", () => {
     const TOKENS = ["linear.agentToken", "linear.webhookSecret"];
-    const ALL = [...TOKENS, "linear.agentAllow"];
+    const ALL = [...TOKENS, "linear.agentAllow", "linear.agentContext"];
 
     function parsed(args: object, flags: object) {
       (config as any).parse = vi.fn().mockResolvedValue({ args, flags });
     }
 
-    it("are config names, the two tokens are secret, all three are unprompted", () => {
+    it("are config names, the two tokens are secret, all four are unprompted", () => {
       for (const name of ALL) {
         expect(CONFIG_NAMES as readonly string[]).toContain(name);
         expect(UNPROMPTED_CONFIG_NAMES as readonly string[]).toContain(name);
@@ -383,9 +383,22 @@ describe("config command", () => {
       for (const name of TOKENS) {
         expect(SECRET_CONFIG_NAMES as readonly string[]).toContain(name);
       }
-      expect(SECRET_CONFIG_NAMES as readonly string[]).not.toContain(
-        "linear.agentAllow",
-      );
+      for (const name of ["linear.agentAllow", "linear.agentContext"]) {
+        expect(SECRET_CONFIG_NAMES as readonly string[]).not.toContain(name);
+      }
+    });
+
+    it("stores linear.agentContext true, and refuses anything but true or false", async () => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const set = vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+      parsed({ name: "linear.agentContext", value: "true" }, {});
+      await config.run();
+      expect(set).toHaveBeenCalledWith("linear.agentContext", "true");
+
+      set.mockClear();
+      parsed({ name: "linear.agentContext", value: "yes" }, {});
+      await expect(config.run()).rejects.toThrow("Value must be true or false");
+      expect(set).not.toHaveBeenCalledWith("linear.agentContext", "yes");
     });
 
     it("--list shows both tokens as set but masked, and never prints a value", async () => {
@@ -419,7 +432,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("linear.agentAllow=u1,u2");
     });
 
-    it("--missing does not list any of the three", async () => {
+    it("--missing does not list any of the four", async () => {
       vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("");
       parsed({}, { list: true, missing: true });
 
@@ -430,7 +443,7 @@ describe("config command", () => {
       }
     });
 
-    it("a bare run and a --missing run never ask for any of the three", async () => {
+    it("a bare run and a --missing run never ask for any of the four", async () => {
       mockConfirm.mockResolvedValue(true);
       mockInput.mockResolvedValue("anything");
       mockSelect.mockResolvedValue("true");

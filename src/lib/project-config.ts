@@ -241,6 +241,7 @@ const PERSONAL_KEYS = new Set([
   "github.autoAssign",
   "linear.autoStart",
   "linear.agentAllow",
+  "linear.agentContext",
   "clickup.autoStart",
 ]);
 const PERSONAL_SECTIONS = new Set(["herdr", "agent"]);

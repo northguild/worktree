@@ -222,6 +222,7 @@ export async function isValidConfigValue(
     case "jira.autoAssign":
     case "jira.autoStart":
     case "linear.autoStart":
+    case "linear.agentContext":
     case "clickup.autoStart":
       return isValidBoolean(value);
     case "herdr.focus":

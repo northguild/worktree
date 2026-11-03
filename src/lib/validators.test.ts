@@ -420,6 +420,30 @@ describe("isValidConfigValue — linear.autoStart", () => {
   });
 });
 
+describe("isValidConfigValue — linear.agentContext", () => {
+  // #115 D8: the switch that lets issue text reach an agent accepts the
+  // lowercase words "true" and "false" and nothing else (`isValidBoolean`).
+  it.each`
+    value      | expected
+    ${"true"}  | ${true}
+    ${"false"} | ${true}
+    ${"yes"}   | ${"Value must be true or false"}
+    ${"True"}  | ${"Value must be true or false"}
+    ${"1"}     | ${"Value must be true or false"}
+    ${""}      | ${"Value must be true or false"}
+  `('should return $expected for "$value"', async ({ value, expected }) => {
+    expect(await isValidConfigValue("linear.agentContext", value)).toBe(
+      expected,
+    );
+  });
+
+  it("should throw InvalidConfigValueError for a non-boolean value", async () => {
+    await expect(
+      validateConfigValue("linear.agentContext", "yes"),
+    ).rejects.toThrow(InvalidConfigValueError);
+  });
+});
+
 describe("isValidConfigValue — clickup.autoStart", () => {
   // Same contract as the autoAssign keys (D10): `isValidBoolean` accepts the
   // lowercase words "true" and "false" and nothing else.

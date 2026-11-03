@@ -483,10 +483,16 @@ describe("linear-listen command", () => {
     return { done, url: url as string };
   }
 
-  async function deliver(url: string, creator: string, team = "ENG") {
+  async function deliver(
+    url: string,
+    creator: string,
+    team = "ENG",
+    promptContext?: string,
+  ) {
     const body = JSON.stringify(
       event({
         webhookTimestamp: NOW,
+        promptContext,
         agentSession: {
           id: `s-${creator}-${team}`,
           creator: { id: creator },
@@ -523,6 +529,40 @@ describe("linear-listen command", () => {
     expect(spawned).toHaveLength(0);
     expect(await deliver(url, "u-b")).toBe(200);
     expect(spawned).toHaveLength(1);
+    process.emit("SIGTERM");
+    await done;
+  });
+
+  it("with linear.agentContext unset, the brief carries no issue text and the start-up says so", async () => {
+    const { done, url } = await runUntilListening();
+    expect(await deliver(url, "owner-1", "ENG", "ctx-marker-77")).toBe(200);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.stdin).not.toContain("ctx-marker-77");
+    expect(logged.join("\n")).toContain("Issue context: off");
+    process.emit("SIGTERM");
+    await done;
+  });
+
+  it("with linear.agentContext true, the brief carries the fenced issue text, which no log line repeats", async () => {
+    values["linear.agentContext"] = "true";
+    const { done, url } = await runUntilListening();
+    expect(await deliver(url, "owner-1", "ENG", "ctx-marker-77")).toBe(200);
+    expect(spawned[0]?.stdin).toContain("ctx-marker-77");
+    expect(logged.join("\n")).toContain("Issue context: on");
+    expect([...logged, ...errors].join("\n")).not.toContain("ctx-marker-77");
+    process.emit("SIGTERM");
+    await done;
+  });
+
+  it.each([
+    "false",
+    "yes",
+    "TRUE",
+  ])("treats linear.agentContext %j as off", async (value) => {
+    values["linear.agentContext"] = value;
+    const { done, url } = await runUntilListening();
+    expect(await deliver(url, "owner-1", "ENG", "ctx-marker-77")).toBe(200);
+    expect(spawned[0]?.stdin).not.toContain("ctx-marker-77");
     process.emit("SIGTERM");
     await done;
   });

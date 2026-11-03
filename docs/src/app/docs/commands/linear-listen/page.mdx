@@ -64,6 +64,19 @@ workspace can write. So only an allowed person can start one.
 A session started by anyone else gets an `error` in the Linear session and no worktree. The allowed ids are
 printed at start-up.
 
+## Issue text
+
+An issue's description and comments are writable by everyone with access to the issue, and a delegation hands
+them to an agent that can run commands. So by default none of it reaches the agent.
+
+Set [`linear.agentContext`](/docs/commands/config) to `true` to change that, on a machine where you accept the
+risk. Unset or `false` means off, and any other value is refused. With it on and a session that carries issue
+text, the brief is the same fixed line followed by that text inside a fenced block labelled as untrusted issue
+content. Text inside the block cannot close it, and it is cut at 32 KiB without splitting a character. The text
+is never written to the `--json` output, to a Linear activity or to a log line. Start-up prints whether it is on.
+
+Anyone who can edit or comment on a delegated issue can then steer the agent. Leave it off for a shared workspace.
+
 ## What happens to a delivery
 
 For each request, in this order:
@@ -85,8 +98,8 @@ body could carry a fresh header.
 After the `200`, the listener writes to the Linear session: a `thought` at once (Linear expects a first
 activity within ten seconds), then one child process, then a `response` or an `error`. The child is
 `worktree branch --linear <KEY> --agent-stdin --json --yes`, run with an argument list and no shell, with the
-brief on stdin. The brief names the issue identifier and nothing else of the issue: no title, description or
-comment reaches the agent. The identifier is checked against `^[A-Za-z][A-Za-z0-9]*-\d+$` before it reaches the
+brief on stdin. By default the brief names the issue identifier and nothing else of the issue: no title, description or
+comment reaches the agent (see [Issue text](#issue-text) for the opt-in). The identifier is checked against `^[A-Za-z][A-Za-z0-9]*-\d+$` before it reaches the
 command.
 
 - A session id seen before is ignored, so a retried delivery does nothing twice.

@@ -334,6 +334,11 @@ export default class LinearListen extends BaseCommand {
       }
     }
 
+    // D8: only an explicit "true" lets issue text reach an agent; the setter
+    // refuses anything else, so a hand-edited oddity also reads as off.
+    const includeIssueContext =
+      (await gitGetConfigValue("linear.agentContext")) === "true";
+
     const listener = createListener({
       secret: webhookSecret,
       path: flags.path,
@@ -342,6 +347,7 @@ export default class LinearListen extends BaseCommand {
         token: agentToken,
         allowedCreators,
         teamKey,
+        includeIssueContext,
         ledger: createSessionLedger(),
         createActivity: createAgentActivity,
         spawnChild: createCliSpawner(),
@@ -367,6 +373,11 @@ export default class LinearListen extends BaseCommand {
     this.log(`Listening on http://127.0.0.1:${port}${flags.path}`);
     this.log(`Allowed creators: ${allowedCreators.join(", ")}`);
     this.log(teamKey ? `Team: ${teamKey}` : "Team: every team");
+    this.log(
+      includeIssueContext
+        ? "Issue context: on (the issue's text goes to the agent, fenced as untrusted)"
+        : "Issue context: off (the agent is told the issue identifier only)",
+    );
     this.log(
       "Expose this address over HTTPS (a tunnel or reverse proxy) and set it as the app's webhook URL. SIGTERM stops it after the running session finishes (a terminal Ctrl-C also interrupts the running worktree command).",
     );

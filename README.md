@@ -93,7 +93,7 @@ The setup flow can configure:
 - `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
-- `linear.agentToken`, `linear.webhookSecret` and `linear.agentAllow` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`) and the Linear user ids allowed to delegate an issue to it. `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
+- `linear.agentToken`, `linear.webhookSecret`, `linear.agentAllow` and `linear.agentContext` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`), the Linear user ids allowed to delegate an issue to it, and `true` to also hand the issue's text to the agent (off by default). `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
 `jira.host`, `clickup.workspaceId`, `github.repository` and `github.host`, read from the default branch; your own git config overrides it. The
@@ -237,7 +237,7 @@ worktree linear-listen
 worktree linear-listen --port 9100 --team ENG
 ```
 
-Only the owner of `linear.apiKey` (or the ids in `linear.agentAllow`) can start an agent, and the agent is told the issue identifier and nothing else of the issue. See [`linear-listen`](https://northguild.github.io/worktree/docs/commands/linear-listen).
+Only the owner of `linear.apiKey` (or the ids in `linear.agentAllow`) can start an agent, and the agent is told the issue identifier and nothing else of the issue, unless you set `linear.agentContext` to `true`, which adds the issue's text to the brief, fenced as untrusted and capped (leave it off where others can edit or comment on issues). See [`linear-listen`](https://northguild.github.io/worktree/docs/commands/linear-listen).
 
 ## Commands
 
