@@ -181,8 +181,21 @@ keeps working. It is configured, not detected, because a Cloud site can have a c
 
 ## Getting a Jira API Token
 
+On Jira Cloud:
+
 1. Visit [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)
 2. Click "Create API token"
 3. Copy the generated token and use it with `worktree config jira.apiToken`
+
+On Jira Data Center (8.14 or later), create a personal access token instead, as in
+[Using Personal Access Tokens](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html):
+
+1. In Jira, select your avatar at the top right, then select **Profile**.
+2. Select **Personal access tokens** in the left-hand menu.
+3. Select **Create token**, give it a name and, if you like, an expiry.
+4. Select **Create**, copy the token and use it with `worktree config jira.apiToken`. Jira does not show it again once you select **Close**.
+
+`worktree config` shows these steps in place of the Cloud ones when `jira.deployment` is `datacenter`. See
+[Jira Data Center](#jira-data-center).
 
 The token is stored locally in git config and never sent anywhere except to your Jira instance.

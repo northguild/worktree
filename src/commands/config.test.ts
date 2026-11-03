@@ -2302,6 +2302,163 @@ describe("config command", () => {
     });
   });
 
+  // #126 Phase 5. Expected values: D4 (no email on Data Center, the PAT goes in
+  // jira.apiToken), D2 (the deployment is read, never asked), and the steps are
+  // Atlassian's "Using Personal Access Tokens" (avatar, Profile, Personal access
+  // tokens in the left-hand menu, Create token, name, optional expiry, Create,
+  // copy). The Cloud text is the existing prompt.
+  describe("Jira group on Data Center", () => {
+    const withDeployment = (deployment: string, token = "") =>
+      vi
+        .spyOn(gitConfig, "gitGetConfigValue")
+        .mockImplementation((key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "jira.deployment") return Promise.resolve(deployment);
+          if (key === "jira.apiToken") return Promise.resolve(token);
+          return Promise.resolve("");
+        });
+    const run = (flags: Record<string, unknown>) => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, yes: false, ...flags },
+      });
+      return config.run();
+    };
+    const logged = () => mockConsoleLog.mock.calls.flat().join("\n");
+    const asked = () => mockInput.mock.calls.map(([o]) => o.message);
+
+    it.each([
+      ["a bare run", {}],
+      ["--missing", { missing: true }],
+    ])("never asks for jira.email on %s", async (_label, flags) => {
+      withDeployment("datacenter");
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("jira.example.com");
+      mockSelect.mockResolvedValue("");
+
+      await run(flags);
+
+      expect(asked()).not.toContain("Jira email");
+      expect(asked()).toContain("Jira personal access token");
+      expect(
+        vi.mocked(gitConfig.gitSetConfigValue).mock.calls.map(([k]) => k),
+      ).not.toContain("jira.email");
+    });
+
+    it("reads datacenter from the project file too", async () => {
+      // jira.ts reads the team value through project-config; the file answers.
+      const team = vi
+        .spyOn(projectConfig, "getTeamConfigValue")
+        .mockImplementation(async (name) =>
+          name === "jira.deployment" ? "datacenter" : "",
+        );
+      mockInput.mockResolvedValue("tok");
+
+      try {
+        await run({ names: "jira.apiToken" });
+      } finally {
+        team.mockRestore();
+      }
+
+      expect(asked()).toEqual(["Jira personal access token"]);
+    });
+
+    it("prints the PAT steps and not id.atlassian.com", async () => {
+      withDeployment("datacenter");
+      mockInput.mockResolvedValue("");
+
+      await run({ names: "jira.apiToken" });
+
+      expect(logged()).toContain("Personal access tokens");
+      expect(logged()).toContain("Create token");
+      expect(logged()).not.toContain("id.atlassian.com");
+      expect(logged()).not.toContain("Classic API token");
+    });
+
+    it("keeps a stored token on an empty answer and offers none as a default", async () => {
+      withDeployment("datacenter", "stored-pat");
+      mockInput.mockResolvedValue("");
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      await run({ names: "jira.apiToken" });
+
+      expect(mockSet).not.toHaveBeenCalledWith(
+        "jira.apiToken",
+        expect.anything(),
+      );
+      const options = mockInput.mock.calls.at(0)?.[0] as {
+        default?: string;
+        prefill?: string;
+      };
+      expect(options.default).toBeUndefined();
+      expect(options.prefill).toBeUndefined();
+    });
+
+    it("stores a pasted PAT trimmed in jira.apiToken", async () => {
+      withDeployment("datacenter");
+      mockInput.mockResolvedValue(" pat_placeholder ");
+      const mockSet = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+
+      await run({ names: "jira.apiToken" });
+
+      expect(mockSet).toHaveBeenCalledWith("jira.apiToken", "pat_placeholder");
+    });
+
+    it.each([
+      ["unset", ""],
+      ["cloud", "cloud"],
+    ])("keeps the Cloud prompts and steps when the deployment is %s", async (_label, deployment) => {
+      withDeployment(deployment);
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("x@example.com");
+      mockSelect.mockResolvedValue("");
+
+      await run({});
+
+      expect(asked()).toContain("Jira email");
+      expect(asked()).toContain("Jira API token");
+      expect(asked()).not.toContain("Jira personal access token");
+      expect(logged()).toContain(
+        "https://id.atlassian.com/manage-profile/security/api-tokens",
+      );
+      expect(logged()).toContain("Click 'Create Classic API token'");
+    });
+
+    it("falls back to the Cloud prompts for a hand-edited deployment, which the Jira calls refuse", async () => {
+      withDeployment("server");
+      mockInput.mockResolvedValue("");
+
+      await run({ names: "jira.apiToken" });
+
+      expect(asked()).toEqual(["Jira API token"]);
+    });
+
+    // §4 Wizard: Data Center does not count the email as missing. The Cloud
+    // listing is the existing "--list --missing" case above, unchanged.
+    it("does not list jira.email as missing on --list --missing", async () => {
+      withDeployment("datacenter");
+
+      await run({ list: true, missing: true });
+
+      expect(mockConsoleLog).toHaveBeenCalledWith("jira.host");
+      expect(mockConsoleLog).toHaveBeenCalledWith("jira.apiToken");
+      expect(mockConsoleLog).not.toHaveBeenCalledWith("jira.email");
+    });
+
+    it("still asks for jira.email when --names asks for it by name", async () => {
+      withDeployment("datacenter");
+      mockInput.mockResolvedValue("me@example.com");
+
+      await run({ names: "jira.email" });
+
+      expect(asked()).toContain("Jira email");
+    });
+  });
+
   // `github.token` was in CONFIG_NAMES with no prompt block, so `--missing`
   // listed it as missing and then asked nothing. These pin that both GitHub
   // keys are actually answerable — the dead-key shape is what they guard.

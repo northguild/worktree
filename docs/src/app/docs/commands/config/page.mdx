@@ -174,6 +174,8 @@ whitespace is refused with exit `2`, and nothing is stored.
   [Configuration](/docs/configuration#jira-integration-notes) and
   [Moving the issue to in progress](/docs/guides/jira-integration#moving-the-issue-to-in-progress).
 
+When `jira.deployment` is `datacenter` (from git config or `.worktree.yml`), the wizard does not ask for `jira.email`, a bare run, `--missing` and `--list --missing` do not count it as missing, and the token prompt reads "Jira personal access token" and shows the steps for creating one in Jira instead of the Atlassian Cloud ones. The token still goes in `jira.apiToken`. See [Jira Data Center](/docs/guides/jira-integration#jira-data-center). With `cloud` or unset, nothing changes. Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given.
+
 The Jira keys are asked together behind one confirm. The `jira.autoAssign` prompt is asked after the token
 and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
 The `jira.autoStart` prompt follows it with the same three choices. "Ask me each time" leaves a key unset,

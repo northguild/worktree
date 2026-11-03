@@ -65,3 +65,20 @@ Non-blocking review observations. Branch-local; `/feature-close` deletes this fi
   `…customfieldtypes:textfield` and could be cited instead.
 - `getJiraIssueFields(issue, deployment = "cloud")`: a future caller that omits the deployment gets Cloud
   behaviour on DC silently. The nested ternary building `expand=` would read better as a named local.
+
+## Phase 5 — The wizard on Data Center
+
+- The new `--list --missing` DC test's comment says the Cloud case is "the existing --list --missing case
+  above", but no existing `--list --missing` test asserts `jira.email` on Cloud. A mutation to
+  `skipEmail = missing` would pass. An `it.each` over `datacenter` / unset would pin both sides.
+- "Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given" is true by the
+  code but untested.
+- `isJiraDataCenter()` turns a hand-edited bad `jira.deployment` into Cloud prompts with no warning (it
+  must catch `InvalidValueError` so a bad `.worktree.yml` does not crash the wizard). The test pinning it
+  has no plan source; a `this.warn` for a non-`ProjectConfigError` value would surface it.
+- The project-file case is tested only through a `getTeamConfigValue` spy on `--names jira.apiToken`, not
+  a bare run or `--missing` with a real file.
+- Cloud-unchanged is pinned by `toContain` on two of the five instruction lines.
+- The new test helpers (`withDeployment`, `run`, `logged`, `asked`) are `const` arrows, against
+  `typescript/rules.md`'s function-declaration rule.
+- Worked in a scratch tree beside Phase 4 (tip 925da1c).
