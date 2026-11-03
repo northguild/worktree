@@ -33,3 +33,18 @@ Branch-local and advisory. Nothing reads this file; `/feature-close` deletes it.
 - **Phase 3:** 401/403/429 become a bare "HTTP 401" with no next step; `fetchLinear` maps auth and rate
   limits. The listener could name `linear.agentToken` on a 401. Tests were written alongside the module
   rather than red first; every value still traces to Linear's schema or docs.
+- **Phase 4:** nothing implements §4.1's "one session at a time per identifier". A mention and a delegation
+  of one issue are two session ids, so two children can race on `git worktree add`; the loser likely gets
+  `failed` rather than the "already exists" response. No phase's Done-when owns it.
+- **Phase 4:** the team-key compare is case-sensitive (`linear-agent-dispatch.ts`), so `--team eng` would
+  silently ignore every session; normalise at the flag or compare case-insensitively.
+- **Phase 4:** `CHILD_TIMEOUT_MS` (15 min) has no §8 source; the install bound is 10 min *per step*, so a
+  multi-step `postCreate` can exceed it, and a timed-out install's grandchildren keep running. Both limits
+  belong in the Phase 7 guide, as does the fact that local paths reach Linear in activity bodies.
+- **Phase 4:** the existing-branch check matches `/\balready\b/i` on `branch.ts`'s message text — tied to
+  wording nothing there would flag if it changed. The `prompted` response claims an agent "keeps working"
+  even when none was started. A failed install is reported only as "agent was not prompted".
+- **Phase 4:** untested rules — the 1 MiB stdout cap, SIGKILL after the grace period, the body cut (which
+  is at `MAX_DETAIL_CHARS * 2`, not the constant its comment names), `prompted: true` with a non-zero exit,
+  and `DEFAULT_CLI_ENTRY` resolving to a real `bin/run.js`. The identifier pattern is duplicated from
+  `linear-agent.ts`; the spawner test's temp directory is never removed.
