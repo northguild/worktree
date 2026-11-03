@@ -49,3 +49,19 @@ Non-blocking review observations. Branch-local; `/feature-close` deletes this fi
 - The DC identity check tests `!== undefined`, so a JSON `"key": null` on both sides would read as
   `already-yours`. `!= null` would close it. Theoretical.
 - The guide's "Assigning the issue" line is now one long unwrapped line.
+
+## Phase 4 — Data Center field values
+
+- §9 Q3 defers `system: "environment"` to Q2, but Q2's checklist asks only to dry-run a description and a
+  textarea field. A Q2 pass should also record the `environment` field's `schema` from `expand=schema`.
+- `jira.test.ts`'s DC field fixture still carries `environment` entries (one with `system: "environment"`)
+  that nothing asserts.
+- The DC dry-run URL (`?expand=names,schema`) is pinned by composition, not by a `fetch` assertion in the
+  dry-run helper.
+- Two Cloud behaviours are not pinned: a user field gives `{ id: accountId, name: displayName }` (the label
+  order changed to `value, displayName, name`; safe on Cloud, whose user `name` is "no longer available"),
+  and ADF rich text gives no values, which the docs now state.
+- The textfield fixture cites a community post; Atlassian's KB lists
+  `…customfieldtypes:textfield` and could be cited instead.
+- `getJiraIssueFields(issue, deployment = "cloud")`: a future caller that omits the deployment gets Cloud
+  behaviour on DC silently. The nested ternary building `expand=` would read better as a named local.

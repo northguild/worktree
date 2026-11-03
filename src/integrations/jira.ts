@@ -31,11 +31,19 @@ interface JiraSite {
   auth: JiraAuth;
 }
 
+interface JiraFieldSchema {
+  type?: string;
+  system?: string;
+  custom?: string;
+}
+
 interface JiraIssue {
   id: string;
   key: string;
   /** Field id to display name; present only when asked for with `expand=names`. */
   names?: Record<string, string>;
+  /** Field id to schema; present only when asked for with `expand=schema` (Data Center). */
+  schema?: Record<string, JiraFieldSchema>;
   fields: {
     summary: string;
     issuetype: {
@@ -289,26 +297,50 @@ function getJiraBranchType(issue: JiraIssue) {
   return "feature" as const;
 }
 
+// #126 D11: Data Center returns rich text as plain strings, so it is told
+// apart by the schema: the system `description`, and custom
+// fields of the textarea type (docs.atlassian.com api/2/field; Atlassian KB
+// "REST API essential parameters for custom field creation").
+const RICH_TEXT_SYSTEMS = new Set(["description"]);
+const TEXTAREA_CUSTOM_TYPE =
+  "com.atlassian.jira.plugin.system.customfieldtypes:textarea";
+
+function isRichTextSchema(schema: JiraFieldSchema | undefined): boolean {
+  return (
+    schema !== undefined &&
+    ((schema.system !== undefined && RICH_TEXT_SYSTEMS.has(schema.system)) ||
+      schema.custom === TEXTAREA_CUSTOM_TYPE)
+  );
+}
+
 // D9: what a field holds, in the shape the rules compare. A select option is
 // its `value`; an issue type, component, priority or status its `name`; a user
 // its `displayName`; a cascading select both levels; a label or a number
 // itself. Anything else (rich text, dates, objects of an unknown shape) is
-// nothing, so a rule on it matches nothing rather than guessing.
-function normalizeJiraFieldValue(raw: unknown): FieldValue[] {
+// nothing, so a rule on it matches nothing rather than guessing. A user's id is
+// its `accountId` on Cloud and its `key` on Data Center (D11).
+function normalizeJiraFieldValue(
+  raw: unknown,
+  deployment: JiraDeployment,
+): FieldValue[] {
   if (typeof raw === "string" || typeof raw === "number") {
     return [{ name: String(raw) }];
   }
   if (Array.isArray(raw)) {
-    return raw.flatMap(normalizeJiraFieldValue);
+    return raw.flatMap((item) => normalizeJiraFieldValue(item, deployment));
   }
   if (typeof raw !== "object" || raw === null) {
     return [];
   }
   const option = raw as Record<string, unknown>;
-  const label = [option.value, option.name, option.displayName].find(
+  // `displayName` before `name`: a Data Center user's `name` is its username.
+  const label = [option.value, option.displayName, option.name].find(
     (candidate) => typeof candidate === "string",
   );
-  const identifier = option.id ?? option.accountId;
+  const identifier =
+    option.id ??
+    option.accountId ??
+    (deployment === "datacenter" ? option.key : undefined);
   const own: FieldValue[] =
     typeof label === "string" || identifier !== undefined
       ? [
@@ -320,7 +352,7 @@ function normalizeJiraFieldValue(raw: unknown): FieldValue[] {
           },
         ]
       : [];
-  return [...own, ...normalizeJiraFieldValue(option.child)];
+  return [...own, ...normalizeJiraFieldValue(option.child, deployment)];
 }
 
 // The portable names (D3, D4): `Type` and `Labels` are added beside `issuetype`
@@ -328,11 +360,16 @@ function normalizeJiraFieldValue(raw: unknown): FieldValue[] {
 // `expand=names` and is localized. Each is skipped when a field of that name or
 // id exists, so a real custom field is never shadowed or made ambiguous, and an
 // English Jira, whose `labels` is already named Labels, gets no second one.
-export function getJiraIssueFields(issue: JiraIssue): IssueField[] {
+export function getJiraIssueFields(
+  issue: JiraIssue,
+  deployment: JiraDeployment = "cloud",
+): IssueField[] {
   const fields = Object.entries(issue.fields).map(([id, raw]) => ({
     id,
     name: issue.names?.[id] ?? id,
-    values: normalizeJiraFieldValue(raw),
+    values: isRichTextSchema(issue.schema?.[id])
+      ? []
+      : normalizeJiraFieldValue(raw, deployment),
   }));
   const aliases = [
     { alias: "Type", native: "issuetype" },
@@ -447,16 +484,28 @@ async function fetchJira(
   }
 }
 
-/** `names` asks Jira for field display names, which only the rules need (D9). */
+/**
+ * `names` asks Jira for field display names, which only the rules need (D9).
+ * Data Center adds `schema` to tell rich text from plain text (D11).
+ */
 export async function fetchJiraIssue(
   issueId: string,
   options: { names?: boolean } = {},
 ): Promise<JiraIssue> {
+  return (await readJiraIssue(issueId, options)).issue;
+}
+
+// The issue with the deployment it came from, so its fields are read the way
+// that deployment writes them without a second look at the config.
+async function readJiraIssue(
+  issueId: string,
+  options: { names?: boolean },
+): Promise<{ issue: JiraIssue; deployment: JiraDeployment }> {
   const { issueKey, site } = await resolveJiraTarget(issueId);
 
   const issuePath = jiraApiPath(
     site.deployment,
-    `/issue/${issueKey}${options.names ? "?expand=names" : ""}`,
+    `/issue/${issueKey}${options.names ? `?expand=${site.deployment === "datacenter" ? "names,schema" : "names"}` : ""}`,
   );
   const response = await fetchJira(issuePath, site);
   const loginReason = response.headers?.get?.("x-seraph-loginreason");
@@ -486,7 +535,7 @@ export async function fetchJiraIssue(
     throw new Error(`Jira: Unable to find issue ${issueKey}.`);
   }
 
-  return data;
+  return { issue: data, deployment: site.deployment };
 }
 
 /**
@@ -501,10 +550,10 @@ export async function getJiraBranchNaming(
   options: { onWarning?: (warning: string) => void; dryRun?: boolean } = {},
 ): Promise<BranchNaming> {
   const list = await getBranchTypeRules("jira");
-  const issue = await fetchJiraIssue(issueId, {
+  const { issue, deployment } = await readJiraIssue(issueId, {
     names: list !== undefined || options.dryRun === true,
   });
-  const fields = getJiraIssueFields(issue);
+  const fields = getJiraIssueFields(issue, deployment);
 
   let kind: ReturnType<typeof getJiraBranchType> | undefined;
   let match: BranchMatch;

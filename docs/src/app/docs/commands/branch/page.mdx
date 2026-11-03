@@ -207,7 +207,7 @@ Fields with a value (2), each with a line to paste into jira.branchType:
   that provider's own, so the dry run names `<provider>.branchType` beside it as the list to paste its lines into: a
   shared rule naming it never matches the other providers and does not warn on a real run. A provider's own list
   replaces the shared one for that provider, so copy across any shared rules you still want there.
-- **Jira field names** come from `?expand=names` on the issue request, which a dry run always asks for. The
+- **Jira field names** come from `?expand=names` on the issue request (`?expand=names,schema` on Jira Data Center), which a dry run always asks for. The
   paste-ready lines name ids, except that `Type` and `Labels` are by name when the shared `branchType` list decided, because an id belongs to one provider.
 
 With `--json` a dry run prints one document, not the [`branch` document](#json-output):

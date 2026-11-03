@@ -2404,7 +2404,10 @@ describe("Jira Data Center", () => {
       );
     });
 
-    it("asks for field names the v2 way", async () => {
+    // #126 D11, Phase 4: DC asks for `schema` beside `names`, to recognise rich
+    // text. `names` and `schema` are both `expand` options of the DC issue read
+    // (DC REST reference, Get issue).
+    it("asks for field names and the schema the v2 way", async () => {
       useSite(dc);
       const fetchSpy = vi.fn().mockResolvedValue(reply(200, makeJiraIssue()));
       vi.stubGlobal("fetch", fetchSpy);
@@ -2412,8 +2415,149 @@ describe("Jira Data Center", () => {
       await fetchJiraIssue("DEV-123", { names: true });
 
       expect(fetchSpy.mock.calls[0][0]).toBe(
-        "https://jira.example.com/rest/api/2/issue/DEV-123?expand=names",
+        "https://jira.example.com/rest/api/2/issue/DEV-123?expand=names,schema",
       );
+    });
+
+    it("asks for no expansion when names are not wanted", async () => {
+      useSite(dc);
+      const fetchSpy = vi.fn().mockResolvedValue(reply(200, makeJiraIssue()));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await fetchJiraIssue("DEV-123");
+
+      expect(fetchSpy.mock.calls[0][0]).toBe(
+        "https://jira.example.com/rest/api/2/issue/DEV-123",
+      );
+    });
+
+    // Schema shapes: `{type, system}` for a system field (DC REST reference,
+    // api/2/field, `"schema":{"type":"string","system":"description"}`);
+    // `{type, custom, customId}` for a custom one, where the multi-line text
+    // type is `...customfieldtypes:textarea` (Atlassian KB "REST API essential
+    // parameters for custom field creation"). A `description` string
+    // comes from the DC REST reference, Get issue.
+    describe("field values", () => {
+      const TEXTAREA =
+        "com.atlassian.jira.plugin.system.customfieldtypes:textarea";
+      const TEXTFIELD =
+        "com.atlassian.jira.plugin.system.customfieldtypes:textfield";
+      const issue = {
+        id: "10001",
+        key: "DEV-7",
+        names: {
+          description: "Description",
+          environment: "Environment",
+          customfield_10100: "Notes",
+          customfield_10101: "Ticket ref",
+          assignee: "Assignee",
+        },
+        schema: {
+          description: { type: "string", system: "description" },
+          environment: { type: "string", system: "environment" },
+          customfield_10100: {
+            type: "string",
+            custom: TEXTAREA,
+            customId: 10100,
+          },
+          customfield_10101: {
+            type: "string",
+            custom: TEXTFIELD,
+            customId: 10101,
+          },
+          assignee: { type: "user", system: "assignee" },
+        },
+        fields: {
+          summary: "Fix login bug",
+          issuetype: { id: "10008", name: "Bug" },
+          description: "line one\nline two",
+          environment: "staging",
+          customfield_10100: "multi\nline",
+          customfield_10101: "ABC-1",
+          assignee: {
+            key: "JIRAUSER10100",
+            name: "fred",
+            displayName: "Fred Bloggs",
+          },
+        },
+      };
+
+      async function dryRunFields() {
+        useSite(dc);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(200, issue)));
+        return (await getJiraBranchNaming("dev-7", { dryRun: true })).fields;
+      }
+
+      it("gives the system description no values", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "description",
+          name: "Description",
+          values: [],
+        });
+      });
+
+      it("gives a textarea custom field no values", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "customfield_10100",
+          name: "Notes",
+          values: [],
+        });
+      });
+
+      it("keeps the string of a single-line text custom field", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "customfield_10101",
+          name: "Ticket ref",
+          values: [{ name: "ABC-1" }],
+        });
+      });
+
+      it("takes a user's key as the id and the display name as the name", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "assignee",
+          name: "Assignee",
+          values: [{ id: "JIRAUSER10100", name: "Fred Bloggs" }],
+        });
+      });
+
+      it("keeps a project's id over its key", () => {
+        const fields = getJiraIssueFields(
+          {
+            id: "1",
+            key: "DEV-7",
+            fields: {
+              summary: "s",
+              issuetype: { id: "10008", name: "Bug" },
+              project: { id: "10000", key: "DEV", name: "Dev" },
+            },
+          },
+          "datacenter",
+        );
+
+        expect(fields).toContainEqual({
+          id: "project",
+          name: "project",
+          values: [{ id: "10000", name: "Dev" }],
+        });
+      });
+
+      it("does not take a key as an id on Cloud", () => {
+        const fields = getJiraIssueFields({
+          id: "1",
+          key: "DEV-7",
+          fields: {
+            summary: "s",
+            issuetype: { id: "10008", name: "Bug" },
+            reporter: { key: "JIRAUSER1", displayName: "Fred" },
+          },
+        });
+
+        expect(fields).toContainEqual({
+          id: "reporter",
+          name: "reporter",
+          values: [{ name: "Fred" }],
+        });
+      });
     });
 
     it("validates the credentials against /rest/api/2/myself", async () => {
