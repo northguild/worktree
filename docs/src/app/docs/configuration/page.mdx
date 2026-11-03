@@ -186,6 +186,7 @@ worktree config github.token <token>
 worktree config jira.host https://company.atlassian.net
 worktree config jira.email your-email@example.com
 worktree config jira.apiToken <api-token>
+worktree config jira.deployment datacenter   # Jira Data Center only; no jira.email then
 worktree config linear.apiKey <api-key>
 worktree config clickup.apiToken <api-token>
 worktree config clickup.workspaceId <workspace-id>
@@ -242,7 +243,7 @@ worktree config github.repository <owner/repo>
 ## Jira Integration Notes
 
 - `worktree branch --jira <issue-id>` reads issues from your configured Jira workspace.
-- All three Jira connection keys (`jira.host`, `jira.email`, `jira.apiToken`) are required.
+- On Jira Cloud (`jira.deployment` unset or `cloud`) all three Jira connection keys (`jira.host`, `jira.email`, `jira.apiToken`) are required. On `datacenter` only `jira.host` and `jira.apiToken` are, and the token is a personal access token; see [Jira Data Center](/docs/guides/jira-integration#jira-data-center).
 - `jira.autoAssign` is optional and decides whether `--jira` also assigns the issue to you. It has three states, like `github.autoAssign`: `true` always assigns unless someone else already holds the issue, which is then left with them, `false` never assigns, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it assigns and saves nothing. `worktree branch --assign` and `--no-assign` override the key for a single run. To set it directly:
 
 ```bash

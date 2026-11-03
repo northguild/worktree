@@ -18,10 +18,17 @@ import type { JiraDeployment } from "../lib/types.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
 import { isValidJiraDeployment } from "../lib/validators.js";
 
-interface JiraCredentials {
+// #126 D4: Cloud sends Basic email:token, Data Center a Bearer personal access
+// token. The token lives in `jira.apiToken` for both.
+type JiraAuth =
+  | { kind: "basic"; email: string; apiToken: string }
+  | { kind: "bearer"; token: string };
+
+/** The one resolved site of a call (#126 §4): which Jira, where, and how to sign in. */
+interface JiraSite {
+  deployment: JiraDeployment;
   host: string;
-  email: string;
-  apiToken: string;
+  auth: JiraAuth;
 }
 
 interface JiraIssue {
@@ -70,15 +77,19 @@ export function normalizeJiraHost(host: string): string {
 
 export interface JiraIssueReference {
   key: string;
-  /** Present only when the input was a URL, which names a site. */
-  host?: string;
+  /**
+   * Present only when the input was a URL, which names a site: everything
+   * between `https://` and `/browse/`, so a context path is part of it (#126 D6).
+   */
+  base?: string;
 }
 
 /**
  * Reads an issue key from what `--jira` was given. Anything not starting with
  * `http://` or `https://` is handed back untouched for the existing validator
- * (D1); any other URL is refused (D6, D8). The host is only reported: the
- * caller compares it with `jira.host` and never requests it.
+ * (D1); any other URL is refused (D6, D8). The base is only reported: the
+ * caller compares it with `jira.host` and never requests it. The key may carry
+ * `_` here (#126 D5); `getIssueKey` then decides per deployment.
  */
 export function parseJiraIssueReference(input: string): JiraIssueReference {
   // A paste can carry surrounding whitespace; a typed id is trimmed later by
@@ -89,7 +100,7 @@ export function parseJiraIssueReference(input: string): JiraIssueReference {
   }
 
   const match =
-    /^https?:\/\/([^/@]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)\/?$/i.exec(
+    /^https?:\/\/([^/@][^@]*)\/browse\/([A-Za-z][A-Za-z0-9_]*-\d+)\/?$/i.exec(
       value.replace(/[?#].*$/s, ""),
     );
   if (!match) {
@@ -98,27 +109,71 @@ export function parseJiraIssueReference(input: string): JiraIssueReference {
     );
   }
 
-  const [, host, key] = match;
-  return { key, host };
+  const [, base, key] = match;
+  return { key, base };
 }
 
-function getIssueKey(issueId: string): string {
+// #126 D5: Cloud keys have no underscore, so one there is a typo and fails
+// before a request. A Data Center admin can allow `_` in a project key.
+function getIssueKey(issueId: string, deployment: JiraDeployment): string {
   const normalizedIssueId = issueId.trim().toUpperCase();
+  const pattern =
+    deployment === "datacenter"
+      ? /^[A-Z][A-Z0-9_]*-\d+$/
+      : /^[A-Z][A-Z0-9]*-\d+$/;
 
-  if (!/^[A-Z][A-Z0-9]*-\d+$/.test(normalizedIssueId)) {
+  if (!pattern.test(normalizedIssueId)) {
     throw new InvalidValueError(`Jira: Invalid issue id "${issueId}".`);
   }
 
   return normalizedIssueId;
 }
 
-function getJiraAuthHeaders({ email, apiToken }: JiraCredentials): HeadersInit {
-  const auth = Buffer.from(`${email}:${apiToken}`).toString("base64");
+function getJiraAuthHeaders(auth: JiraAuth): HeadersInit {
+  if (auth.kind === "bearer") {
+    return {
+      Authorization: `Bearer ${auth.token}`,
+      Accept: "application/json",
+    };
+  }
+  const encoded = Buffer.from(`${auth.email}:${auth.apiToken}`).toString(
+    "base64",
+  );
 
   return {
-    Authorization: `Basic ${auth}`,
+    Authorization: `Basic ${encoded}`,
     Accept: "application/json",
   };
+}
+
+// #126 D3: one helper builds every path, so no call site names a version.
+function jiraApiPath(deployment: JiraDeployment, rest: string): string {
+  return `/rest/api/${deployment === "datacenter" ? 2 : 3}${rest}`;
+}
+
+function isAtlassianCloudHost(host: string): boolean {
+  const hostname = host.split("/")[0].split(":")[0].toLowerCase();
+  return hostname.endsWith(".atlassian.net");
+}
+
+// #126 D9: the 401 text names the deployment's own credentials, and says what
+// to change when the deployment looks wrong for the host. A Cloud site on
+// *.atlassian.net gets today's text, byte for byte.
+function jiraAuthFailure(site: Pick<JiraSite, "deployment" | "host">): Error {
+  if (site.deployment === "datacenter") {
+    const hint = isAtlassianCloudHost(site.host)
+      ? " A *.atlassian.net host is Jira Cloud; run `worktree config jira.deployment cloud`."
+      : "";
+    return new Error(
+      `Jira: Authentication failed. Please verify jira.apiToken (a Jira Data Center personal access token) in your config.${hint}`,
+    );
+  }
+  const hint = isAtlassianCloudHost(site.host)
+    ? ""
+    : " If this is Jira Data Center or Server, run `worktree config jira.deployment datacenter`.";
+  return new Error(
+    `Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.${hint}`,
+  );
 }
 
 /**
@@ -142,13 +197,27 @@ export async function resolveJiraDeployment(): Promise<JiraDeployment> {
   return configured === "datacenter" ? "datacenter" : "cloud";
 }
 
-async function resolveJiraCredentials(): Promise<JiraCredentials> {
+interface JiraSettings {
+  deployment: JiraDeployment;
+  host: string;
+  email: string;
+  apiToken: string;
+}
+
+// The deployment is read first: Data Center never reads `jira.email` (#126 D4).
+async function readJiraSettings(): Promise<JiraSettings> {
+  const deployment = await resolveJiraDeployment();
   const [host, email, apiToken] = await Promise.all([
     // D17: a host from the project file is trusted like merged code, so no prompt.
     getTeamConfigValue("jira.host"),
-    gitGetConfigValue("jira.email"),
+    deployment === "cloud" ? gitGetConfigValue("jira.email") : "",
     gitGetConfigValue("jira.apiToken"),
   ]);
+  return { deployment, host, email, apiToken };
+}
+
+function buildJiraSite(settings: JiraSettings): JiraSite {
+  const { deployment, host, email, apiToken } = settings;
 
   if (!host) {
     throw new Error(
@@ -156,7 +225,7 @@ async function resolveJiraCredentials(): Promise<JiraCredentials> {
     );
   }
 
-  if (!email) {
+  if (deployment === "cloud" && !email) {
     throw new Error(
       'Jira: Missing config value "jira.email". Run "worktree config" to configure Jira integration.',
     );
@@ -177,10 +246,28 @@ async function resolveJiraCredentials(): Promise<JiraCredentials> {
   }
 
   return {
+    deployment,
     host: normalizedHost,
-    email,
-    apiToken,
+    auth:
+      deployment === "datacenter"
+        ? { kind: "bearer", token: apiToken }
+        : { kind: "basic", email, apiToken },
   };
+}
+
+async function resolveJiraSite(): Promise<JiraSite> {
+  return buildJiraSite(await readJiraSettings());
+}
+
+// The key is checked against the deployment's pattern before the site is
+// complete, so a bad key still makes no request and a missing config value
+// does not hide it.
+async function resolveJiraTarget(
+  issueId: string,
+): Promise<{ issueKey: string; site: JiraSite }> {
+  const settings = await readJiraSettings();
+  const issueKey = getIssueKey(issueId, settings.deployment);
+  return { issueKey, site: buildJiraSite(settings) };
 }
 
 function getJiraBranchType(issue: JiraIssue) {
@@ -294,14 +381,49 @@ async function readJiraBody<T>(
   }
 }
 
+// Node's TLS verification codes that a private certificate authority causes.
+const PRIVATE_CA_CODES = new Set([
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "CERT_UNTRUSTED",
+]);
+
+// #126 D10: an unreachable site is named by host and error code alone. The
+// raw error is never passed on: undici can quote the Authorization value in its
+// message, and `redactSecrets` knows no Atlassian token shape. The code is
+// shown only if it looks like one, so nothing else can ride along.
+function unreachableError(configuredHost: string, error: unknown): Error {
+  // User info in jira.host (`user:pw@host`) must not reach the message: with no
+  // scheme, `redactSecrets` would not mask it.
+  const host = configuredHost.replace(/^[^/@]*@/, "");
+  const cause = error instanceof Error ? error.cause : undefined;
+  const raw =
+    typeof cause === "object" && cause !== null && "code" in cause
+      ? cause.code
+      : undefined;
+  const code =
+    typeof raw === "string" && /^[A-Z0-9_]+$/.test(raw) ? raw : undefined;
+  const hint =
+    code && PRIVATE_CA_CODES.has(code)
+      ? " If the site uses a private certificate authority, set NODE_EXTRA_CA_CERTS to a file with its certificate."
+      : "";
+  return new Error(
+    `Jira: could not reach ${host} (${code ?? "unknown error"}).${hint}`,
+  );
+}
+
 // D5: every Jira request is bounded, body included.
 async function fetchJira(
   path: string,
-  credentials: JiraCredentials,
+  site: JiraSite,
+
   init: { method?: "GET" | "PUT" | "POST"; body?: unknown } = {},
 ): Promise<Response> {
   const headers: Record<string, string> = {
-    ...(getJiraAuthHeaders(credentials) as Record<string, string>),
+    ...(getJiraAuthHeaders(site.auth) as Record<string, string>),
   };
   const hasBody = init.body !== undefined;
 
@@ -310,7 +432,8 @@ async function fetchJira(
   }
 
   try {
-    return await fetch(`https://${credentials.host}${path}`, {
+    // #126 D7: always https, so a Bearer token never travels in clear.
+    return await fetch(`https://${site.host}${path}`, {
       method: init.method ?? "GET",
       headers,
       ...(hasBody ? { body: JSON.stringify(init.body) } : {}),
@@ -320,7 +443,7 @@ async function fetchJira(
     if (isTimeout(error)) {
       throw timeoutError(path, error);
     }
-    throw error;
+    throw unreachableError(site.host, error);
   }
 }
 
@@ -329,17 +452,17 @@ export async function fetchJiraIssue(
   issueId: string,
   options: { names?: boolean } = {},
 ): Promise<JiraIssue> {
-  const issueKey = getIssueKey(issueId);
-  const credentials = await resolveJiraCredentials();
+  const { issueKey, site } = await resolveJiraTarget(issueId);
 
-  const issuePath = `/rest/api/3/issue/${issueKey}${options.names ? "?expand=names" : ""}`;
-  const response = await fetchJira(issuePath, credentials);
+  const issuePath = jiraApiPath(
+    site.deployment,
+    `/issue/${issueKey}${options.names ? "?expand=names" : ""}`,
+  );
+  const response = await fetchJira(issuePath, site);
   const loginReason = response.headers?.get?.("x-seraph-loginreason");
 
   if (response.status === 401 || loginReason === "AUTHENTICATED_FAILED") {
-    throw new Error(
-      "Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.",
-    );
+    throw jiraAuthFailure(site);
   }
 
   if (!response.ok) {
@@ -431,8 +554,11 @@ export async function getJiraBranchNameFromIssue(
 
 export async function validateJiraCredentials(): Promise<boolean> {
   try {
-    const credentials = await resolveJiraCredentials();
-    const response = await fetchJira("/rest/api/3/myself", credentials);
+    const site = await resolveJiraSite();
+    const response = await fetchJira(
+      jiraApiPath(site.deployment, "/myself"),
+      site,
+    );
 
     return response.ok;
   } catch {
@@ -460,11 +586,10 @@ async function jiraAssignFailure(
   path: string,
   issueKey: string,
   step: "caller" | "issue" | "assignee",
+  site: JiraSite,
 ): Promise<Error> {
   if (response.status === 401) {
-    return new Error(
-      "Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.",
-    );
+    return jiraAuthFailure(site);
   }
 
   if (response.status === 403 && step !== "caller") {
@@ -496,14 +621,16 @@ async function jiraAssignFailure(
 export async function assignJiraIssue(
   issueId: string,
 ): Promise<JiraAssignment> {
-  const issueKey = getIssueKey(issueId);
-  const credentials = await resolveJiraCredentials();
+  const { issueKey, site } = await resolveJiraTarget(issueId);
 
-  const myselfPath = "/rest/api/3/myself";
-  const assigneePath = `/rest/api/3/issue/${issueKey}?fields=assignee`;
+  const myselfPath = jiraApiPath(site.deployment, "/myself");
+  const assigneePath = jiraApiPath(
+    site.deployment,
+    `/issue/${issueKey}?fields=assignee`,
+  );
   const [myselfResponse, issueResponse] = await Promise.all([
-    fetchJira(myselfPath, credentials),
-    fetchJira(assigneePath, credentials),
+    fetchJira(myselfPath, site),
+    fetchJira(assigneePath, site),
   ]);
 
   if (!myselfResponse.ok) {
@@ -512,6 +639,7 @@ export async function assignJiraIssue(
       myselfPath,
       issueKey,
       "caller",
+      site,
     );
   }
 
@@ -521,6 +649,7 @@ export async function assignJiraIssue(
       assigneePath,
       issueKey,
       "issue",
+      site,
     );
   }
 
@@ -552,14 +681,20 @@ export async function assignJiraIssue(
   // Not atomic: someone who takes the issue between the read above and this
   // write is replaced. Jira has no conditional assign, so the window is
   // narrowed, not closed.
-  const path = `/rest/api/3/issue/${issueKey}/assignee`;
-  const putResponse = await fetchJira(path, credentials, {
+  const path = jiraApiPath(site.deployment, `/issue/${issueKey}/assignee`);
+  const putResponse = await fetchJira(path, site, {
     method: "PUT",
     body: { accountId: me.accountId },
   });
 
   if (!putResponse.ok) {
-    throw await jiraAssignFailure(putResponse, path, issueKey, "assignee");
+    throw await jiraAssignFailure(
+      putResponse,
+      path,
+      issueKey,
+      "assignee",
+      site,
+    );
   }
 
   return { outcome: "assigned", displayName };
@@ -593,12 +728,11 @@ async function jiraStartFailure(
   response: Response,
   path: string,
   issueKey: string,
+  site: JiraSite,
   transitionName?: string,
 ): Promise<Error> {
   if (response.status === 401) {
-    return new Error(
-      "Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.",
-    );
+    return jiraAuthFailure(site);
   }
 
   if (response.status === 404) {
@@ -628,16 +762,18 @@ async function jiraStartFailure(
 // issue is in the "new" category (D5), then writes only when exactly one
 // distinct in-progress target exists (D3). A 204 is success (D6).
 export async function startJiraIssue(issueId: string): Promise<JiraStart> {
-  const issueKey = getIssueKey(issueId);
-  const credentials = await resolveJiraCredentials();
+  const { issueKey, site } = await resolveJiraTarget(issueId);
   const unexpected = () =>
     new Error(`Jira: Unexpected response for ${issueKey}.`);
 
-  const statusPath = `/rest/api/3/issue/${issueKey}?fields=status`;
-  const statusResponse = await fetchJira(statusPath, credentials);
+  const statusPath = jiraApiPath(
+    site.deployment,
+    `/issue/${issueKey}?fields=status`,
+  );
+  const statusResponse = await fetchJira(statusPath, site);
 
   if (!statusResponse.ok) {
-    throw await jiraStartFailure(statusResponse, statusPath, issueKey);
+    throw await jiraStartFailure(statusResponse, statusPath, issueKey, site);
   }
 
   const issue = await readJiraBody<{ fields?: { status?: JiraStatus } }>(
@@ -661,14 +797,18 @@ export async function startJiraIssue(issueId: string): Promise<JiraStart> {
     return { outcome: "left-alone", status, category: categoryKey };
   }
 
-  const transitionsPath = `/rest/api/3/issue/${issueKey}/transitions`;
-  const transitionsResponse = await fetchJira(transitionsPath, credentials);
+  const transitionsPath = jiraApiPath(
+    site.deployment,
+    `/issue/${issueKey}/transitions`,
+  );
+  const transitionsResponse = await fetchJira(transitionsPath, site);
 
   if (!transitionsResponse.ok) {
     throw await jiraStartFailure(
       transitionsResponse,
       transitionsPath,
       issueKey,
+      site,
     );
   }
 
@@ -708,7 +848,7 @@ export async function startJiraIssue(issueId: string): Promise<JiraStart> {
     return { outcome: "ambiguous", status, targets: targetNames };
   }
 
-  const postResponse = await fetchJira(transitionsPath, credentials, {
+  const postResponse = await fetchJira(transitionsPath, site, {
     method: "POST",
     body: { transition: { id: chosen.id } },
   });
@@ -718,6 +858,7 @@ export async function startJiraIssue(issueId: string): Promise<JiraStart> {
       postResponse,
       transitionsPath,
       issueKey,
+      site,
       chosen.name ?? chosen.id,
     );
   }

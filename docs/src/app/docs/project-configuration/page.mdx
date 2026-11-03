@@ -394,12 +394,12 @@ for a newer `worktree` still works for a teammate on an older one.
 
 ## `jira.host` receives everyone's credentials
 
-`worktree` sends your Jira email and API token to `https://<jira.host>` with every Jira request. When the
+`worktree` sends your Jira email and API token to `https://<jira.host>` with every Jira request (on Jira Data Center, with `jira.deployment: datacenter`, the personal access token alone, as a Bearer token). When the
 host comes from `.worktree.yml`, a merged change to that line redirects every teammate's next Jira request,
 credentials included, to the new host. There is no prompt: the file is read only from the default branch,
 so it has been through your review process, and it is trusted the way any merged code is.
 
-Review a change to `jira.host` as carefully as you would a change to a build script. A personal
+Review a change to `jira.host` as carefully as you would a change to a build script. A change to `jira.deployment` in the file is reviewed the same way: it never changes where the token goes, but it changes how every teammate's token is sent. A personal
 `jira.host` in your git config overrides the file's, which is also how to stop a bad value reaching you
 before it is reverted:
 
