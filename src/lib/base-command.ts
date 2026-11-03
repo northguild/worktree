@@ -699,8 +699,8 @@ export abstract class BaseCommand extends Command {
   /**
    * Closes one space, and never lets that failure reach the command.
    *
-   * By the time this runs the worktree is deleted, the branch is gone and
-   * `git worktree prune` has run — there is nothing left to retry and nothing
+   * By the time this runs the worktree is deleted, the branch is gone and git
+   * no longer records the worktree — there is nothing left to retry and nothing
    * the user can do about it, so a non-zero exit would misreport what actually
    * happened (D5). Each space gets its own `catch` so one failure does not take
    * the rest of the run with it.

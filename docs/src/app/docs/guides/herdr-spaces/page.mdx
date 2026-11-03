@@ -176,7 +176,7 @@ than the error it would be on the way in:
 
 The command still exits `0`, but for a different reason than above, and the difference is worth
 knowing. At open time the last step failed and everything before it succeeded. At close time the
-worktree is **already deleted**, the branch is gone and `git worktree prune` has run — so there is
+worktree is **already deleted**, the branch is gone and git no longer records the worktree — so there is
 nothing to retry and nothing to undo. A non-zero exit would claim the removal did not happen when
 it did.
 

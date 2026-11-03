@@ -1155,8 +1155,8 @@ describe("openWorktreePath — the Herdr opener", () => {
  * who did not ask for it** (§2) — which is why the negative cases assert on the
  * integration spies and on `mockRunCapturing`, not just on the absence of a
  * close. And **a failure here may never fail the command** (D5): by the time
- * the closer runs the worktrees are deleted, the branches are gone and
- * `git worktree prune` has run, so there is nothing left to retry.
+ * the closer runs the worktrees are deleted, the branches are gone and git no
+ * longer records the worktrees, so there is nothing left to retry.
  */
 describe("resolveSpaceCloser", () => {
   const gitRootPath = "/repo/project";
