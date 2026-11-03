@@ -530,9 +530,9 @@ file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
 that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
 `herdr.*`, `agent.command`, `jira.email`, `*.autoAssign`,
-`linear.autoStart`, `clickup.autoStart`, `jira.autoStart`) in the file is ignored
+`linear.autoStart`, `linear.agentAllow`, `clickup.autoStart`, `jira.autoStart`) in the file is ignored
 with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
-`clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
+`linear.agentToken`, `linear.webhookSecret`, `clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
 `2` (`invalid_value`) before anything is created. An unknown key only warns. A
 file's `jira.host` receives every teammate's Jira credentials, so treat a change
 to it like code.
@@ -578,6 +578,9 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `jira.autoStart` | `true` or `false` | whether `--jira` moves the issue to its in-progress status once the worktree exists; unset means ask (move when non-interactive); moving needs the Transition Issues permission |
 | `linear.apiKey` | `lin_api_...` | `--linear` flag; also read by `cleanup` and `list --issues` for canceled issues |
 | `linear.autoStart` | `true` or `false` | whether `--linear` moves the issue to a started state once the worktree exists; unset means ask (start when non-interactive); moving needs a key with the Write permission |
+| `linear.agentToken` | `<oauth-token>` | the Linear agent app's OAuth token; secret (listed as `***`); nothing reads it yet; `worktree config` never asks for it, and `.worktree.yml` cannot set it |
+| `linear.webhookSecret` | `<signing-secret>` | the Linear agent app's webhook signing secret; secret (listed as `***`); nothing reads it yet; `worktree config` never asks for it, and `.worktree.yml` cannot set it |
+| `linear.agentAllow` | `user-id-1,user-id-2` | the Linear user ids allowed to delegate an issue to the agent; nothing reads it yet; `worktree config` never asks for it, and `.worktree.yml` cannot set it (a `linear.agentAllow` there is ignored with a warning) |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
 | `clickup.autoStart` | `true` or `false` | whether `--clickup` moves the task to in progress once the worktree exists; unset means ask (move when non-interactive); moving needs edit access to the task |

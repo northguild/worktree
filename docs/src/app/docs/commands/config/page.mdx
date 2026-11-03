@@ -21,7 +21,7 @@ worktree config --approve
 worktree config --project
 ```
 
-`--list` shows `github.token`, `jira.apiToken`, `linear.apiKey` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
+`--list` shows `github.token`, `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
 paste or screen-share. `worktree config <key>` with no value prints the current value and nothing else, secrets
 included, so `token=$(worktree config github.token)` works in a script. A key with no value prints nothing and
 exits `0`.
@@ -190,6 +190,14 @@ The Linear keys are asked together behind one confirm. The `linear.autoStart` pr
 and has three choices: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so
 `--missing` goes on offering the prompt until you settle it. A direct `worktree config linear.autoStart`
 accepts only `true` or `false`.
+
+Three more Linear keys are for a Linear agent that starts worktrees, and nothing reads them yet. None is asked
+by the wizard (a bare run and `--missing` skip them), and none can be set from `.worktree.yml`: set one with
+`worktree config <key> <value>`.
+
+- `linear.agentToken` the Linear agent app's OAuth token. Secret: `--list` shows it as `***`.
+- `linear.webhookSecret` the signing secret of the app's webhook. Secret: `--list` shows it as `***`.
+- `linear.agentAllow` the Linear user ids allowed to delegate an issue to the agent, comma-separated.
 
 ## Agent Key
 

@@ -240,6 +240,7 @@ const PERSONAL_KEYS = new Set([
   "jira.autoStart",
   "github.autoAssign",
   "linear.autoStart",
+  "linear.agentAllow",
   "clickup.autoStart",
 ]);
 const PERSONAL_SECTIONS = new Set(["herdr", "agent"]);

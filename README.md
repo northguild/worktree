@@ -93,6 +93,7 @@ The setup flow can configure:
 - `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
+- `linear.agentToken`, `linear.webhookSecret` and `linear.agentAllow` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`) and the Linear user ids allowed to delegate an issue to it. Nothing reads them yet; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
 `jira.host`, `clickup.workspaceId`, `github.repository` and `github.host`, read from the default branch; your own git config overrides it. The
