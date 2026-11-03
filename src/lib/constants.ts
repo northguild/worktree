@@ -3,6 +3,7 @@ import type { ConfigName } from "./types.js";
 export const CONFIG_NAMES = [
   "has-called-config",
   "jira.host",
+  "jira.deployment",
   "jira.email",
   "jira.apiToken",
   "jira.autoAssign",
@@ -42,11 +43,18 @@ export const SECRET_CONFIG_NAMES = [
 // setup's issue repository, an exception rather than something to ask everyone
 // (D7), so a prompt for it would be noise for the people with no fork.
 // `github.host` names a GitHub Enterprise host (#120 D7); most people use
-// github.com, so it is asked of no one.
+// github.com, so it is asked of no one. `jira.deployment` names a Jira Data
+// Center site (#126 D2); most people use Cloud, so it is asked of no one.
 export const UNPROMPTED_CONFIG_NAMES = [
   "github.repository",
   "github.host",
+  "jira.deployment",
 ] as const satisfies readonly ConfigName[];
+
+// Accepted values for the `jira.deployment` config key (#126 D1, D2). Unset
+// means `cloud`, which is what every install did before the key existed.
+// `server` is deliberately not an alias for `datacenter`.
+export const JIRA_DEPLOYMENTS = ["cloud", "datacenter"] as const;
 
 // Accepted values for the `opener` config key: which destination a worktree is
 // handed to once it exists. Unset means `editor`, which is what every install

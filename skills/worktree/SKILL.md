@@ -523,7 +523,7 @@ All keys are stored via `worktree config <key> <value>` in git config
 under `northguild.worktree.*`.
 
 A repository can commit a `.worktree.yml` at its root that supplies the team keys:
-`defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host`,
+`defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host`, `jira.deployment`,
 `clickup.workspaceId`, `github.repository` and `github.host` (written nested: `jira: { host: ... }`). Precedence per key:
 flag, then git config (any scope), then the file, then the built-in default. The
 file is read from `origin/HEAD` (`git show`), never the working copy, and
@@ -572,6 +572,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `github.repository` | `acme/widgets` | which repository `--github` and `--assign` use: this key (team key, also under `github:` in `.worktree.yml`), else `upstream` if it is on `github.host` (`github.com` unless set), else `origin`; optional, and `worktree config` never asks for it |
 | `github.host` | `ghe.example.com` | the GitHub host `--github` and `--assign` use, a bare hostname; default `github.com`; team key (also under `github:` in `.worktree.yml`); the clone also needs a remote on that host (`origin` when `github.repository` is set), or the run fails before any request; `worktree config` never asks for it |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
+| `jira.deployment` | `cloud` or `datacenter` | which Jira `jira.host` is: Jira Cloud or Jira Data Center (Server); unset means `cloud`; team key (also under `jira:` in `.worktree.yml`); `worktree config` never asks for it |
 | `jira.email` | `you@company.com` | `--jira` flag |
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
 | `jira.autoAssign` | `true` or `false` | whether `--jira` assigns the issue to you; unset means ask (assign when non-interactive) |

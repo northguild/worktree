@@ -1,5 +1,5 @@
 import { commandExists } from "./cli.js";
-import { OPENER_KINDS } from "./constants.js";
+import { JIRA_DEPLOYMENTS, OPENER_KINDS } from "./constants.js";
 import { gitGetLocalBranches, gitGetRemoteBranches } from "./git.js";
 import { InvalidValueError } from "./prompt.js";
 import { conjoin, splitCommandValue } from "./utils.js";
@@ -92,6 +92,13 @@ export function isValidOpener(value: string): true | string {
   return (
     OPENER_KINDS.some((kind) => kind === value) ||
     `Opener must be ${conjoin(OPENER_KINDS, "or")}`
+  );
+}
+
+export function isValidJiraDeployment(value: string): true | string {
+  return (
+    JIRA_DEPLOYMENTS.some((deployment) => deployment === value) ||
+    `Jira deployment must be ${conjoin(JIRA_DEPLOYMENTS, "or")}`
   );
 }
 
@@ -218,6 +225,8 @@ export async function isValidConfigValue(
       return await isValidCommand(value);
     case "opener":
       return isValidOpener(value);
+    case "jira.deployment":
+      return isValidJiraDeployment(value);
     case "github.autoAssign":
     case "jira.autoAssign":
     case "jira.autoStart":

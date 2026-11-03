@@ -26,6 +26,7 @@ config.
 - `github.repository` (example: `acme/widgets`; the repository `--github` reads and assigns in, only needed when it is not the repository found otherwise (`upstream` when it is on `github.host` (`github.com` unless set), else `origin`), for example when your issues are on your fork and an `upstream` remote exists; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
 - `github.host` (example: `ghe.example.com`; the GitHub host `--github` and `--assign` use, a bare hostname, default `github.com`; for GitHub Enterprise, which also needs a remote on that host; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
+- `jira.deployment` (`cloud` or `datacenter`, default `cloud`; which Jira `jira.host` is, Jira Cloud or Jira Data Center; a team key, also set under `jira:` in `.worktree.yml`; never asked for by `worktree config`)
 - `jira.email` (Your Jira email address)
 - `jira.apiToken` (Jira API token)
 - `jira.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)

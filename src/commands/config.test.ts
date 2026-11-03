@@ -365,6 +365,95 @@ describe("config command", () => {
     });
   });
 
+  // #126 D2: jira.deployment is a team key the wizard never asks for.
+  describe("jira.deployment", () => {
+    it("is a config name, is not a secret, and is never prompted", () => {
+      expect(CONFIG_NAMES).toContain("jira.deployment");
+      expect(SECRET_CONFIG_NAMES).not.toContain("jira.deployment");
+      expect(UNPROMPTED_CONFIG_NAMES).toContain("jira.deployment");
+    });
+
+    it("stores datacenter and --list shows it unmasked", async () => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "jira.deployment", value: "datacenter" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "jira.deployment",
+        "datacenter",
+      );
+
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(key === "jira.deployment" ? "datacenter" : ""),
+      );
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: false },
+      });
+      await config.run();
+
+      expect(mockConsoleLog).toHaveBeenCalledWith("jira.deployment=datacenter");
+    });
+
+    it.each([
+      "Cloud",
+      "server",
+      "data-center",
+    ])("refuses %j with exit 2 and stores nothing", async (value) => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "jira.deployment", value },
+        flags: {},
+      });
+
+      await expect(config.run()).rejects.toMatchObject({
+        code: "invalid_value",
+        oclif: { exit: 2 },
+      });
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "jira.deployment",
+        expect.anything(),
+      );
+    });
+
+    it("is neither listed by --missing nor asked on a --missing or bare run", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: true },
+      });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("");
+      await config.run();
+      expect(mockConsoleLog).not.toHaveBeenCalledWith("jira.deployment");
+
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("anything");
+      mockSelect.mockResolvedValue("true");
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false },
+      });
+      await config.run();
+
+      const asked = [
+        ...mockConfirm.mock.calls,
+        ...mockInput.mock.calls,
+        ...mockSelect.mock.calls,
+      ].map(([prompt]) => (prompt as { message: string }).message);
+      expect(asked.filter((m) => /deployment/i.test(m))).toEqual([]);
+    });
+  });
+
   // #120 D7: github.host is stored, listed unmasked and settable by name, and
   // the wizard never asks for it.
   describe("github.host", () => {
@@ -3431,6 +3520,16 @@ postCreate:
         );
         expect(printed()).toContain(
           "jira.host=https://acme.atlassian.net (.worktree.yml)",
+        );
+      });
+
+      it("marks jira.deployment, which only the file supplies, as the file's", async () => {
+        await withFile("jira:\n  deployment: datacenter\n");
+
+        await config.run();
+
+        expect(printed()).toContain(
+          "jira.deployment=datacenter (.worktree.yml)",
         );
       });
 

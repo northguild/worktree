@@ -13,8 +13,10 @@ import {
   renderBranchName,
 } from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
-import { quotablePastedUrl } from "../lib/redact.js";
+import { quotablePastedUrl, redactSecrets } from "../lib/redact.js";
+import type { JiraDeployment } from "../lib/types.js";
 import { slugifyBranchTitle } from "../lib/utils.js";
+import { isValidJiraDeployment } from "../lib/validators.js";
 
 interface JiraCredentials {
   host: string;
@@ -117,6 +119,27 @@ function getJiraAuthHeaders({ email, apiToken }: JiraCredentials): HeadersInit {
     Authorization: `Basic ${auth}`,
     Accept: "application/json",
   };
+}
+
+/**
+ * Which Jira the host is (#126 D1, D2): the `jira.deployment` key, git config
+ * then the project file, and `cloud` when neither sets it. The deployment is
+ * configured rather than detected from the host. The value is checked again
+ * here because git config can be edited by hand.
+ */
+export async function resolveJiraDeployment(): Promise<JiraDeployment> {
+  const configured = await getTeamConfigValue("jira.deployment");
+  if (!configured) {
+    return "cloud";
+  }
+  const verdict = isValidJiraDeployment(configured);
+  if (verdict !== true) {
+    throw new InvalidValueError(
+      `Jira: jira.deployment "${redactSecrets(configured)}" is not valid. ${verdict}`,
+    );
+  }
+  // The verdict above admits only these two values, so this narrows without a cast.
+  return configured === "datacenter" ? "datacenter" : "cloud";
 }
 
 async function resolveJiraCredentials(): Promise<JiraCredentials> {

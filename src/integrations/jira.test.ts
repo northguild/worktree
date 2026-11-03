@@ -14,6 +14,7 @@ import {
   getJiraIssueFields,
   normalizeJiraHost,
   parseJiraIssueReference,
+  resolveJiraDeployment,
   startJiraIssue,
   validateJiraCredentials,
 } from "./jira.js";
@@ -64,6 +65,67 @@ function stubNoProjectFile() {
   // above does not reach.
   vi.spyOn(projectConfig, "getBranchTypeRules").mockResolvedValue(undefined);
 }
+
+// #126 D1, D2: the deployment is configured, never detected; unset is cloud,
+// git config beats the project file, and a hand-edited bad value fails.
+describe("resolveJiraDeployment", () => {
+  function gitConfigAnswers(value: string) {
+    return vi.spyOn(cli, "run").mockImplementation(async (_file, args) => {
+      if (args?.at(-1) === "northguild.worktree.jira.deployment") {
+        return value;
+      }
+      throw new Error(`unexpected call: ${args?.join(" ")}`);
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProjectConfigCache();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("gives cloud when neither git config nor the file sets it", async () => {
+    gitConfigAnswers("");
+    stubNoProjectFile();
+
+    expect(await resolveJiraDeployment()).toBe("cloud");
+  });
+
+  it("gives the file's value when git config has none", async () => {
+    gitConfigAnswers("");
+    stubProjectFile("jira:\n  deployment: datacenter\n");
+
+    expect(await resolveJiraDeployment()).toBe("datacenter");
+  });
+
+  it("gives the git config value over the file's", async () => {
+    gitConfigAnswers("cloud");
+    stubProjectFile("jira:\n  deployment: datacenter\n");
+
+    expect(await resolveJiraDeployment()).toBe("cloud");
+  });
+
+  it.each([
+    "Cloud",
+    "server",
+    "data-center",
+  ])("throws InvalidValueError on a hand-edited %j, naming the key", async (value) => {
+    gitConfigAnswers(value);
+    stubNoProjectFile();
+
+    const refusal = resolveJiraDeployment();
+
+    await expect(refusal).rejects.toBeInstanceOf(InvalidValueError);
+    await expect(refusal).rejects.toThrow("jira.deployment");
+    await expect(refusal).rejects.toMatchObject({
+      code: "invalid_value",
+      oclif: { exit: 2 },
+    });
+  });
+});
 
 describe("Jira integration", () => {
   beforeEach(() => {
