@@ -2882,7 +2882,7 @@ describe("Jira Data Center", () => {
   describe.each([
     ["cloud", { "jira.host": "jira.example.com", "jira.email": "a@b.c" }],
     ["datacenter", dc],
-  ])("an unreachable %s site", (_deployment, values) => {
+  ])("an unreachable %s site", (deployment, values) => {
     function rejectWith(error: unknown) {
       useSite(values);
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(error));
@@ -2935,20 +2935,72 @@ describe("Jira Data Center", () => {
       expect(caught.cause).toBeUndefined();
     });
 
-    it("says unknown error without a code, and shows no code that is not one", async () => {
-      const bare = await rejectWith(new Error("Bearer secret-token"));
-      const odd = await rejectWith(
-        new TypeError("fetch failed", {
-          cause: { code: "Bearer secret-token" },
-        }),
-      );
+    // fetch refuses some requests before connecting. Those are the config's
+    // fault, so they must not send the user to DNS or a VPN.
+    describe("a request fetch refused before connecting", () => {
+      const keys =
+        deployment === "datacenter"
+          ? "jira.host and jira.apiToken"
+          : "jira.host";
 
-      expect(bare.message).toBe(
-        "Jira: could not reach jira.example.com (unknown error).",
-      );
-      expect(odd.message).toBe(
-        "Jira: could not reach jira.example.com (unknown error).",
-      );
+      it("is not called unreachable, and is named by the error's name", async () => {
+        // What fetch throws for `user:pw@host`: no cause, and the URL in the text.
+        const caught = await rejectWith(
+          new TypeError(
+            "Request cannot be constructed from a URL that includes credentials: https://u:secretpw@jira.example.com/rest",
+          ),
+        );
+
+        expect(caught.message).toBe(
+          `Jira: the request to jira.example.com could not be made (TypeError). Check ${keys} in your config.`,
+        );
+        expect(caught.message).not.toContain("secretpw");
+      });
+
+      it("names an unparseable URL by its code, though it has one", async () => {
+        const caught = await rejectWith(
+          new TypeError("Failed to parse URL from https://jira example.com", {
+            cause: { code: "ERR_INVALID_URL" },
+          }),
+        );
+
+        expect(caught.message).toBe(
+          `Jira: the request to jira.example.com could not be made (ERR_INVALID_URL). Check ${keys} in your config.`,
+        );
+      });
+
+      it("treats a cause without a code as one, as for a blocked port", async () => {
+        const caught = await rejectWith(
+          new TypeError("fetch failed", { cause: new Error("bad port") }),
+        );
+
+        expect(caught.message).toBe(
+          `Jira: the request to jira.example.com could not be made (TypeError). Check ${keys} in your config.`,
+        );
+      });
+
+      it("shows no code or name that is not one", async () => {
+        const odd = await rejectWith(
+          new TypeError("fetch failed", {
+            cause: { code: "Bearer secret-token" },
+          }),
+        );
+        const named = await rejectWith(
+          Object.assign(new Error("Bearer secret-token"), {
+            name: "Bearer secret-token",
+          }),
+        );
+        const thrown = await rejectWith("Bearer secret-token");
+
+        expect(odd.message).toBe(
+          `Jira: the request to jira.example.com could not be made (TypeError). Check ${keys} in your config.`,
+        );
+        for (const caught of [named, thrown]) {
+          expect(caught.message).toBe(
+            `Jira: the request to jira.example.com could not be made (unknown error). Check ${keys} in your config.`,
+          );
+        }
+      });
     });
 
     it("points a TLS code at NODE_EXTRA_CA_CERTS", async () => {

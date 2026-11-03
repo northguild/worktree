@@ -432,10 +432,17 @@ const PRIVATE_CA_CODES = new Set([
 // raw error is never passed on: undici can quote the Authorization value in its
 // message, and `redactSecrets` knows no Atlassian token shape. The code is
 // shown only if it looks like one, so nothing else can ride along.
-function unreachableError(configuredHost: string, error: unknown): Error {
+//
+// Only a failure on the wire says "could not reach", and undici gives each of
+// those a cause with a code. `fetch` also refuses some requests before any
+// connection: a URL it cannot parse (whose code is ERR_INVALID_URL), user info
+// in the URL, a header value it cannot send, a blocked port. Those point at the
+// config, not at DNS or a VPN, so they get their own message and the error's
+// name, never its text.
+function unreachableError(site: JiraSite, error: unknown): Error {
   // User info in jira.host (`user:pw@host`) must not reach the message: with no
   // scheme, `redactSecrets` would not mask it.
-  const host = configuredHost.replace(/^[^/@]*@/, "");
+  const host = site.host.replace(/^[^/@]*@/, "");
   const cause = error instanceof Error ? error.cause : undefined;
   const raw =
     typeof cause === "object" && cause !== null && "code" in cause
@@ -443,13 +450,26 @@ function unreachableError(configuredHost: string, error: unknown): Error {
       : undefined;
   const code =
     typeof raw === "string" && /^[A-Z0-9_]+$/.test(raw) ? raw : undefined;
-  const hint =
-    code && PRIVATE_CA_CODES.has(code)
-      ? " If the site uses a private certificate authority, set NODE_EXTRA_CA_CERTS to a file with its certificate."
-      : "";
-  return new Error(
-    `Jira: could not reach ${host} (${code ?? "unknown error"}).${hint}`,
-  );
+
+  if (!code || code === "ERR_INVALID_URL") {
+    const name =
+      error instanceof Error && /^[A-Za-z]+$/.test(error.name)
+        ? error.name
+        : "unknown error";
+    // Only a Bearer token is sent as typed; a Cloud token is base64 encoded.
+    const keys =
+      site.deployment === "datacenter"
+        ? "jira.host and jira.apiToken"
+        : "jira.host";
+    return new Error(
+      `Jira: the request to ${host} could not be made (${code ?? name}). Check ${keys} in your config.`,
+    );
+  }
+
+  const hint = PRIVATE_CA_CODES.has(code)
+    ? " If the site uses a private certificate authority, set NODE_EXTRA_CA_CERTS to a file with its certificate."
+    : "";
+  return new Error(`Jira: could not reach ${host} (${code}).${hint}`);
 }
 
 // D5: every Jira request is bounded, body included.
@@ -480,7 +500,7 @@ async function fetchJira(
     if (isTimeout(error)) {
       throw timeoutError(path, error);
     }
-    throw unreachableError(site.host, error);
+    throw unreachableError(site, error);
   }
 }
 

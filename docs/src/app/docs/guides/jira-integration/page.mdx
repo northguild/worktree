@@ -175,6 +175,10 @@ keeps working. It is configured, not detected, because a Cloud site can have a c
   starts with a letter.
 - **An unreachable site is named by host and error code only**, for example `Jira: could not reach
   jira.example.com (ENOTFOUND).`. No header text is ever shown. This applies to Jira Cloud as well.
+- **A request that could not be made is a config problem, not a network one.** Node refuses some requests before
+  connecting: a `jira.host` it cannot parse, one carrying `user:password@`, a blocked port, or (on `datacenter`) a
+  token with characters a header cannot carry. Those read `Jira: the request to jira.example.com could not be made
+  (TypeError). Check jira.host and jira.apiToken in your config.`, naming only `jira.host` on `cloud`.
 - **A 401 names the likely fix.** On `cloud` with a host outside `atlassian.net`, the error suggests
   `worktree config jira.deployment datacenter`; on `datacenter` with an `atlassian.net` host it says Jira Cloud
   uses `cloud`.
