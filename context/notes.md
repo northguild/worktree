@@ -73,3 +73,13 @@ Branch-local and advisory. Nothing reads this file; `/feature-close` deletes it.
   from an all-backtick context (~98.6 KB, under the 131,071 cap); the child's `--json` at `branch` level not
   carrying the brief (holds by construction, `base-command.ts:902`). `herdr.ts` `toHerdrError` passes Herdr's
   own stderr through verbatim; that predates this feature and applies to any brief.
+- **Phase 7:** the guide's outcome table leaves out "prompted, but the command exited with code N"
+  (`linear-agent-dispatch.ts:222-227`) and the refused-identifier response (`:296-302`); its thought row uses a
+  literal `ENG-123` where the rest use placeholders. The missing-agent sentence covers only a run Herdr will not
+  open; with Herdr opening and neither `herdr.agent` nor `agent.command` set it is also `missing_value`, exit 2.
+- **Phase 7:** "If Linear rejects the token or the key … exits 1" (guide `:71`, and the command page's exit table)
+  holds for the key only when `linear.agentAllow` is unset (`linear-listen.ts:324-335`). "Linear shows the
+  signing secret" there and "the same place you enabled the category" are Linear UI claims not checked against
+  Linear's docs ("settings under API" matches their `settings/api/applications/new` link).
+- **Phase 7:** step 3 puts both tokens on the command line (process list, shell history), against
+  `security/secrets.md`; that is `worktree config`'s design since Phase 1, and the wizard never asks for them (D9).

@@ -12,7 +12,8 @@ agent, and tells Linear how it went.
 It is a foreground command: it stays running until you stop it with `Ctrl-C`, and it serves one repository (the one
 it is started in). It listens on `127.0.0.1` only. Making that address reachable from Linear is your step: put a
 tunnel or a reverse proxy with HTTPS in front of it and give Linear that public address as the app's webhook URL.
-The command neither opens a tunnel nor installs itself as a service.
+The command neither opens a tunnel nor installs itself as a service. The
+[Linear Agent Delegation](/docs/guides/linear-agent-delegation) guide walks through the one-time setup in Linear.
 
 ## Usage
 

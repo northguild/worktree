@@ -1,0 +1,143 @@
+---
+title: Linear Agent Delegation
+---
+
+# Linear Agent Delegation
+
+Delegate a Linear issue to an agent in Linear, and a worktree for it appears on your machine with your coding
+agent started in it. This guide sets that up and says what you will see in Linear while it runs.
+
+It works through [`worktree linear-listen`](/docs/commands/linear-listen), a command you run yourself, in the
+repository it serves. Nothing is hosted for you: you register your own Linear OAuth app, you run the listener, and
+you make its port reachable from Linear. The listener is a foreground process, not a service, and it opens no tunnel.
+
+For the plain `worktree branch --linear` flow, with no delegation, see the
+[Linear Issue Integration](/docs/guides/linear-integration) guide.
+
+## Before you start
+
+Enabling the **Agent session events** webhook category on a Linear app shows the Agent Session UI to the whole
+workspace. Your colleagues will see an agent they can delegate to, and they cannot use it: a session started by
+anyone who is not [allowed](#who-may-start-an-agent) gets an error in Linear and no worktree. If that is a problem
+for your workspace, register the app in one where it is not.
+
+You also need:
+
+- A coding agent set up for `worktree`, so a new worktree can hand the brief to it. The listener runs
+  `worktree branch --linear <KEY> --agent-stdin --json --yes`, and the brief is delivered the way
+  [Agent Dispatch](/docs/commands/branch#agent-dispatch) describes: through `agent.command`, or through
+  `herdr.agent` when the worktree opens as a Herdr space. With a brief and no `agent.command`, and a run Herdr
+  will not open, `branch` exits `2` with `missing_value` before it creates the worktree, and the session ends in an
+  [error](#what-you-see-in-linear): `The worktree command failed (missing_value): ...`.
+- Your personal Linear API key in `linear.apiKey`, as for the [Linear Issue Integration](/docs/guides/linear-integration)
+  guide. The listener uses it to read the issue, and to find out whose delegations to serve by default.
+- Admin rights in the Linear workspace, to install the app.
+
+## Set it up, once
+
+1. **Create an OAuth app in Linear.** In Linear's settings under API, create a new OAuth application and enable the
+   **Agent session events** webhook category. Linear shows the app's webhook **signing secret**; keep it for step 3.
+2. **Install the app with the agent actor.** Authorize it with `actor=app` and the two scopes `app:assignable` and
+   `app:mentionable`, as a workspace admin. This is what makes the app appear as something an issue can be
+   delegated to. The access token Linear issues for that install is the **agent token**. The category, `actor=app` and
+   the scope names come from Linear, not from this repository: check them against Linear's agent documentation,
+   because `worktree` does not check them.
+3. **Store the token and the secret.** In the repository the listener will serve, run these with your own values (the
+   angle-bracket words are placeholders):
+
+   ```bash
+   worktree config linear.agentToken <agent-token>
+   worktree config linear.webhookSecret <webhook-signing-secret>
+   worktree config linear.apiKey <your-personal-api-key>
+   ```
+
+   The listener never prints any of the three. `worktree config --list` shows them as `***`, but
+   `worktree config <key>` prints the value by name. The two agent keys are
+   never asked for by the `worktree config` wizard and are not allowed in `.worktree.yml`.
+4. **Start the listener** in the repository it should serve:
+
+   ```bash
+   worktree linear-listen
+   ```
+
+   It listens on `127.0.0.1` port `8733` at the path `/webhook`, and prints the address, who is allowed, which team
+   it serves and whether issue context is on. Change them with `--port`, `--path` and `--team`.
+5. **Expose it over HTTPS.** The listener binds `127.0.0.1` only, so Linear cannot reach it. Put a tunnel or a reverse
+   proxy with HTTPS in front of port `8733` (or the one you chose) and note the public URL, ending in the path.
+6. **Give Linear the URL.** Paste the public URL as the app's webhook URL, in the same place you enabled the
+   category.
+7. **Try it.** Delegate an issue to the app in Linear.
+
+If a key is missing, `worktree linear-listen` exits `2` with `missing_value` before it listens and names the key. If
+Linear rejects the token or the key, or the port is taken, it exits `1`. All the exit codes are on the
+[command page](/docs/commands/linear-listen#exit-codes).
+
+## Who may start an agent
+
+A delegation runs a coding agent, with your credentials, on your machine, from text anyone in the workspace can
+write. So only an allowed person can start one.
+
+- With `linear.agentAllow` unset, only the owner of `linear.apiKey` is allowed. The listener asks Linear who that is
+  at start-up.
+- To allow others, set it to a comma-separated list of Linear user ids:
+
+  ```bash
+  worktree config linear.agentAllow <user-id-1>,<user-id-2>
+  ```
+
+The allowed ids are printed when the listener starts.
+
+## What you see in Linear
+
+The listener answers Linear at once and writes to the session as it goes. An accepted delegation gets a thought, then
+one last activity.
+
+| What happened | What the session shows |
+| --- | --- |
+| The delegation was accepted | A **thought**: `Starting a worktree for ENG-123.` |
+| The worktree was made and the agent was prompted | A **response**: `Started branch <branch> at <path>. The agent has been given the issue identifier.` |
+| The branch already exists | A **response**: `That branch already exists, so nothing new was created.` followed by the command's own message. Nothing new is started |
+| The delegator is not allowed | An **error**: `You are not on this listener's list of people who may start an agent, so no worktree was created.` No worktree, and no thought |
+| The worktree was made but the agent was not prompted | An **error**: `The worktree was created (branch <branch> at <path>) but the agent was not prompted, so nothing is working on the issue.` |
+| The command failed | An **error**: `The worktree command failed (<code>): <message>`, with the CLI's own error code |
+| The command ran too long | An **error**: `The worktree command timed out after 15 minutes and was stopped.` |
+| Something else went wrong | An **error** saying the command exited without a usable result, or could not be started |
+| Someone sent a follow-up message to the session | A **response**: `Follow-up messages are not delivered to a running agent yet. The agent started from the original delegation keeps working on it.` |
+
+A session for an issue in another team than `--team` shows nothing, because the listener ignores it so that another
+listener can own it. A repeated delivery of the same session is ignored too. Text in these activities has secrets
+masked.
+
+## Limits
+
+- **A dead listener leaves a stuck session.** The listener is a foreground process. If it stops, or the machine
+  sleeps, before it has written the last activity, the session stays active in Linear. A restart does not resume it.
+  Stop it with `SIGTERM` to let a running session finish first; a second signal exits at once.
+- **Follow-ups are not relayed.** Only the original delegation starts an agent. A message sent to the session
+  afterwards gets the response in the table above and is not passed to the agent. Talk to the agent in its own
+  terminal or space.
+- **One listener serves one repository**, the one it is started in. To serve several repositories, run a
+  listener in each, on its own port, and use `--team` so that two listeners do not both take the same issue.
+- **Nothing is resumed or retried by the listener.** It remembers session ids in memory only, so a restart forgets
+  them.
+
+## Issue text and `linear.agentContext`
+
+By default the brief the agent receives is one fixed line that names the issue identifier, and nothing the issue's
+author wrote: no title, description or comment. That is deliberate. An issue's text and comments are writable by
+everyone with access to it, and a delegation hands the brief to an agent that can run commands, so issue text would
+be instructions from anyone in the workspace.
+
+You can opt in, on a machine where you accept that risk:
+
+```bash
+worktree config linear.agentContext true
+```
+
+Only `true` turns it on; unset or `false` is off, and any other value is refused. With it on, the brief is the same
+fixed line followed by the issue's text inside a fenced block labelled as untrusted issue content. Text inside the
+block cannot close it, and it is cut at 32 KiB. The text is never written to a Linear activity, to the
+`--json` output or to a log line. The listener prints at start-up whether it is on.
+
+The block is a request to the agent, not a barrier: anyone who can edit or comment on a delegated issue can still try
+to steer the agent. Leave it off for a shared workspace.
