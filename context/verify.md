@@ -13,6 +13,8 @@ under `@baldurpan/create-ai-workflow` 0.26.0, in this worktree and in a fresh cl
 2026-09-06). Anything that did not is recorded as such rather than written into a section. The one
 later addition, `pnpm --filter docs typecheck`, was added on 2026-10-26 for #152 and run from the repo
 root of a worktree that day, exiting 0; it has not been run in a fresh clone.
+`astro check` in Typecheck and `pnpm docs:build` in Build were added on 2026-11-04 for #235 and run from the repo
+root of a worktree that day, exiting 0.
 
 ## Prerequisites
 
@@ -63,18 +65,64 @@ pnpm --filter docs typecheck
 
 The root `tsconfig.json` includes only `src/`, so the second command is what type-checks the `docs`
 workspace, `docs/worker/` included. It first runs `worker:build-context`, which regenerates the gitignored
-`docs/worker/docs-context.ts` (`tsc` cannot resolve `worker.ts`'s import of it otherwise) and rewrites the
-tracked `docs/src/chat/docs-routes.generated.ts` in place, then runs `tsc --noEmit`. That rewrite changes
+`docs/worker/docs-context.ts` (the check cannot resolve `worker.ts`'s import of it otherwise) and rewrites the
+tracked `docs/src/chat/docs-routes.generated.ts` in place, then runs `astro check`, which type-checks the
+TypeScript, TSX and Astro files the docs `tsconfig.json` includes. That rewrite changes
 nothing while the committed routes file is current. If a docs page was added without regenerating it, the
 file shows as modified after this section, as it would after `pnpm docs:build`, and the regenerated file
-belongs in the change. It needs no `GEMINI_WORKER_URL`, which is why it sits here while `pnpm docs:build`
-sits below *Not run by Gate 1*. CI runs both typecheck commands.
+belongs in the change. It needs no `PUBLIC_GEMINI_WORKER_URL`. CI runs both typecheck commands.
 
 ## Build
 
 ```bash
 pnpm build
+pnpm docs:build
 ```
+
+`pnpm docs:build` syncs the version, regenerates the Worker context, then runs `astro build` into `docs/dist/`,
+a sitemap and the Pagefind index included. It needs no environment: verified with `GEMINI_WORKER_URL` and
+`PUBLIC_GEMINI_WORKER_URL` unset (the chat falls back to `http://localhost:8787`; `docs-deploy.yml` sets the
+variable for the real build). Like `pnpm --filter docs typecheck`, it rewrites `docs-routes.generated.ts` in place. It also runs
+`docs:sync-version`, which is a no-op while `docs/src/lib/site-meta.ts` is current with `package.json`; a modified
+`site-meta.ts` after Build is drift to commit, not a by-product.
+
+## Audit
+
+```bash
+pnpm docs:audit-dist
+```
+
+Runs after `pnpm docs:build` (Build above), because it reads `docs/dist/`; with no build it exits 1 saying it
+cannot audit the directory (ENOENT). It asserts the SEO requirements of #235 over the built site: on each of the 26 pages a
+unique meta description of at most 155 characters, one canonical link in the form
+`https://northguild.dev/worktree/<path>/`, Open Graph and Twitter tags, JSON-LD of the right types, no chat
+script loaded up front, and a "Last updated" date equal to `git log --follow -1` for the page's source file (as a UTC
+date) — except the landing, which has no footer and so must carry no date; no page may carry an "Edit page" link into
+GitHub's editor (removed 2026-11-04; gmt's docs have none); no page
+may carry the project line the footer once had (licence, CLI version, maintainers); no page may show the northguild
+organisation's GitHub avatar (`github.com/northguild.png`), the second logo the footer once had, and no id may appear
+twice on a page; across the site, a sitemap and an `llms.txt` (llmstxt.org format) each listing exactly those 26
+URLs, a `404.html` (with the site's search, a link to Getting Started at `/worktree/getting-started/`, and no canonical link or JSON-LD), a landing at the root (a heading and a "Get started" link to `/worktree/getting-started/`, no second action and no section below the hero; the root alone may carry the site default description), and no `shuding/nextra` string. The date rule is only meaningful on
+full git history (CI uses `fetch-depth: 0`): on a shallow clone Starlight and the oracle both read the same truncated log. A page whose source file has no commit yet (a new or just-renamed one) fails the date rule with "no git history", so run the audit after committing it. It prints every failed rule, one line each, and
+exits 1 on any. To run it by hand: `pnpm docs:build && pnpm docs:audit-dist`, or point it at another build with
+`node docs/scripts/audit-dist.mjs <dir>`. It also checks accessible names on every page and the 404 (each button named, a name beside visible text containing it, each `<select>` labelled, the search button, and the chat launcher's `aria-keyshortcuts="Alt+Shift+C"`) and that the built CSS gives `[role=tab]` a minimum height of at least 44px; the search *input* is made in the browser and is checked there.
+Phase 13 added: on every page and the 404, the header's two NorthGuild links (`https://northguild.dev/` reading "NorthGuild", `/worktree/` reading
+"worktree"), each named by its own visible text, and the GitHub and Discord links (new tab, `rel=noopener`, "(opens in a new tab)" in the name); every `<svg>`
+hidden or a named image; the 404's heading a git error line (`fatal: ...`); and no cyan: it reads the `--gmt-cyan*` variables and their literal colours
+from the vendored tokens and fails if any reaches a used rule, a used custom property, the HTML or a script in the build (the vendored definitions, rules for
+classes no page uses and values `theme.css` overrides are not findings). The contrast of every themed pair is separate: `node docs/scripts/theme-contrast.mjs`
+prints it, and its test in `pnpm docs:test` fails under 4.5:1 (text) or 3:1 (controls, rings).
+Plan §9 Q3 added, on every page: an `og:image` that is an absolute URL under `https://northguild.dev/worktree/` and a file in the build, 1200×630 by the
+file's own header, with `og:image:type`, `:width` and `:height` saying what the file is; a `twitter:image` that is the same URL; and alt text for both. On
+every page and the 404, a `<link rel="icon">`, with every icon link (`icon`, `shortcut icon`, `apple-touch-icon`) naming a regular file in the build; and a
+`<title>` that is its `og:title` and `og:site_name` joined by GMT's ` · ` (2026-11-04, replacing ` | `), or its `og:title` alone where that names the site. The script's own test,
+`docs/scripts/audit-dist.test.mjs`, runs under `pnpm docs:test` (the docs Vitest config takes any `*.test.mjs`).
+Phase 16 added, for the leaf-particle hero (D18): the root alone loads the hero loader (the page script built from `HeroLeaves.astro`) and no other
+page, the 404 included, does or carries the hero's art box; no page loads the effect's chunks (`particles.*`) up front, whether by a script, a modulepreload or
+a static import, the loader reaching them only through a dynamic `import()`; the loader is at most 2 KB gzipped and the effect with everything it imports, together,
+at most 32 KB gzipped; and on the landing there is one canvas and one still SVG, each `aria-hidden="true"`.
+Added 2026-11-04 for #235 and run from the repo root of a worktree that day, exiting 0. CI runs `pnpm docs:build` then
+`pnpm docs:audit-dist` after `pnpm build`, and `docs-deploy.yml` runs the same pair before it deploys anything.
 
 ## Test
 
@@ -90,7 +138,7 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-10-26 that is 1181 and 69 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-11-04 that is 2756 and 362 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 
@@ -127,10 +175,11 @@ test that genuinely has to be skipped is a conversation, not an edit to this pat
 - **`pnpm changeset:prepare-release`** — not a gate: it mutates the tree (bumps `package.json`, writes
   `CHANGELOG.md`, deletes the consumed notes) and is run once, by a maintainer, to make a release pull
   request. Never run it to verify anything.
-- **`pnpm docs:build`** — needs the `GEMINI_WORKER_URL` repository variable baked in at build time.
-  Deploy concern; `docs-deploy.yml` owns it. The TypeScript errors it would report outside Next's generated
-  route types are caught earlier, by `pnpm --filter docs typecheck` under *Typecheck*.
-- **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
+- **`pnpm --filter docs deploy:smoke`** — requests the live `https://northguild.dev/worktree/` and retries up to 6
+  times, 10 s apart (about a minute), so it needs the network and a deployed site; `docs-deploy.yml` runs it after the deploy.
+- **`pnpm --filter docs stage:deploy`** and **`pnpm --filter docs build:legacy`** — produce the gitignored
+  `docs/.deploy/` and `docs/legacy/` for the deploy jobs; neither verifies anything.
+- **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` (the chat Worker's and the site's) — need `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID`. Never run against production from a workstation; `worker-deploy.yml` owns it.
 
 ## Prepare a fresh tree
@@ -154,6 +203,7 @@ the round.
 
 - **A missing entry is skipped, never faked.** An empty section above means there is no such step. Gate 1
   skips it and says so; it never substitutes a command it invented.
+- **Audit needs a fresh build.** Run it after `pnpm docs:build`, never against a `docs/dist/` left over from before the change.
 - **Docs-only changes run Lint only**, plus a read of the diff. Skip build and test for changes that touch
   no application code.
 - **Exit 0 is the verdict.** A non-zero exit is a Gate 1 failure regardless of what the summary text says.

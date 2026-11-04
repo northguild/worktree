@@ -1,0 +1,172 @@
+---
+title: "Create a git worktree from a ClickUp task"
+description: "Create a git worktree from a ClickUp task: worktree builds the branch name from the task and its tags and can set it to in progress."
+---
+
+`worktree` can derive branch names directly from ClickUp tasks in your ClickUp Workspace.
+
+## Basic Usage
+
+```bash
+worktree branch --clickup 9hx
+worktree branch --clickup DEV-123
+worktree branch -c 9hx
+```
+
+The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
+
+`--clickup` cannot be combined with `--github`, `--jira` or `--linear`. `--assign` does not work with `--clickup`:
+assigning a ClickUp task is not supported yet, so the flag warns `Assignment is not supported for ClickUp tasks yet.`
+and the worktree is still created. `--start` does work: it [moves the task to in progress](#moving-the-task-to-in-progress)
+once the worktree exists.
+
+## Task Ids
+
+ClickUp shows a task under two kinds of id, and `--clickup` accepts both, told apart by their shape:
+
+- **Short id** (`9hx`, `86a1b2c3d`): letters and digits, no hyphen, the id in the task's URL. Type it **without** the
+  `CU-` that ClickUp shows in the UI. The case you type is kept, because short ids are case-sensitive. A short id
+  needs only `clickup.apiToken`.
+- **Custom id** (`DEV-123`): a prefix, a hyphen and digits, available when your Workspace has custom task ids
+  switched on. It is upper-cased in the branch name but sent to ClickUp as you typed it. Reading a task by custom id needs `clickup.workspaceId`; without it the
+  command exits with code `2` and `missing_value`, naming `worktree config clickup.workspaceId <id>`.
+
+Anything else is refused with exit code `2` and `invalid_value` before any request is made, and `CU-9hx` is among
+them: pass `9hx`. A pasted task URL is not accepted.
+
+## How Branch Names Are Built
+
+1. Read the task's id, name and tags from the ClickUp API.
+2. Sanitize the name into a branch-safe slug, cut to at most 48 characters at the last dash so it ends on a whole word. A single word longer than 48 characters is cut at 48.
+3. Prepend a configured prefix chosen from the task's tags.
+
+The name is the prefix, the id and the slug:
+
+- a short id gains `CU-`, the form ClickUp's GitHub integration looks for, for example `feature/CU-9hx-fix-login-redirect`
+- a custom id is upper-cased, for example `fix/DEV-123-fix-login-redirect`
+
+The prefix comes from the task's tags, which are compared by exact name, ignoring case:
+
+- a `bug` tag -> `branchPrefix.bugfix`
+- otherwise a `chore` or `maintenance` tag -> `branchPrefix.chore`
+- otherwise (any other tag, or none) -> `branchPrefix.feature`
+
+When a task carries several of these tags, `bug` wins. A tag such as `bugfix` is not `bug`, so it does not match.
+If a prefix key is not configured, no prefix is applied.
+
+That mapping applies only when no `clickup.branchType` rules (or shared top-level `branchType` rules) are set. A
+`clickup.branchType` list, or the shared list, in `.worktree.yml` replaces it: the rules can match the task's `Tags`, or `Labels`, which is the same tags under the portable name a shared list uses, by name (a ClickUp tag has no id), and a task
+no rule matches gets no prefix unless the list ends with `- otherwise: <kind>`. See
+[Branch-type rules](/worktree/project-configuration/#branch-type-rules) and
+[Branch name template](/worktree/project-configuration/#branch-name-template).
+
+## What Is Read From the Task
+
+**Task content is used for the branch name and nothing else.** `worktree` reads the task's id, its custom id, its
+name, its URL and the names of its tags. The name is reduced to lowercase letters, digits and `-` before it becomes
+part of the branch name, and the tags only select one of the configured `branchPrefix.*` values, or none. The task
+description and comments are never requested, never printed, never written to the `--json` document and never passed
+to an agent.
+
+With `--json`, `issue` is `{"provider":"clickup","key":"DEV-123","url":"https://app.clickup.com/t/..."}`. The `key` is
+the task's custom id when it has one, otherwise its short id, and the `url` is the one ClickUp returns (`null` only if
+ClickUp sent none).
+
+When the task is moved to in progress (below), `worktree` also reads the task's current status and its List's
+statuses, with their type and position. That is all it reads for the move; the description and comments are still
+never requested.
+
+Requests to ClickUp are cut off after 15 seconds.
+
+## Moving the Task to In Progress
+
+`--start` moves the task once the worktree exists, and `--no-start` skips it for that one run. Without either,
+[`clickup.autoStart`](/worktree/configuration/#clickup-integration-notes) decides: `true` moves, `false` never does, and
+unset asks once in a terminal and saves the answer under that key. **A non-interactive run with the key unset moves
+the task** and saves nothing, so pass `--no-start` or set the key to `false` if a script must not write to ClickUp.
+The full order and where it sits in a run are in the [branch command](/worktree/commands/branch/#moving-the-clickup-task-to-in-progress).
+
+```bash
+worktree branch --clickup 9hx --start
+worktree branch --clickup 9hx --no-start
+worktree config clickup.autoStart true
+```
+
+Three requests follow, each cut off after 15 seconds: the task (its status and List), the List (its statuses), and
+the update.
+
+- A task in an `open`-type status moves to the List's first `custom`-type status by position, by name.
+- A task already in a `custom`-type status (In Progress, In Review) is not moved, and the document's `started` is `true`.
+- A task in a `done`- or `closed`-type status, or any other type, is left alone with a warning and `started` is `false`,
+  as it is for a List with no `custom` status. Nothing is written in those cases.
+- The move counts only when ClickUp's answer shows the new status. Any failure is a warning, `started` is `false`,
+  and the worktree and exit code are unaffected.
+- Moving a task needs edit access to it. A write ClickUp refuses with a 400 or a 5xx, or any status not named here,
+  gets a warning that says so. A 401 or 403 reads as the authentication message, a 404 as the not-found message and
+  a 429 as the rate-limit message.
+
+## Authentication Resolution
+
+Authentication uses `clickup.apiToken`, read from local git config. `clickup.workspaceId` is optional and is read
+only for a custom id. In a terminal, `branch --clickup` offers to run `worktree config` when the token is missing.
+Without a token after that, and in any non-interactive run, the command exits with code `2` and `missing_value`,
+naming `worktree config clickup.apiToken <token>`, before a worktree is created.
+
+## Suggested Setup
+
+```bash
+worktree config clickup.apiToken <api-token>
+worktree config clickup.workspaceId <workspace-id>   # only if you use custom task ids
+worktree config branchPrefix.feature feature/
+worktree config branchPrefix.bugfix fix/
+worktree config branchPrefix.chore chore/
+```
+
+You can also run `worktree config` and tick ClickUp in its checklist, or configure only missing values:
+
+```bash
+worktree config --missing --names clickup.apiToken,branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
+```
+
+An empty answer to the token prompt keeps the token already stored rather than clearing it. An empty answer to the
+workspace id prompt skips it, and under `--missing` pressing Enter skips that prompt too.
+
+## Getting a ClickUp API Token
+
+1. In ClickUp, click your avatar, then Settings -> Apps -> API Token
+2. Click "Generate" (or "Regenerate") and copy the token
+3. Use it with `worktree config clickup.apiToken`
+
+The token is a personal token and is sent to ClickUp as given, without a `Bearer` prefix. It is stored locally in git
+config and never sent anywhere except to ClickUp, and `worktree` never prints it: any `pk_` token that would reach the
+output is replaced first. The token is checked the first time `--clickup` uses it; `worktree config` refuses a token
+that is only whitespace but does not check it with ClickUp.
+
+## Getting the Workspace Id
+
+Only custom task ids need it. It is the numeric id of your Workspace, which ClickUp's API calls `team_id`, and it must be digits only. Leave it unset if your Workspace does not use custom task ids.
+
+## What Is Not Verified Yet
+
+This integration was written from ClickUp's API documentation and has not been run against a live Workspace. These
+are assumptions:
+
+- Whether a custom id in a branch name links the branch to its task in ClickUp's GitHub App. A short id with `CU-`
+  is the form ClickUp documents; a custom id is not confirmed.
+- Whether ClickUp resolves a lower-case custom id (`dev-123`). The id is sent as typed, so type it the way ClickUp
+  shows it if a lookup fails.
+- Whether a short id can ever contain a hyphen. It is assumed not, which is how `9hx` and `DEV-123` are told apart.
+- The tag rule is a guess carried over from the Linear integration: `bug`, `chore` and `maintenance` may not be how
+  your team tags tasks. Task types are not used.
+- The status `type` values. The move assumes `open` for a task not yet started and `custom` for a List's own
+  statuses. If ClickUp uses other values, nothing is moved and a warning says so.
+- Whether a List that inherits its Space's statuses reports them. If it does not, the List counts as having no
+  in-progress status and nothing is moved.
+- Whether the first `custom` status is the one your team means by in progress. It is the first one by position, so
+  a List that starts with Backlog or Ready moves tasks there.
+
+ClickUp's answer to a write your token may not make is also unconfirmed: it may be a 401, a 403, a 404 or another
+status, and a 401, 403 or 404 reads as that status's own message, without the edit-access hint.
+
+ClickUp's exact status for a task your token cannot see is also unconfirmed, so a 401 and a 403 both report
+`Authentication failed. Please verify clickup.apiToken in your config.`

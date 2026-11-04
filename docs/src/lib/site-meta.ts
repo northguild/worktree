@@ -1,5 +1,4 @@
 // Generated file. Do not edit directly.
-import type { Metadata } from "next";
 
 export const cliVersion = "2.1.2";
 export const projectName = "Worktree";
@@ -10,14 +9,6 @@ export const projectOwnerName = "northguild";
 export const projectOwnerProfileUrl = "https://github.com/northguild";
 export const projectOwnerAvatarUrl =
   "https://github.com/northguild.png?size=64";
-
-export const metadata: Metadata = {
-  title: {
-    default: projectName,
-    template: "%s – Worktree",
-  },
-  description: projectDescription,
-};
 
 export const maintainers = [
   {

@@ -46,6 +46,14 @@ const DEFAULT_PORT = 8733;
 
 const DEFAULT_PATH = "/webhook";
 
+/**
+ * How long a sender of an oversized body may keep writing before it is cut
+ * off, counted from when the body is known to be over the cap: the headers,
+ * when `Content-Length` says so, or the byte that passes 1 MiB otherwise. The
+ * rest of the body is read and thrown away so the 413 is not lost to a reset.
+ */
+const DRAIN_TIMEOUT_MS = 5_000;
+
 /** A slow client holds a socket, not a thread, but it should not hold it for Node's 5 minutes. */
 const HEADERS_TIMEOUT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -57,6 +65,8 @@ export interface ListenerOptions {
   path: string;
   /** Injected so freshness is testable; the real server passes `Date.now`. */
   now?: () => number;
+  /** Injected so the cut-off is testable; the real server uses `DRAIN_TIMEOUT_MS`. */
+  drainTimeoutMs?: number;
   /** One line per call, already redacted. */
   log: (line: string) => void;
   dispatch: DispatchDeps;
@@ -79,6 +89,7 @@ function readBody(request: IncomingMessage): Promise<ReadResult> {
   return new Promise((resolve, reject) => {
     const declared = Number(request.headers["content-length"]);
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      request.resume();
       resolve({ tooLarge: true });
       return;
     }
@@ -97,6 +108,25 @@ function readBody(request: IncomingMessage): Promise<ReadResult> {
     });
     request.on("end", () => resolve({ body: Buffer.concat(chunks) }));
     request.on("error", reject);
+  });
+}
+
+/** Resolves true once the sender has written the whole body (which `readBody` is discarding), false at the deadline. */
+function drained(
+  request: IncomingMessage,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (request.complete) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    request.once("end", () => done(true));
+    request.once("close", () => done(request.complete));
   });
 }
 
@@ -128,6 +158,7 @@ function reply(
 
 export function createListener(options: ListenerOptions): Listener {
   const now = options.now ?? Date.now;
+  const drainTimeoutMs = options.drainTimeoutMs ?? DRAIN_TIMEOUT_MS;
   const inFlight = new Set<Promise<void>>();
   // §4.1: one child at a time, for every session this listener accepts.
   const queue = createSerialQueue();
@@ -151,6 +182,17 @@ export function createListener(options: ListenerOptions): Listener {
 
     const read = await readBody(request);
     if ("tooLarge" in read) {
+      // The reply waits for the sender to finish writing: a socket closed
+      // with unread bytes makes the OS send a reset that overtakes the reply,
+      // and the sender sees ECONNRESET instead of the 413. A sender that
+      // never stops is cut off at the deadline and gets no reply.
+      if (!(await drained(request, drainTimeoutMs))) {
+        request.destroy();
+        options.log(
+          oneLine(`delivery=${delivery} status=- oversized body not drained`),
+        );
+        return;
+      }
       finish(413, "body over the 1 MiB cap", { Connection: "close" });
       return;
     }

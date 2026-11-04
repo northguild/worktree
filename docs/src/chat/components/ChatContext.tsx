@@ -29,8 +29,14 @@ interface ChatContextValue {
 
 export const ChatContext = createContext<ChatContextValue | null>(null);
 
-export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+export function ChatProvider({
+  children,
+  defaultOpen = false,
+}: {
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [isDrawerOpen, setIsDrawerOpen] = useState(defaultOpen);
   const [isDrawerClosing, setIsDrawerClosing] = useState(false);
   const [entered, setEntered] = useState(false);
   const { value: model, setValue: setModel } = useLocalStorage<string>(

@@ -24,7 +24,8 @@
     "docs:test": "pnpm --filter docs test",
     "docs:dev": "pnpm docs:sync-version && pnpm --filter docs run dev",
     "docs:dev-local": "pnpm docs:sync-version && pnpm --filter docs run dev:local:watch",
-    "docs:build": "pnpm docs:sync-version && pnpm --filter docs build"
+    "docs:build": "pnpm docs:sync-version && pnpm --filter docs build",
+    "docs:audit-dist": "pnpm --filter docs audit-dist"
   },
   "publishConfig": {
     "access": "public"
@@ -55,7 +56,7 @@
       "url": "https://github.com/craig-o-curtis"
     }
   ],
-  "homepage": "https://github.com/northguild/worktree",
+  "homepage": "https://northguild.dev/worktree/",
   "license": "MIT",
   "packageManager": "pnpm@12.15.0",
   "engines": {

@@ -21,7 +21,7 @@ function postReq(opts: {
 }): Request {
   const {
     url = "https://worker.example.com/",
-    origin = "https://northguild.github.io",
+    origin = "https://northguild.dev",
     body,
     clientIp,
   } = opts;
@@ -56,13 +56,13 @@ describe("worker — method guards", () => {
     const res = await worker.fetch(
       new Request("https://worker.example.com/", {
         method: "OPTIONS",
-        headers: { Origin: "https://northguild.github.io" },
+        headers: { Origin: "https://northguild.dev" },
       }),
       ENV,
     );
     expect(res.status).toBe(204);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-      "https://northguild.github.io",
+      "https://northguild.dev",
     );
   });
 
@@ -70,7 +70,7 @@ describe("worker — method guards", () => {
     const res = await worker.fetch(
       new Request("https://worker.example.com/", {
         method: "GET",
-        headers: { Origin: "https://northguild.github.io" },
+        headers: { Origin: "https://northguild.dev" },
       }),
       ENV,
     );
@@ -92,7 +92,7 @@ describe("worker — request validation", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Origin: "https://northguild.github.io",
+          Origin: "https://northguild.dev",
         },
         body: "not-json",
       }),
@@ -222,7 +222,7 @@ describe("worker — happy path", () => {
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-      "https://northguild.github.io",
+      "https://northguild.dev",
     );
     const text = await res.text();
     expect(text).toContain('"text":"hello"');
@@ -291,8 +291,10 @@ describe("worker — upstream errors", () => {
   });
 });
 
+// Expected origins come from D7 (issue #235): the site host and Astro's default dev port.
+// The Next.js dev origin has no caller left and must be refused.
 describe("worker — CORS", () => {
-  it("localhost origin is reflected", async () => {
+  it("the retired Next.js dev origin is not reflected", async () => {
     const res = await worker.fetch(
       new Request("https://worker.example.com/", {
         method: "OPTIONS",
@@ -301,11 +303,24 @@ describe("worker — CORS", () => {
       ENV,
     );
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-      "http://localhost:3000",
+      "https://northguild.dev",
     );
   });
 
-  it("disallowed origin falls back to northguild.github.io", async () => {
+  it("localhost origin is reflected", async () => {
+    const res = await worker.fetch(
+      new Request("https://worker.example.com/", {
+        method: "OPTIONS",
+        headers: { Origin: "http://localhost:4321" },
+      }),
+      ENV,
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "http://localhost:4321",
+    );
+  });
+
+  it("disallowed origin falls back to northguild.dev", async () => {
     const res = await worker.fetch(
       new Request("https://worker.example.com/", {
         method: "OPTIONS",
@@ -314,7 +329,7 @@ describe("worker — CORS", () => {
       ENV,
     );
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-      "https://northguild.github.io",
+      "https://northguild.dev",
     );
   });
 });

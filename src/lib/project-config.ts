@@ -28,7 +28,7 @@ import {
 
 export const PROJECT_CONFIG_FILE = ".worktree.yml";
 export const PROJECT_CONFIG_SCHEMA_URL =
-  "https://northguild.github.io/worktree/schema/v1.json";
+  "https://northguild.dev/worktree/schema/v1.json";
 /** Reads this file instead of the ref, to test an edit before it merges (D1). */
 const OVERRIDE_ENV = "WORKTREE_PROJECT_CONFIG";
 
@@ -563,6 +563,20 @@ export function showVisibly(text: string) {
       ? `\\x${code.toString(16).padStart(2, "0")}`
       : `\\u{${code.toString(16)}}`;
   });
+}
+
+/**
+ * `showVisibly` for text that legitimately spans lines, such as git's stderr
+ * behind an error: each line is escaped and the line breaks and tabs are kept
+ * (git indents the paths it lists with a tab), so nothing but a `\n` or a
+ * `\t` survives raw. Neither can redraw the terminal. A `\r` before a `\n`
+ * is a CRLF line end and is dropped; a lone `\r` is still escaped.
+ */
+export function showLinesVisibly(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.split("\t").map(showVisibly).join("\t"))
+    .join("\n");
 }
 
 function formatKeyPath(keyPath: readonly PropertyKey[]) {

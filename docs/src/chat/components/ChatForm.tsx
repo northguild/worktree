@@ -61,7 +61,7 @@ export function ChatForm({ onSubmit, disabled }: ChatFormProps) {
           e.preventDefault();
           form.handleSubmit();
         }}
-        className="p-4 border-t border-gray-200 dark:border-neutral-800"
+        className="p-4 border-t border-chat-border"
       >
         <div className="flex gap-1 items-end">
           <FormField name="message">
@@ -81,7 +81,7 @@ export function ChatForm({ onSubmit, disabled }: ChatFormProps) {
               // padding belongs to the textarea itself, not to this wrapper —
               // see SIZED_BOX in ChatInput: on the wrapper it held the
               // scrollbar 16px clear of the right edge.
-              className="flex-1 border rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-gray-100 border-gray-200 dark:border-neutral-700 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500"
+              className="flex-1 border rounded-lg bg-chat-bg text-chat-fg border-chat-control-border focus-within:ring-2 focus-within:ring-chat-accent focus-within:border-chat-accent"
               disabled={disabled}
               maxLength={MAX_MESSAGE_LENGTH}
               onKeyDown={handleKeyDown}

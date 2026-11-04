@@ -32,6 +32,7 @@ import {
   renderProjectFile,
   resetProjectConfigCache,
   resolveTeamConfig,
+  showLinesVisibly,
   summariseProjectFile,
   writeProjectFile,
 } from "./project-config.js";
@@ -58,7 +59,7 @@ vi.mock("./config.js", () => ({
 
 // The example file from plan §4, verbatim: the expected values below come from
 // it and its comments, not from the schema under test.
-const EXAMPLE = `# yaml-language-server: $schema=https://northguild.github.io/worktree/schema/v1.json
+const EXAMPLE = `# yaml-language-server: $schema=https://northguild.dev/worktree/schema/v1.json
 defaultSourceBranch: origin/main
 
 branchPrefix:
@@ -1603,7 +1604,7 @@ postCreate:
     await writeProjectFile();
 
     expect(fs.readFileSync(target(), "utf8").split("\n")[0]).toBe(
-      "# yaml-language-server: $schema=https://northguild.github.io/worktree/schema/v1.json",
+      "# yaml-language-server: $schema=https://northguild.dev/worktree/schema/v1.json",
     );
   });
 
@@ -1885,5 +1886,17 @@ describe("offerProjectConfig: migration (D21)", () => {
 
     expect(confirm).not.toHaveBeenCalled();
     expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+  });
+});
+
+describe("showLinesVisibly", () => {
+  it("keeps line breaks and tabs, and escapes every other control character", () => {
+    expect(
+      showLinesVisibly("error: would be overwritten:\n\tsrc/foo.ts\u001b[2J\n"),
+    ).toBe("error: would be overwritten:\n\tsrc/foo.ts\\x1b[2J\n");
+  });
+
+  it("drops the \\r of a CRLF line end but escapes a lone one", () => {
+    expect(showLinesVisibly("one\r\ntwo\rthree")).toBe("one\ntwo\\x0dthree");
   });
 });

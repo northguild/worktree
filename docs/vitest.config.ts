@@ -1,7 +1,10 @@
+/// <reference types="vitest/config" />
 import { resolve } from "node:path";
-import { defineConfig } from "vitest/config";
+import { getViteConfig } from "astro/config";
 
-export default defineConfig({
+// getViteConfig loads Astro's Vite plugins, which lets Vitest import `.astro` components
+// (rendered through astro/container). Tests that touch no Astro file are unaffected.
+export default getViteConfig({
   resolve: {
     alias: {
       // docs-context.ts is generated at build time and gitignored.

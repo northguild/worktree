@@ -1,3 +1,69 @@
-@import "tailwindcss";
-/* Nextra theme styles (import after Tailwind so theme can override utilities if needed) */
-@import "nextra-theme-docs/style.css";
+/* Tailwind for the chat's utility classes. Preflight is deliberately not imported: it would restyle Starlight. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/*
+ * The chat's colours are the site's theme tokens (--gmt-*, which tokens-light.css re-tints under
+ * [data-theme="light"]), so the theme picker drives it. Utilities such as `bg-chat-bg` read them live.
+ * Do not use Tailwind's `dark:` variant here: it follows the OS preference, not the picker.
+ * Text pairs measure 4.5:1 or more and control boundaries 3:1 or more in both themes (phase 5, 2026-11-04).
+ */
+@theme inline {
+  --color-chat-bg: var(--gmt-surface);
+  --color-chat-raised: var(--gmt-surface-2);
+  --color-chat-fg: var(--gmt-ice);
+  --color-chat-muted: var(--gmt-ice-dim);
+  --color-chat-accent: var(--gmt-spring);
+  --color-chat-accent-ink: var(--gmt-spring-ink);
+  --color-chat-on-accent: var(--gmt-ink-fixed);
+  /* Decorative dividers and panel edges. A hairline of the accent, so well under 3:1: never the only mark of a control. */
+  --color-chat-border: var(--gmt-border);
+  /* The boundary of a control the visitor has to find (the message field, Clear): muted text colour, 3:1 or more. */
+  --color-chat-control-border: var(--gmt-ice-dim);
+  --color-chat-fill: var(--gmt-fill);
+  --color-chat-fill-strong: var(--gmt-fill-strong);
+  /* --gmt-danger is 4.43:1 on the light surface; a fifth of the text colour lifts it clear of 4.5:1 in both themes. */
+  --color-chat-danger: color-mix(
+    in srgb,
+    var(--gmt-danger) 80%,
+    var(--gmt-ice)
+  );
+  --color-chat-danger-wash: color-mix(
+    in srgb,
+    var(--gmt-danger) 14%,
+    transparent
+  );
+  --color-chat-warn-ink: var(--gmt-signal-ink);
+  --color-chat-warn-wash: var(--gmt-signal-fill);
+}
+
+/* The chat launcher: the static button on every page (ChatLauncher.astro) and, looking the same, the loaded chat's own trigger (ChatTrigger.tsx). */
+.chat-launcher {
+  position: fixed;
+  right: var(--gmt-space-6);
+  bottom: var(--gmt-space-6);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 4rem;
+  block-size: 4rem;
+  padding: 0;
+  border: 2px solid var(--gmt-spring-ink);
+  border-radius: 9999px;
+  background: var(--gmt-spring);
+  color: var(--gmt-ink-fixed);
+  cursor: pointer;
+  transition: filter var(--gmt-duration-fast) var(--gmt-easing);
+}
+.chat-launcher:hover {
+  filter: brightness(1.1);
+}
+.chat-launcher:focus-visible {
+  outline: 2px solid var(--gmt-ice);
+  outline-offset: 3px;
+}
+.chat-launcher svg {
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+}

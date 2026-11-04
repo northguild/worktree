@@ -6,7 +6,7 @@ static site to the Google Gemini API, keeping `GEMINI_API_KEY` out of the browse
 ## How it fits together
 
 ```
-Browser (GitHub Pages)  →  POST https://<worker>.workers.dev?model=...
+Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev?model=...
                               ↓
                         Cloudflare Worker  (docs/worker/)
                               ↓
@@ -15,7 +15,7 @@ Browser (GitHub Pages)  →  POST https://<worker>.workers.dev?model=...
                         SSE stream piped back to browser
 ```
 
-The static bundle bakes in `GEMINI_WORKER_URL` at build time.
+The static bundle bakes in `PUBLIC_GEMINI_WORKER_URL` at build time.
 That variable is set as a GitHub repo **variable** (not a secret) and injected
 by the `docs-deploy.yml` workflow.
 
@@ -64,7 +64,7 @@ Two commands cover the common cases:
 
 | Command | What it does |
 |---|---|
-| `dev:local` | Builds the worker once, then starts `worker:dev` + `next dev` concurrently. Use when you are **not** actively editing worker code. |
+| `dev:local` | Builds the worker once, then starts `worker:dev` + `astro dev` concurrently. Use when you are **not** actively editing worker code. |
 | `dev:local:watch` | Same as above, but also starts `worker:build:watch` so the worker bundle rebuilds automatically on every file save. Use when you **are** editing worker code. |
 
 ```bash
@@ -81,19 +81,19 @@ Or run them separately:
 # Terminal 1 — worker (http://localhost:8787)
 pnpm --filter docs run worker:dev
 
-# Terminal 2 — Next.js (http://localhost:3000)
+# Terminal 2 — Astro (http://localhost:4321)
 pnpm --filter docs run dev
 ```
 
-### How `GEMINI_WORKER_URL` controls which worker is used
+### How `PUBLIC_GEMINI_WORKER_URL` controls which worker is used
 
-`GEMINI_WORKER_URL` is the single environment variable that switches between the local worker and the deployed Cloudflare Worker:
+`PUBLIC_GEMINI_WORKER_URL` is the single environment variable that switches between the local worker and the deployed Cloudflare Worker:
 
 | Value | Where it comes from | Effect |
 |---|---|---|
-| `http://localhost:8787` | Set explicitly by `dev:local` / `dev:local:watch` at startup | Next.js sends chat requests to your local `wrangler dev` instance |
+| `http://localhost:8787` | Set explicitly by `dev:local` / `dev:local:watch` at startup | Astro sends chat requests to your local `wrangler dev` instance |
 | `https://worktree-gemini-proxy.northguild.workers.dev` | GitHub repo variable, baked in at build time by `docs-deploy.yml` | The production static bundle hits the live Cloudflare Worker |
-| *(unset)* | — | Next.js falls back to `http://localhost:8787` |
+| *(unset)* | — | Astro falls back to `http://localhost:8787` |
 
 The variable is **public** — it is just a URL, not a secret. The API key never leaves Cloudflare.
 
@@ -159,7 +159,7 @@ Variables**, add:
 
 ### 6. Trigger a docs rebuild
 
-The `docs-deploy.yml` workflow bakes `GEMINI_WORKER_URL` into the static bundle.
+The `docs-deploy.yml` workflow bakes its `GEMINI_WORKER_URL` repository variable (as `PUBLIC_GEMINI_WORKER_URL`) into the static bundle.
 Push a commit or manually trigger:
 
 ```
@@ -178,12 +178,12 @@ deployed worker always has up-to-date docs content embedded in the system prompt
 ## CORS
 
 The worker allows requests from:
-- `https://northguild.github.io` — production GitHub Pages
-- `http://localhost:3000` — local Next.js dev
+- `https://northguild.dev` — the production docs site
+- `http://localhost:4321` — local Astro dev (Astro's default port)
 
 All other origins receive the production origin in `Access-Control-Allow-Origin`,
 so browsers will block unexpected cross-origin requests. Update `CORS_ORIGINS`
-in `worker.ts` if you add a custom domain.
+in `worker.ts` if the site moves to another host.
 
 ## Abuse protection
 
@@ -233,11 +233,11 @@ assembled, and how AI-generated links are validated, see
 The system prompt embedded in this worker contains, in order:
 
 1. **Persona & scope instructions** — restricts answers to the docs and skill guide
-2. **Linking rules** — an auto-generated list of valid `/docs/...` routes the AI
+2. **Linking rules** — an auto-generated list of valid routes (`/commands/branch/`, no `/worktree` prefix) the AI
    may link to; derived from the MDX filesystem scan in `build-context.mjs`
 3. **`skills/worktree/SKILL.md`** — Agent Skill guide (product vocabulary
    and core patterns)
-4. **Doc pages** — every `*.mdx` file under `src/app/docs/`, stripped of JSX
+4. **Doc pages** — every `*.mdx` file under `src/content/docs/`, stripped of JSX
 
 The prompt is baked in at build time via `worker:build-context`. The worker
-never fetches content at runtime — all context is in the ~30 KB bundle.
+never fetches content at runtime — all context is in the ~260 KB bundle.

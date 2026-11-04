@@ -1,0 +1,201 @@
+/*
+ * This site's own theme: the NorthGuild `--gmt-*` tokens (vendored unedited under ./northguild/)
+ * mapped onto Starlight's `--sl-*` variables, plus the few rules Starlight has no variable for.
+ *
+ * The mapping follows the one gmt's docs use (gmt `apps/dox/src/styles/gmt-theme.css`, gmt commit
+ * 6efa06e4a86beb164fcb37c354b94546ef13a3ff), with these differences, because northguild.dev's own look
+ * wins where the two differ (plan §9 Q13): chrome is lightly frosted rather than washed in teal,
+ * display type is limited to h1 and h2 as on northguild.dev, and the muted greys are the muted text
+ * token rather than hard-coded literals, so they keep 4.5:1 in both themes.
+ *
+ * The accent is spring green, not gmt's cyan (D17): every accent role below maps to `--gmt-spring` (fills,
+ * borders, rings: 3:1) or `--gmt-spring-ink` (text: 4.5:1). A product picks its colour here and only here;
+ * see docs/README.md (Theme).
+ *
+ * Every `--sl-*` below points at a `--gmt-*` token that `northguild/tokens-light.css` re-tints for
+ * `[data-theme="light"]`, so the mapping re-resolves in the light theme on its own. Starlight's theme
+ * picker sets `data-theme` on <html>, defaulting to the visitor's system preference.
+ * Glass goes on chrome only (the header), never behind body text.
+ */
+
+:root {
+  --sl-color-white: var(--gmt-ice);
+  --sl-color-gray-1: var(--gmt-ice);
+  --sl-color-gray-2: var(--gmt-ice-dim);
+  /* Starlight sets text in gray-3 (footer, "On this page"); the muted token keeps it readable. */
+  --sl-color-gray-3: var(--gmt-ice-dim);
+  --sl-color-gray-4: #3d5560;
+  --sl-color-gray-5: var(--gmt-surface-2);
+  --sl-color-gray-6: var(--gmt-surface);
+  --sl-color-black: var(--gmt-void);
+
+  /* The accent is spring green (D17): the fill tier, `--gmt-spring`, for controls and borders (3:1) ... */
+  --sl-color-accent: var(--gmt-spring);
+  /* ... and the ink tier, `--gmt-spring-ink`, for text: darkened in light mode to clear 4.5:1 on light surfaces. */
+  --sl-color-accent-high: var(--gmt-spring-ink);
+  /* A wash of the accent over the page, for the backdrop behind accent-high text (search hit, badge). */
+  --sl-color-accent-low: color-mix(
+    in srgb,
+    var(--gmt-spring) 22%,
+    var(--gmt-void)
+  );
+
+  --sl-color-text: var(--gmt-ice);
+  /* Links, the current sidebar entry, the site title: the "ink" tier, which is darkened in light mode. */
+  --sl-color-text-accent: var(--gmt-spring-ink);
+  /* Text on an accent fill (the current sidebar entry, the skip link): the page background colour. */
+  --sl-color-text-invert: var(--gmt-void);
+  --sl-color-bg: var(--gmt-void);
+  /* Read by Starlight's theme select and the mobile "On this page" bar; the header itself is northguild.dev's glass (below). */
+  --sl-color-bg-nav: color-mix(in srgb, var(--gmt-void) 82%, transparent);
+  --sl-color-bg-sidebar: var(--gmt-surface);
+  --sl-color-bg-inline-code: var(--gmt-code-bg);
+  --sl-color-hairline: var(--gmt-hairline);
+  /* northguild.dev's header is 55px tall with 16px sides (Header.astro: padding 0.75rem 16px); Starlight's wide-screen
+     values are 4rem and 1.5rem. This file is unlayered, so it beats Starlight's @layer values. */
+  --sl-nav-height: 3.5rem;
+  --sl-nav-pad-x: 1rem;
+  --sl-color-hairline-shade: color-mix(
+    in srgb,
+    var(--gmt-spring) 8%,
+    transparent
+  );
+
+  --sl-font: var(--gmt-font-mono);
+  --sl-font-mono: var(--gmt-font-mono);
+
+  /* Starlight's default badge pairs white text with `--sl-color-accent-low`, a pale wash in light mode.
+     A fixed deep green (Tailwind green-800) keeps white text at 4.5:1 or more in both themes
+     (docs/scripts/theme-contrast.mjs measures it). */
+  --sl-badge-default-bg: #166534;
+
+  /* The vendored tokens tint hairlines, borders, glows, the selection and the washes with cyan, and cyan
+     is gmt's accent, not this site's (D17). Each is re-derived here from `--gmt-spring` with the same alpha;
+     this file loads after the vendored ones, so these win. They are the live ones: the chat, Expressive Code
+     and the frames read them. `docs/scripts/audit-dist.mjs` fails the build if cyan still reaches a used rule. */
+  --gmt-hairline: color-mix(in srgb, var(--gmt-spring) 18%, transparent);
+  --gmt-border: color-mix(in srgb, var(--gmt-spring) 18%, transparent);
+  --gmt-border-strong: color-mix(in srgb, var(--gmt-spring) 35%, transparent);
+  --gmt-hairline-faint: color-mix(in srgb, var(--gmt-spring) 8%, transparent);
+  --gmt-glow: color-mix(in srgb, var(--gmt-spring) 15%, transparent);
+  --gmt-selection: color-mix(in srgb, var(--gmt-spring) 30%, transparent);
+  --gmt-accent-wash: color-mix(in srgb, var(--gmt-spring) 6%, transparent);
+  --gmt-caret: var(--gmt-spring-ink);
+  --gmt-pagination-title: var(--gmt-spring-ink);
+  /* "Teal" is the deep tone the glass and fills are tinted with: cyan-700 in gmt, green-700 here. */
+  --gmt-teal: #15803d;
+
+  /* tokens.css (unlayered) sets `color-scheme: light dark`, which would beat Starlight's layered per-theme
+     value and make scrollbars and native controls follow the OS instead of the picker. */
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --sl-color-gray-4: #cccccc;
+  /* The vendored light block swaps teal to a bright tone (cyan-400 there); green-400 here. Redeclared because
+     the `:root` value above would otherwise win in light mode too (equal specificity, later in the file). */
+  --gmt-teal: #4ade80;
+}
+
+/* The vendored tokens.css points the font at ./fonts/..., which is not beside this site's CSS (the font lives in
+   public/ so its URL is stable and can be preloaded). A face declared later with the same descriptors wins,
+   so this one repoints it; the vendored file stays unedited. Keep the path in step with `base` and the
+   preload in astro.config.mjs. */
+@font-face {
+  font-family: "Michroma";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/worktree/fonts/michroma-latin-400-normal.woff2") format("woff2");
+}
+
+::selection {
+  background: var(--gmt-selection);
+}
+
+/* One scrollbar everywhere (the user, 2026-11-04): thin, an accent thumb on a clear track, so the page, the sidebar,
+   code blocks, the chat and the search dialog all scroll alike. The thumb is the ink tier made translucent, as faint as
+   3:1 allows on the page, the sidebar and a raised surface: 48% in the dark theme, 63% in the light one, where the ink
+   is darker against a pale ground (docs/scripts/theme-contrast.mjs, "scrollbar thumb ..."). `scrollbar-color`
+   inherits and `scrollbar-width` does not, hence the universal selector for the width. Chrome lets these standard
+   properties replace Expressive Code's `::-webkit-scrollbar` rules; Safari, which lacks `scrollbar-color`, keeps them. */
+:root {
+  --site-scrollbar-thumb: color-mix(
+    in srgb,
+    var(--gmt-spring-ink) 48%,
+    transparent
+  );
+  scrollbar-color: var(--site-scrollbar-thumb) transparent;
+}
+
+[data-theme="light"] {
+  --site-scrollbar-thumb: color-mix(
+    in srgb,
+    var(--gmt-spring-ink) 63%,
+    transparent
+  );
+}
+
+* {
+  scrollbar-width: thin;
+}
+
+/* The frosted header, as on northguild.dev (its Header.astro sets --gmt-blur: 4px): a light blur, and a hairline
+   under it only, no panel border. */
+header.header {
+  /* The user's decision of 2026-11-04: exact northguild.dev glass (the `.gmt-glass` tint, saturate and brightness), so page text
+     shows faintly, blurred, through the bar while scrolling. Set here, not on --sl-color-bg-nav, which the theme select
+     and the mobile table of contents also read. */
+  background: var(--gmt-glass-tint);
+  -webkit-backdrop-filter: blur(4px) saturate(var(--gmt-saturate))
+    brightness(var(--gmt-brightness));
+  backdrop-filter: blur(4px) saturate(var(--gmt-saturate))
+    brightness(var(--gmt-brightness));
+  border-block-end-color: var(--gmt-border);
+}
+
+/* The search box sits at the right, beside the GitHub link, on every page (the user, 2026-11-04: it "seems to dance
+   around"). Starlight's wide header starts it at the main column's left edge, which moves with the sidebar and the
+   table of contents and is absent on the landing; here the middle column is all the free space and the box keeps to
+   its end, at Starlight's own 22rem at most. */
+@media (min-width: 50rem) {
+  header.header > .header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  header.header > .header > :nth-child(2) {
+    justify-content: flex-end;
+  }
+  header.header > .header > :nth-child(2) > site-search {
+    flex: 0 1 22rem;
+  }
+}
+
+/* Display type on the page title and section headings only, as on northguild.dev. */
+main h1,
+main h2 {
+  font-family: var(--gmt-font-display);
+  font-weight: 400;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+main h1 {
+  font-size: clamp(1.5rem, 1.2rem + 1.4vw, 2rem);
+}
+
+main h2 {
+  font-size: var(--sl-text-h3);
+}
+
+.sl-markdown-content code:not(:where(.not-content *)) {
+  color: var(--sl-color-text);
+  border: 1px solid var(--gmt-code-border);
+  border-radius: var(--gmt-radius-sm);
+}
+
+/* Anything the visitor can move the pointer to shows the same ring: the ink tier, 3:1 or more against
+   every surface it sits on in both themes (WCAG 2.2 SC 1.4.11, measured by docs/scripts/theme-contrast.mjs). */
+:focus-visible {
+  outline-color: var(--gmt-spring-ink);
+}

@@ -1,0 +1,264 @@
+/*
+ * Accessibility adjustments to Starlight's own components (plan #235, phase 9).
+ *
+ * Package-manager tabs (<Tabs syncKey="pm">, D14): Starlight's tab is a line-height plus 0.275rem of padding, about
+ * 30px; the requirement is a target of at least 44px. `min-block-size` leaves a longer label free to wrap taller;
+ * the tab is already `display: flex; align-items: center`, so the label stays centred in the extra height.
+ */
+starlight-tabs .tab > [role="tab"] {
+  min-block-size: 44px;
+}
+
+/*
+ * The docs as a git repository (plan #235, phase 13, D17). Everything below is decoration drawn with CSS on
+ * markup Starlight already renders: pseudo-elements with `content: ""`, so nothing is added to the DOM, nothing
+ * decorative can take focus, and nothing is announced. Meaning stays in the existing markup: the links, the
+ * disclosure groups and `aria-current="page"`. Colour comes from the accent tokens (theme.css); a state is never
+ * told by colour alone: the current page is a larger, filled dot with a ring, the others are small and hollow,
+ * a group is a diamond.
+ */
+
+/* ---- The sidebar as a git graph ----
+ * The top level is the trunk (main): a vertical line with a commit dot beside each entry. A group (Commands,
+ * Guides) forks off it: a diamond on the trunk, a curve out to its own line, and a dot per page on that line.
+ * Every offset below is derived from these few lengths so the dots and lines stay on one axis.
+ *
+ * Lines sit under markers (phase 15): every line is z-index 0 and every marker 1, so a hollow dot or a diamond is
+ * opaque over whatever line runs through it, wherever in the tree the line is drawn from. Without that, a branch's line
+ * (drawn by its list's ::after, after the entries) and the fork's curve (drawn from below the group's summary) paint
+ * over the markers they pass.
+ *
+ * The gutters leave the current page's ring clear of its highlight: line to entry is 1.125rem (18px), the ring's
+ * outer radius is half of --g-head plus 4px (11px), so 7px stays between them.
+ */
+.sidebar-content ul.top-level {
+  --g-dot: 0.6rem;
+  --g-head: 0.875rem; /* the current page's dot, before its ring */
+  --g-line: 2px;
+  --g-gutter: 1.625rem; /* room left of the entries for the trunk and its dots */
+  --g-trunk: 0.5rem; /* the trunk's centre line, from the list's left edge */
+  --g-branch: 0.25rem; /* a branch's centre line, from the left edge of the group's entries */
+  --g-branch-gutter: 1.375rem; /* room left of a branch's entries */
+  --g-curve: 0.5rem; /* the radius where a fork leaves the trunk and where it joins its branch */
+  /* Opaque: the strong border tone (spring at 35% over transparent) mixed into the sidebar's own ground, so where two
+     lines cross (the trunk under a fork's curve) they do not stack into a stronger green (the user, 2026-11-04). */
+  --g-color: color-mix(
+    in srgb,
+    var(--gmt-spring) 35%,
+    var(--sl-color-bg-sidebar)
+  );
+  --g-ink: var(--gmt-spring-ink);
+  position: relative;
+  padding-inline-start: var(--g-gutter);
+}
+.sidebar-content ul.top-level::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset-block: 0.75rem;
+  inset-inline-start: calc(var(--g-trunk) - var(--g-line) / 2);
+  inline-size: var(--g-line);
+  background: var(--g-color);
+}
+
+/* A commit: a small hollow dot, centred on its line, drawn from the link's own box. */
+.sidebar-content ul.top-level a,
+.sidebar-content ul.top-level summary {
+  position: relative;
+}
+.sidebar-content ul.top-level a::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 50%;
+  inset-inline-start: calc(var(--g-trunk) - var(--g-gutter) - var(--g-dot) / 2);
+  inline-size: var(--g-dot);
+  block-size: var(--g-dot);
+  box-sizing: border-box;
+  border: var(--g-line) solid var(--g-ink);
+  border-radius: 50%;
+  background: var(--sl-color-bg-sidebar);
+  transform: translateY(-50%);
+  transition: background var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+/* HEAD: the current page. Larger, solid, and ringed, so it differs in shape and size from every other dot. The gap in
+   the ring is the sidebar's own colour, so a line entering the dot stops at the ring. */
+.sidebar-content ul.top-level a[aria-current="page"]::before {
+  inline-size: var(--g-head);
+  block-size: var(--g-head);
+  inset-inline-start: calc(
+    var(--g-trunk) -
+    var(--g-gutter) -
+    var(--g-head) /
+    2
+  );
+  background: var(--g-ink);
+  box-shadow:
+    0 0 0 2px var(--sl-color-bg-sidebar),
+    0 0 0 4px var(--g-ink);
+}
+
+/* A group forks off the trunk: a diamond where it leaves... */
+.sidebar-content ul.top-level summary::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 50%;
+  inset-inline-start: calc(var(--g-trunk) - var(--g-gutter) - var(--g-dot) / 2);
+  inline-size: var(--g-dot);
+  block-size: var(--g-dot);
+  box-sizing: border-box;
+  border: var(--g-line) solid var(--g-ink);
+  background: var(--sl-color-bg-sidebar);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+/* ... a curve out of the trunk, across, and a second curve down into the branch's own line, which the entries' dots
+   then sit on. The two pseudo-elements meet at --g-fork-y, a little below the list's top edge, so the
+   join sits just above the first entry's dot and the second curve ends under it. */
+.sidebar-content ul.top-level details > ul {
+  position: relative;
+  --g-fork-y: 0.25rem;
+}
+.sidebar-content ul.top-level details > ul::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
+  inset-inline-start: calc(
+    var(--g-trunk) -
+    var(--g-gutter) -
+    var(--g-line) /
+    2
+  );
+  inset-block-start: -0.9rem;
+  inline-size: calc(
+    var(--g-branch) +
+    var(--g-gutter) -
+    var(--g-trunk) -
+    var(--g-curve) +
+    var(--g-line) /
+    2
+  );
+  block-size: calc(0.9rem + var(--g-fork-y) + var(--g-line) / 2);
+  border-inline-start: var(--g-line) solid var(--g-color);
+  border-block-end: var(--g-line) solid var(--g-color);
+  border-end-start-radius: var(--g-curve);
+}
+.sidebar-content ul.top-level details > ul::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
+  inset-block: calc(var(--g-fork-y) - var(--g-line) / 2) 0.75rem;
+  inset-inline-start: calc(var(--g-branch) - var(--g-curve));
+  inline-size: calc(var(--g-curve) + var(--g-line) / 2);
+  border-block-start: var(--g-line) solid var(--g-color);
+  border-inline-end: var(--g-line) solid var(--g-color);
+  border-start-end-radius: var(--g-curve);
+}
+/* Starlight's own 1px rule beside nested entries is replaced by the branch line above. */
+.sidebar-content ul.top-level details > ul > li {
+  margin-inline-start: 0;
+  border-inline-start: 0;
+  padding-inline-start: var(--g-branch-gutter);
+}
+.sidebar-content ul.top-level details > ul a::before {
+  inset-inline-start: calc(
+    var(--g-branch) -
+    var(--g-branch-gutter) -
+    var(--g-dot) /
+    2
+  );
+}
+.sidebar-content ul.top-level details > ul a[aria-current="page"]::before {
+  inset-inline-start: calc(
+    var(--g-branch) -
+    var(--g-branch-gutter) -
+    var(--g-head) /
+    2
+  );
+}
+
+/* Hover or keyboard focus fills the dot, so the entry about to be checked out is marked on the graph too. */
+.sidebar-content ul.top-level
+  a:not([aria-current="page"]):is(:hover, :focus-visible)::before {
+  background: var(--g-ink);
+}
+
+/* ---- Leaves ----
+ * In the page text a list item is a leaf, a nested one a younger leaf, smaller and paler. The real marker stays in place (so the list is
+ * still a list to every browser and screen reader) and is only made transparent; the shape is a mask, painted in
+ * the ink tier. In forced-colors mode the real marker is left alone.
+ */
+@media (forced-colors: none) {
+  .sl-markdown-content
+    ul:not(:where(.not-content *, .contains-task-list))
+    > li {
+    position: relative;
+  }
+  .sl-markdown-content
+    ul:not(:where(.not-content *, .contains-task-list))
+    > li::marker {
+    color: transparent;
+  }
+  .sl-markdown-content
+    ul:not(:where(.not-content *, .contains-task-list))
+    > li::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: -1.45rem;
+    inset-block-start: 0.45em;
+    inline-size: 0.85em;
+    block-size: 0.85em;
+    background: var(--gmt-spring-ink);
+    -webkit-mask: var(--leaf) center / contain no-repeat;
+    mask: var(--leaf) center / contain no-repeat;
+    --leaf: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 14C2 7 6 2 14 2c0 7-4 12-12 12Z'/%3E%3C/svg%3E");
+  }
+  /* A nested item is a younger leaf: the same filled shape, smaller and paler, centred where the parent's sits. Neither the
+     twig nor the hollow leaf with its midrib that came before it read as a leaf at this size (the user, 2026-11-04). The
+     tint is translucent, so it pales over whatever is behind it; theme-contrast.mjs keeps it at 3:1 on the page. */
+  .sl-markdown-content ul:not(:where(.not-content *, .contains-task-list))
+    ul
+    > li::before {
+    inset-inline-start: calc(-1.45rem + 0.1em);
+    inset-block-start: 0.55em;
+    inline-size: 0.65em;
+    block-size: 0.65em;
+    background: color-mix(in srgb, var(--gmt-spring-ink) 65%, transparent);
+  }
+}
+
+/* ---- Links whose underline grows ----
+ * The text keeps its ordinary underline (colour alone must not mark a link, WCAG 1.4.1); on hover or keyboard focus a
+ * heavier bar in the accent grows beneath it, left to right. Heading anchors and link-buttons are left as Starlight draws them.
+ */
+.sl-markdown-content
+a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)) {
+  background:
+    linear-gradient(var(--gmt-spring-ink), var(--gmt-spring-ink)) left bottom /
+    0 2px no-repeat;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-size var(--gmt-duration-med) var(--gmt-easing);
+}
+.sl-markdown-content
+  a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)):is(
+    :hover,
+    :focus-visible
+  ) {
+  background-size: 100% 2px;
+}
+
+/* No motion for a visitor who asks for none: the bar and the dots simply appear. */
+@media (prefers-reduced-motion: reduce) {
+  .sl-markdown-content a,
+  .sidebar-content ul.top-level a,
+  .sidebar-content ul.top-level a::before,
+  .sidebar-content ul.top-level summary::before {
+    transition: none;
+    animation: none;
+  }
+}

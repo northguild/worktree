@@ -1,0 +1,263 @@
+---
+title: "worktree config: set up the CLI"
+description: "worktree config runs a setup wizard or reads and sets keys like defaultSourceBranch, codeEditor and opener, stored in git config."
+---
+
+Configure defaults and inspect current configuration.
+
+## Usage
+
+```bash
+worktree config
+worktree config <key> <value>
+worktree config <key>
+worktree config --list
+worktree config --list --missing
+worktree config --missing
+worktree config --missing --names <comma-separated-keys>
+worktree config --yes --names <comma-separated-keys>
+worktree config --approve
+worktree config --project
+```
+
+`--list` shows `github.token`, `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
+paste or screen-share. `worktree config <key>` with no value prints the current value and nothing else, secrets
+included, so `token=$(worktree config github.token)` works in a script. A key with no value prints nothing and
+exits `0`.
+
+`--missing` filters to values that are not configured yet.
+
+- With `--list`, it only prints config names that currently have no value.
+- Without `--list`, it only prompts for missing values.
+- `--names` limits prompting to specific config keys. Naming keys is asking for them, so the setup checklist is not
+  shown and each named key is asked directly.
+- `--yes` (`-y`) makes the run [non-interactive](/worktree/commands/branch/#non-interactive-runs): nothing is asked.
+  Each key takes its default, or the value it already holds, and the run fails with exit `2` naming
+  `worktree config <key> <value>` for a key with neither, such as a token. Without `--names` there is no checklist to answer and the run fails naming `--names <keys>`.
+
+## The Setup Checklist
+
+A bare interactive `worktree config` opens with one question, "What do you want to set up?", a checklist you
+move through with the arrow keys, tick or untick with space, and confirm with enter (Esc asks whether to quit, see [Quitting](#quitting)). The items, in order, are
+GitHub, Jira, Linear, ClickUp, how worktrees open, the coding agent for `--agent`, branch prefixes and the
+command to run after creating a worktree. A ticked item shows a filled circle and an unticked one an empty circle, so the
+state does not depend on colour. An item that is already set up starts ticked, so a second run walks you through
+what you have. Unticking an item only means "do not ask now": it clears nothing, and a stored token stays in
+git config.
+
+Next comes `defaultSourceBranch`, which is not on the checklist and is asked unless `--missing` or a project file has taken it out, and then the questions of each ticked item, in the order
+above. No item sits behind a gate question, so ticking nothing costs two questions at most: the checklist and `defaultSourceBranch`. An item is listed only while it has
+a key left to ask: `--missing` and the keys a [project file](#project-file) supplies take keys out before the
+checklist is built, and with no item left the checklist is not shown.
+
+Each ticked item opens with a one-line heading, such as "Setting up Jira", so you can see which part you are in; an
+item can print its heading and then ask nothing, when `--missing` or a stored `opener` has already settled its
+keys, and a `--names` run prints no headings because it has no checklist. The
+run ends with one line naming the keys it saved, for example "Configuration complete! Saved: opener, codeEditor",
+or "Configuration complete! Nothing changed." when it stored nothing new. The line lists key names only, never a
+value, so a token never reaches your screen or a pasted bug report. A key whose answer matches what was already
+stored is not listed. Both read as words, without colour.
+
+## Quitting
+
+Esc in any question of an interactive run asks "Quit now?", with No as the default. Yes, or Ctrl-C at a question,
+stops the command quietly and exits `0`; No, enter, or Esc again takes you back to the question you were on, which
+starts over from its default, so half-typed text is lost. Only a lone Esc counts: arrow keys and Alt combinations do
+not, and a lone Esc takes about half a second to register while the terminal rules out a longer key sequence. When
+`worktree config` is stopped this way it prints one line naming the keys it had already saved, by name and never by
+value, such as `Stopped. Saved: opener, codeEditor` or `Stopped. Nothing changed.` What was saved stays saved, and the
+offer to set up a project file is not made.
+
+## Project File
+
+When the repository's `.worktree.yml` sets a team key, `worktree config` knows. See
+[Project Configuration](/worktree/project-configuration/) for the file.
+
+- **The wizard asks nothing the file answers.** A bare `worktree config` says once which keys the file sets
+  and skips them, including a personal `postCreate` when the file has steps. The wizard no longer writes a
+  personal copy of a value the file already supplies. `--names` alone is the exception: naming a key is
+  asking for it. With `--missing` a key the file supplies is not missing, so it is not asked even when named,
+  which is why `branch`'s offer to fill in missing values never asks for one.
+- **`worktree config <key> <value>` for a key the file sets** says so, shows the file's value and yours, and
+  asks before writing your value. Yes overrides the file for you only. Non-interactive, naming the key and
+  value is asking for it, so the value is set and a warning says the file sets the key.
+- **`--list` marks where each value comes from**, in plain text:
+
+  ```text
+  defaultSourceBranch=origin/main (.worktree.yml)
+  branchPrefix.bugfix=bug/ (overrides .worktree.yml: fix/)
+  ```
+
+  A value only the file supplies carries `(.worktree.yml)`. A value in your git config that differs from the
+  file's carries `(overrides .worktree.yml: <the file's value>)`. Keys only the file can set follow, one line
+  each: `jira.branchType: 4 rules`, `branchType: 2 rules` (the shared list), `branchName=<template>`, `copy: 1 pattern` and `postCreate: 2 steps`,
+  each marked `(.worktree.yml)`. A value the file supplies is not missing, so `--list --missing` leaves it
+  out. Secrets stay masked as `<key>=***`.
+
+### Writing the file with `--project`
+
+`worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree from
+the team keys in your git config (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`, `jira.deployment`,
+`clickup.workspaceId`, `github.repository`, `github.host` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
+secret key. A personal `postCreate` command becomes a one-step list. The file is left uncommitted for you to
+review, and the command refuses to overwrite an existing `.worktree.yml`. It takes no other argument or flag.
+
+### Offers
+
+On a terminal, `branch` (after the worktree is open) and a bare `worktree config` make two offers, each at
+most once. Nothing is offered under `--json`, `--yes`, `--non-interactive`, `CI`, without a terminal, or on
+`branch --dry-run`.
+
+- With no `.worktree.yml` on the default branch and a team key in your git config, `worktree config --project`
+  is offered once per repository. Either answer is remembered.
+- With a `.worktree.yml`, the keys in your local git config that hold the same value as the file are offered
+  for removal (`git config --local --unset`), once per version of the file. A key with a different value
+  stays, as the override it is.
+
+These answers are kept under `northguild.worktree.*` in local git config. They are not configuration keys, so
+`--list` does not show them and `worktree config <key> <value>` cannot set them.
+
+## Examples
+
+```bash
+worktree config defaultSourceBranch origin/main
+worktree config codeEditor code
+worktree config opener herdr
+worktree config opener none
+worktree config opener
+worktree config agent.command "claude --bg"
+worktree config postCreate "pnpm install"
+worktree config github.autoAssign true
+worktree config jira.autoAssign true
+worktree config jira.autoStart true
+worktree config linear.autoStart true
+worktree config clickup.autoStart true
+worktree config --list
+worktree config --list --missing
+worktree config --missing
+worktree config --missing --names defaultSourceBranch
+worktree config --missing --yes --names branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
+worktree config --project
+```
+
+Configuration is stored in Git config under `northguild.worktree.*`. A team can also set some keys for
+everyone in a `.worktree.yml` file, which your own value overrides; see
+[Project Configuration](/worktree/project-configuration/).
+
+## Opener Keys
+
+- `opener` selects where a finished worktree opens, and for `herdr` where its space is closed
+  again when the worktree is removed: `editor` (default), `herdr` or `none`. With `none` nothing is opened:
+  the command prints `Worktree created at <path>` and stops. An unknown value fails with exit `2`.
+- `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`.
+- `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
+- `herdr.agent` the agent kind that starts in every newly opened Herdr space, with or without a brief. Unset means no agent, unless `branch` or `checkout` is given a brief (`--agent`), in which case the program `agent.command` names is used.
+
+`opener` and `codeEditor` are always listed. When you tick how worktrees open, the wizard asks `opener`
+first and its answer decides what follows: `editor` asks `codeEditor`, `herdr` asks `herdr.focus`, and
+`none` asks nothing more. `herdr.agent` is not asked here: it follows the coding agent's question, described
+under [Agent Key](#agent-key). `herdr.focus` and `herdr.agent` are listed, and `herdr` is among
+the opener's choices, only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
+`opener` is `herdr`). Without those, the wizard offers `editor` and `none` only. Once `herdr` is offered,
+choosing it asks `herdr.focus` (and, with a coding agent, the Herdr yes/no below) even if the CLI has since gone missing. `--names` and a direct
+`worktree config <key> <value>` always work regardless, so a machine can be configured before Herdr is
+installed: `--names opener` offers all three choices, and each named key is asked on its own. With `--missing` and `opener` already set, the stored opener decides the follow-ups: a `codeEditor` is only asked under `editor`, and the Herdr keys only under `herdr`.
+
+## GitHub Integration Keys
+
+- `github.token` for GitHub API access to github.com. It is never read for, or sent to, a GitHub Enterprise host.
+- `github.autoAssign` whether reading a GitHub issue also assigns it to you: `true` always, `false`
+  never, unset means you are asked once and your answer is saved. See
+  [Configuration](/worktree/configuration/#github-integration-notes).
+- `github.repository` the `owner/repo` that `--github` and `--assign` use, a team key that can also be set in
+  `.worktree.yml` under `github:`. Without it `worktree` uses `upstream` when it is on `github.host` (`github.com` unless set), else
+  `origin`. **The wizard never asks for it**, and `--missing` never lists it: most people have no fork. Set it by
+  name, for example `worktree config github.repository acme/widgets` when your issues are on your fork. See
+  [Forks](/worktree/guides/github-issue-integration/#forks).
+- `github.host` the GitHub host that `--github` and `--assign` use, a bare hostname such as `ghe.example.com`
+  for GitHub Enterprise. Unset means `github.com`. A team key that can also be set in `.worktree.yml` under
+  `github:`. **The wizard never asks for it**, and `--missing` never lists it. Set it by name, for example
+  `worktree config github.host ghe.example.com`. See
+  [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
+- `branchPrefix.feature` optional prefix used for `Feature` issues.
+- `branchPrefix.bugfix` optional prefix used for `Bug` issues.
+- `branchPrefix.chore` optional prefix used for `Task` issues.
+
+These prefixes are chosen by each provider's built-in mapping (GitHub and Jira by issue type, Linear by label,
+ClickUp by tag). A `branchType` list for that provider, or the shared top-level one, in `.worktree.yml` replaces the mapping; see
+[Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+
+`github.token` and `github.autoAssign` are asked together when you tick GitHub in the checklist. The `github.autoAssign` prompt has three choices: "Yes, always", "No, never" and "Ask me each
+time". The last leaves the key unset, clearing any stored answer, which is the "ask me" state — so
+`--missing` goes on offering the prompt until you settle it either way. Leaving the `github.token`,
+`jira.apiToken`, `linear.apiKey` or `clickup.apiToken` prompt empty, or answering with only spaces, keeps any token you already have,
+rather than clearing it. A pasted value is stored without surrounding whitespace.
+`clickup.workspaceId` is optional and only matters for custom task ids such as `DEV-123`: an empty answer skips it and writes nothing, a non-interactive run skips it rather than failing, and under `--missing` pressing Enter skips its prompt too.
+ClickUp asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/worktree/configuration/#clickup-integration-notes).
+A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret` and `clickup.apiToken`) with a value that is only
+whitespace is refused with exit `2`, and nothing is stored.
+
+## Jira Integration Keys
+
+- `jira.host`, `jira.email` and `jira.apiToken` for Jira API access.
+- `jira.deployment` which Jira `jira.host` is: `cloud` (the default) or `datacenter`. A team key, also set under `jira:` in `.worktree.yml`, and never asked for by `worktree config`.
+- `jira.autoAssign` whether `--jira` also assigns the issue to you: `true` always, `false` never, unset
+  means you are asked once and your answer is saved. See
+  [Configuration](/worktree/configuration/#jira-integration-notes).
+- `jira.autoStart` whether `--jira` also moves the issue to in progress once the worktree exists: `true`
+  always (an issue already in progress or done, or with no single in-progress status to move to, is left
+  where it is), `false` never, unset means you are asked once and your answer is saved. See
+  [Configuration](/worktree/configuration/#jira-integration-notes) and
+  [Moving the issue to in progress](/worktree/guides/jira-integration/#moving-the-issue-to-in-progress).
+
+When `jira.deployment` is `datacenter` (from git config or `.worktree.yml`), the wizard does not ask for `jira.email`, a bare run, `--missing` and `--list --missing` do not count it as missing, and the token prompt reads "Jira personal access token" and shows the steps for creating one in Jira instead of the Atlassian Cloud ones. The token still goes in `jira.apiToken`. See [Jira Data Center](/worktree/guides/jira-integration/#jira-data-center). With `cloud` or unset, nothing changes. Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given.
+
+The Jira keys are asked together when you tick Jira in the checklist. The `jira.autoAssign` prompt is asked after the token
+and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
+The `jira.autoStart` prompt follows it with the same three choices. "Ask me each time" leaves a key unset,
+so `--missing` goes on offering the prompt until you settle it. A direct `worktree config jira.autoAssign` or
+`worktree config jira.autoStart` accepts only `true` or `false`.
+
+## Linear Integration Keys
+
+- `linear.apiKey` for Linear API access.
+- `linear.autoStart` whether `--linear` also moves the issue to a started state once the worktree exists:
+  `true` always (an issue already started, or in triage, completed, canceled or duplicate, is left where it is), `false` never, unset means you are asked once and your answer is saved. See
+  [Configuration](/worktree/configuration/#linear-integration-notes).
+
+The Linear keys are asked together when you tick Linear in the checklist. The `linear.autoStart` prompt is asked after the key
+and has three choices: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so
+`--missing` goes on offering the prompt until you settle it. A direct `worktree config linear.autoStart`
+accepts only `true` or `false`.
+
+Three more Linear keys are for a Linear agent that starts worktrees, and [`worktree linear-listen`](/worktree/commands/linear-listen/) reads them. None is asked
+by the wizard (a bare run and `--missing` skip them), and none can be set from `.worktree.yml`: set one with
+`worktree config <key> <value>`.
+
+- `linear.agentToken` the Linear agent app's OAuth token. Secret: `--list` shows it as `***`.
+- `linear.webhookSecret` the signing secret of the app's webhook. Secret: `--list` shows it as `***`.
+- `linear.agentAllow` the Linear user ids allowed to delegate an issue to the agent, comma-separated.
+- `linear.agentContext` `true` or `false` (anything else is refused with exit `2`). `true` lets `worktree linear-listen` add the delegated issue's text to the agent's brief, fenced as untrusted and capped. Unset means `false`. Neither the wizard nor `.worktree.yml` sets it.
+
+## Agent Key
+
+- `agent.command` the command `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The wizard asks for it when you tick the coding agent in the checklist, as one question, "Which coding agent do you use?", with the stored command filled in; leave it empty for no agent. When `opener` is `herdr` and there is a command, one yes/no follows: "Start it in every new Herdr space, even without `--agent`?". Yes sets [`herdr.agent`](#opener-keys) to the command's first word, unless `herdr.agent` already has a value, which it keeps (a first word that is not a valid kind, such as a path, is not stored: no question is asked and the wizard points to `worktree config herdr.agent <kind>`); no leaves `herdr.agent` empty. `--names herdr.agent` and `--names agent.command` still ask for each key on its own. Read by
+  [`branch --agent`](/worktree/commands/branch/#agent-dispatch) and `checkout --agent`, by
+  [`list --agents`](/worktree/commands/list/), and by [`cleanup`](/worktree/commands/cleanup/)'s agent check. See
+  [Configuration](/worktree/configuration/#agent-command).
+
+## Post-create Key
+
+- `postCreate` a command to run in every new worktree, such as `pnpm install`. Read by
+  [`branch`](/worktree/commands/branch/#installing-dependencies); when it is unset the steps under `postCreate`
+  in `.worktree.yml` run instead (after you approve them), else the command is inferred from the lockfile. It is validated like `agent.command`: its first word has to be on `PATH`. See
+  [Configuration](/worktree/configuration/#post-create-command). The prompt accepts an empty answer, which leaves
+  it unset.
+
+## Approving Post-create Steps
+
+`worktree config --approve` shows the `postCreate` steps in the repository's `.worktree.yml` and asks
+whether to run them in new worktrees on this machine. Yes records the approval for those exact steps in this
+clone's local git config, so `worktree branch` does not ask. It needs a terminal: when nothing can be asked
+it refuses with exit `2`. The approval is not a configuration key, so it is not listed by `--list` and
+cannot be set by name. See [Approving the steps](/worktree/project-configuration/#approving-the-steps).

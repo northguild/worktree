@@ -1,0 +1,83 @@
+---
+/**
+ * The product header's left side (D17): northguild.dev's mark and wordmark, then " / worktree" in the accent.
+ * Two links, each named by its own visible text: the mark and "NorthGuild" go to https://northguild.dev/, "worktree" to
+ * this site's home. The mark is decorative (aria-hidden) because the word beside it names the link.
+ *
+ * Starlight renders this component in its Header, so the header's other parts (search, theme picker, language select,
+ * the mobile menu) are untouched.
+ *
+ * The mark is NorthGuildMark.astro (copied from northguild/northguild.dev); the wordmark's font and letter-spacing are
+ * those of northguild.dev's apps/site/src/components/Header.astro at commit ade22a5d30f274d02d50a33eb6ccdd705c2f5cbd,
+ * and its gap is that file's at 295ee231bdd2f915ad49aa337ca62c4a86c9654a (northguild/northguild.dev#18).
+ */
+import { cliVersion } from "../lib/site-meta";
+import NorthGuildMark from "./NorthGuildMark.astro";
+
+const productHref = import.meta.env.BASE_URL;
+---
+
+<div class="brand">
+<a href="https://northguild.dev/" class="wordmark">
+<NorthGuildMark id="ng-mark-header" />
+  <span translate="no">NorthGuild</span>
+</a>
+<span class="slash" aria-hidden="true">/</span>
+<span class="product-line">
+  <a href={productHref} class="product" translate="no">worktree</a>
+  <span class="version" translate="no">v{cliVersion}</span>
+</span>
+</div>
+
+<style>
+  .brand {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.5ch;
+    min-width: 0;
+    font-family: var(--gmt-font-display);
+    /* Michroma is wide: the title shrinks on a phone and may wrap onto a second line, which the header's height holds. */
+    font-size: clamp(0.8rem, 0.5rem + 1.6vw, 1rem);
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+  }
+  .wordmark,
+  .product {
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    /* The name close to the shield, so they read as one mark (northguild.dev#18, which the user asked to follow). */
+    gap: var(--gmt-space-3);
+    color: var(--gmt-ice);
+  }
+  .slash,
+  .product {
+    color: var(--sl-color-text-accent);
+  }
+  .product:hover {
+    color: var(--sl-color-white);
+  }
+  /* The CLI version beside the product's name (the user, 2026-11-04): smaller, grey, on the name's baseline. The line
+     is one flex item holding inline text, so the two share a baseline whatever their fonts. */
+  .product-line {
+    white-space: nowrap;
+  }
+  .version {
+    margin-inline-start: 1ch;
+    font-family: var(--gmt-font-mono);
+    font-size: 0.7em;
+    letter-spacing: 0;
+    color: var(--sl-color-gray-3);
+  }
+  /* A phone has the search and menu buttons beside the title too: with the version, "worktree" wraps to a second line
+     and leaves the slash behind, so the version shows from 30rem up. */
+  @media (max-width: 30rem) {
+    .version {
+      display: none;
+    }
+  }
+</style>

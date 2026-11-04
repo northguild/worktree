@@ -1,0 +1,149 @@
+---
+/**
+ * The landing's art box (D18): a field of leaf-shaped WebGL particles that gust in, form a large leaf, become a git
+ * graph and write "worktree", then flow back into the leaf and loop (src/hero/). This component renders the box, the
+ * still SVG and the canvas, and the loader's script; it is rendered by the landing branch of Hero.astro only, so
+ * Astro bundles the loader on the landing and on no other page. The effect itself (OGL and the particles) is a chunk
+ * that only the loader's dynamic `import()` reaches, as the chat is for ChatLauncher.
+ *
+ *  - The canvas covers the viewport, behind the header's glass and the copy, for the entrance; afterwards the leaves
+ *    live in this box. It is `aria-hidden`, as is the SVG: the page's heading and link carry the meaning.
+ *  - The still is the formed graph, drawn from the geometry the particles sample (src/hero/geometry.ts). It shows under
+ *    `prefers-reduced-motion: reduce`, without WebGL (the loader sets `data-hero="still"`) and without script
+ *    (`scripting: none`); in all three the effect is never requested.
+ *  - The leaf palette is invented (the prototype's proposal, approved with it); the first leaf is the site's spring.
+ */
+import {
+  ART_ASPECT,
+  BRANCHES,
+  DESIGN,
+  FIT,
+  HEAD,
+  LINE_WIDTH,
+  RING,
+  RINGS,
+  TRUNK,
+} from "../hero/geometry";
+
+// The shapes are drawn about the box's centre, so the viewBox is the box in design units.
+const viewHeight = DESIGN.height / FIT;
+const viewWidth = viewHeight * ART_ASPECT;
+const round = (value: number) => Math.round(value * 10) / 10;
+const strand = (path: typeof TRUNK) =>
+  path.points
+    .map(([x, y], i) => `${i === 0 ? "M" : "L"}${round(x)} ${round(y)}`)
+    .join("");
+const strands = [TRUNK, ...BRANCHES].map(strand);
+---
+
+<div class="art" data-hero-art>
+  <svg
+    class="hero-still"
+    viewBox={`${round(-viewWidth / 2)} ${round(-viewHeight / 2)} ${round(viewWidth)} ${round(viewHeight)}`}
+    aria-hidden="true"
+    focusable="false"
+  >
+    <g fill="none" stroke="var(--leaf-1)">
+      {strands.map((d) => <path {d} stroke-width={LINE_WIDTH} stroke-linecap="round" stroke-linejoin="round" />)}
+      {
+        RINGS.map(([cx, cy]) => (
+          <circle {cx} {cy} r={(RING.inner + RING.outer) / 2} stroke-width={RING.outer - RING.inner} />
+        ))
+      }
+      <circle cx={HEAD.at[0]} cy={HEAD.at[1]} r={(HEAD.inner + HEAD.outer) / 2} stroke-width={HEAD.outer - HEAD.inner} />
+    </g>
+    <circle cx={HEAD.at[0]} cy={HEAD.at[1]} r={HEAD.disc} fill="var(--leaf-1)" />
+  </svg>
+  <canvas class="hero-canvas" data-hero-canvas aria-hidden="true"></canvas>
+</div>
+
+<script>
+  import { afterFirstPaint, mountHero, webGLAvailable } from "../hero/loader";
+
+  const art = document.querySelector<HTMLElement>("[data-hero-art]");
+  const canvas = art?.querySelector<HTMLCanvasElement>("[data-hero-canvas]");
+  if (art && canvas) {
+    void mountHero({
+      host: { art, canvas, header: document.querySelector<HTMLElement>("header.header") },
+      reducedMotion: matchMedia("(prefers-reduced-motion: reduce)"),
+      hasWebGL: webGLAvailable,
+      firstPaint: afterFirstPaint,
+      // A dynamic import: OGL and the particles are a separate chunk nothing references until the loader decides.
+      importEffect: () => import("../hero/particles"),
+    });
+  }
+</script>
+
+<style is:global>
+  /* The leaf palette. INVENTED (approved with the prototype): six greens, weighted in the effect from the most common
+     (1) to the rarest (6); the dark ground gets the lighter tier, the light ground a tier darker. Leaf 1 is the
+     site's spring. The big leaf's veins are lifted towards a pale tint and its blade pressed deeper. */
+  :root {
+    --leaf-1: var(--gmt-spring);
+    --leaf-2: #22c55e; /* green-500 */
+    --leaf-3: #86efac; /* green-300 */
+    --leaf-4: #16a34a; /* green-600 */
+    --leaf-5: #34d399; /* emerald-400 */
+    --leaf-6: #bef264; /* lime-300 */
+    --leaf-vein: #bbf7d0; /* green-200 */
+    --leaf-deep: #166534; /* green-800 */
+    --leaf-fold: 0.78; /* how strongly a leaf's far half is shaded */
+    --leaf-ambient-alpha: 0.5; /* how bright the ambient cloud is */
+  }
+  [data-theme="light"] {
+    --leaf-2: #15803d; /* green-700 */
+    --leaf-3: #4ade80; /* green-400 */
+    --leaf-4: #166534; /* green-800 */
+    --leaf-5: #059669; /* emerald-600 */
+    --leaf-6: #65a30d; /* lime-600 */
+    --leaf-vein: #86efac; /* green-300 */
+    --leaf-deep: #14532d; /* green-900 */
+    --leaf-fold: 0.8;
+    --leaf-ambient-alpha: 0.45;
+  }
+</style>
+
+<style>
+  /* The art box: a place in the layout, 6:7 as the SVG tree was. The effect measures it and anchors the shapes there. */
+  .art {
+    position: relative;
+    aspect-ratio: 6 / 7;
+    inline-size: 100%;
+    max-inline-size: 34rem;
+    margin-inline: auto;
+  }
+  .hero-still,
+  .hero-canvas {
+    display: none;
+  }
+  .hero-still {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    overflow: visible;
+  }
+  /* One canvas for the whole page, for the entrance: behind the header's glass and the copy, in front of the page. */
+  .hero-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .art[data-hero="live"] .hero-canvas {
+    display: block;
+  }
+  .art[data-hero="still"] .hero-still {
+    display: block;
+  }
+  @media (scripting: none) {
+    .hero-still {
+      display: block;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-still {
+      display: block;
+    }
+  }
+</style>

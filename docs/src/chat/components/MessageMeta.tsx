@@ -26,7 +26,7 @@ export function MessageMeta({
       </div>
       <time
         dateTime={convertUnixToUtc(createdAt)}
-        className="text-xs text-gray-400 dark:text-gray-500 ml-2"
+        className="text-xs text-chat-muted ml-2"
       >
         {formatTime(convertUnixToPlainTime(createdAt))}
       </time>

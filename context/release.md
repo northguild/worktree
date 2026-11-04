@@ -44,8 +44,8 @@ What each section takes, and the alternative answers written out, are in
 | `skills/**` | people installing the package (the skill files ship in it, and `npx skills add` reads them) | the shipped skill text changes | semver, as above |
 | `package.json` dependencies | people installing the package | a runtime `dependencies` change that reaches an installer. A devDependency-only change owes none by this column, but see the gap under *The check* | semver, as above |
 
-**`docs/**`, `context/**` and `.github/**` owe no note.** `docs` is a private package that deploys on its
-own on any push touching `docs/**`, with no npm release and no version of its own (Changesets ignores it);
+**`docs/**`, `context/**` and `.github/**` owe no note.** `docs` is a private package whose site deploys
+with the next stable release, with no npm release and no version of its own (Changesets ignores it);
 `context/**` is planning artifacts and `.github/**` is CI, and neither is shipped in the package. These are
 rows saying *no note*, not gaps.
 
@@ -76,7 +76,7 @@ One or two sentences written for someone installing the package.
 
 The frontmatter value is `patch`, `minor` or `major`; the body becomes the changelog entry and the GitHub
 release text. **Filenames are random on purpose**, so two branches adding notes never conflict on merge.
-`docs/src/app/docs/changelog/page.mdx` is a hand-written page stating the single-latest-docs policy and
+`docs/src/content/docs/changelog.mdx` is a hand-written page stating the single-latest-docs policy and
 pointing at `CHANGELOG.md`; it is not the changelog, and it stays in [`stack.md`](stack.md)'s Documentation
 index.
 
@@ -97,7 +97,7 @@ If it is accepted, that is the maintainer's explicit exception to the rule, not 
 nothing here treats it as made.
 
 **Settings, from `.changeset/config.json`:** `docs` is in `ignore`, so the private docs package is neither
-versioned nor tagged — its deploy keys on `docs/**`, not on a version. `commit` is `false` (Changesets never
+versioned nor tagged — its deploy rides the release's `publish.yml` run, not a version of its own. `commit` is `false` (Changesets never
 commits), `access` is `public`, `baseBranch` is `main`. There is no dependent package, so nothing can be
 dragged into a release.
 
@@ -126,8 +126,8 @@ before a handover.
 its own initiative.** `/release` runs the *Bump* wire below when somebody types it; nothing in the workflow
 runs any of the others. What does is below. **A feature's merge ships nothing to npm**: it lands a note on `main` and waits. The
 event is the merge of the release pull request, the one made with `pnpm changeset:prepare-release`, which
-moves the version. The one exception is the docs site, which deploys on any merge touching `docs/**`, bump
-or no bump.
+moves the version. The docs site deploys from the same event: `publish.yml` calls `docs-deploy.yml` once a
+stable version has been published.
 
 ### The wires
 
@@ -140,6 +140,13 @@ or no bump.
   It cannot be run twice over the same notes, and since `publish.yml` watches the version, it is the button
   that ships. v2.1.1 was a release pull request of its own (#101); v2.1.2's bump and `CHANGELOG.md`
   section rode the fix pull request itself (#103), which `publish.yml` handled the same way.
+
+  **The hold on the first release after #240 is lifted.** That release carries `.changeset/swift-owls-point.md`:
+  its CLI writes `https://northguild.dev/worktree/schema/v1.json` into every new `.worktree.yml`, and its npm
+  `homepage` and README links point at the same host. The condition was a `docs-deploy.yml` run whose `site` job
+  (and its smoke test) passed on `main`; run 41910362381 on `main` for c0cc821 (2026-11-04,
+  <https://github.com/northguild/worktree/actions/runs/41910362381>) had `site` and `legacy-pages` both `success`.
+  #239 still owns the launch checks, including watching the first release's `docs` job (below).
 - **Tag, release, publish** — one workflow, `publish.yml`, on a push to `main` that touches `package.json`
   and moves its version (a `guard` job reads the previous version from `github.event.before`), or on a
   manual dispatch, which forces the guard open. The `publish` job, in the `release` environment with OIDC,
@@ -147,15 +154,35 @@ or no bump.
   `scripts/release-notes.mjs` and **fails before publishing if it is missing**; `npm publish` (or
   `--tag next` for a version containing `-`); an annotated `v<version>` tag by `github-actions[bot]`; the
   GitHub release from the CHANGELOG section (`--prerelease` for a prerelease). A separate `notify` job, with
-  no permissions and no environment, then posts to Discord with `curl`. Each publish step
+  no permissions and no environment, then posts to Discord with `curl`. A `docs` job, `needs: publish` and for a
+  stable version only, then deploys the docs (next bullet). Each publish step
   skips itself if its result already exists (version on npm, tag, release), so a failed run is recovered
   with "Run workflow". It replaces `tag-on-version-change.yml` (deleted) and the old `release: published`
   trigger, which could not fire once the release is created by a workflow's own token. **Runs, green**: it
   published, tagged and released v2.1.0 (2026-10-01), v2.1.1 (2026-10-04) and v2.1.2 (2026-10-14), and npm
   serves 2.1.2. `v1.2.8` was once tagged and never released, so never published; that gap is closed
   because tag and release no longer come apart.
-- **Deploy (docs)** — `docs-deploy.yml`, on any push to `main` touching `docs/**`, `package.json`, the
-  lockfile, the workspace file or the version-sync script. **Runs**, green. It is not gated on a version.
+- **Deploy (docs)** — `docs-deploy.yml`, called by the `docs` job of `publish.yml` after `publish` succeeds and
+  only when the version has no `-` (a prerelease does not deploy docs). The job passes exactly
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (no `secrets: inherit`), declares its own `contents: read`,
+  `pages: write` and `id-token: write`, and has no `release` environment, so its OIDC token cannot be exchanged for
+  an npm credential. The called workflow builds the release commit, the one `v<version>` tags. It is skipped when
+  `publish` is. It can also be run by hand (`workflow_dispatch`), from `main` only: `site` carries
+  `if: github.ref == 'refs/heads/main'` (#243), so a run from any other ref skips both jobs and deploys nothing. Two jobs. `site` tests, builds `docs/dist`, audits it (`pnpm docs:audit-dist`), copies it to
+  `docs/.deploy/worktree/` and runs `wrangler deploy` with `docs/wrangler.jsonc` (a Worker with static assets and no
+  script, on the Route `northguild.dev/worktree*`), then runs `docs/scripts/deploy-smoke.mjs` against the live URL,
+  retrying for route propagation. `legacy-pages` runs only after `site` is green and publishes the generated
+  `docs/legacy/` bundle to GitHub Pages: `schema/v1.json` plus a redirect stub per old route. The old Pages site is
+  that bundle and nothing else. **Seen green in this shape once, from a push**: run 41910362381 on `main`
+  (2026-11-04, c0cc821), `site` and `legacy-pages` both `success`. **Never yet run from `publish.yml`**: the
+  first release after this lands is the first `docs` job, and #239 owns watching it.
+  **Recovery:** "Re-run failed jobs" on the same Publish run (`gh run rerun <run-id> --failed`), within 30 days
+  of it. Only what failed runs again (`site`, `legacy-pages` or both), with the run's own `GITHUB_SHA` and
+  `GITHUB_REF`: it rebuilds the release commit, the `github-pages` rule still sees `main`, and `publish` and
+  `notify` do not repeat. Past 30 days, "Run workflow" on `docs-deploy.yml`, from `main`, builds `main`'s head at
+  that time, not the release commit. A failed `docs` job leaves the Publish run red although the package shipped.
+  The called jobs set their own `timeout-minutes` (20 and 10), which a calling job cannot: they hold the `publish`
+  concurrency group while they run.
 - **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`, or a manual
   dispatch. **Has succeeded once**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
   repository secrets on 2026-10-03, and a manual dispatch that day succeeded. Every earlier run, the last
@@ -167,21 +194,20 @@ or no bump.
 | Path | On a merge to `main` | Leaves behind |
 |---|---|---|
 | `@northguild/worktree` (root) | if its version moved: tested, built, published to npm, tagged, released | npm version + tag + GitHub release (all automatic) |
-| `docs` | deployed to GitHub Pages if the merge touched `docs/**` or `package.json` — version or not | nothing |
+| `docs` | nothing on a merge. If the version moved and is stable: built, audited and deployed to `northguild.dev/worktree/` (Cloudflare Worker with static assets), then the legacy bundle to GitHub Pages, by the `docs` job of `publish.yml` | nothing |
 | `docs/worker` | deployed to Cloudflare if the merge touched `docs/worker/**` — version or not | nothing |
 
 **The npm path is gated on its own version, correctly.** `publish.yml` keys on the root version moving, and
 a merge that does not bump it publishes, tags and releases nothing.
 
-**The docs deploy is not gated at all**, and that is recorded as what this repository does rather than as
-the gate it could have. It ships whatever `docs/` holds at merge time. Because a feature's merge no longer
-bumps anything, the window is now the time between a merge and the release PR that publishes it: the live
-docs can describe behaviour npm does not have yet, and a docs change merged without a release describes
-behaviour that is not published at all. A deployed site leaves no tag and no release, so nothing records which commit
-is live.
+**The docs deploy is gated on the stable release.** It runs after `publish` in the same run, so the live site
+describes the version npm serves: a feature's merge, or a docs-only merge, changes nothing live until the next
+release. The cost is that a docs fix waits for a release, unless somebody runs `docs-deploy.yml` by hand from
+`main`. A deployed site leaves no tag and no release of its own; the `docs` job runs against the same sha as the
+`v<version>` tag.
 
-**The gap, named and not generated:** the docs site and the Worker deploy on no version, by decision
-(`docs` is ignored by Changesets), and so leave no tag and no release. The Worker's missing credential,
+**The gap, named and not generated:** the Worker deploys on no version, by decision
+(`docs` is ignored by Changesets), and so leaves no tag and no release; the docs site now deploys with the release. The Worker's missing credential,
 named here until 2026-10-18, is closed.
 
 ## The rules that hold either way

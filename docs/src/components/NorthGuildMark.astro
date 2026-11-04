@@ -1,0 +1,134 @@
+---
+/**
+ * The NorthGuild mark, the one logo on every page (phase 15): the header's.
+ *
+ * The SVG and its styles are copied from northguild/northguild.dev,
+ * apps/site/src/components/NorthGuildMark.astro at commit ade22a5d30f274d02d50a33eb6ccdd705c2f5cbd
+ * (shapes and rules unchanged). Inline so the theme tokens reach every path.
+ *
+ * Decorative (aria-hidden): whatever it stands beside names the link. Each instance on a page needs its own `id`,
+ * because the two gradients are referenced by id; the paths name them by attribute, so the CSS carries no id.
+ */
+interface Props {
+  /** Unique on the page: the prefix of the two gradient ids. */
+  id: string;
+  /** The mark's height; its width follows the viewBox. */
+  size?: string;
+}
+
+const { id, size = "1.75rem" } = Astro.props;
+---
+
+<svg
+  class="ng-mark"
+  style={`block-size: ${size}`}
+  viewBox="0 0 1000 1317"
+  aria-hidden="true"
+  focusable="false"
+>
+  <defs>
+    <linearGradient id={`${id}-pane`} x1="0" y1="0" x2="0" y2="1">
+      <stop class="pane-top" offset="0"></stop>
+      <stop class="pane-bottom" offset="1"></stop>
+    </linearGradient>
+    <linearGradient id={`${id}-sheen`} x1="0" y1="0" x2="1" y2="1">
+      <stop class="sheen-top" offset="0"></stop>
+      <stop class="sheen-bottom" offset="0.7"></stop>
+    </linearGradient>
+  </defs>
+  <!-- Back to front: the panes of ice, then the lines drawn over them. -->
+  <path
+    class="pane"
+    fill={`url(#${id}-pane)`}
+    d="M500 0 L0 179.1 L0 709.1 C0 1018.6 373.1 1206.2 500 1317 C626.9 1206.2 1000 1018.6 1000 709.1 L1000 179.1 Z"
+  ></path>
+  <path
+    class="sheen"
+    fill={`url(#${id}-sheen)`}
+    d="M500 0 L0 179.1 L0 709.1 C0 1018.6 373.1 1206.2 500 1317 Z"></path>
+  <path
+    class="pane"
+    fill={`url(#${id}-pane)`}
+    d="M93.3 243.9 L500 99 L906.7 243.9 L906.7 686.5 L709.3 390.2 L654.9 470.3 L500 239.5 L345.1 470.3 L290.7 390.2 L93.3 686.5 Z"
+  ></path>
+  <path
+    class="edge"
+    d="M500 0 L0 179.1 L0 709.1 C0 1018.6 373.1 1206.2 500 1317 C626.9 1206.2 1000 1018.6 1000 709.1 L1000 179.1 Z"
+  ></path>
+  <path
+    class="ridge"
+    d="M93.3 686.5 L290.7 390.2 L345.1 470.3 L500 239.5 L654.9 470.3 L709.3 390.2 L906.7 686.5"
+  ></path>
+  <path
+    class="glyph"
+    d="M366 640 L212 736.5 L366 833 M634 640 L788 736.5 L634 833 M560 560 L443 910"
+  ></path>
+</svg>
+
+<style>
+  .ng-mark {
+    display: block;
+    inline-size: auto;
+    overflow: visible;
+  }
+
+  /* Faintly lighter at the top, clear at the point. */
+  .pane-top {
+    stop-color: var(--gmt-ice);
+    stop-opacity: 0.07;
+  }
+  .pane-bottom {
+    stop-color: var(--gmt-ice);
+    stop-opacity: 0;
+  }
+  .sheen-top {
+    stop-color: var(--gmt-ice);
+    stop-opacity: 0.05;
+  }
+  .sheen-bottom {
+    stop-color: var(--gmt-ice);
+    stop-opacity: 0;
+  }
+  .edge,
+  .ridge,
+  .glyph {
+    fill: none;
+    stroke: var(--gmt-ice);
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  /* Hairlines stay one pixel at any size, like the borders around them. */
+  .edge,
+  .ridge {
+    vector-effect: non-scaling-stroke;
+    stroke-width: 1px;
+  }
+  .edge {
+    stroke-opacity: 0.5;
+  }
+  .ridge {
+    stroke-opacity: 0.35;
+  }
+  /* In viewBox units, so the glyph keeps its weight against the shield. */
+  .glyph {
+    stroke-opacity: 0.75;
+    stroke-width: 36;
+  }
+
+  /* System colours: drop the washes, keep every line at full strength. */
+  @media (forced-colors: active) {
+    .ng-mark {
+      forced-color-adjust: none;
+    }
+    .pane,
+    .sheen {
+      fill: none;
+    }
+    .edge,
+    .ridge,
+    .glyph {
+      stroke: CanvasText;
+      stroke-opacity: 1;
+    }
+  }
+</style>

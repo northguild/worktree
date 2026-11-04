@@ -1,23 +1,50 @@
 "use client";
 
-import Link from "next/link";
 import React from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { VALID_DOC_ROUTES } from "../docs-routes.generated";
 
-/** GitHub Pages base — strip this prefix if the model accidentally emits full URLs. */
-const GH_PAGES_ORIGIN = "https://northguild.github.io/worktree";
+/** The docs site. Links from the model may carry this origin; it is stripped before the allow-list check. */
+const SITE_ORIGIN = "https://northguild.dev";
 
-/** Allowed external origins. Localhost is included only during development. */
-const ALLOWED_EXTERNAL_ORIGINS: string[] =
-  process.env.NODE_ENV === "development"
-    ? [GH_PAGES_ORIGIN, "http://localhost:3000"]
-    : [GH_PAGES_ORIGIN];
+/** The pre-rewrite GitHub Pages site, with its path. Still stripped, so an old link resolves instead of vanishing. */
+const LEGACY_ORIGIN = "https://northguild.github.io/worktree";
+
+/**
+ * The site's base path without a trailing slash ("/worktree"). Astro does not add it to an href written by
+ * hand, so every internal link is built from it; `import.meta.env.BASE_URL` is the one source.
+ */
+function basePath(): string {
+  return import.meta.env.BASE_URL.replace(/\/$/, "");
+}
+
+/**
+ * Allowed external origins. The site's own origins never reach this check (they are stripped to routes
+ * above), so production allows none; localhost is included only during development.
+ */
+const ALLOWED_EXTERNAL_ORIGINS: string[] = import.meta.env.DEV
+  ? ["http://localhost:4321"]
+  : [];
 
 /** Only these URL schemes are permitted in external links. */
 const SAFE_PROTOCOLS = new Set(["https:", "http:", "mailto:"]);
+
+/**
+ * Remove `prefix` from the start of `value` when it ends there: the next character must be a path
+ * separator, a fragment, a query or the end, so `https://northguild.dev.evil.example` is not stripped.
+ */
+function stripPrefix(value: string, prefix: string): string {
+  if (!value.startsWith(prefix)) return value;
+  const rest = value.slice(prefix.length);
+  return rest === "" || /^[/?#]/.test(rest) ? rest || "/" : value;
+}
+
+/** An allow-listed route as a href that resolves on the site: `/commands/` → `/worktree/commands/`. */
+function withBase(route: string): string {
+  return `${basePath()}${route}`;
+}
 
 /**
  * Resolve a link href coming from the model to a known doc route, or null if
@@ -26,17 +53,19 @@ const SAFE_PROTOCOLS = new Set(["https:", "http:", "mailto:"]);
 function resolveHref(
   raw: string,
 ): { internal: true; href: string } | { internal: false; href: string } | null {
-  // Strip the GH Pages origin so full URLs become relative paths.
-  let href = raw.startsWith(GH_PAGES_ORIGIN)
-    ? raw.slice(GH_PAGES_ORIGIN.length) || "/"
-    : raw;
+  // Strip the site origin (or the legacy one), then the base path, so every spelling of
+  // a link ends up as the route form VALID_DOC_ROUTES holds.
+  let href = stripPrefix(stripPrefix(raw, SITE_ORIGIN), LEGACY_ORIGIN);
+  href = stripPrefix(href, basePath());
 
   // Strip any fragment — we don't have fragment-level routes.
   href = href.split("#")[0];
 
   // Internal relative path: only allow known routes.
   if (href.startsWith("/")) {
-    return VALID_DOC_ROUTES.has(href) ? { internal: true, href } : null;
+    return VALID_DOC_ROUTES.has(href)
+      ? { internal: true, href: withBase(href) }
+      : null;
   }
 
   // Validate absolute URL: must parse, must be a safe protocol, and must
@@ -50,49 +79,45 @@ function resolveHref(
 
   if (!SAFE_PROTOCOLS.has(parsed.protocol)) return null;
 
-  const origin = parsed.origin;
-  if (
-    !ALLOWED_EXTERNAL_ORIGINS.some((o) => origin === o || href.startsWith(o))
-  ) {
-    return null;
-  }
+  // Compare the parsed origin only: a prefix test would accept https://northguild.dev.evil.example.
+  if (!ALLOWED_EXTERNAL_ORIGINS.includes(parsed.origin)) return null;
 
   return { internal: false, href: raw };
 }
 
 /**
- * Map of display labels (lowercase) → doc page routes.
+ * Map of display labels (lowercase) → doc page routes, in the VALID_DOC_ROUTES form (no base path).
  * Used to auto-link bold text in assistant responses.
  */
 const DOCS_ROUTE_MAP: Record<string, string> = {
   // Top-level sections
-  "getting started": "/docs/getting-started",
-  commands: "/docs/commands",
-  configuration: "/docs/configuration",
-  guides: "/docs/guides",
-  faq: "/docs/faq",
-  changelog: "/docs/changelog",
+  "getting started": "/getting-started/",
+  commands: "/commands/",
+  configuration: "/configuration/",
+  guides: "/guides/",
+  faq: "/faq/",
+  changelog: "/changelog/",
   // Guides
-  "github issue integration": "/docs/guides/github-issue-integration",
-  "jira issue integration": "/docs/guides/jira-integration",
-  "jira integration": "/docs/guides/jira-integration",
-  "linear issue integration": "/docs/guides/linear-integration",
-  "linear integration": "/docs/guides/linear-integration",
-  "clickup task integration": "/docs/guides/clickup-integration",
-  "clickup integration": "/docs/guides/clickup-integration",
-  "context switching": "/docs/guides/context-switching",
-  "team conventions": "/docs/guides/team-conventions",
-  "environment files": "/docs/guides/env-files",
-  "env files": "/docs/guides/env-files",
-  "editor integration": "/docs/guides/editor-integration",
+  "github issue integration": "/guides/github-issue-integration/",
+  "jira issue integration": "/guides/jira-integration/",
+  "jira integration": "/guides/jira-integration/",
+  "linear issue integration": "/guides/linear-integration/",
+  "linear integration": "/guides/linear-integration/",
+  "clickup task integration": "/guides/clickup-integration/",
+  "clickup integration": "/guides/clickup-integration/",
+  "context switching": "/guides/context-switching/",
+  "team conventions": "/guides/team-conventions/",
+  "environment files": "/guides/env-files/",
+  "env files": "/guides/env-files/",
+  "editor integration": "/guides/editor-integration/",
   // Commands
-  "worktree branch": "/docs/commands/branch",
-  "worktree checkout": "/docs/commands/checkout",
-  "worktree cleanup": "/docs/commands/cleanup",
-  "worktree config": "/docs/commands/config",
-  "worktree list": "/docs/commands/list",
-  "worktree open": "/docs/commands/open",
-  "worktree remove": "/docs/commands/remove",
+  "worktree branch": "/commands/branch/",
+  "worktree checkout": "/commands/checkout/",
+  "worktree cleanup": "/commands/cleanup/",
+  "worktree config": "/commands/config/",
+  "worktree list": "/commands/list/",
+  "worktree open": "/commands/open/",
+  "worktree remove": "/commands/remove/",
 };
 
 /** Recursively extract plain text from React children. */
@@ -109,7 +134,7 @@ function getTextContent(node: React.ReactNode): string {
 }
 
 const LINK_CLASS =
-  "text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-500 dark:hover:text-blue-300 transition-colors";
+  "text-chat-accent-ink underline underline-offset-2 hover:text-chat-fg transition-colors";
 
 const components: Components = {
   // Bold — auto-link if text matches a known doc page
@@ -119,9 +144,9 @@ const components: Components = {
     const inner = <strong className="font-semibold">{children}</strong>;
     if (route) {
       return (
-        <Link href={route} className={LINK_CLASS}>
+        <a href={withBase(route)} className={LINK_CLASS}>
           {inner}
-        </Link>
+        </a>
       );
     }
     return inner;
@@ -134,7 +159,7 @@ const components: Components = {
       return <code className="text-sm font-mono">{children}</code>;
     }
     return (
-      <code className="bg-blue-50 dark:bg-blue-950/50 text-blue-900 dark:text-blue-200 rounded px-1 py-0.5 text-[0.85em] font-mono border border-blue-200 dark:border-neutral-700">
+      <code className="bg-chat-raised text-chat-fg rounded px-1 py-0.5 text-[0.85em] font-mono border border-chat-border">
         {children}
       </code>
     );
@@ -143,7 +168,7 @@ const components: Components = {
   // Fenced code blocks
   pre({ children }) {
     return (
-      <pre className="my-2 overflow-x-auto rounded-md bg-neutral-900 dark:bg-neutral-950 text-gray-100 px-3 py-2 text-sm font-mono leading-relaxed">
+      <pre className="my-2 overflow-x-auto rounded-md bg-chat-raised text-chat-fg border border-chat-border px-3 py-2 text-sm font-mono leading-relaxed">
         {children}
       </pre>
     );
@@ -175,9 +200,9 @@ const components: Components = {
     }
     if (resolved.internal) {
       return (
-        <Link href={resolved.href} className={LINK_CLASS}>
+        <a href={resolved.href} className={LINK_CLASS}>
           {children}
-        </Link>
+        </a>
       );
     }
     return (

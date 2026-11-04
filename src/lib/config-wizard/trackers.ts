@@ -46,7 +46,7 @@ export async function configureJira(ctx: WizardContext): Promise<void> {
       : [
           "To find or create your token, follow these steps:",
           " - Go to https://id.atlassian.com/manage-profile/security/api-tokens",
-          " - Click 'Create Classic API token'",
+          " - Click 'Create API token'",
           " - Give your token a name and expiration date.",
           " - Copy your new token",
         ];
