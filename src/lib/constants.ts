@@ -10,6 +10,10 @@ export const CONFIG_NAMES = [
   "jira.autoStart",
   "linear.apiKey",
   "linear.autoStart",
+  "linear.agentToken",
+  "linear.webhookSecret",
+  "linear.agentAllow",
+  "linear.agentContext",
   "clickup.apiToken",
   "clickup.workspaceId",
   "clickup.autoStart",
@@ -34,6 +38,8 @@ export const CONFIG_NAMES = [
 export const SECRET_CONFIG_NAMES = [
   "jira.apiToken",
   "linear.apiKey",
+  "linear.agentToken",
+  "linear.webhookSecret",
   "clickup.apiToken",
   "github.token",
 ] as const satisfies readonly ConfigName[];
@@ -45,10 +51,16 @@ export const SECRET_CONFIG_NAMES = [
 // `github.host` names a GitHub Enterprise host (#120 D7); most people use
 // github.com, so it is asked of no one. `jira.deployment` names a Jira Data
 // Center site (#126 D2); most people use Cloud, so it is asked of no one.
+// The four `linear.agent*`/`linear.webhookSecret` keys (#115 D9) mean something
+// only to someone running a Linear agent listener, so they are asked of no one.
 export const UNPROMPTED_CONFIG_NAMES = [
   "github.repository",
   "github.host",
   "jira.deployment",
+  "linear.agentToken",
+  "linear.webhookSecret",
+  "linear.agentAllow",
+  "linear.agentContext",
 ] as const satisfies readonly ConfigName[];
 
 // Accepted values for the `jira.deployment` config key (#126 D1, D2). Unset

@@ -81,7 +81,7 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | Surface | Who reads it | What has to reach it |
 |---|---|---|
 | [`README.md`](../README.md) | someone deciding whether to install; npm renders it as the package page | the fast path — a new command, a renamed flag, a change to what the tool is for |
-| `docs/src/app/docs/` | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration/`, `getting-started/`, `faq/`, and `guides/` (9) |
+| `docs/src/app/docs/` | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (8), plus `configuration/`, `getting-started/`, `faq/`, and `guides/` (10) |
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
 | `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |

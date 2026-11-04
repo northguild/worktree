@@ -21,7 +21,7 @@ worktree config --approve
 worktree config --project
 ```
 
-`--list` shows `github.token`, `jira.apiToken`, `linear.apiKey` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
+`--list` shows `github.token`, `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
 paste or screen-share. `worktree config <key>` with no value prints the current value and nothing else, secrets
 included, so `token=$(worktree config github.token)` works in a script. A key with no value prints nothing and
 exits `0`.
@@ -158,7 +158,7 @@ time". The last leaves the key unset, clearing any stored answer, which is the "
 rather than clearing it. A pasted value is stored without surrounding whitespace.
 `clickup.workspaceId` is optional and only matters for custom task ids such as `DEV-123`: an empty answer skips it and writes nothing, a non-interactive run skips it rather than failing, and under `--missing` pressing Enter skips its prompt too.
 The ClickUp group asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/docs/configuration#clickup-integration-notes).
-A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey` and `clickup.apiToken`) with a value that is only
+A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret` and `clickup.apiToken`) with a value that is only
 whitespace is refused with exit `2`, and nothing is stored.
 
 ## Jira Integration Keys
@@ -193,6 +193,15 @@ The Linear keys are asked together behind one confirm. The `linear.autoStart` pr
 and has three choices: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so
 `--missing` goes on offering the prompt until you settle it. A direct `worktree config linear.autoStart`
 accepts only `true` or `false`.
+
+Three more Linear keys are for a Linear agent that starts worktrees, and [`worktree linear-listen`](/docs/commands/linear-listen) reads them. None is asked
+by the wizard (a bare run and `--missing` skip them), and none can be set from `.worktree.yml`: set one with
+`worktree config <key> <value>`.
+
+- `linear.agentToken` the Linear agent app's OAuth token. Secret: `--list` shows it as `***`.
+- `linear.webhookSecret` the signing secret of the app's webhook. Secret: `--list` shows it as `***`.
+- `linear.agentAllow` the Linear user ids allowed to delegate an issue to the agent, comma-separated.
+- `linear.agentContext` `true` or `false` (anything else is refused with exit `2`). `true` lets `worktree linear-listen` add the delegated issue's text to the agent's brief, fenced as untrusted and capped. Unset means `false`. Neither the wizard nor `.worktree.yml` sets it.
 
 ## Agent Key
 

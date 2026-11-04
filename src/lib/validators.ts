@@ -231,6 +231,7 @@ export async function isValidConfigValue(
     case "jira.autoAssign":
     case "jira.autoStart":
     case "linear.autoStart":
+    case "linear.agentContext":
     case "clickup.autoStart":
       return isValidBoolean(value);
     case "herdr.focus":
@@ -240,6 +241,8 @@ export async function isValidConfigValue(
     case "github.token":
     case "jira.apiToken":
     case "linear.apiKey":
+    case "linear.agentToken":
+    case "linear.webhookSecret":
     case "clickup.apiToken":
       return isValidToken(value);
     case "clickup.workspaceId":

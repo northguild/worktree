@@ -13,7 +13,8 @@
     "In scripts, CI or another agent, pass explicit values such as `remove <branch> -f` and `cleanup --force`, because a non-interactive run never prompts and a value with no default fails at once with exit 2.",
     "Re-running `worktree branch` for a name that already exists is refused when non-interactive, with exit 2 and `invalid_value`; the answer is `worktree open <branch>`, not a retry.",
     "An unapproved `postCreate` in `.worktree.yml` makes a non-interactive `worktree branch` fail with exit 2 and `missing_value` before anything is created; approve it once in a terminal with `worktree config --approve`, or skip the steps with `--no-install`.",
-    "Use `--json` on `branch`, `list` and `remove` to get one JSON document to parse, and when a brief matters check `agent.prompted` in the `branch` document, not just the exit code."
+    "Use `--json` on `branch`, `list` and `remove` to get one JSON document to parse, and when a brief matters check `agent.prompted` in the `branch` document, not just the exit code.",
+    "`worktree linear-listen` starts a worktree for each Linear agent delegation; it needs `linear.agentToken`, `linear.webhookSecret` and `linear.apiKey` (an unset one exits 2 with `missing_value`) and a public HTTPS address in front of it, because it listens on 127.0.0.1 only. The agent is told only the issue identifier unless `linear.agentContext` is `true`, which adds the issue's text to the brief, fenced as untrusted; leave it off where others can edit or comment on issues."
   ],
   "url": "https://context7.com/northguild/worktree",
   "public_key": "pk_hE7QfxqWAEcy3P78OEapo"

@@ -4,6 +4,7 @@ const meta: MetaRecord = {
   "github-issue-integration": "GitHub Issue Integration",
   "jira-integration": "Jira Issue Integration",
   "linear-integration": "Linear Issue Integration",
+  "linear-agent-delegation": "Linear Agent Delegation",
   "clickup-integration": "ClickUp Task Integration",
   "context-switching": "Context Switching",
   "team-conventions": "Team Conventions",

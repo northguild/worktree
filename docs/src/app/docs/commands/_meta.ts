@@ -8,6 +8,7 @@ const meta: MetaRecord = {
   open: "open",
   remove: "remove",
   cleanup: "cleanup",
+  "linear-listen": "linear-listen",
 };
 
 export default meta;
