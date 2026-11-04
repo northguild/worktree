@@ -40,6 +40,9 @@
   --leaf-4: #16a34a; /* INVENTED: green-600, the deep tone */
   --leaf-5: #34d399; /* INVENTED: emerald-400, a cool note */
   --leaf-6: #bef264; /* INVENTED: lime-300, the rare warm leaf */
+  /* Round 2, the big leaf: its midrib and veins are lifted towards a pale mint, its blade pressed a little deeper. INVENTED. */
+  --leaf-vein: #bbf7d0; /* INVENTED: green-200 */
+  --leaf-deep: #166534; /* INVENTED: green-800 */
   /* How strongly a leaf's far half is shaded, and how bright the ambient cloud is. INVENTED. */
   --leaf-fold: 0.78; /* INVENTED */
   --leaf-ambient-alpha: 0.5; /* INVENTED */
@@ -66,6 +69,9 @@
   --leaf-4: #166534; /* INVENTED: green-800, the deep tone */
   --leaf-5: #059669; /* INVENTED: emerald-600 */
   --leaf-6: #65a30d; /* INVENTED: lime-600 */
+  /* On white the blade goes darker and the veins lighter than it, as on a real leaf. INVENTED. */
+  --leaf-vein: #86efac; /* INVENTED: green-300 */
+  --leaf-deep: #14532d; /* INVENTED: green-900 */
   --leaf-fold: 0.8; /* INVENTED */
   --leaf-ambient-alpha: 0.45; /* INVENTED */
 

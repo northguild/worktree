@@ -10,6 +10,23 @@
     </script>
     <link rel="preload" href="../../docs/public/fonts/michroma-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="theme.css" />
+    <!-- Round 2: OGL's 16 modules, preloaded in parallel instead of discovered one import at a time (the real page bundles them). -->
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/core/Renderer.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/core/Program.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/core/Geometry.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/core/Mesh.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/core/Transform.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/Vec3.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/Mat3.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/Mat4.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/Quat.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/Euler.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/functions/Mat3Func.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/functions/Vec3Func.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/functions/Mat4Func.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/functions/EulerFunc.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/functions/QuatFunc.js" />
+    <link rel="modulepreload" crossorigin href="https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/math/functions/Vec4Func.js" />
     <style>
       *,
       *::before,
@@ -203,6 +220,7 @@
     <div class="proto" aria-label="Prototype controls">
       <output id="proto-stage">loading</output>
       <output id="proto-fps"></output>
+      <button type="button" id="proto-mode" aria-pressed="false" title="Settle ends on the wordmark; Loop goes back to the leaf">Settle</button>
       <button type="button" id="proto-replay">Replay</button>
       <button type="button" id="proto-theme">Theme</button>
     </div>
