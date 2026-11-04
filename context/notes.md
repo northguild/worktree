@@ -30,3 +30,18 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - `opening.test.ts` "does not ask a Herdr key that --missing removed" runs with `hiddenNames` empty, so it tests only `shouldPrompt`; the rule it names is unreachable.
 - An `opening.test.ts` test asserts a constant against a literal.
 - After the loopback, `commands/config/page.mdx` Opener Keys says "a `codeEditor` is only missing under `editor`, and the Herdr keys only under `herdr`" — true of the wizard, but `--missing --list` still lists them as missing; "only asked" would be the exact word.
+
+## Phase 4 — One agent question and one Herdr yes/no (#236)
+
+- §8 item 1, read literally, is crossed again: "asks the Herdr questions too when herdr is installed" (bare `missing: true`) now expects no `herdr.agent` kind input. Forced by D4; no named, `list` or set-by-name test changed.
+- The Coding agent item can be listed and ask nothing: bare `--missing` with `opener` unset, Herdr on PATH, `agent.command` set, `herdr.agent` unset — the item is listed only for `herdr.agent`, and choosing `editor`/`none` in the same run leaves it asking nothing. The reverse: Herdr binary absent, `herdr.agent` hidden, so the item is not listed and choosing `herdr` in that run never offers the confirm. Both narrow.
+- The Herdr confirm's default (yes only when `herdr.agent` is already set) is not pinned by any test.
+- Clearing a prefilled input takes an extra Backspace in `@inquirer/input` (Enter on an emptied line returns the default; Backspace on the empty line clears it). True of every prefilled input; "leave it empty for no agent" holds only with that extra key.
+- The docs say "no leaves `herdr.agent` empty"; no clears an existing value.
+- The tally comment above the 22-question test in `config.test.ts` says "ClickUp 1" and adds to 12; the assertion of 13 inputs is right.
+- D4 cites `listRuntimeSessions`' raw-head first-word rule; `branch`'s kind fallback uses `basename(head)` (`src/lib/base-command.ts`), the closer precedent for a kind — put to the maintainer.
+- `agent.ts` comment "No default" means no fallback default; the input is prefilled.
+- A stored `herdr.agent` alone now pre-ticks Coding agent; its label does not mention `herdr.agent`; "Nothing is asked behind a yes/no" on the config page reads ambiguously now that the item has a yes/no.
+- After the loopback: no test pins "no invalid-kind hint when the opener is not `herdr`" — it holds only by the order of the early return and the kind check in `agent.ts`.
+- The config page's "a first word that is not a valid kind … is not stored" parenthetical sits after "which it keeps" and can read as applying when `herdr.agent` is already set, where the question is still asked.
+- A bare `--missing` run with `opener=herdr`, a path-headed stored `agent.command` and only `herdr.agent` missing lists Coding agent, asks nothing, and prints the hint — another narrow "listed, asks nothing" case.

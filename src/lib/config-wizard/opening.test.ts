@@ -6,7 +6,7 @@ import type { WizardContext } from "./context.js";
 import { configureOpener, configureOpening } from "./opening.js";
 
 // Expected values come from plan #236 D3 and phase 3's Done-when: `editor`
-// asks codeEditor, `herdr` asks herdr.focus and herdr.agent (until phase 4),
+// asks codeEditor, `herdr` asks herdr.focus only (herdr.agent is the Coding agent item's, D4),
 // `none` asks nothing; `herdr` is a choice only where `herdrOffered`.
 const OPENING_KEYS: ConfigName[] = [
   "opener",
@@ -62,12 +62,12 @@ describe("the opener decides its follow-ups", () => {
       expect(askConfirm).not.toHaveBeenCalled();
     });
 
-    it("asks herdr.focus and herdr.agent, and not codeEditor, for herdr", async () => {
+    it("asks herdr.focus and not codeEditor or herdr.agent for herdr", async () => {
       answerOpener("herdr");
 
       await configureOpening(context());
 
-      expect(written()).toEqual(["opener", "herdr.focus", "herdr.agent"]);
+      expect(written()).toEqual(["opener", "herdr.focus"]);
     });
 
     it("asks nothing after none", async () => {
@@ -81,28 +81,28 @@ describe("the opener decides its follow-ups", () => {
     });
 
     it("asks the Herdr keys the hiding rule removed once herdr is chosen", async () => {
-      // Binary missing, only herdr.focus holds a value: herdr.agent is hidden,
-      // and choosing herdr is the opt-in that asks it anyway (D3).
+      // Binary missing, so the hiding rule took herdr.focus out of the list;
+      // choosing herdr is the opt-in that asks it anyway (D3).
       answerOpener("herdr");
 
       await configureOpening(
         context({
-          configNames: ["opener", "codeEditor", "herdr.focus"],
-          hiddenNames: new Set<ConfigName>(["herdr.agent"]),
+          configNames: ["opener", "codeEditor"],
+          hiddenNames: new Set<ConfigName>(["herdr.focus"]),
         }),
       );
 
-      expect(written()).toEqual(["opener", "herdr.focus", "herdr.agent"]);
+      expect(written()).toEqual(["opener", "herdr.focus"]);
     });
 
-    it("does not ask a Herdr key that --missing removed", async () => {
+    it("does not ask herdr.focus when --missing removed it", async () => {
       answerOpener("herdr");
 
       await configureOpening(
         context({ configNames: ["opener", "herdr.agent"] }),
       );
 
-      expect(written()).toEqual(["opener", "herdr.agent"]);
+      expect(written()).toEqual(["opener"]);
     });
 
     it("lets the stored opener decide when opener itself is not asked", async () => {

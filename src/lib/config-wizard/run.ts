@@ -2,7 +2,7 @@ import { EOL } from "node:os";
 import chalk from "chalk";
 import { gitGetConfigValue } from "../config.js";
 import { askCheckbox } from "../prompt.js";
-import { configureAgentCommand } from "./agent.js";
+import { configureAgent, configureAgentCommand } from "./agent.js";
 import { configureDefaultSourceBranch, configurePostCreate } from "./basics.js";
 import { configureBranchNames } from "./branch-names.js";
 import {
@@ -32,7 +32,7 @@ const CONFIGURE: Record<ChecklistId, (ctx: WizardContext) => Promise<void>> = {
   linear: configureLinear,
   clickup: configureClickUp,
   opening: configureOpening,
-  agent: configureAgentCommand,
+  agent: configureAgent,
   branchPrefixes: configureBranchNames,
   postCreate: configurePostCreate,
 };

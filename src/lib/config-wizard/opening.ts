@@ -52,7 +52,8 @@ export async function configureOpener(
 
 /**
  * The bare run's "How worktrees open" item: `opener` decides what follows.
- * `editor` asks `codeEditor`, `herdr` asks the Herdr keys, `none` asks
+ * `editor` asks `codeEditor`, `herdr` asks `herdr.focus` (`herdr.agent` is the
+ * agent item's), `none` asks
  * nothing. Where `opener` is not asked (`--missing` found it set) the stored
  * one decides.
  */
@@ -64,7 +65,7 @@ export async function configureOpening(ctx: WizardContext): Promise<void> {
     // Choosing Herdr is the opt-in, so its keys are asked even where the
     // hiding rule has taken them out of the prompt list because the binary is
     // missing. Keys `--missing` or a project file removed stay removed.
-    await configureHerdr({
+    await configureHerdrFocus({
       ...ctx,
       configNames: [...ctx.configNames, ...ctx.hiddenNames],
     });
@@ -85,7 +86,16 @@ export async function configureCodeEditor(ctx: WizardContext): Promise<void> {
   }
 }
 
+/**
+ * Both Herdr keys, as `--names` asks them. The bare run asks only
+ * `herdr.focus` here; `herdr.agent` belongs to its "Coding agent" item.
+ */
 export async function configureHerdr(ctx: WizardContext): Promise<void> {
+  await configureHerdrFocus(ctx);
+  await configureHerdrAgentKind(ctx);
+}
+
+export async function configureHerdrFocus(ctx: WizardContext): Promise<void> {
   if (shouldPrompt(ctx, "herdr.focus")) {
     // Only an explicit "false" means no: unset or empty is the documented
     // default of true. A non-interactive run takes that same answer.
@@ -103,7 +113,11 @@ export async function configureHerdr(ctx: WizardContext): Promise<void> {
     );
     await gitSetConfigValue("herdr.focus", String(herdrFocus));
   }
+}
 
+export async function configureHerdrAgentKind(
+  ctx: WizardContext,
+): Promise<void> {
   if (shouldPrompt(ctx, "herdr.agent")) {
     const herdrAgent = await askConfigInput("herdr.agent", {
       message:

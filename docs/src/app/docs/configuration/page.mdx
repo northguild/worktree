@@ -213,8 +213,9 @@ worktree config branchPrefix.chore chore/
   This gating never hides a key that already holds a value, and setting `opener` to `herdr` un-hides both
   whether or not the CLI is found. `opener` itself is always shown, but the wizard offers `herdr` as its
   answer only where those keys would be shown; otherwise it offers `editor` and `none`. The opener's answer
-  decides the follow-ups: `editor` asks `codeEditor`, `herdr` asks `herdr.focus` and `herdr.agent`, `none`
-  asks nothing more. Naming a key with `--names`, or setting it directly, always works, and `--names opener`
+  decides the follow-ups: `editor` asks `codeEditor`, `herdr` asks `herdr.focus`, `none`
+  asks nothing more. `herdr.agent` is asked with the coding agent: after `agent.command`, when `opener` is
+  `herdr`, a yes/no offers to set it to the command's first word. Naming a key with `--names`, or setting it directly, always works, and `--names opener`
   offers all three answers.
 
 ## GitHub Integration Notes

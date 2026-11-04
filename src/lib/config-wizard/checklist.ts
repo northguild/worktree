@@ -55,12 +55,14 @@ export const CHECKLIST_ITEMS: readonly ChecklistItem[] = [
   {
     id: "opening",
     label: "How worktrees open: in an editor or Herdr, or not at all",
-    keys: ["opener", "codeEditor", "herdr.focus", "herdr.agent"],
+    keys: ["opener", "codeEditor", "herdr.focus"],
   },
   {
     id: "agent",
     label: "Coding agent: the command that `--agent` runs",
-    keys: ["agent.command"],
+    // `herdr.agent` is listed here, not under "How worktrees open": its
+    // question follows the agent command (plan #236, D4).
+    keys: ["agent.command", "herdr.agent"],
   },
   {
     id: "branchPrefixes",

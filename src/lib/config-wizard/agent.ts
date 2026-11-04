@@ -1,7 +1,15 @@
-import { gitSetConfigValue } from "../config.js";
-import { isValidCommandLine } from "../validators.js";
+import { gitGetConfigValue, gitSetConfigValue } from "../config.js";
+import { askConfirm } from "../prompt.js";
+import { splitCommandValue } from "../utils.js";
+import { isValidAgentKind, isValidCommandLine } from "../validators.js";
 import { askConfigInput, shouldPrompt, type WizardContext } from "./context.js";
+import { getStoredOpener } from "./opening.js";
 
+/**
+ * The `agent.command` question as `--names agent.command` asks it. Empty is
+ * not accepted here: it is how a script or `verifyConfig` learns the key is
+ * unset, and the bare run's own question is `configureAgent`.
+ */
 export async function configureAgentCommand(ctx: WizardContext): Promise<void> {
   if (shouldPrompt(ctx, "agent.command")) {
     // No fallback default: the agent runtime is deliberately not named here.
@@ -13,5 +21,73 @@ export async function configureAgentCommand(ctx: WizardContext): Promise<void> {
       validate: isValidCommandLine,
     });
     await gitSetConfigValue("agent.command", agentCommand);
+  }
+}
+
+/**
+ * The bare run's "Coding agent" item (plan #236, D4): one question for
+ * `agent.command`, prefilled, where empty means no agent; then, only when
+ * `opener` is `herdr` and a command exists, one yes/no that decides
+ * `herdr.agent`. Run after "How worktrees open", so a stored `opener` is the
+ * one chosen in this run.
+ */
+export async function configureAgent(ctx: WizardContext): Promise<void> {
+  let command = await gitGetConfigValue("agent.command");
+  if (shouldPrompt(ctx, "agent.command")) {
+    // No default and no suggestion: the runtime is deliberately not named
+    // (AGENT-MODE-PLAN §2). The validator stays on, as `agent.command` is run
+    // in every new worktree; only the empty answer is let through.
+    const answer = (
+      await askConfigInput("agent.command", {
+        message: "Which coding agent do you use?",
+        validate: (value: string) =>
+          value.trim() === "" || isValidCommandLine(value),
+      })
+    ).trim();
+    // Nothing stored and nothing given: nothing to write.
+    if (answer !== "" || command !== "") {
+      await gitSetConfigValue("agent.command", answer);
+    }
+    command = answer;
+  }
+
+  // The hiding rule keeps the Herdr keys out of the prompt list where Herdr
+  // is not in use; `opener` being `herdr` is the opt-in, as in configureOpening.
+  const herdrAgentAsked =
+    shouldPrompt(ctx, "herdr.agent") || ctx.hiddenNames.has("herdr.agent");
+  if (
+    command === "" ||
+    !herdrAgentAsked ||
+    (await getStoredOpener()) !== "herdr"
+  ) {
+    return;
+  }
+
+  const stored = (await gitGetConfigValue("herdr.agent")).trim();
+  // The first word, as the session listing takes it (src/lib/agent.ts). It is
+  // stored only if it is a valid kind, as `worktree config herdr.agent` holds it.
+  const derived = splitCommandValue(command)[0] ?? "";
+  if (stored === "" && isValidAgentKind(derived) !== true) {
+    ctx.log(
+      "The command's first word is not a valid agent kind, so `herdr.agent` was left empty. Choose one with `worktree config herdr.agent <kind>`.",
+    );
+    return;
+  }
+  // Opt-in (D9): the default is yes only where a kind is already chosen.
+  const startInSpace = await askConfirm(
+    {
+      message: "Start it in every new Herdr space, even without `--agent`?",
+      default: stored !== "",
+    },
+    {
+      value: "herdr.agent",
+      flag: "worktree config herdr.agent <kind>",
+      fallback: stored !== "",
+    },
+  );
+  if (!startInSpace) {
+    await gitSetConfigValue("herdr.agent", "");
+  } else if (stored === "") {
+    await gitSetConfigValue("herdr.agent", derived);
   }
 }

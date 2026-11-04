@@ -1025,10 +1025,10 @@ describe("config command", () => {
     });
 
     // Plan §4: with Jira on Cloud and Herdr installed, ticking all eight asks
-    // Jira 5, GitHub 2, Linear 2, ClickUp 3, opener, herdr.focus and
-    // herdr.agent 3 (Herdr chosen), agent.command 1, prefixes 3, postCreate 1 and
-    // defaultSourceBranch 1: the old per-group questions minus every confirm.
-    it("asks every group's questions, and no confirm but herdr.focus, when all are ticked", async () => {
+    // the checklist 1, defaultSourceBranch 1, Jira 5, GitHub 2, Linear 2,
+    // ClickUp 3, opener and herdr.focus 2, agent.command and its Herdr confirm 2,
+    // prefixes 3 and postCreate 1: 22 questions (phase 4, D4).
+    it("asks 22 questions, with the two Herdr confirms, when all are ticked", async () => {
       mockCheckbox.mockResolvedValue(ALL_ITEMS as never);
       mockInput.mockResolvedValue("value");
       // Herdr chosen (plan §4's count): `editor` would ask codeEditor in place
@@ -1038,15 +1038,34 @@ describe("config command", () => {
           ? "herdr"
           : "editor") as never);
       mockConfirm.mockResolvedValue(true);
+      // The agent item reads the opener this run just stored, so the config
+      // must remember what it is given.
+      const values: Record<string, string> = { "has-called-config": "true" };
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key) =>
+        Promise.resolve(values[key] ?? ""),
+      );
+      vi.spyOn(gitConfig, "gitSetConfigValue").mockImplementation((key, v) => {
+        values[key] = v;
+        return Promise.resolve();
+      });
       bare();
 
       await config.run();
 
-      // 15 inputs before phase 3, less codeEditor, which only `editor` asks.
-      expect(mockInput).toHaveBeenCalledTimes(14);
+      // §4's 22: 1 checklist + 13 inputs (source branch, Jira 3, GitHub 1,
+      // Linear 1, ClickUp 1, agent.command, prefixes 3, postCreate; the rest of
+      // the 14 before phase 4 was the herdr.agent kind) + 6 selects + 2 confirms.
+      expect(
+        1 +
+          mockInput.mock.calls.length +
+          mockSelect.mock.calls.length +
+          mockConfirm.mock.calls.length,
+      ).toBe(22);
+      expect(mockInput).toHaveBeenCalledTimes(13);
       expect(mockSelect).toHaveBeenCalledTimes(6);
       expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
         "Should opening a worktree focus its Herdr space?",
+        "Start it in every new Herdr space, even without `--agent`?",
       ]);
       expect(mockInput.mock.calls[0]?.[0].message).toBe(
         "Which branch should new worktrees be based on?",
@@ -1479,6 +1498,56 @@ describe("config command", () => {
           message:
             "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
         }),
+      );
+    });
+
+    // Plan #236 Q10: neither the validator nor the command's positional
+    // argument accepts an empty agent.command, so `worktree config
+    // agent.command ""` does not clear it; the bare wizard's own question is
+    // the one place an empty answer is taken (agent.test.ts).
+    it("refuses an empty agent.command at the validator", async () => {
+      await expect(
+        validators.validateConfigValue("agent.command", ""),
+      ).rejects.toMatchObject({ code: "invalid_value", oclif: { exit: 2 } });
+    });
+
+    it('does not clear agent.command for `worktree config agent.command ""`', async () => {
+      const set = vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key) =>
+        Promise.resolve(key === "agent.command" ? "claude --bg" : "true"),
+      );
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "agent.command", value: "" },
+        flags: { list: false, missing: false, yes: false },
+      });
+
+      await config.run();
+
+      expect(set).not.toHaveBeenCalledWith("agent.command", expect.anything());
+      expect(mockConsoleLog).toHaveBeenCalledWith("claude --bg");
+    });
+
+    it("asks one question for a ticked Coding agent and writes nothing for an empty answer with nothing stored", async () => {
+      mockCheckbox.mockResolvedValue(["agent"] as never);
+      mockInput.mockImplementation((async (o: { message: string }) =>
+        o.message === "Which coding agent do you use?"
+          ? ""
+          : "origin/main") as never);
+      const set = vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, yes: false },
+      });
+
+      await config.run();
+
+      expect(mockInput.mock.calls.map(([o]) => o.message)).toEqual([
+        "Which branch should new worktrees be based on?",
+        "Which coding agent do you use?",
+      ]);
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(set.mock.calls.map(([name]) => name)).not.toContain(
+        "agent.command",
       );
     });
 
@@ -3665,7 +3734,9 @@ describe("config command", () => {
       expect(confirms).toEqual([
         "Should opening a worktree focus its Herdr space?",
       ]);
-      expect(inputs.filter((m) => /Herdr/.test(m)).length).toBe(1);
+      // The kind question left the bare run (phase 4, D4); it is asked by
+      // `--names herdr.agent` only.
+      expect(inputs.filter((m) => /Herdr/.test(m)).length).toBe(0);
     });
 
     it("un-hides every Herdr key when opener is explicitly herdr", async () => {
@@ -3733,7 +3804,7 @@ describe("config command", () => {
   // Plan #236 D3: a ticked "How worktrees open" asks `opener`, and its answer
   // decides the follow-ups. Expected values come from D3 and phase 3's
   // Done-when, not from the code: editor -> codeEditor, herdr -> herdr.focus
-  // and herdr.agent (until phase 4), none -> nothing; `herdr` is a choice only
+  // (herdr.agent joined the Coding agent item in phase 4), none -> nothing; `herdr` is a choice only
   // where the hiding rule would show a Herdr key (binary on PATH, opener=herdr,
   // or a Herdr key holding a value); `--names opener` offers all three.
   describe("the opener decides its follow-ups (#236 D3)", () => {
@@ -3790,7 +3861,7 @@ describe("config command", () => {
       expect(herdrAgentAsked()).toBe(false);
     });
 
-    it("asks herdr.focus and herdr.agent, and not codeEditor, for herdr", async () => {
+    it("asks herdr.focus and not codeEditor or the herdr.agent kind for herdr", async () => {
       vi.spyOn(cli, "commandExists").mockResolvedValue(true);
       answerOpener("herdr");
       bare();
@@ -3800,7 +3871,7 @@ describe("config command", () => {
       expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
         FOCUS_MESSAGE,
       ]);
-      expect(herdrAgentAsked()).toBe(true);
+      expect(herdrAgentAsked()).toBe(false);
       expect(inputMessages()).not.toContain(EDITOR_MESSAGE);
     });
 
@@ -3848,10 +3919,10 @@ describe("config command", () => {
       expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
         FOCUS_MESSAGE,
       ]);
-      expect(herdrAgentAsked()).toBe(true);
+      expect(herdrAgentAsked()).toBe(false);
     });
 
-    it("offers herdr when only a Herdr key holds a value, and then asks both Herdr keys", async () => {
+    it("offers herdr when only a Herdr key holds a value, and then asks herdr.focus", async () => {
       // herdr.agent holds no value, so the hiding rule keeps it out of the
       // prompt list; choosing herdr is the opt-in that asks it anyway.
       vi.spyOn(cli, "commandExists").mockResolvedValue(false);
@@ -3865,7 +3936,7 @@ describe("config command", () => {
       expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
         FOCUS_MESSAGE,
       ]);
-      expect(herdrAgentAsked()).toBe(true);
+      expect(herdrAgentAsked()).toBe(false);
     });
 
     it("asks no Herdr key when herdr was not offered and editor is chosen", async () => {
@@ -3938,6 +4009,33 @@ describe("config command", () => {
         await run({ opener: "editor", codeEditor: "" });
 
         expect(mockCheckbox).toHaveBeenCalledTimes(1);
+      });
+
+      // Phase 4: herdr.agent is listed with the Coding agent item, so an unset
+      // one lists that item (not "How worktrees open") and asks only the
+      // confirm, from the stored command.
+      it("lists only Coding agent, and asks only the confirm, for opener=herdr with herdr.agent unset", async () => {
+        mockCheckbox.mockResolvedValue(["agent"] as never);
+        mockConfirm.mockResolvedValue(true);
+        const set = vi.spyOn(gitConfig, "gitSetConfigValue");
+        await run({ opener: "herdr", "herdr.agent": "" });
+
+        const ids = (
+          mockCheckbox.mock.calls[0]?.[0].choices as { value: string }[]
+        ).map((c) => c.value);
+        expect(ids).toEqual(["agent"]);
+        expect(mockInput).not.toHaveBeenCalled();
+        expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
+          "Start it in every new Herdr space, even without `--agent`?",
+        ]);
+        expect(set).toHaveBeenCalledWith("herdr.agent", "claude");
+      });
+
+      it("does not list Coding agent for opener=none with herdr.agent unset", async () => {
+        await run({ opener: "none", "herdr.agent": "" });
+
+        expect(mockCheckbox).not.toHaveBeenCalled();
+        expect(mockConsoleLog).toHaveBeenCalledWith("No missing config found.");
       });
     });
 

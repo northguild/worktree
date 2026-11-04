@@ -29,7 +29,9 @@ worktree config
 # the questions of each ticked item. Items already set up start ticked; unticking
 # clears nothing. `--names <keys>` skips the checklist. A ticked "how worktrees
 # open" asks opener, and its answer decides what follows: editor asks codeEditor,
-# herdr asks herdr.focus and herdr.agent, none asks nothing. The Herdr keys, and
+# herdr asks herdr.focus, none asks nothing. A ticked coding agent asks
+# agent.command once (empty: no agent) and, with opener herdr, one yes/no that
+# sets herdr.agent from the command's first word. The Herdr keys, and
 # herdr as an opener answer, are offered only when `herdr` is on PATH (or opener
 # is already herdr, or a Herdr key holds a value); opener itself is always
 # offered, and `--names opener` offers all three answers.
