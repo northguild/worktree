@@ -18,6 +18,7 @@ import {
 } from "../integrations/linear-agent-api.js";
 import {
   createCliSpawner,
+  createSerialQueue,
   type DispatchDeps,
   handleSession,
 } from "../integrations/linear-agent-dispatch.js";
@@ -64,7 +65,10 @@ export interface ListenerOptions {
 export interface Listener {
   /** Not listening yet; the caller binds it. */
   server: Server;
-  /** Stops accepting, waits for every child in flight, then drops the sockets. */
+  /**
+   * Stops accepting, waits for the child running, then drops the sockets. A
+   * session still waiting its turn gets an `error` and no child.
+   */
   shutdown(): Promise<void>;
 }
 
@@ -125,6 +129,9 @@ function reply(
 export function createListener(options: ListenerOptions): Listener {
   const now = options.now ?? Date.now;
   const inFlight = new Set<Promise<void>>();
+  // §4.1: one child at a time, for every session this listener accepts.
+  const queue = createSerialQueue();
+  let stopping = false;
 
   const handle = async (request: IncomingMessage, response: ServerResponse) => {
     const delivery = deliveryId(request);
@@ -168,9 +175,13 @@ export function createListener(options: ListenerOptions): Listener {
       finish(400, "body is not JSON");
       return;
     }
+    // Signed, so the sender is Linear: a body this listener does not act on
+    // (another webhook category, an action added later, a session with no
+    // issue) gets a 200. Linear retries a non-2xx and may disable a webhook
+    // that keeps failing, and a retry would fail the same way.
     const event = parseAgentSessionEvent(json);
     if (event === null) {
-      finish(400, "body is not an agent session event");
+      finish(200, "ignored: not an agent session event this listener acts on");
       return;
     }
     // The signed timestamp, not the unsigned Linear-Timestamp header, which a
@@ -184,6 +195,8 @@ export function createListener(options: ListenerOptions): Listener {
     finish(200, `accepted ${event.action}`);
     const work = handleSession(event, {
       ...options.dispatch,
+      queue,
+      isStopping: () => stopping,
       log: (entry) =>
         options.log(
           oneLine(
@@ -212,6 +225,7 @@ export function createListener(options: ListenerOptions): Listener {
   return {
     server,
     async shutdown() {
+      stopping = true;
       const closed = new Promise<void>((resolve) => {
         if (!server.listening) {
           resolve();
@@ -379,7 +393,7 @@ export default class LinearListen extends BaseCommand {
         : "Issue context: off (the agent is told the issue identifier only)",
     );
     this.log(
-      "Expose this address over HTTPS (a tunnel or reverse proxy) and set it as the app's webhook URL. SIGTERM stops it after the running session finishes (a terminal Ctrl-C also interrupts the running worktree command).",
+      "Expose this address over HTTPS (a tunnel or reverse proxy) and set it as the app's webhook URL. SIGTERM stops it after the running session finishes; sessions still waiting their turn are not started (a terminal Ctrl-C also interrupts the running worktree command).",
     );
 
     await this.untilSignal(listener);

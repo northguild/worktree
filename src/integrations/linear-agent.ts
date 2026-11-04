@@ -117,25 +117,43 @@ export function isAllowedCreator(
 export interface SessionLedger {
   /** Records `id` and returns false the first time; true for a repeat. */
   seen(id: string): boolean;
+  /** Records that this process prompted an agent for `id` (D11's follow-up answer). */
+  markStarted(id: string): void;
+  /** Whether this process prompted an agent for `id`; false once `id` is evicted. */
+  started(id: string): boolean;
   readonly size: number;
 }
 
 /** D7: in-memory de-duplication on `agentSession.id`, oldest id evicted past `max`. */
 export function createSessionLedger(max = 1000): SessionLedger {
-  const ids = new Set<string>();
+  // Insertion order is eviction order; the value is whether an agent started.
+  const ids = new Map<string, boolean>();
+  const record = (id: string, started: boolean) => {
+    ids.set(id, started);
+    if (ids.size > max) {
+      const oldest = ids.keys().next().value;
+      if (oldest !== undefined) {
+        ids.delete(oldest);
+      }
+    }
+  };
   return {
     seen(id) {
       if (ids.has(id)) {
         return true;
       }
-      ids.add(id);
-      if (ids.size > max) {
-        const oldest = ids.values().next().value;
-        if (oldest !== undefined) {
-          ids.delete(oldest);
-        }
-      }
+      record(id, false);
       return false;
+    },
+    markStarted(id) {
+      if (ids.has(id)) {
+        ids.set(id, true);
+      } else {
+        record(id, true);
+      }
+    },
+    started(id) {
+      return ids.get(id) === true;
     },
     get size() {
       return ids.size;

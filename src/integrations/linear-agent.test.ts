@@ -171,4 +171,26 @@ describe("createSessionLedger", () => {
     expect(ledger.seen("s9999")).toBe(true);
     expect(ledger.seen("s0")).toBe(false);
   });
+
+  it("knows which sessions started an agent, without counting a follow-up check as a visit", () => {
+    const ledger = createSessionLedger(10);
+    expect(ledger.started("a")).toBe(false);
+    expect(ledger.seen("a")).toBe(false);
+    expect(ledger.started("a")).toBe(false);
+    ledger.markStarted("a");
+    expect(ledger.started("a")).toBe(true);
+    expect(ledger.seen("a")).toBe(true);
+    expect(ledger.started("b")).toBe(false);
+    expect(ledger.size).toBe(1);
+  });
+
+  it("forgets that a session started once its id is evicted", () => {
+    const ledger = createSessionLedger(2);
+    ledger.seen("a");
+    ledger.markStarted("a");
+    ledger.seen("b");
+    ledger.seen("c");
+    expect(ledger.started("a")).toBe(false);
+    expect(ledger.size).toBe(2);
+  });
 });

@@ -94,7 +94,7 @@ one last activity.
 
 | What happened | What the session shows |
 | --- | --- |
-| The delegation was accepted | A **thought**: `Starting a worktree for ENG-123.` |
+| The delegation was accepted | A **thought**: `Starting a worktree for ENG-123.` While another session's command is still running it adds `once the session ahead of it finishes; this listener runs one at a time.`, with the count when more than one is ahead |
 | The worktree was made and the agent was prompted | A **response**: `Started branch <branch> at <path>. The agent has been given the issue identifier.` |
 | The branch already exists | A **response**: `That branch already exists, so nothing new was created.` followed by the command's own message. Nothing new is started |
 | The delegator is not allowed | An **error**: `You are not on this listener's list of people who may start an agent, so no worktree was created.` No worktree, and no thought |
@@ -102,7 +102,8 @@ one last activity.
 | The command failed | An **error**: `The worktree command failed (<code>): <message>`, with the CLI's own error code |
 | The command ran too long | An **error**: `The worktree command timed out after 15 minutes and was stopped.` |
 | Something else went wrong | An **error** saying the command exited without a usable result, or could not be started |
-| Someone sent a follow-up message to the session | A **response**: `Follow-up messages are not delivered to a running agent yet. The agent started from the original delegation keeps working on it.` |
+| Someone sent a follow-up message to a session whose agent this listener prompted | A **response**: `Follow-up messages are not delivered to a running agent yet. The agent started from the original delegation keeps working on it.` A follow-up to any other session shows nothing |
+| The listener was stopped while the session waited its turn | An **error**: `The listener stopped before this session's turn came, so no worktree was created.` |
 
 A session for an issue in another team than `--team` shows nothing, because the listener ignores it so that another
 listener can own it. A repeated delivery of the same session is ignored too. Text in these activities has secrets
@@ -112,7 +113,8 @@ masked.
 
 - **A dead listener leaves a stuck session.** The listener is a foreground process. If it stops, or the machine
   sleeps, before it has written the last activity, the session stays active in Linear. A restart does not resume it.
-  Stop it with `SIGTERM` to let a running session finish first; a second signal exits at once.
+  Stop it with `SIGTERM` to let a running session finish first; sessions still waiting their turn are not started
+  and get an error. A second signal exits at once.
 - **Follow-ups are not relayed.** Only the original delegation starts an agent. A message sent to the session
   afterwards gets the response in the table above and is not passed to the agent. Talk to the agent in its own
   terminal or space.

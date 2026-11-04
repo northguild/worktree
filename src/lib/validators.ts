@@ -241,6 +241,8 @@ export async function isValidConfigValue(
     case "github.token":
     case "jira.apiToken":
     case "linear.apiKey":
+    case "linear.agentToken":
+    case "linear.webhookSecret":
     case "clickup.apiToken":
       return isValidToken(value);
     case "clickup.workspaceId":

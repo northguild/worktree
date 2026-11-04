@@ -88,7 +88,8 @@ For each request, in this order:
 | The path is not `--path` | `404` |
 | The body is over 1 MiB | `413` |
 | The `Linear-Signature` header is not the HMAC-SHA256 of the raw body under `linear.webhookSecret` | `401` |
-| The body is not JSON, or not an agent session event (`null` included) | `400` |
+| The body is not JSON | `400` |
+| The body is JSON but not an agent session event the listener acts on: another webhook category, an action other than `created` or `prompted`, a session with no issue, or `null` | `200`, logged as `ignored`, and nothing else happens |
 | The body's signed `webhookTimestamp` is more than a minute from now, either way | `401` |
 | Otherwise | `200`, sent before any work starts |
 
@@ -97,7 +98,10 @@ The signature is checked on the raw bytes, before the body is parsed. Freshness 
 body could carry a fresh header.
 
 After the `200`, the listener writes to the Linear session: a `thought` at once (Linear expects a first
-activity within ten seconds), then one child process, then a `response` or an `error`. The child is
+activity within ten seconds), then one child process, then a `response` or an `error`. Children run one at a
+time: a session's child starts only once the one before it has finished, because two `worktree branch` runs in one
+repository contend for git's locks, and two sessions for one issue would race to create one branch. A waiting
+session's `thought` says how many sessions are ahead of it. The child is
 `worktree branch --linear <KEY> --agent-stdin --json --yes`, run with an argument list and no shell, with the
 brief on stdin. By default the brief names the issue identifier and nothing else of the issue: no title, description or
 comment reaches the agent (see [Issue text](#issue-text) for the opt-in). The identifier is checked against `^[A-Za-z][A-Za-z0-9]*-\d+$` before it reaches the
@@ -105,7 +109,9 @@ command.
 
 - A session id seen before is ignored, so a retried delivery does nothing twice.
 - A branch that already exists is a `response` saying so, not an error.
-- A follow-up message to a running session gets a `response` saying follow-ups are not delivered to the agent.
+- A follow-up message to a session whose agent this listener prompted gets a `response` saying follow-ups are not
+  delivered to the agent. A follow-up to any other session (a refused or failed one, or one from before a restart)
+  gets nothing, since there is no agent it could be talking to.
 - The child is stopped after 15 minutes and the session gets an `error`.
 
 ## Output and stopping
@@ -116,7 +122,8 @@ also logs a line per step (such as `session.done`, or `activity.failed` when Lin
 starting with the same delivery id. Secrets are redacted.
 
 `SIGTERM` (`kill -TERM <pid>`) stops accepting connections and waits for the session in flight, so a worktree is
-not left half made. A `Ctrl-C` in the terminal does the same for the listener, but the terminal also sends the
+not left half made. Sessions still waiting their turn are not started; each gets an `error` saying the listener
+stopped. A `Ctrl-C` in the terminal does the same for the listener, but the terminal also sends the
 interrupt to the running `worktree branch`, which stops at once and may leave a half-made worktree; the session then
 gets an `error`. A second signal exits the listener at once, with `130`.
 

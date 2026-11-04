@@ -6,6 +6,7 @@ import { type AgentSessionEvent, createSessionLedger } from "./linear-agent.js";
 import {
   type ChildResult,
   createCliSpawner,
+  createSerialQueue,
   type DispatchDeps,
   handleSession,
   MAX_CONTEXT_BYTES,
@@ -102,22 +103,69 @@ describe("handleSession", () => {
     expect(body).toContain("/abs/repo.worktrees/eng-123-fix");
   });
 
-  it("gives a prompted event one response and no spawn (D11)", async () => {
+  it("answers a follow-up to a session whose agent it started with one response and no spawn (D11)", async () => {
     const { deps, calls, activities } = setup();
-
-    await handleSession(event({ action: "prompted" }), deps);
-
-    expect(calls).toEqual(["response"]);
-    expect(activities[0]?.body).toMatch(/follow-up/i);
-  });
-
-  it("still answers a prompted event for a session already seen", async () => {
-    const { deps, calls } = setup();
 
     await handleSession(event(), deps);
     await handleSession(event({ action: "prompted" }), deps);
 
     expect(calls).toEqual(["thought", "spawn", "response", "response"]);
+    expect(activities[2]?.body).toMatch(/follow-up/i);
+  });
+
+  it("answers a follow-up when the agent was prompted but the command exited non-zero", async () => {
+    const { deps, calls } = setup({
+      exitCode: 1,
+      stdout: document(),
+      timedOut: false,
+    });
+
+    await handleSession(event(), deps);
+    await handleSession(event({ action: "prompted" }), deps);
+
+    expect(calls).toEqual(["thought", "spawn", "error", "response"]);
+  });
+
+  // "The agent started from the original delegation keeps working on it" is
+  // only true where this process prompted one.
+  it.each([
+    ["it never saw (one from before a restart)", undefined, null],
+    ["whose creator it refused", undefined, { creatorId: "stranger" }],
+    [
+      "whose agent was not prompted",
+      {
+        exitCode: 1,
+        stdout: document({ agent: { prompted: false } }),
+        timedOut: false,
+      },
+      {},
+    ],
+    [
+      "whose branch already existed",
+      {
+        exitCode: 2,
+        stdout: JSON.stringify({
+          error: { code: "invalid_value", message: "Branch already exists." },
+        }),
+        timedOut: false,
+      },
+      {},
+    ],
+    ["whose command failed", { exitCode: 3, stdout: "", timedOut: false }, {}],
+  ] as const)("stays silent on a follow-up to a session %s", async (_label, child, created) => {
+    const logged: string[] = [];
+    const { deps, calls } = setup(child, {
+      log: (entry) => logged.push(`${entry.event} ${entry.detail ?? ""}`),
+    });
+    if (created !== null) {
+      await handleSession(event(created), deps);
+    }
+    const before = calls.length;
+
+    await handleSession(event({ action: "prompted" }), deps);
+
+    expect(calls.slice(before)).toEqual([]);
+    expect(logged.at(-1)).toMatch(/^session\.ignored follow-up/);
   });
 
   it("refuses a disallowed creator with one error and no spawn (D5)", async () => {
@@ -495,5 +543,147 @@ process.stdin.on("end",()=>{ console.error("STDERR-SECRET");
 
     expect(result.timedOut).toBe(true);
     expect(result.exitCode).toBeNull();
+  });
+});
+
+describe("createSerialQueue", () => {
+  it("runs tasks one at a time, in the order they were queued, and counts them", async () => {
+    const queue = createSerialQueue();
+    const order: string[] = [];
+    let releaseFirst = () => {};
+    const first = queue.run(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push("first start");
+          releaseFirst = () => {
+            order.push("first end");
+            resolve();
+          };
+        }),
+    );
+    const second = queue.run(async () => {
+      order.push("second start");
+    });
+
+    await vi.waitFor(() => expect(order).toEqual(["first start"]));
+    expect(queue.pending).toBe(2);
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(order).toEqual(["first start", "first end", "second start"]);
+    expect(queue.pending).toBe(0);
+  });
+
+  it("does not let a failed task stall the one behind it", async () => {
+    const queue = createSerialQueue();
+    const failed = queue.run(() => Promise.reject(new Error("boom")));
+    const next = queue.run(async () => "ran");
+
+    await expect(failed).rejects.toThrow("boom");
+    await expect(next).resolves.toBe("ran");
+  });
+});
+
+describe("handleSession through a shared queue (plan §4.1)", () => {
+  function held() {
+    const releases: (() => void)[] = [];
+    const child = () =>
+      new Promise<ChildResult>((resolve) => {
+        releases.push(() =>
+          resolve({ exitCode: 0, stdout: document(), timedOut: false }),
+        );
+      });
+    return { child, releases };
+  }
+
+  it("starts the second child only once the first has finished, with both thoughts sent at once", async () => {
+    const { child, releases } = held();
+    const queue = createSerialQueue();
+    const { deps, calls, activities, spawned } = setup(child, { queue });
+
+    const first = handleSession(event(), deps);
+    const second = handleSession(
+      event({ sessionId: "session-2", issueIdentifier: "ENG-124" }),
+      deps,
+    );
+
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
+    // Give the second session every chance to spawn early.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spawned).toHaveLength(1);
+    expect(calls.filter((call) => call === "thought")).toHaveLength(2);
+    expect(activities[1]?.body).toBe(
+      "Starting a worktree for ENG-124 once the session ahead of it finishes; this listener runs one at a time.",
+    );
+
+    releases[0]?.();
+    await first;
+    await vi.waitFor(() => expect(spawned).toHaveLength(2));
+    expect(spawned[1]?.argv).toContain("ENG-124");
+    releases[1]?.();
+    await second;
+
+    // Both thoughts go out on arrival; the second spawn waits for the first response.
+    expect(calls).toEqual([
+      "thought",
+      "thought",
+      "spawn",
+      "response",
+      "spawn",
+      "response",
+    ]);
+  });
+
+  it("counts every session ahead in the thought", async () => {
+    const { child, releases } = held();
+    const queue = createSerialQueue();
+    const { deps, activities } = setup(child, { queue });
+
+    const runs = [1, 2, 3].map((n) =>
+      handleSession(
+        event({ sessionId: `s-${n}`, issueIdentifier: `ENG-${n}` }),
+        deps,
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(activities.filter((a) => a.type === "thought")).toHaveLength(3),
+    );
+
+    expect(activities.map((a) => a.body)).toEqual([
+      "Starting a worktree for ENG-1.",
+      "Starting a worktree for ENG-2 once the session ahead of it finishes; this listener runs one at a time.",
+      "Starting a worktree for ENG-3 once the 2 sessions ahead of it finish; this listener runs one at a time.",
+    ]);
+    for (let i = 0; i < 3; i += 1) {
+      await vi.waitFor(() => expect(releases).toHaveLength(i + 1));
+      releases[i]?.();
+    }
+    await Promise.all(runs);
+  });
+
+  it("gives a session still waiting when the listener stops an error and no child", async () => {
+    const { child, releases } = held();
+    const queue = createSerialQueue();
+    let stopping = false;
+    const { deps, activities, spawned } = setup(child, {
+      queue,
+      isStopping: () => stopping,
+    });
+
+    const first = handleSession(event(), deps);
+    const second = handleSession(
+      event({ sessionId: "session-2", issueIdentifier: "ENG-124" }),
+      deps,
+    );
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
+
+    stopping = true;
+    releases[0]?.();
+    await Promise.all([first, second]);
+
+    expect(spawned).toHaveLength(1);
+    const last = activities.filter((a) => a.sessionId === "session-2").at(-1);
+    expect(last?.type).toBe("error");
+    expect(last?.body).toMatch(/stopped/);
   });
 });

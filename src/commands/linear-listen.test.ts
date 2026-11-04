@@ -229,11 +229,41 @@ describe("linear-listen server", () => {
     expect(response.status).toBe(401);
   });
 
+  it("answers a signed body that is not JSON with 400 and spawns nothing", async () => {
+    await start();
+    const response = await post("not json");
+    expect(response.status).toBe(400);
+    expect(spawns).toEqual([]);
+  });
+
+  // Signed means the sender is Linear, and Linear retries a non-2xx and may
+  // disable a webhook that keeps failing (https://linear.app/developers/webhooks),
+  // so a body the listener does not act on is a 200 and nothing else.
   it.each([
-    ["not JSON", "not json"],
     ["JSON null", "null"],
     ["an array", "[]"],
     ["an event of the wrong shape", JSON.stringify({ action: "created" })],
+    [
+      "another webhook category",
+      JSON.stringify({
+        type: "Issue",
+        action: "create",
+        webhookTimestamp: NOW,
+        data: { id: "i", identifier: "ENG-1" },
+      }),
+    ],
+    [
+      "an agent session action this listener does not handle",
+      JSON.stringify(event({ action: "updated" })),
+    ],
+    [
+      "a session with no issue",
+      JSON.stringify(
+        event({
+          agentSession: { id: "s", creator: { id: "user-1" }, issue: null },
+        }),
+      ),
+    ],
     [
       "an issue identifier that is not a Linear one",
       JSON.stringify(
@@ -246,11 +276,14 @@ describe("linear-listen server", () => {
         }),
       ),
     ],
-  ])("answers a signed body that is %s with 400 and spawns nothing", async (_label, body) => {
+  ])("answers a signed body that is %s with 200, logs it as ignored, and does nothing", async (_label, body) => {
     await start();
     const response = await post(body);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
+    await settle();
     expect(spawns).toEqual([]);
+    expect(activities).toEqual([]);
+    expect(logs.join("\n")).toMatch(/status=200 ignored/);
   });
 
   it.each([
@@ -359,6 +392,65 @@ describe("linear-listen server", () => {
       "thought",
       "response",
     ]);
+  });
+
+  it("runs a second session's child only after the first one's has finished (plan §4.1)", async () => {
+    await start({ child: true });
+    await post(JSON.stringify(event()));
+    await post(
+      JSON.stringify(
+        event({
+          agentSession: {
+            id: "session-2",
+            creator: { id: "user-1" },
+            issue: { identifier: "ENG-2", team: { key: "ENG" } },
+          },
+        }),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(activities.filter((a) => a.type === "thought")).toHaveLength(2),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(spawns).toHaveLength(1);
+
+    release({ exitCode: 0, stdout: STARTED, timedOut: false });
+    await vi.waitFor(() => expect(spawns).toHaveLength(2));
+    expect(spawns[1]?.argv).toContain("ENG-2");
+    release({ exitCode: 0, stdout: STARTED, timedOut: false });
+    await vi.waitFor(() =>
+      expect(activities.filter((a) => a.type === "response")).toHaveLength(2),
+    );
+  });
+
+  it("on shutdown, finishes the running session and starts none of those waiting", async () => {
+    await start({ child: true });
+    await post(JSON.stringify(event()));
+    await post(
+      JSON.stringify(
+        event({
+          agentSession: {
+            id: "session-2",
+            creator: { id: "user-1" },
+            issue: { identifier: "ENG-2", team: { key: "ENG" } },
+          },
+        }),
+      ),
+    );
+    await vi.waitFor(() => expect(spawns).toHaveLength(1));
+
+    const closing = listener.shutdown();
+    release({ exitCode: 0, stdout: STARTED, timedOut: false });
+    await closing;
+
+    expect(spawns).toHaveLength(1);
+    expect(activities.map((a) => a.type)).toEqual([
+      "thought",
+      "thought",
+      "response",
+      "error",
+    ]);
+    expect(activities.at(-1)?.body).toMatch(/stopped/);
   });
 
   it("refuses new connections once shut down", async () => {

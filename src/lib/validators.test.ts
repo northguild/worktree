@@ -503,6 +503,8 @@ describe("isValidConfigValue token keys", () => {
     "github.token",
     "jira.apiToken",
     "linear.apiKey",
+    "linear.agentToken",
+    "linear.webhookSecret",
     "clickup.apiToken",
   ])("refuses a whitespace-only value for %s", async (name) => {
     expect(await isValidConfigValue(name, "   ")).toBe("Token cannot be empty");

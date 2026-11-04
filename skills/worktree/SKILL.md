@@ -539,14 +539,17 @@ step, not shipped. An unset key exits `2` with `missing_value` before it listens
 in use, exits `1`.
 
 - Each delivery is checked in order: `POST` only (`405`), path (`404`), 1 MiB cap (`413`), the `Linear-Signature`
-  HMAC-SHA256 of the raw body (`401`), a valid agent session event (`400`), the body's signed `webhookTimestamp`
-  within a minute (`401`). Then `200` goes out before any work.
+  HMAC-SHA256 of the raw body (`401`), JSON (`400`); a signed body that is not an agent session event it acts on
+  gets `200` and is ignored; then the body's signed `webhookTimestamp` within a minute (`401`). Then `200` goes
+  out before any work.
 - Only the owner of `linear.apiKey` may start an agent, unless `linear.agentAllow` lists user ids. `--team <KEY>`
   ignores sessions of other teams.
 - For an accepted session it writes a `thought` to the Linear session, runs
   `worktree branch --linear <KEY> --agent-stdin --json --yes`, and writes a `response` or an `error`. The brief
   names only the issue identifier, unless `linear.agentContext` is `true` (see "Issue content" above).
-- `kill -TERM <pid>` waits for the session in flight. A terminal `Ctrl-C` also interrupts the running `worktree branch`, which may leave a half-made worktree. A second signal exits `130` at once.
+- Sessions run one at a time, so two `worktree branch` children never share the repository. A follow-up message is
+  answered only on a session whose agent this listener prompted.
+- `kill -TERM <pid>` waits for the session in flight; sessions still waiting their turn are not started. A terminal `Ctrl-C` also interrupts the running `worktree branch`, which may leave a half-made worktree. A second signal exits `130` at once.
 
 ## Configuration Reference
 

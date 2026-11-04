@@ -11,7 +11,8 @@ import type { AgentActivityContent } from "./linear-agent-api.js";
 /**
  * Turning an accepted `AgentSessionEvent` into work (#115, D3-D5, D7, D8, D11):
  * team filter, de-duplication, creator allowlist, then
- * `thought` -> one `worktree branch` child -> `response` | `error`.
+ * `thought` -> one `worktree branch` child -> `response` | `error`, the children
+ * one at a time through a `SerialQueue` (plan §4.1).
  *
  * Nothing here throws to the caller, and no error object is ever logged or
  * stringified: Phase 3's errors carry an unredacted `cause`, so only a message
@@ -57,6 +58,38 @@ export interface ChildResult {
 
 export type SpawnChild = (request: SpawnRequest) => Promise<ChildResult>;
 
+/**
+ * Runs tasks one at a time, in the order they were queued (plan §4.1). Two
+ * `worktree branch` children in one repository contend for `.git/config.lock`
+ * and the ref locks `git fetch` takes, and two sessions for one issue race to
+ * create one branch: the CLI's existing-branch refusal is check-then-act, so
+ * it does not stop that race.
+ */
+export interface SerialQueue {
+  run<T>(task: () => Promise<T>): Promise<T>;
+  /** Tasks queued or running. */
+  readonly pending: number;
+}
+
+export function createSerialQueue(): SerialQueue {
+  let tail: Promise<unknown> = Promise.resolve();
+  let pending = 0;
+  return {
+    run<T>(task: () => Promise<T>): Promise<T> {
+      pending += 1;
+      const result = tail.then(task).finally(() => {
+        pending -= 1;
+      });
+      // A failed task must not stall the ones behind it.
+      tail = result.catch(() => {});
+      return result;
+    },
+    get pending() {
+      return pending;
+    },
+  };
+}
+
 export interface DispatchDeps {
   /** The agent's OAuth token; used for the activity client and masked out of every body. */
   token: string;
@@ -71,6 +104,13 @@ export interface DispatchDeps {
     content: AgentActivityContent,
   ) => Promise<void>;
   spawnChild: SpawnChild;
+  /** The children run through this one at a time (§4.1); unset runs each at once. */
+  queue?: SerialQueue;
+  /**
+   * True once the listener is shutting down: a session still waiting in the
+   * queue then gets an `error` instead of a child, so a stop starts nothing new.
+   */
+  isStopping?: () => boolean;
   /**
    * `linear.agentContext` (D8): when true, a session's `promptContext` is added
    * to the brief, fenced and capped. Unset means false; it is never logged or
@@ -166,7 +206,8 @@ function parseDocument(stdout: string): Record<string, unknown> | null {
   }
 }
 
-type Outcome = AgentActivityContent;
+/** `agentStarted`: the child prompted an agent, so a follow-up has one to point at (D11). */
+type Outcome = AgentActivityContent & { agentStarted?: true };
 
 function interpret(result: ChildResult, timeoutMs: number): Outcome {
   if (result.timedOut) {
@@ -223,12 +264,26 @@ function interpret(result: ChildResult, timeoutMs: number): Outcome {
     return {
       type: "error",
       body: `The worktree was created (${where}) and the agent was prompted, but the command exited with code ${result.exitCode}.`,
+      agentStarted: true,
     };
   }
   return {
     type: "response",
     body: `Started ${where}. The agent has been given the issue identifier.`,
+    agentStarted: true,
   };
+}
+
+/** The first activity (D7): what happens next, and what it is waiting on. */
+function thoughtBody(identifier: string, ahead: number): string {
+  if (ahead === 0) {
+    return `Starting a worktree for ${identifier}.`;
+  }
+  const others =
+    ahead === 1
+      ? "the session ahead of it finishes"
+      : `the ${ahead} sessions ahead of it finish`;
+  return `Starting a worktree for ${identifier} once ${others}; this listener runs one at a time.`;
 }
 
 export async function handleSession(
@@ -270,8 +325,17 @@ export async function handleSession(
   }
 
   // D11: a follow-up is acknowledged, never relayed. It is not de-duplicated:
-  // it shares the created event's session id by design.
+  // it shares the created event's session id by design. It is answered only
+  // where this process prompted an agent: on a refused or failed session, or
+  // one from before a restart, "keeps working" would be untrue.
   if (event.action === "prompted") {
+    if (!deps.ledger.started(event.sessionId)) {
+      note(
+        "session.ignored",
+        "follow-up to a session with no agent started here",
+      );
+      return;
+    }
     await say({
       type: "response",
       body: "Follow-up messages are not delivered to a running agent yet. The agent started from the original delegation keeps working on it.",
@@ -302,22 +366,38 @@ export async function handleSession(
     return;
   }
 
-  await say({
+  // Queued on arrival, so the count is the sessions really ahead; the thought
+  // goes out now (the 10 s rule) and the child waits for it and for its turn.
+  const ahead = deps.queue?.pending ?? 0;
+  const thought = say({
     type: "thought",
-    body: `Starting a worktree for ${event.issueIdentifier}.`,
+    body: thoughtBody(event.issueIdentifier, ahead),
   });
 
   const timeoutMs = deps.timeoutMs ?? CHILD_TIMEOUT_MS;
-  let outcome: Outcome;
-  try {
-    const result = await deps.spawnChild({
+  const turn = async (): Promise<ChildResult | null> => {
+    await thought;
+    if (deps.isStopping?.()) {
+      return null;
+    }
+    return deps.spawnChild({
       argv: buildArgv(event.issueIdentifier),
       stdin: deps.includeIssueContext
         ? buildBriefWithContext(event.issueIdentifier, event.promptContext)
         : buildBrief(event.issueIdentifier),
       timeoutMs,
     });
-    outcome = interpret(result, timeoutMs);
+  };
+  let outcome: Outcome;
+  try {
+    const result = await (deps.queue ? deps.queue.run(turn) : turn());
+    outcome =
+      result === null
+        ? {
+            type: "error",
+            body: "The listener stopped before this session's turn came, so no worktree was created.",
+          }
+        : interpret(result, timeoutMs);
   } catch (error) {
     note(
       "child.failed",
@@ -327,6 +407,9 @@ export async function handleSession(
       type: "error",
       body: "The worktree command could not be started.",
     };
+  }
+  if (outcome.agentStarted) {
+    deps.ledger.markStarted(event.sessionId);
   }
   note("session.done", outcome.type);
   await say(outcome);
