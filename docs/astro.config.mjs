@@ -12,7 +12,9 @@ export default defineConfig({
   build: { format: "directory" },
   integrations: [
     starlight({
-      title: "Worktree",
+      title: "@northguild/worktree",
+      // The delimiter in `<title>`: `<page> | @northguild/worktree` (D9). Starlight's default, stated so Head.astro can rely on it.
+      titleDelimiter: "|",
       // The site-wide default description (D3): the old Documentation index row; pages with their own `description:` override it.
       description:
         "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.",
@@ -74,6 +76,7 @@ export default defineConfig({
       components: {
         SiteTitle: "./src/components/SiteTitle.astro",
         Footer: "./src/components/Footer.astro",
+        Head: "./src/components/Head.astro",
       },
       // Preload the display face so the title and headings do not reflow out of the mono fallback.
       // The href carries `base`: Starlight does not prefix `head` entries.

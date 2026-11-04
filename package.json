@@ -24,7 +24,8 @@
     "docs:test": "pnpm --filter docs test",
     "docs:dev": "pnpm docs:sync-version && pnpm --filter docs run dev",
     "docs:dev-local": "pnpm docs:sync-version && pnpm --filter docs run dev:local:watch",
-    "docs:build": "pnpm docs:sync-version && pnpm --filter docs build"
+    "docs:build": "pnpm docs:sync-version && pnpm --filter docs build",
+    "docs:audit-dist": "pnpm --filter docs audit-dist"
   },
   "publishConfig": {
     "access": "public"

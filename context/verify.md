@@ -86,6 +86,24 @@ variable for the real build). Like `pnpm --filter docs typecheck`, it rewrites `
 `docs:sync-version`, which is a no-op while `docs/src/lib/site-meta.ts` is current with `package.json`; a modified
 `site-meta.ts` after Build is drift to commit, not a by-product.
 
+## Audit
+
+```bash
+pnpm docs:audit-dist
+```
+
+Runs after `pnpm docs:build` (Build above), because it reads `docs/dist/`; with no build it exits 1 saying it
+cannot audit the directory (ENOENT). It asserts the SEO requirements of #235 over the built site: on each of the 23 pages a
+unique meta description of at most 155 characters, one canonical link in the form
+`https://northguild.dev/worktree/<path>/`, Open Graph and Twitter tags, JSON-LD of the right types, and no chat
+script loaded up front; across the site, a sitemap listing exactly those 23 URLs, a `404.html`, Getting Started
+text in the root page's HTML, and no `shuding/nextra` string. It prints every failed rule, one line each, and
+exits 1 on any. To run it by hand: `pnpm docs:build && pnpm docs:audit-dist`, or point it at another build with
+`node docs/scripts/audit-dist.mjs <dir>`. `og:image` is not checked until the preview image is decided
+(`PREVIEW_IMAGE_DECIDED` in the script), and `llms.txt` is not checked until it exists. The script's own test,
+`docs/scripts/audit-dist.test.mjs`, runs under `pnpm docs:test` (the docs Vitest config takes any `*.test.mjs`).
+Added 2026-11-04 for #235 and run from the repo root of a worktree that day, exiting 0.
+
 ## Test
 
 ```bash
@@ -100,7 +118,7 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-11-04 that is 2751 and 83 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-11-04 that is 2756 and 167 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 
@@ -161,6 +179,7 @@ the round.
 
 - **A missing entry is skipped, never faked.** An empty section above means there is no such step. Gate 1
   skips it and says so; it never substitutes a command it invented.
+- **Audit needs a fresh build.** Run it after `pnpm docs:build`, never against a `docs/dist/` left over from before the change.
 - **Docs-only changes run Lint only**, plus a read of the diff. Skip build and test for changes that touch
   no application code.
 - **Exit 0 is the verdict.** A non-zero exit is a Gate 1 failure regardless of what the summary text says.

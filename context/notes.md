@@ -180,3 +180,29 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   still runs inside code fences.
 - After Gate 2 the caller fixed two stale one-liners the reviewer found: `docs/README.md:103` (~30 KB →
   ~260 KB worker bundle) and `docs/worker/README.md:67` (`next dev` → `astro dev`).
+
+## From phase 7's review (head tags, JSON-LD, the dist audit)
+
+- The 404 page gets JSON-LD (SoftwareApplication plus a `BreadcrumbList` whose item is
+  `https://northguild.dev/worktree/404/`, which does not exist) and that canonical too. Harmless (search
+  engines ignore 404s); emit no JSON-LD on the 404 — phase 9 owns the 404.
+- `Head.astro` hard-codes the `"|"` delimiter instead of reading `titleDelimiter`.
+- The audit's chat rule keys on a chunk named `Chat.*` and follows one level of static import; a rename
+  would pass everything silently. Asserting that a `Chat.*` chunk exists would make that loud.
+- `audit-dist.test.mjs` ≈221-230 ("no BreadcrumbList") checks only `length > 0`, not which rule failed.
+- `structured-data.ts`: `interface Node` shadows the DOM global; index signatures on `Node` and
+  `BreadcrumbList` weaken the typing. `Head.astro` writes `JSON.stringify` through `set:html` unescaped — a
+  title containing `</script>` would break out (titles are repo-authored; escape `<` as the JSON escape `\u003c`).
+- Unsourced expected values: breadcrumb section names "Commands"/"Guides" come from `capitalise(segment)`
+  (the `/commands/` page itself is titled "worktree commands: every command at a glance"), and
+  Organization `sameAs: ["https://github.com/northguild"]` has no plan source.
+- Unasserted: breadcrumb item URLs, the built page titles (no duplicated site title), the sitemap duplicate
+  rule (works, untested).
+- D10 read as SoftwareApplication on every page; it could be read as root only.
+- `verify.md`'s "Docs-only changes run Lint only" sits awkwardly with D8: an edit to `docs/src/content` could
+  count as docs-only and skip the build and the audit.
+- CI runs neither `docs:build` nor `docs:audit-dist` — phase 11 adds them.
+- The site default description is written twice: Starlight's `description` in `docs/astro.config.mjs` and
+  `SITE_DEFAULT_DESCRIPTION` in `audit-dist.mjs`; change one alone and the audit's site-default rule goes
+  quiet. A comment in the config pointing at the audit constant would keep them together. Each page's
+  description is still not pinned to its §4.3 row.

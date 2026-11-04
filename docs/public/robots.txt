@@ -1,0 +1,6 @@
+# Served at https://northguild.dev/worktree/robots.txt. Crawlers read robots.txt only from a host's root, so
+# this copy is not authoritative: it is here for completeness, and so the sitemap link travels with the build.
+User-agent: *
+Allow: /
+
+Sitemap: https://northguild.dev/worktree/sitemap-index.xml
