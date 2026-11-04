@@ -4,9 +4,13 @@
   // Shape follows northguild/gmt apps/dox/wrangler.jsonc (read at gmt 6efa06e): a Worker whose only job is
   // to serve static assets on one path of the shared northguild.dev zone.
   "compatibility_date": "2026-08-26",
-  // northguild.dev/worktree* — one pattern, because route matching includes the query string:
-  // "northguild.dev/worktree" alone would miss "/worktree?a=1". The landing site owns every other
-  // path as a Custom Domain; a Route takes precedence over a Custom Domain on the same hostname.
+  // northguild.dev/worktree* — one pattern, because route matching includes the query string and a
+  // pattern may not contain one: "northguild.dev/worktree" alone would miss "/worktree?a=1", and only a
+  // trailing * reaches it (Cloudflare Workers docs, Routes > Matching behavior). The cost: a trailing *
+  // matches every suffix, so this Worker also takes any apex path that merely starts with "/worktree"
+  // ("/worktree-guide" too), and the landing site must not use one. It owns every other path as a Custom
+  // Domain; a Route takes precedence over a Custom Domain on the same hostname. gmt's "northguild.dev/gmt*"
+  // makes the same trade.
   "routes": [
     { "pattern": "northguild.dev/worktree*", "zone_name": "northguild.dev" }
   ],
