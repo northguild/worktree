@@ -9,23 +9,75 @@
  * no script that loads the chat before it is activated. Per site: a sitemap listing exactly the 23 URLs, a
  * `404.html`, Getting Started text in the root page's HTML, and no `shuding/nextra` string anywhere.
  *
- * Not asserted yet, each because the thing it checks does not exist until a later phase:
- *   - `llms.txt` lists the same 23 URLs (phase 8, D13).
+ * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11), and the
+ * "Edit this page" link is the repository's `edit/main/docs/src/content/docs/<source>` URL for a source file that
+ * exists. These apply to the 23 pages only; `404.html` is not one of them and has neither. Per site: `llms.txt`
+ * (D13) is a llmstxt.org file listing the same 23 URLs, each with a title and the page's own description.
+ *
+ * Not asserted yet, because the thing it checks does not exist until a later phase:
  *   - `og:image` / `twitter:image` (plan §9 Q3: the preview image is undecided). Set PREVIEW_IMAGE_DECIDED to
  *     true when it is; the rule is then a one-line addition in `auditPage`.
  *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
 
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Temporal } from "@northguild/gmt";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIST = join(here, "../dist");
 const ORIGIN = "https://northguild.dev/worktree/";
 const MAX_DESCRIPTION = 155;
+const CONTENT_DIR = join(here, "../src/content/docs");
+const REPO_ROOT = join(here, "../..");
+const EDIT_BRANCH = "main";
 export const PREVIEW_IMAGE_DECIDED = false;
+
+/** The repository URL from package.json `repository.url` (`git+https://github.com/o/r.git` -> `https://github.com/o/r`). */
+function repositoryUrl() {
+  const { repository } = JSON.parse(
+    readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
+  );
+  return repository.url.replace(/^git\+/, "").replace(/\.git$/, "");
+}
+
+/** The page's source file relative to the content directory, or undefined when none exists: `commands` is `commands/index.mdx`. */
+export function sourcePathOf(path, contentDir = CONTENT_DIR) {
+  const candidates =
+    path === "" ? ["index.mdx"] : [`${path}.mdx`, `${path}/index.mdx`];
+  return candidates.find((c) => existsSync(join(contentDir, c)));
+}
+
+/**
+ * The date of the newest commit to `file` (relative to `repoRoot`) following renames, as a UTC calendar date. UTC
+ * because Starlight renders its date in UTC (`timeZone: "UTC"` in its LastUpdated component); `%cs` would be the
+ * committer's local date and can differ by a day. This is D11's oracle, independent of Starlight, which runs
+ * `git log -1` without `--follow`.
+ */
+export function followDate(repoRoot, file) {
+  const result = spawnSync(
+    "git",
+    ["log", "--follow", "-1", "--format=%ct", "--", file],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  const seconds = result.stdout?.trim();
+  if (result.error || !/^\d+$/.test(seconds ?? ""))
+    throw new Error(`no git history for ${file}`);
+  return Temporal.Instant.fromEpochMilliseconds(Number(seconds) * 1000)
+    .toZonedDateTimeISO("UTC")
+    .toPlainDate()
+    .toString();
+}
+
+const defaultExpectedDate = (path) => {
+  const source = sourcePathOf(path);
+  if (source === undefined) return undefined;
+  return followDate(REPO_ROOT, `docs/src/content/docs/${source}`);
+};
 
 // The site-wide default description (D3: the old Documentation index row of §4.3). Starlight falls back to it
 // when a page has no `description:` frontmatter, so a page carrying it has lost its own (D9).
@@ -136,7 +188,7 @@ async function chatLoadedUpFront(html, dist) {
   return false;
 }
 
-async function auditPage(path, dist, descriptions) {
+async function auditPage(path, dist, descriptions, options) {
   const failures = [];
   const fail = (rule) => failures.push(`${label(path)}: ${rule}`);
   let html;
@@ -202,6 +254,33 @@ async function auditPage(path, dist, descriptions) {
 
   if (await chatLoadedUpFront(html, dist))
     fail("loads chat code before it is activated");
+
+  // Last updated (D11): the rendered <time> must be the independently computed date.
+  const times = tagsOf(html, "time");
+  const expectedDate = options.expectedDate(path);
+  if (times.length === 0) fail("no last updated date (<time>) on the page");
+  else if (expectedDate === undefined)
+    fail("no source file to compute the expected last updated date from");
+  else {
+    const shown = times[0].datetime?.slice(0, 10);
+    if (shown !== expectedDate)
+      fail(
+        `last updated is ${shown}, expected ${expectedDate} (git log --follow)`,
+      );
+  }
+
+  // Edit link: starts with the repository URL and names the page's real source file.
+  const source = options.sourcePath(path);
+  const edits = tagsOf(html, "a").filter((a) => a.href?.includes("/edit/"));
+  if (edits.length !== 1)
+    fail(`${edits.length} edit links, expected exactly 1`);
+  else if (source === undefined)
+    fail("edit link: the page has no source file under src/content/docs");
+  else {
+    const expected = `${options.repoUrl}/edit/${EDIT_BRANCH}/docs/src/content/docs/${source}`;
+    if (edits[0].href !== expected)
+      fail(`edit link is ${edits[0].href}, expected ${expected}`);
+  }
   return failures;
 }
 
@@ -226,6 +305,61 @@ async function filesUnder(dir) {
     ),
   );
   return nested.flat();
+}
+
+/** The item lines of a llmstxt.org file: `- [name](url): notes`. */
+function llmsItems(text) {
+  return text
+    .split("\n")
+    .filter((line) => line.startsWith("- "))
+    .map((line) => {
+      const m = line.match(/^- \[([^\]]*)\]\(([^)]*)\)(?:: (.*))?$/);
+      return m
+        ? { title: m[1], url: m[2], notes: m[3] ?? "" }
+        : { malformed: line };
+    });
+}
+
+async function auditLlms(dist, descriptions) {
+  const failures = [];
+  let text;
+  try {
+    text = await readFile(join(dist, "llms.txt"), "utf8");
+  } catch {
+    return ["llms.txt is missing from the build"];
+  }
+  const lines = text.replace(/^\uFEFF/, "").split("\n");
+  if (!/^# \S/.test(lines[0] ?? ""))
+    failures.push("llms.txt: does not open with an H1 naming the site");
+  if (!lines.some((l) => /^> \S/.test(l)))
+    failures.push("llms.txt: has no blockquote summary");
+  const items = llmsItems(text);
+  const seen = new Set();
+  for (const item of items) {
+    if (item.malformed) {
+      failures.push(`llms.txt: not a link item: ${item.malformed}`);
+      continue;
+    }
+    seen.add(item.url);
+    const path = PAGE_PATHS.find((p) => pageUrl(p) === item.url);
+    if (path === undefined) {
+      failures.push(
+        `llms.txt: ${item.url} is not one of the ${PAGE_PATHS.length} pages`,
+      );
+      continue;
+    }
+    if (item.title === "") failures.push(`llms.txt: ${item.url} has no title`);
+    if (item.notes === "")
+      failures.push(`llms.txt: ${item.url} has no description`);
+    else if (descriptions.get(item.notes) !== path)
+      failures.push(`llms.txt: ${item.url} description is not the page's own`);
+  }
+  for (const path of PAGE_PATHS)
+    if (!seen.has(pageUrl(path)))
+      failures.push(`llms.txt: ${pageUrl(path)} is missing`);
+  if (items.length !== seen.size)
+    failures.push("llms.txt: a URL is listed twice");
+  return failures;
 }
 
 async function auditSite(dist) {
@@ -272,12 +406,19 @@ async function auditSite(dist) {
 }
 
 /** Every failed rule across the build in `dist`, one line each; an empty array is a pass. */
-export async function auditDist(dist = DEFAULT_DIST) {
+export async function auditDist(dist = DEFAULT_DIST, overrides = {}) {
+  const options = {
+    repoUrl: repositoryUrl(),
+    sourcePath: sourcePathOf,
+    expectedDate: defaultExpectedDate,
+    ...overrides,
+  };
   const descriptions = new Map();
   const failures = [];
   for (const path of PAGE_PATHS)
-    failures.push(...(await auditPage(path, dist, descriptions)));
+    failures.push(...(await auditPage(path, dist, descriptions, options)));
   failures.push(...(await auditSite(dist)));
+  failures.push(...(await auditLlms(dist, descriptions)));
   return failures;
 }
 

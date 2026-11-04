@@ -15,6 +15,13 @@ export default defineConfig({
       title: "@northguild/worktree",
       // The delimiter in `<title>`: `<page> | @northguild/worktree` (D9). Starlight's default, stated so Head.astro can rely on it.
       titleDelimiter: "|",
+      // "Edit this page" links: baseUrl + the page's path from the docs root (D11's sibling; `docs/` is the Astro root).
+      editLink: {
+        baseUrl: "https://github.com/northguild/worktree/edit/main/docs/",
+      },
+      // "Last updated" from git (D11). Needs full history: `fetch-depth: 0` in CI. Pages where git is wrong carry a
+      // `lastUpdated:` frontmatter date.
+      lastUpdated: true,
       // The site-wide default description (D3): the old Documentation index row; pages with their own `description:` override it.
       description:
         "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.",

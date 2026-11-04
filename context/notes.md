@@ -206,3 +206,24 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   `SITE_DEFAULT_DESCRIPTION` in `audit-dist.mjs`; change one alone and the audit's site-default rule goes
   quiet. A comment in the config pointing at the audit constant would keep them together. Each page's
   description is still not pinned to its §4.3 row.
+
+## From phase 8's review (dates, edit links, llms.txt)
+
+- The audit's `llms.txt` duplicate check misfires: `audit-dist.mjs` ≈360 compares `items.length` with
+  `seen.size`, and malformed items never enter `seen`, so any malformed line also reports a false "a URL is
+  listed twice". Report a duplicate on `seen.has(url)` before `seen.add`; add audit tests for a duplicated
+  item and a missing blockquote (the blockquote, duplicate, malformed-line and empty-title rules are untested
+  in the audit; the renderer test pins the requirements).
+- The comment at `audit-dist.mjs` ≈111-112 ("Starlight runs `git log -1` without `--follow`") describes the
+  dev server; a build uses `getAllNewestCommitDate` (`git log --format=t:%ct --name-only -z -- <docsPath>`).
+- §8's date row says `--format=%cs`; the oracle uses `%ct` → UTC date because Starlight renders in UTC — a
+  plan wording change, pinned by a test.
+- Phase 8's Files line named `docs/src/pages/llms.txt.test.ts`; the renderer and test live in
+  `docs/src/lib/llms-txt.ts(.test.ts)` because Astro routes every file in `src/pages/`.
+- `llms-txt.ts`'s summary ("Documentation for worktree, …") and "root first" ordering are the coder's own
+  choices with no plan source; sorting uses locale-dependent `localeCompare`.
+- The audit checks only that an `llms.txt` title is non-empty, not that it is the page's own; the date rule
+  reads the first `<time>` on the page, not the one in "Last updated".
+- Phase 9: a `404.md` in `src/content/docs` would enter `getCollection("docs")`, so `llms.txt` would list
+  `/worktree/404/` and the audit would fail — the endpoint must filter it.
+- `context/stack.md:34` describes `docs/src/` without `pages/` or `components/` (incomplete, not false).

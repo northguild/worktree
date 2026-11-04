@@ -1,0 +1,85 @@
+// @vitest-environment node
+
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { renderLlmsTxt } from "./llms-txt";
+
+// Expected values do not come from the endpoint. The URLs come from D3 (`https://northguild.dev/worktree/<path>/`,
+// the root page at `/worktree/`) applied to each source file's path; titles and descriptions are read straight
+// from the frontmatter as written in the .mdx files (double-quoted one-liners, so JSON.parse reads them). The
+// format is llmstxt.org (v2, read 2026-11-04): an H1, a blockquote summary, then H2 sections holding
+// `- [name](url): notes` list items.
+const CONTENT = fileURLToPath(new URL("../content/docs", import.meta.url));
+const ORIGIN = "https://northguild.dev/worktree/";
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory()
+      ? sourceFiles(join(dir, entry.name))
+      : [join(dir, entry.name)],
+  );
+}
+
+function expectedPages() {
+  return sourceFiles(CONTENT)
+    .filter((file) => file.endsWith(".mdx"))
+    .map((file) => {
+      const path = relative(CONTENT, file)
+        .replace(/\.mdx$/, "")
+        .replace(/(^|\/)index$/, "");
+      const field = (name: string) => {
+        const line = readFileSync(file, "utf8")
+          .split("\n")
+          .find((l) => l.startsWith(`${name}: `));
+        if (!line) throw new Error(`${file} has no ${name}:`);
+        return JSON.parse(line.slice(name.length + 2)) as string;
+      };
+      return {
+        id: relative(CONTENT, file).replace(/\.mdx$/, ""),
+        url: path === "" ? ORIGIN : `${ORIGIN}${path}/`,
+        title: field("title"),
+        description: field("description"),
+      };
+    });
+}
+
+// `getCollection` returns nothing under Vitest (no content store), so the renderer is tested on the source files'
+// own frontmatter; the audit checks the built file, collection and all, against the same 23 URLs.
+const body = () => ({ text: renderLlmsTxt(expectedPages()) });
+
+describe("llms.txt", () => {
+  it("opens with an H1 naming the site and a blockquote summary (llmstxt.org)", () => {
+    const { text } = body();
+    const [h1, blank, quote] = text.split("\n");
+    expect(h1).toBe("# @northguild/worktree");
+    expect(blank).toBe("");
+    expect(quote).toMatch(/^> \S/);
+  });
+
+  it("lists each of the 23 pages once, as a link with its title and description", async () => {
+    const pages = expectedPages();
+    expect(pages).toHaveLength(23);
+    const { text } = body();
+    const items = text.split("\n").filter((line) => line.startsWith("- "));
+    expect([...items].sort()).toEqual(
+      pages.map((p) => `- [${p.title}](${p.url}): ${p.description}`).sort(),
+    );
+  });
+
+  it("puts every list item under an H2 section, as the format requires", () => {
+    const { text } = body();
+    const lines = text.split("\n");
+    const firstItem = lines.findIndex((l) => l.startsWith("- "));
+    const firstH2 = lines.findIndex((l) => l.startsWith("## "));
+    expect(firstH2).toBeGreaterThan(0);
+    expect(firstH2).toBeLessThan(firstItem);
+  });
+
+  it("lists the root page first, as the site's entry point", () => {
+    const { text } = body();
+    const first = text.split("\n").find((l) => l.startsWith("- "));
+    expect(first).toContain(`](${ORIGIN}):`);
+  });
+});
