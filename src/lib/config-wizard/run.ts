@@ -80,6 +80,10 @@ async function askQuestions(ctx: WizardContext): Promise<void> {
             value: item.id,
             checked: preTicked.has(item.id),
           })),
+          // The library shows 7 rows and wraps past either end by default,
+          // which turns eight items into a list that scrolls without end.
+          pageSize: items.length,
+          loop: false,
         },
         { value: "what to set up", flag: "--names <keys>" },
       );

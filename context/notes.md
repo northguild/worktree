@@ -64,3 +64,8 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - `configuration` page "`opener` itself is always shown" and `skills/worktree/SKILL.md` "opener itself is always offered" are loose under `--missing`; acceptable in their hiding-rule context.
 - `guides/herdr-spaces` "neither lists nor prompts for any of the keys below" leaves out the stored-value and `opener=herdr` exceptions; its `--missing --names opener  # prompts for it regardless` means "regardless of Herdr" and is false once `opener` is set (predates this feature, also on main).
 - #235 merged to main as `c0cc821` (#240) during this run and moved every docs page this feature edited from `docs/src/app/docs/**/page.mdx` to `docs/src/content/docs/**.mdx`; Git sees them as 87–97% renames. Plan §9 Q9: whichever lands second carries the new text — this branch.
+
+## Phase 2 fix — the checklist scrolled endlessly (walk-through, #236)
+
+- `pageSize` counts rendered lines, not items (`@inquirer/core` `usePagination`), so in a terminal narrower than about 67 columns the longest label (Jira's) wraps and the checklist pages again — finitely, since `loop` is off. A larger `pageSize` would cover it.
+- A terminal shorter than about 11 rows clips the top of the prompt; nothing in `@inquirer/core` clamps a page to the terminal's height.

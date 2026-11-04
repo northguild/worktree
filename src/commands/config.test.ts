@@ -962,6 +962,22 @@ describe("config command", () => {
       expect(mockSelect).not.toHaveBeenCalled();
     });
 
+    // The maintainer's walk-through (§8 item 3): the list scrolled endlessly,
+    // because @inquirer/checkbox shows 7 rows by default and wraps past either
+    // end. Every listed item fits on screen, and the cursor stops at the ends.
+    it("shows every listed item at once, without wrapping past the ends", async () => {
+      mockCheckbox.mockResolvedValue([]);
+      mockInput.mockResolvedValue("origin/main");
+      bare();
+
+      await config.run();
+
+      const options = mockCheckbox.mock.calls[0]?.[0];
+      expect(choicesOf()).toHaveLength(8);
+      expect(options?.pageSize).toBeGreaterThanOrEqual(8);
+      expect(options?.loop).toBe(false);
+    });
+
     // D7 and phase 5: headings and the closing summary. The wording ("Setting
     // up <title>", "Saved: <keys>") is phase 5's own choice; that no value, no
     // unchanged key and no `has-called-config` appears in it is D7 and
