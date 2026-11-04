@@ -14,9 +14,10 @@ The worktree itself is created exactly as before. Only the final step changes.
 - The `herdr` CLI on your `PATH`.
 - A running Herdr server.
 
-Without the `herdr` CLI, `worktree config` neither lists nor prompts for any of the keys below — the
-feature is invisible until Herdr is installed. You can still set one explicitly by name, which is what to
-do if you are configuring a machine ahead of installing Herdr:
+Without the `herdr` CLI, `worktree config` neither lists nor prompts for any of the keys below, and its
+`opener` question offers `editor` and `none` only — the feature is invisible until Herdr is installed. You
+can still set one explicitly by name, which is what to do if you are configuring a machine ahead of
+installing Herdr:
 
 ```bash
 worktree config opener herdr                      # works whether or not herdr is installed yet
@@ -62,7 +63,11 @@ worktree config herdr.focus false
 
 ## Start an agent with the space
 
-Optional, and off unless you set it (or give `worktree branch` a brief, below):
+Optional, and off unless you set it (or give `worktree branch` a brief, below). `worktree config` offers it
+when you set up the coding agent: once `opener` is `herdr` and you have given `agent.command`, it asks "Start it
+in every new Herdr space, even without `--agent`?". Yes sets `herdr.agent` to the command's first word, unless
+`herdr.agent` already has a value, which it keeps; no leaves it empty. A first word that is not a valid kind, such as
+a path, is not stored: the wizard says so instead of asking. To choose the kind yourself:
 
 ```bash
 worktree config herdr.agent claude

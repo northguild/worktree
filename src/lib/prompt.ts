@@ -52,6 +52,84 @@ export class InvalidValueError extends Error {
   }
 }
 
+/**
+ * What an inquirer prompt returns: a promise that also has `cancel()`, which
+ * rejects it with `CancelPromptError`. Optional here only so a stand-in
+ * without it type-checks; the real prompts always carry it.
+ */
+type Cancellable<T> = Promise<T> & { cancel?: () => void };
+
+/** Ctrl+C's error, by name: `BaseCommand.catch` ends the run quietly on it. */
+class QuitError extends Error {
+  constructor() {
+    super("User chose to quit at the Esc confirmation");
+    this.name = "ExitPromptError";
+  }
+}
+
+/**
+ * A bare Esc. readline reports a lone Esc as `escape` with the sequence
+ * `"\u001b"` (after its 500 ms wait for a longer sequence); Alt+Esc is
+ * `"\u001b\u001b"`, and arrows, Home/End, function keys and Alt+letter come
+ * through under their own names. Checking the sequence keeps Alt+Esc out.
+ */
+function isBareEscape(key: { name?: string; sequence?: string } | undefined) {
+  return key?.name === "escape" && key.sequence === "\u001b";
+}
+
+/**
+ * Runs one prompt and reports whether Esc cancelled it. The listener goes on
+ * stdin after the prompt starts, since inquirer's readline is created
+ * synchronously and is what makes stdin emit `keypress`; it comes off when the
+ * prompt settles however it does.
+ */
+async function runUntilEscape<T>(
+  start: () => Cancellable<T>,
+): Promise<{ escaped: false; value: T } | { escaped: true }> {
+  const pending = start();
+  let escaped = false;
+  const onKeypress = (
+    _text: string | undefined,
+    key?: { name?: string; sequence?: string },
+  ) => {
+    if (!escaped && isBareEscape(key)) {
+      escaped = true;
+      pending.cancel?.();
+    }
+  };
+  process.stdin.on("keypress", onKeypress);
+  try {
+    return { escaped: false, value: await pending };
+  } catch (error) {
+    if (escaped) {
+      return { escaped: true };
+    }
+    throw error;
+  } finally {
+    process.stdin.off("keypress", onKeypress);
+  }
+}
+
+/**
+ * Asks `start()`; Esc cancels it and asks "Quit now?" (default No). Yes ends
+ * the run as Ctrl+C does; No, Enter or Esc on that confirm asks the original
+ * prompt again from its default. Ctrl+C anywhere is still an instant quit.
+ */
+async function askUntilAnswered<T>(start: () => Cancellable<T>): Promise<T> {
+  for (;;) {
+    const result = await runUntilEscape(start);
+    if (!result.escaped) {
+      return result.value;
+    }
+    const quit = await runUntilEscape(() =>
+      confirm({ message: "Quit now?", default: false }),
+    );
+    if (!quit.escaped && quit.value) {
+      throw new QuitError();
+    }
+  }
+}
+
 function missing({ value, flag }: PromptSite) {
   return new MissingValueError(value, flag);
 }
@@ -75,7 +153,7 @@ export async function askConfirm(
   site: PromptSite & { fallback?: boolean },
 ) {
   if (!isNonInteractive()) {
-    return confirm(config);
+    return askUntilAnswered(() => confirm(config));
   }
   if (site.fallback === undefined) {
     throw missing(site);
@@ -94,7 +172,7 @@ export async function askInput(
   site: PromptSite & { fallback?: string },
 ) {
   if (!isNonInteractive()) {
-    return input(config);
+    return askUntilAnswered(() => input(config));
   }
   if (site.fallback === undefined) {
     throw missing(site);
@@ -120,7 +198,7 @@ export async function askSelect<Value>(
   site: PromptSite & { fallback?: Value },
 ) {
   if (!isNonInteractive()) {
-    return select<Value>(config);
+    return askUntilAnswered(() => select<Value>(config));
   }
   if (site.fallback === undefined) {
     throw missing(site);
@@ -136,5 +214,5 @@ export async function askCheckbox<Value>(
   if (isNonInteractive()) {
     throw missing(site);
   }
-  return checkbox<Value>(config);
+  return askUntilAnswered(() => checkbox<Value>(config));
 }

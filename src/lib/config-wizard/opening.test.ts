@@ -1,0 +1,183 @@
+import * as gitConfig from "../config.js";
+import { HERDR_CONFIG_NAMES } from "../constants.js";
+import * as prompt from "../prompt.js";
+import type { ConfigName } from "../types.js";
+import type { WizardContext } from "./context.js";
+import { configureOpener, configureOpening } from "./opening.js";
+
+// Expected values come from plan #236 D3 and phase 3's Done-when: `editor`
+// asks codeEditor, `herdr` asks herdr.focus only (herdr.agent is the Coding agent item's, D4),
+// `none` asks nothing; `herdr` is a choice only where `herdrOffered`.
+const OPENING_KEYS: ConfigName[] = [
+  "opener",
+  "codeEditor",
+  "herdr.focus",
+  "herdr.agent",
+];
+
+function context(overrides: Partial<WizardContext> = {}): WizardContext {
+  return {
+    configNames: OPENING_KEYS,
+    herdrOffered: true,
+    hiddenNames: new Set(),
+    log: () => {},
+    ...overrides,
+  };
+}
+
+describe("the opener decides its follow-ups", () => {
+  let stored: Record<string, string>;
+  let set: ReturnType<typeof vi.spyOn>;
+  let askSelect: ReturnType<typeof vi.spyOn>;
+  let askInput: ReturnType<typeof vi.spyOn>;
+  let askConfirm: ReturnType<typeof vi.spyOn>;
+
+  function answerOpener(kind: string) {
+    askSelect.mockResolvedValue(kind);
+  }
+  const written = () => set.mock.calls.map((call: unknown[]) => call[0]);
+
+  beforeEach(() => {
+    stored = {};
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((name) =>
+      Promise.resolve(stored[name] ?? ""),
+    );
+    set = vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+    askSelect = vi.spyOn(prompt, "askSelect");
+    askInput = vi.spyOn(prompt, "askInput").mockResolvedValue("value");
+    askConfirm = vi.spyOn(prompt, "askConfirm").mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe("configureOpening", () => {
+    it("asks codeEditor and no Herdr key for editor", async () => {
+      answerOpener("editor");
+
+      await configureOpening(context());
+
+      expect(written()).toEqual(["opener", "codeEditor"]);
+      expect(askConfirm).not.toHaveBeenCalled();
+    });
+
+    it("asks herdr.focus and not codeEditor or herdr.agent for herdr", async () => {
+      answerOpener("herdr");
+
+      await configureOpening(context());
+
+      expect(written()).toEqual(["opener", "herdr.focus"]);
+    });
+
+    it("asks nothing after none", async () => {
+      answerOpener("none");
+
+      await configureOpening(context());
+
+      expect(written()).toEqual(["opener"]);
+      expect(askInput).not.toHaveBeenCalled();
+      expect(askConfirm).not.toHaveBeenCalled();
+    });
+
+    it("asks the Herdr keys the hiding rule removed once herdr is chosen", async () => {
+      // Binary missing, so the hiding rule took herdr.focus out of the list;
+      // choosing herdr is the opt-in that asks it anyway (D3).
+      answerOpener("herdr");
+
+      await configureOpening(
+        context({
+          configNames: ["opener", "codeEditor"],
+          hiddenNames: new Set<ConfigName>(["herdr.focus"]),
+        }),
+      );
+
+      expect(written()).toEqual(["opener", "herdr.focus"]);
+    });
+
+    it("does not ask herdr.focus when --missing removed it", async () => {
+      answerOpener("herdr");
+
+      await configureOpening(
+        context({ configNames: ["opener", "herdr.agent"] }),
+      );
+
+      expect(written()).toEqual(["opener"]);
+    });
+
+    it("lets the stored opener decide when opener itself is not asked", async () => {
+      stored.opener = "none";
+
+      await configureOpening(
+        context({ configNames: ["codeEditor", "herdr.focus"] }),
+      );
+
+      expect(askSelect).not.toHaveBeenCalled();
+      expect(written()).toEqual([]);
+    });
+
+    it("treats a hand-edited opener as editor when it is not asked", async () => {
+      stored.opener = "vim";
+
+      await configureOpening(context({ configNames: ["codeEditor"] }));
+
+      expect(written()).toEqual(["codeEditor"]);
+    });
+  });
+
+  describe("the opener's choices", () => {
+    const choices = () =>
+      (
+        askSelect.mock.calls[0]?.[0] as { choices: { value: string }[] }
+      ).choices.map((c) => c.value);
+
+    it("offers editor, herdr and none where Herdr is offered", async () => {
+      answerOpener("editor");
+
+      await configureOpener(context());
+
+      expect(choices()).toEqual(["editor", "herdr", "none"]);
+    });
+
+    it("offers editor and none only where it is not", async () => {
+      answerOpener("editor");
+
+      await configureOpener(context({ herdrOffered: false }));
+
+      expect(choices()).toEqual(["editor", "none"]);
+    });
+
+    it("defaults to the stored opener when that is a choice", async () => {
+      stored.opener = "none";
+      answerOpener("none");
+
+      await configureOpener(context({ herdrOffered: false }));
+
+      expect(askSelect.mock.calls[0]?.[0]).toMatchObject({ default: "none" });
+    });
+
+    it("defaults to editor when the stored opener is not offered", async () => {
+      stored.opener = "herdr";
+      answerOpener("editor");
+
+      await configureOpener(context({ herdrOffered: false }));
+
+      expect(askSelect.mock.calls[0]?.[0]).toMatchObject({ default: "editor" });
+    });
+
+    it("returns undefined and asks nothing when opener is not in the prompt list", async () => {
+      expect(await configureOpener(context({ configNames: [] }))).toBe(
+        undefined,
+      );
+      expect(askSelect).not.toHaveBeenCalled();
+    });
+  });
+
+  it("names the same Herdr keys the hiding rule governs", () => {
+    // The composer's follow-ups for herdr are the keys HERDR_CONFIG_NAMES lists.
+    expect([...HERDR_CONFIG_NAMES].sort()).toEqual([
+      "herdr.agent",
+      "herdr.focus",
+    ]);
+  });
+});

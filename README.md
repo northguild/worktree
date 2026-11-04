@@ -385,7 +385,8 @@ A failure prints `{"error":{"code","message",…}}` on stdout, one line on stder
 | `failed` | anything else | `1` |
 
 Exit codes follow the same rule without `--json`: `0` success, `1` failure, `2` a usage or value problem.
-A human's Ctrl-C at a prompt stays silent and exits `0`.
+A human's Ctrl-C at a prompt stays silent and exits `0`, and so does Esc
+answered Yes to "Quit now?".
 
 ### One agent per worktree
 

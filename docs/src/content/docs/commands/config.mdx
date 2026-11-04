@@ -29,11 +29,44 @@ exits `0`.
 
 - With `--list`, it only prints config names that currently have no value.
 - Without `--list`, it only prompts for missing values.
-- `--names` limits prompting to specific config keys. Naming keys is asking for them, so the optional group
-  confirms (Jira, GitHub, Linear, ClickUp, prefixes, opener, editor, Herdr, agent, post-create) are not asked for them.
+- `--names` limits prompting to specific config keys. Naming keys is asking for them, so the setup checklist is not
+  shown and each named key is asked directly.
 - `--yes` (`-y`) makes the run [non-interactive](/worktree/commands/branch/#non-interactive-runs): nothing is asked.
   Each key takes its default, or the value it already holds, and the run fails with exit `2` naming
-  `worktree config <key> <value>` for a key with neither, such as a token. Without `--names` the optional groups have no default and the run fails naming `--names <keys>`.
+  `worktree config <key> <value>` for a key with neither, such as a token. Without `--names` there is no checklist to answer and the run fails naming `--names <keys>`.
+
+## The Setup Checklist
+
+A bare interactive `worktree config` opens with one question, "What do you want to set up?", a checklist you
+move through with the arrow keys, tick or untick with space, and confirm with enter (Esc asks whether to quit, see [Quitting](#quitting)). The items, in order, are
+GitHub, Jira, Linear, ClickUp, how worktrees open, the coding agent for `--agent`, branch prefixes and the
+command to run after creating a worktree. A ticked item shows a filled circle and an unticked one an empty circle, so the
+state does not depend on colour. An item that is already set up starts ticked, so a second run walks you through
+what you have. Unticking an item only means "do not ask now": it clears nothing, and a stored token stays in
+git config.
+
+Next comes `defaultSourceBranch`, which is not on the checklist and is asked unless `--missing` or a project file has taken it out, and then the questions of each ticked item, in the order
+above. No item sits behind a gate question, so ticking nothing costs two questions at most: the checklist and `defaultSourceBranch`. An item is listed only while it has
+a key left to ask: `--missing` and the keys a [project file](#project-file) supplies take keys out before the
+checklist is built, and with no item left the checklist is not shown.
+
+Each ticked item opens with a one-line heading, such as "Setting up Jira", so you can see which part you are in; an
+item can print its heading and then ask nothing, when `--missing` or a stored `opener` has already settled its
+keys, and a `--names` run prints no headings because it has no checklist. The
+run ends with one line naming the keys it saved, for example "Configuration complete! Saved: opener, codeEditor",
+or "Configuration complete! Nothing changed." when it stored nothing new. The line lists key names only, never a
+value, so a token never reaches your screen or a pasted bug report. A key whose answer matches what was already
+stored is not listed. Both read as words, without colour.
+
+## Quitting
+
+Esc in any question of an interactive run asks "Quit now?", with No as the default. Yes, or Ctrl-C at a question,
+stops the command quietly and exits `0`; No, enter, or Esc again takes you back to the question you were on, which
+starts over from its default, so half-typed text is lost. Only a lone Esc counts: arrow keys and Alt combinations do
+not, and a lone Esc takes about half a second to register while the terminal rules out a longer key sequence. When
+`worktree config` is stopped this way it prints one line naming the keys it had already saved, by name and never by
+value, such as `Stopped. Saved: opener, codeEditor` or `Stopped. Nothing changed.` What was saved stays saved, and the
+offer to set up a project file is not made.
 
 ## Project File
 
@@ -120,10 +153,15 @@ everyone in a `.worktree.yml` file, which your own value overrides; see
 - `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
 - `herdr.agent` the agent kind that starts in every newly opened Herdr space, with or without a brief. Unset means no agent, unless `branch` or `checkout` is given a brief (`--agent`), in which case the program `agent.command` names is used.
 
-`opener` and `codeEditor` are always listed and prompted for. `herdr.focus` and `herdr.agent` are listed and
-prompted for only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
-`opener` is `herdr`). `--names` and a direct `worktree config <key> <value>` always work
-regardless, so a machine can be configured before Herdr is installed.
+`opener` and `codeEditor` are always listed. When you tick how worktrees open, the wizard asks `opener`
+first and its answer decides what follows: `editor` asks `codeEditor`, `herdr` asks `herdr.focus`, and
+`none` asks nothing more. `herdr.agent` is not asked here: it follows the coding agent's question, described
+under [Agent Key](#agent-key). `herdr.focus` and `herdr.agent` are listed, and `herdr` is among
+the opener's choices, only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
+`opener` is `herdr`). Without those, the wizard offers `editor` and `none` only. Once `herdr` is offered,
+choosing it asks `herdr.focus` (and, with a coding agent, the Herdr yes/no below) even if the CLI has since gone missing. `--names` and a direct
+`worktree config <key> <value>` always work regardless, so a machine can be configured before Herdr is
+installed: `--names opener` offers all three choices, and each named key is asked on its own. With `--missing` and `opener` already set, the stored opener decides the follow-ups: a `codeEditor` is only asked under `editor`, and the Herdr keys only under `herdr`.
 
 ## GitHub Integration Keys
 
@@ -149,14 +187,13 @@ These prefixes are chosen by each provider's built-in mapping (GitHub and Jira b
 ClickUp by tag). A `branchType` list for that provider, or the shared top-level one, in `.worktree.yml` replaces the mapping; see
 [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
 
-`github.token` and `github.autoAssign` are asked together behind one confirm, so declining costs a single
-yes/no. The `github.autoAssign` prompt has three choices: "Yes, always", "No, never" and "Ask me each
+`github.token` and `github.autoAssign` are asked together when you tick GitHub in the checklist. The `github.autoAssign` prompt has three choices: "Yes, always", "No, never" and "Ask me each
 time". The last leaves the key unset, clearing any stored answer, which is the "ask me" state — so
 `--missing` goes on offering the prompt until you settle it either way. Leaving the `github.token`,
 `jira.apiToken`, `linear.apiKey` or `clickup.apiToken` prompt empty, or answering with only spaces, keeps any token you already have,
 rather than clearing it. A pasted value is stored without surrounding whitespace.
 `clickup.workspaceId` is optional and only matters for custom task ids such as `DEV-123`: an empty answer skips it and writes nothing, a non-interactive run skips it rather than failing, and under `--missing` pressing Enter skips its prompt too.
-The ClickUp group asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/worktree/configuration/#clickup-integration-notes).
+ClickUp asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/worktree/configuration/#clickup-integration-notes).
 A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret` and `clickup.apiToken`) with a value that is only
 whitespace is refused with exit `2`, and nothing is stored.
 
@@ -175,7 +212,7 @@ whitespace is refused with exit `2`, and nothing is stored.
 
 When `jira.deployment` is `datacenter` (from git config or `.worktree.yml`), the wizard does not ask for `jira.email`, a bare run, `--missing` and `--list --missing` do not count it as missing, and the token prompt reads "Jira personal access token" and shows the steps for creating one in Jira instead of the Atlassian Cloud ones. The token still goes in `jira.apiToken`. See [Jira Data Center](/worktree/guides/jira-integration/#jira-data-center). With `cloud` or unset, nothing changes. Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given.
 
-The Jira keys are asked together behind one confirm. The `jira.autoAssign` prompt is asked after the token
+The Jira keys are asked together when you tick Jira in the checklist. The `jira.autoAssign` prompt is asked after the token
 and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
 The `jira.autoStart` prompt follows it with the same three choices. "Ask me each time" leaves a key unset,
 so `--missing` goes on offering the prompt until you settle it. A direct `worktree config jira.autoAssign` or
@@ -188,7 +225,7 @@ so `--missing` goes on offering the prompt until you settle it. A direct `worktr
   `true` always (an issue already started, or in triage, completed, canceled or duplicate, is left where it is), `false` never, unset means you are asked once and your answer is saved. See
   [Configuration](/worktree/configuration/#linear-integration-notes).
 
-The Linear keys are asked together behind one confirm. The `linear.autoStart` prompt is asked after the key
+The Linear keys are asked together when you tick Linear in the checklist. The `linear.autoStart` prompt is asked after the key
 and has three choices: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so
 `--missing` goes on offering the prompt until you settle it. A direct `worktree config linear.autoStart`
 accepts only `true` or `false`.
@@ -204,7 +241,7 @@ by the wizard (a bare run and `--missing` skip them), and none can be set from `
 
 ## Agent Key
 
-- `agent.command` the command `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The wizard asks for it behind a yes/no, and the [`herdr.agent`](#opener-keys) question is asked separately. Read by
+- `agent.command` the command `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The wizard asks for it when you tick the coding agent in the checklist, as one question, "Which coding agent do you use?", with the stored command filled in; leave it empty for no agent. When `opener` is `herdr` and there is a command, one yes/no follows: "Start it in every new Herdr space, even without `--agent`?". Yes sets [`herdr.agent`](#opener-keys) to the command's first word, unless `herdr.agent` already has a value, which it keeps (a first word that is not a valid kind, such as a path, is not stored: no question is asked and the wizard points to `worktree config herdr.agent <kind>`); no leaves `herdr.agent` empty. Left empty with a kind already in `herdr.agent`, the yes/no is instead "Keep starting `<kind>` in every new Herdr space?", since that kind would otherwise still start in every new space: yes, the default, keeps it, and no empties it. `--names herdr.agent` and `--names agent.command` still ask for each key on its own. Read by
   [`branch --agent`](/worktree/commands/branch/#agent-dispatch) and `checkout --agent`, by
   [`list --agents`](/worktree/commands/list/), and by [`cleanup`](/worktree/commands/cleanup/)'s agent check. See
   [Configuration](/worktree/configuration/#agent-command).

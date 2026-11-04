@@ -23,11 +23,19 @@ npm install -g @northguild/worktree
 
 # Run once inside your git repository
 worktree config
-# prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code)
-# agent.command (e.g. claude --bg) and postCreate (e.g. pnpm install), each
-# behind a confirm. The Herdr keys
-# herdr.focus and herdr.agent are offered only when `herdr` is on PATH; opener is
-# always offered. `worktree config <key>` prints one value, for scripts.
+# opens with one checklist, "What do you want to set up?" (GitHub, Jira, Linear,
+# ClickUp, how worktrees open, the --agent command, branch prefixes, the
+# post-create command), then asks defaultSourceBranch (e.g. origin/main) and
+# the questions of each ticked item. Items already set up start ticked; unticking
+# clears nothing. `--names <keys>` skips the checklist. A ticked "how worktrees
+# open" asks opener, and its answer decides what follows: editor asks codeEditor,
+# herdr asks herdr.focus, none asks nothing. A ticked coding agent asks
+# agent.command once (empty: no agent) and, with opener herdr, one yes/no that
+# sets herdr.agent from the command's first word. The Herdr keys, and
+# herdr as an opener answer, are offered only when `herdr` is on PATH (or opener
+# is already herdr, or a Herdr key holds a value); opener itself is always
+# offered, and `--names opener` offers all three answers.
+# `worktree config <key>` prints one value, for scripts.
 # It skips any key the project's .worktree.yml sets and says which.
 
 # Create your first worktree
@@ -413,7 +421,7 @@ and exits non-zero. A `missing_value` error also carries
 | `failed` | anything else | `1` |
 
 Exit codes follow the same rule without `--json`: `0` success, `1` failure,
-`2` a usage or value problem. A human's Ctrl-C at a prompt stays silent and
+`2` a usage or value problem. A human's Ctrl-C at a prompt, or Esc answered Yes to "Quit now?", stays silent and
 exits `0`.
 
 A brief that no configured agent would take (no `herdr.agent` or

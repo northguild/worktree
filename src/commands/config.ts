@@ -1,14 +1,17 @@
 import { EOL } from "node:os";
 import { Args, Flags } from "@oclif/core";
-import chalk from "chalk";
-import { resolveJiraDeployment } from "../integrations/jira.js";
 import { BaseCommand } from "../lib/base-command.js";
 import { commandExists } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
 import {
+  isJiraDataCenter,
+  type WizardContext,
+} from "../lib/config-wizard/context.js";
+import { getStoredOpener } from "../lib/config-wizard/opening.js";
+import { runWizard } from "../lib/config-wizard/run.js";
+import {
   CONFIG_NAMES,
   HERDR_CONFIG_NAMES,
-  OPENER_KINDS,
   SECRET_CONFIG_NAMES,
   UNPROMPTED_CONFIG_NAMES,
 } from "../lib/constants.js";
@@ -27,23 +30,10 @@ import {
   summariseProjectFile,
   writeProjectFile,
 } from "../lib/project-config.js";
-import {
-  askConfirm,
-  askInput,
-  askSelect,
-  InvalidValueError,
-} from "../lib/prompt.js";
-import type { ConfigName, OpenerKind } from "../lib/types.js";
+import { askConfirm } from "../lib/prompt.js";
+import type { ConfigName } from "../lib/types.js";
 import { conjoin } from "../lib/utils.js";
-import {
-  isValidAgentKind,
-  isValidBranch,
-  isValidCommand,
-  isValidCommandLine,
-  isValidEmail,
-  isValidWorkspaceId,
-  validateConfigValue,
-} from "../lib/validators.js";
+import { validateConfigValue } from "../lib/validators.js";
 
 export default class Config extends BaseCommand {
   static override description = "Configure worktree CLI settings";
@@ -133,7 +123,7 @@ export default class Config extends BaseCommand {
     const hidden = await this.getHiddenConfigNames();
     const file = await this.loadFile();
     // Data Center has no email, so `--missing` does not report one (#126 D4).
-    const skipEmail = missing && (await this.isJiraDataCenter());
+    const skipEmail = missing && (await isJiraDataCenter());
 
     for (const variable of CONFIG_NAMES) {
       if (hidden.has(variable) || (skipEmail && variable === "jira.email")) {
@@ -247,23 +237,21 @@ export default class Config extends BaseCommand {
   private async getPromptConfigNames(
     flags: { missing: boolean; names?: string },
     fileKeys: readonly ConfigName[],
+    hidden?: Set<ConfigName>,
   ): Promise<ConfigName[]> {
-    // Not computed for a --names run: that path returns before the filter, and
-    // `branch` delegates to exactly that form (base-command.ts), so probing
-    // there would put a `which herdr` behind a plain `worktree branch`.
+    // `hidden` is not computed for a --names run: that path returns before the
+    // filter, and `branch` delegates to exactly that form (base-command.ts), so
+    // probing there would put a `which herdr` behind a plain `worktree branch`.
     const applicableConfigNames = flags.names
       ? this.getApplicableConfigNames(flags.names)
-      : this.getApplicableConfigNames(
-          undefined,
-          await this.getHiddenConfigNames(),
-        );
+      : this.getApplicableConfigNames(undefined, hidden);
 
     // Naming a key with --names is asking for it, but a key the file supplies
     // is not missing, so --missing never asks for one (D19). A bare run never
     // asks what the file answers.
     if (flags.missing) {
       const configNames: ConfigName[] = [];
-      const dropEmail = await this.isJiraDataCenter();
+      const dropEmail = await isJiraDataCenter();
       for (const name of applicableConfigNames) {
         if (dropEmail && name === "jira.email") {
           continue;
@@ -281,79 +269,20 @@ export default class Config extends BaseCommand {
 
     // Data Center has no email (#126 D4), so a bare run does not ask for one.
     // Naming it with --names is still asking for it.
-    const dropEmail = await this.isJiraDataCenter();
+    const dropEmail = await isJiraDataCenter();
     return applicableConfigNames.filter(
       (name) =>
         !fileKeys.includes(name) && !(dropEmail && name === "jira.email"),
     );
   }
-
   /**
-   * The group question. Naming keys with `--names` is asking for them (R4), so
-   * it is answered yes without asking, in both modes. A bare run walks every
-   * key, so it asks, and a non-interactive one has no default.
+   * What the bare or named wizard run is to ask, or undefined when there is
+   * nothing to ask (already said).
    */
-  private confirmGroup(message: string, group: string, names?: string) {
-    if (names) {
-      return true;
-    }
-    return askConfirm(
-      { message },
-      {
-        value: `whether to configure ${group}`,
-        flag: "--names <keys>",
-      },
-    );
-  }
-
-  /**
-   * Whether the wizard is configuring a Data Center site (#126 D2). A hand-edited
-   * value that is neither deployment is not the wizard's to reject: it asks the
-   * Cloud questions, and the Jira calls that read the key refuse it by name.
-   */
-  private async isJiraDataCenter() {
-    try {
-      return (await resolveJiraDeployment()) === "datacenter";
-    } catch (error) {
-      if (error instanceof InvalidValueError) {
-        return false;
-      }
-      throw error;
-    }
-  }
-
-  private async getInputConfig(name: ConfigName, fallback: string = "") {
-    const value = await gitGetConfigValue(name);
-    return {
-      default: value || fallback,
-      prefill: value ? "editable" : "tab",
-    } as const;
-  }
-
-  /**
-   * One config question. A non-interactive run takes what the prompt would have
-   * offered as its default, and fails naming `worktree config <name> <value>`
-   * where that is empty and the validator rejects empty. Keys that hold a
-   * secret are asked with `askInput` directly, because an empty default there
-   * would write an empty token.
-   */
-  private async askConfigInput(
-    name: ConfigName,
-    config: Parameters<typeof askInput>[0],
-    defaultValue?: string,
-  ) {
-    const offered = await this.getInputConfig(name, defaultValue);
-    return askInput(
-      { ...config, ...offered },
-      {
-        value: name,
-        flag: `worktree config ${name} <value>`,
-        fallback: offered.default,
-      },
-    );
-  }
-
-  private async renderInput(flags: { missing: boolean; names?: string }) {
+  private async createWizardContext(flags: {
+    missing: boolean;
+    names?: string;
+  }): Promise<WizardContext | undefined> {
     const file = await this.loadFile();
     const fileKeys = file ? projectFileKeys(file) : [];
     if (fileKeys.length > 0 && !flags.names) {
@@ -361,592 +290,41 @@ export default class Config extends BaseCommand {
         `${PROJECT_CONFIG_FILE} sets ${fileKeys.join(", ")}, so the wizard does not ask for them. Change one for yourself with \`worktree config <key> <value>\`.`,
       );
     }
-    const configNames = await this.getPromptConfigNames(flags, fileKeys);
-    const hasJiraPrompt = configNames.some((name) => name.startsWith("jira"));
-    const hasBranchPrefixPrompt = configNames.some((name) =>
-      name.startsWith("branchPrefix"),
-    );
-    const hasHerdrPrompt = configNames.some((name) =>
-      name.startsWith("herdr."),
-    );
-    const hasGithubPrompt = configNames.some((name) =>
-      name.startsWith("github."),
-    );
+    const hidden = flags.names ? undefined : await this.getHiddenConfigNames();
+    let configNames = await this.getPromptConfigNames(flags, fileKeys, hidden);
 
-    const hasLinearPrompt = configNames.some((name) =>
-      name.startsWith("linear."),
-    );
-
-    const hasClickUpPrompt = configNames.some((name) =>
-      name.startsWith("clickup."),
-    );
+    // A bare run that does not ask `opener` (`--missing` found it set) lets the
+    // stored one decide the follow-ups (D3), so a key it would not ask is not
+    // "left to ask": the item is not listed on its account, and a run with
+    // nothing else says so below.
+    if (!flags.names && !configNames.includes("opener")) {
+      const opener = await getStoredOpener();
+      configNames = configNames.filter(
+        (name) =>
+          !(
+            (name === "codeEditor" && opener !== "editor") ||
+            ((HERDR_CONFIG_NAMES as readonly string[]).includes(name) &&
+              opener !== "herdr")
+          ),
+      );
+    }
 
     // First check if there is anything to prompt
     if (configNames.length === 0) {
       this.log("No missing config found.");
-      return;
+      return undefined;
     }
 
-    function shouldPrompt(name: ConfigName) {
-      return configNames.includes(name);
-    }
-
-    if (
-      hasJiraPrompt &&
-      (await this.confirmGroup(
-        "Do you want to configure Jira integration?",
-        "Jira",
-        flags.names,
-      ))
-    ) {
-      if (shouldPrompt("jira.host")) {
-        // The stored host is the editable default; with none stored there is
-        // no default, so Enter cannot write the example host. It stays in the
-        // message as a hint only. A non-interactive run takes the stored host
-        // and fails on none, because the validator rejects an empty one.
-        const jiraHost = await this.askConfigInput("jira.host", {
-          message: "Jira host (for example https://your-domain.atlassian.net)",
-          validate: (value) =>
-            value.trim() ? true : "Jira host cannot be empty",
-        });
-        await gitSetConfigValue("jira.host", jiraHost);
-      }
-
-      if (shouldPrompt("jira.email")) {
-        const jiraEmail = await this.askConfigInput("jira.email", {
-          message: "Jira email",
-          validate: isValidEmail,
-        });
-        await gitSetConfigValue("jira.email", jiraEmail);
-      }
-
-      if (shouldPrompt("jira.apiToken")) {
-        const dataCenter = await this.isJiraDataCenter();
-        // The Data Center steps are Atlassian's "Using Personal Access Tokens".
-        const jiraTokenInstructions = dataCenter
-          ? [
-              "To create your personal access token (Jira 8.14 or later), follow these steps:",
-              " - In Jira, select your avatar at the top right, then select 'Profile'",
-              " - Select 'Personal access tokens' in the left-hand menu",
-              " - Select 'Create token'",
-              " - Give your token a name, and optionally an expiry",
-              " - Select 'Create' and copy your new token",
-            ]
-          : [
-              "To find or create your token, follow these steps:",
-              " - Go to https://id.atlassian.com/manage-profile/security/api-tokens",
-              " - Click 'Create API token'",
-              " - Give your token a name and expiration date.",
-              " - Copy your new token",
-            ];
-
-        this.log(jiraTokenInstructions.join(EOL) + EOL);
-        const jiraApiToken = await askInput(
-          {
-            message: dataCenter
-              ? "Jira personal access token"
-              : "Jira API token",
-          },
-          {
-            value: "jira.apiToken",
-            flag: "worktree config jira.apiToken <token>",
-            // The stored token if there is one, never an empty one.
-            fallback: (await gitGetConfigValue("jira.apiToken")) || undefined,
-          },
-        );
-        // Only a real answer is written, as with `github.token`: a bare
-        // `worktree config` prompts every key whatever it already holds, so an
-        // empty (or whitespace-only) answer keeps the stored token instead of
-        // clearing it.
-        if (jiraApiToken.trim()) {
-          await gitSetConfigValue("jira.apiToken", jiraApiToken.trim());
-        }
-      }
-
-      if (shouldPrompt("jira.autoAssign")) {
-        // Same shape as `github.autoAssign` (D7): anything but an explicit
-        // "true" or "false" is normalised to the "ask me" choice.
-        const storedJiraAutoAssign = await gitGetConfigValue("jira.autoAssign");
-        const jiraAutoAssignDefault =
-          storedJiraAutoAssign === "true" || storedJiraAutoAssign === "false"
-            ? storedJiraAutoAssign
-            : "";
-        const jiraAutoAssign = await askSelect<"true" | "false" | "">(
-          {
-            message: "Should `branch --jira` assign the issue to you?",
-            choices: [
-              { name: "Yes, always", value: "true" },
-              { name: "No, never", value: "false" },
-              // Tri-state through unset (D3): this is also the way to keep
-              // being asked at branch time.
-              { name: "Ask me each time", value: "" },
-            ],
-            default: jiraAutoAssignDefault,
-          },
-          {
-            value: "jira.autoAssign",
-            flag: "worktree config jira.autoAssign <true|false>",
-            fallback: jiraAutoAssignDefault,
-          },
-        );
-        await gitSetConfigValue("jira.autoAssign", jiraAutoAssign);
-      }
-
-      if (shouldPrompt("jira.autoStart")) {
-        // Same shape as `clickup.autoStart` (D9): anything but an explicit
-        // "true" or "false" is normalised to the "ask me" choice.
-        const storedJiraAutoStart = await gitGetConfigValue("jira.autoStart");
-        const jiraAutoStartDefault =
-          storedJiraAutoStart === "true" || storedJiraAutoStart === "false"
-            ? storedJiraAutoStart
-            : "";
-        const jiraAutoStart = await askSelect<"true" | "false" | "">(
-          {
-            message:
-              "Should `branch --jira` move the issue to in progress once the worktree exists?",
-            choices: [
-              { name: "Yes, always", value: "true" },
-              { name: "No, never", value: "false" },
-              // Tri-state through unset: also the way to keep being asked.
-              { name: "Ask me each time", value: "" },
-            ],
-            default: jiraAutoStartDefault,
-          },
-          {
-            value: "jira.autoStart",
-            flag: "worktree config jira.autoStart <true|false>",
-            fallback: jiraAutoStartDefault,
-          },
-        );
-        await gitSetConfigValue("jira.autoStart", jiraAutoStart);
-      }
-    }
-
-    // Both GitHub keys sit behind one confirm, in the shape the Jira and Herdr
-    // groups use. `github.token` had no block at all until this group existed:
-    // it was in CONFIG_NAMES, so `--missing` listed it as missing and then
-    // prompted nothing. A key without a block is a key that cannot be answered
-    // here, which is the dead shape `github.autoAssign` would have inherited.
-    if (
-      hasGithubPrompt &&
-      (await this.confirmGroup(
-        "Do you want to configure GitHub issue options?",
-        "GitHub",
-        flags.names,
-      ))
-    ) {
-      if (shouldPrompt("github.token")) {
-        const githubTokenInstructions = [
-          "To find or create your token, follow these steps:",
-          " - Go to https://github.com/settings/personal-access-tokens/new",
-          " - Give the token access to the repositories you use worktree with",
-          " - Copy your new token",
-          "Leave this empty to let `gh auth token` supply one instead.",
-          "The stored token is used for github.com only; a GitHub Enterprise host's token is read from `gh auth token --hostname <host>`.",
-        ];
-
-        this.log(githubTokenInstructions.join(EOL) + EOL);
-        // No default and no prefill, exactly as `jira.apiToken` is asked: a
-        // token is not echoed back as a prompt default.
-        const githubToken = await askInput(
-          { message: "GitHub personal access token" },
-          {
-            value: "github.token",
-            flag: "worktree config github.token <token>",
-            fallback: (await gitGetConfigValue("github.token")) || undefined,
-          },
-        );
-        // Only a real answer is written. The instruction line above invites an
-        // empty one — it is how you say "use `gh auth token` instead" — and an
-        // unconditional write would make taking that invitation clear a stored
-        // PAT, on a bare `worktree config` that prompts every key whatever it
-        // already holds. An answer of only spaces is that same answer: the
-        // prompt does not trim, and a stored whitespace token reads back as
-        // unset, so it is judged and written trimmed.
-        if (githubToken.trim()) {
-          await gitSetConfigValue("github.token", githubToken.trim());
-        }
-      }
-
-      if (shouldPrompt("github.autoAssign")) {
-        // Select values are compared with `===`, so anything but an explicit
-        // "true" or "false" (unset, empty, a hand-edited oddity) is normalised
-        // to the "ask me" choice before it becomes the default or the fallback.
-        const storedAutoAssign = await gitGetConfigValue("github.autoAssign");
-        const autoAssignDefault =
-          storedAutoAssign === "true" || storedAutoAssign === "false"
-            ? storedAutoAssign
-            : "";
-        const githubAutoAssign = await askSelect<"true" | "false" | "">(
-          {
-            message: "Should `branch --github` assign the issue to you?",
-            choices: [
-              { name: "Yes, always", value: "true" },
-              { name: "No, never", value: "false" },
-              // Empty is a valid answer as well as a valid state: the key is
-              // tri-state through unset (D3), so this prompt has to be the way
-              // to keep being asked at branch time, not only the way to settle it.
-              { name: "Ask me each time", value: "" },
-            ],
-            default: autoAssignDefault,
-          },
-          {
-            value: "github.autoAssign",
-            flag: "worktree config github.autoAssign <true|false>",
-            fallback: autoAssignDefault,
-          },
-        );
-        await gitSetConfigValue("github.autoAssign", githubAutoAssign);
-      }
-    }
-
-    // One confirm for the group, then the key and the start select. Like the
-    // Jira group, nothing is validated against Linear here: the key is checked when
-    // `branch --linear` first uses it.
-    if (
-      hasLinearPrompt &&
-      (await this.confirmGroup(
-        "Do you want to configure Linear integration?",
-        "Linear",
-        flags.names,
-      ))
-    ) {
-      if (shouldPrompt("linear.apiKey")) {
-        const linearKeyInstructions = [
-          "To find or create your key, follow these steps:",
-          " - Go to Linear -> Settings -> Security & access -> Personal API keys",
-          " - Click 'New API key' and give it a label",
-          " - Copy your new key",
-        ];
-
-        this.log(linearKeyInstructions.join(EOL) + EOL);
-        // No default and no prefill, exactly as `jira.apiToken` is asked: a
-        // key is not echoed back as a prompt default.
-        const linearApiKey = await askInput(
-          { message: "Linear API key" },
-          {
-            value: "linear.apiKey",
-            flag: "worktree config linear.apiKey <key>",
-            // The stored key if there is one, never an empty one.
-            fallback: (await gitGetConfigValue("linear.apiKey")) || undefined,
-          },
-        );
-        // Only a real answer is written, as with `github.token`: a bare
-        // `worktree config` prompts every key whatever it already holds, so an
-        // empty answer keeps the stored key instead of clearing it.
-        if (linearApiKey.trim()) {
-          await gitSetConfigValue("linear.apiKey", linearApiKey.trim());
-        }
-      }
-
-      if (shouldPrompt("linear.autoStart")) {
-        // Same shape as `github.autoAssign` (D10): anything but an explicit
-        // "true" or "false" is normalised to the "ask me" choice.
-        const storedLinearAutoStart =
-          await gitGetConfigValue("linear.autoStart");
-        const linearAutoStartDefault =
-          storedLinearAutoStart === "true" || storedLinearAutoStart === "false"
-            ? storedLinearAutoStart
-            : "";
-        const linearAutoStart = await askSelect<"true" | "false" | "">(
-          {
-            message:
-              "Should `branch --linear` move the issue to started once the worktree exists?",
-            choices: [
-              { name: "Yes, always", value: "true" },
-              { name: "No, never", value: "false" },
-              // Tri-state through unset (D4): also the way to keep being asked.
-              { name: "Ask me each time", value: "" },
-            ],
-            default: linearAutoStartDefault,
-          },
-          {
-            value: "linear.autoStart",
-            flag: "worktree config linear.autoStart <true|false>",
-            fallback: linearAutoStartDefault,
-          },
-        );
-        await gitSetConfigValue("linear.autoStart", linearAutoStart);
-      }
-    }
-
-    // Three keys, one confirm. The token is required and secret, so it is asked
-    // like `linear.apiKey`; the workspace id matters only to a custom task id
-    // and most Workspaces have those off, so an empty answer skips it (as
-    // `herdr.agent` and `postCreate` accept empty) and a non-interactive run
-    // takes that empty default instead of failing. The start select comes last,
-    // shaped like Linear's. Nothing is validated against ClickUp here: the
-    // token is checked when `branch --clickup` first uses it.
-    if (
-      hasClickUpPrompt &&
-      (await this.confirmGroup(
-        "Do you want to configure ClickUp integration?",
-        "ClickUp",
-        flags.names,
-      ))
-    ) {
-      if (shouldPrompt("clickup.apiToken")) {
-        const clickUpTokenInstructions = [
-          "To find your personal API token, follow these steps:",
-          " - Go to ClickUp -> your avatar -> Settings -> Apps -> API Token",
-          " - Click 'Generate' (or 'Regenerate') and copy the token",
-        ];
-
-        this.log(clickUpTokenInstructions.join(EOL) + EOL);
-        // No default and no prefill, exactly as `jira.apiToken` is asked: a
-        // token is not echoed back as a prompt default.
-        const clickUpApiToken = await askInput(
-          { message: "ClickUp API token" },
-          {
-            value: "clickup.apiToken",
-            flag: "worktree config clickup.apiToken <token>",
-            // The stored token if there is one, never an empty one.
-            fallback:
-              (await gitGetConfigValue("clickup.apiToken")) || undefined,
-          },
-        );
-        // Only a real answer is written: an empty answer keeps the stored
-        // token instead of clearing it.
-        if (clickUpApiToken.trim()) {
-          await gitSetConfigValue("clickup.apiToken", clickUpApiToken.trim());
-        }
-      }
-
-      if (shouldPrompt("clickup.workspaceId")) {
-        const clickUpWorkspaceId = await this.askConfigInput(
-          "clickup.workspaceId",
-          {
-            message:
-              "ClickUp workspace id (only for custom task ids like DEV-123; empty to skip)",
-            validate: (value: string) =>
-              value.trim() === "" || isValidWorkspaceId(value.trim()),
-          },
-        );
-        // Empty skips the key rather than writing an empty value.
-        if (clickUpWorkspaceId.trim()) {
-          await gitSetConfigValue(
-            "clickup.workspaceId",
-            clickUpWorkspaceId.trim(),
-          );
-        }
-      }
-
-      if (shouldPrompt("clickup.autoStart")) {
-        // Same shape as `linear.autoStart` (D10): anything but an explicit
-        // "true" or "false" is normalised to the "ask me" choice.
-        const storedClickUpAutoStart =
-          await gitGetConfigValue("clickup.autoStart");
-        const clickUpAutoStartDefault =
-          storedClickUpAutoStart === "true" ||
-          storedClickUpAutoStart === "false"
-            ? storedClickUpAutoStart
-            : "";
-        const clickUpAutoStart = await askSelect<"true" | "false" | "">(
-          {
-            message:
-              "Should `branch --clickup` move the task to in progress once the worktree exists?",
-            choices: [
-              { name: "Yes, always", value: "true" },
-              { name: "No, never", value: "false" },
-              // Tri-state through unset (D4): also the way to keep being asked.
-              { name: "Ask me each time", value: "" },
-            ],
-            default: clickUpAutoStartDefault,
-          },
-          {
-            value: "clickup.autoStart",
-            flag: "worktree config clickup.autoStart <true|false>",
-            fallback: clickUpAutoStartDefault,
-          },
-        );
-        await gitSetConfigValue("clickup.autoStart", clickUpAutoStart);
-      }
-    }
-
-    if (shouldPrompt("defaultSourceBranch")) {
-      const defaultBranchName = await this.askConfigInput(
-        "defaultSourceBranch",
-        {
-          message: "Which branch should new worktrees be based on?",
-          validate: isValidBranch,
-        },
-        "origin/main",
-      );
-      await gitSetConfigValue("defaultSourceBranch", defaultBranchName);
-    }
-
-    if (
-      hasBranchPrefixPrompt &&
-      (await this.confirmGroup(
-        "Do you want to configure branch name prefixes?",
-        "branch name prefixes",
-        flags.names,
-      ))
-    ) {
-      if (shouldPrompt("branchPrefix.feature")) {
-        const featurePrefix = await this.askConfigInput(
-          "branchPrefix.feature",
-          {
-            message: "Prefix for feature branches",
-          },
-          "feature/",
-        );
-        await gitSetConfigValue("branchPrefix.feature", featurePrefix);
-      }
-
-      if (shouldPrompt("branchPrefix.bugfix")) {
-        const bugfixPrefix = await this.askConfigInput(
-          "branchPrefix.bugfix",
-          {
-            message: "Prefix for bugfix branches",
-          },
-          "fix/",
-        );
-        await gitSetConfigValue("branchPrefix.bugfix", bugfixPrefix);
-      }
-
-      if (shouldPrompt("branchPrefix.chore")) {
-        const chorePrefix = await this.askConfigInput(
-          "branchPrefix.chore",
-          {
-            message: "Prefix for chore branches",
-          },
-          "chore/",
-        );
-        await gitSetConfigValue("branchPrefix.chore", chorePrefix);
-      }
-    }
-
-    if (
-      shouldPrompt("opener") &&
-      (await this.confirmGroup(
-        "Do you want to choose where new worktrees are opened?",
-        "the opener",
-        flags.names,
-      ))
-    ) {
-      // Select values are compared with `===`, so anything that is not one of
-      // the three kinds (unset, empty, a hand-edited oddity) is normalised to
-      // "editor" before it becomes the default or the non-interactive fallback.
-      const storedOpener = await gitGetConfigValue("opener");
-      const openerDefault =
-        OPENER_KINDS.find((kind) => kind === storedOpener) ?? "editor";
-      const opener = await askSelect<OpenerKind>(
-        {
-          message: "Which opener should new worktrees use?",
-          choices: OPENER_KINDS.map((kind) => ({ name: kind, value: kind })),
-          default: openerDefault,
-        },
-        {
-          value: "opener",
-          flag: "worktree config opener <editor|herdr|none>",
-          fallback: openerDefault,
-        },
-      );
-      await gitSetConfigValue("opener", opener);
-    }
-
-    if (
-      shouldPrompt("codeEditor") &&
-      (await this.confirmGroup(
-        "Do you want to automatically open the worktree in a code editor?",
-        "the code editor",
-        flags.names,
-      ))
-    ) {
-      const codeEditor = await this.askConfigInput(
-        "codeEditor",
-        {
-          message: "Command to open code editor?",
-          validate: isValidCommand,
-        },
-        "code",
-      );
-      await gitSetConfigValue("codeEditor", codeEditor);
-    }
-
-    if (
-      hasHerdrPrompt &&
-      (await this.confirmGroup(
-        "Do you want to configure Herdr space options?",
-        "Herdr",
-        flags.names,
-      ))
-    ) {
-      if (shouldPrompt("herdr.focus")) {
-        // Only an explicit "false" means no: unset or empty is the documented
-        // default of true. A non-interactive run takes that same answer.
-        const focusDefault =
-          (await gitGetConfigValue("herdr.focus")) !== "false";
-        const herdrFocus = await askConfirm(
-          {
-            message: "Should opening a worktree focus its Herdr space?",
-            default: focusDefault,
-          },
-          {
-            value: "herdr.focus",
-            flag: "worktree config herdr.focus <true|false>",
-            fallback: focusDefault,
-          },
-        );
-        await gitSetConfigValue("herdr.focus", String(herdrFocus));
-      }
-
-      if (shouldPrompt("herdr.agent")) {
-        const herdrAgent = await this.askConfigInput("herdr.agent", {
-          message:
-            "Which agent kind should start in every new Herdr space? (empty: none, or with `--agent` the program `agent.command` names)",
-          // Empty is not a valid kind, but it is a valid answer: the key is
-          // opt-in (D9), so this prompt has to be the way to decline as well as
-          // the way to choose, or a `--missing` run would force an agent on
-          // someone who does not want one.
-          validate: (value: string) =>
-            value.trim() === "" || isValidAgentKind(value.trim()),
-        });
-        await gitSetConfigValue("herdr.agent", herdrAgent.trim());
-      }
-    }
-
-    if (
-      shouldPrompt("agent.command") &&
-      (await this.confirmGroup(
-        "Do you want to set the command that `--agent` runs to start a coding agent?",
-        "the coding agent",
-        flags.names,
-      ))
-    ) {
-      // No fallback default: the agent runtime is deliberately not named here.
-      // Suggesting one would make this tool depend on a particular CLI, which
-      // AGENT-MODE-PLAN §2 rules out.
-      const agentCommand = await this.askConfigInput("agent.command", {
-        message:
-          "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
-        validate: isValidCommandLine,
-      });
-      await gitSetConfigValue("agent.command", agentCommand);
-    }
-
-    if (
-      shouldPrompt("postCreate") &&
-      (await this.confirmGroup(
-        "Do you want to run a command in new worktrees after they are created?",
-        "the post-create command",
-        flags.names,
-      ))
-    ) {
-      const postCreate = await this.askConfigInput("postCreate", {
-        message:
-          "Command to run in each new worktree, for example `pnpm install` (empty to infer one from the lockfile)",
-        // Empty is a valid answer, as it is for `herdr.agent`: `branch` infers
-        // the command from the lockfile, so this prompt has to be the way to
-        // decline a fixed one as well as to set one.
-        validate: async (value: string) =>
-          value.trim() === "" || (await isValidCommandLine(value.trim())),
-      });
-      await gitSetConfigValue("postCreate", postCreate.trim());
-    }
-
-    this.log(`${chalk.green("✔")} Configuration complete!${EOL}`);
+    return {
+      configNames,
+      names: flags.names,
+      // Offered where the hiding rule would show a Herdr key (D3); the same
+      // test, not a second one. Naming `opener` is asking for every choice.
+      herdrOffered:
+        !hidden || HERDR_CONFIG_NAMES.some((name) => !hidden.has(name)),
+      hiddenNames: hidden ?? new Set(),
+      log: (message) => this.log(message),
+    };
   }
 
   private isValidArgName(name: string): name is ConfigName {
@@ -1024,7 +402,10 @@ export default class Config extends BaseCommand {
       return this.renderList(flags.missing);
     }
 
-    await this.renderInput(flags);
+    const wizard = await this.createWizardContext(flags);
+    if (wizard) {
+      await runWizard(wizard);
+    }
     // Not for a run another command delegated (`branch` before a worktree
     // exists), and not for one that named its keys (D21).
     if (!flags.names && !flags["skip-offers"]) {
