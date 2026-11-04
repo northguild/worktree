@@ -237,7 +237,7 @@ worktree linear-listen
 worktree linear-listen --port 9100 --team ENG
 ```
 
-Only the owner of `linear.apiKey` (or the ids in `linear.agentAllow`) can start an agent, and the agent is told the issue identifier and nothing else of the issue, unless you set `linear.agentContext` to `true`, which adds the issue's text to the brief, fenced as untrusted and capped (leave it off where others can edit or comment on issues). See [`linear-listen`](https://northguild.github.io/worktree/docs/commands/linear-listen).
+Only the owner of `linear.apiKey` (or the ids in `linear.agentAllow`) can start an agent, and the agent is told the issue identifier and nothing else of the issue, unless you set `linear.agentContext` to `true`, which adds the issue's text to the brief, fenced as untrusted and capped (leave it off where others can edit or comment on issues). See [`linear-listen`](https://northguild.dev/worktree/commands/linear-listen/).
 
 ## Commands
 
