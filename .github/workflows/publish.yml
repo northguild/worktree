@@ -7,6 +7,7 @@ name: Publish
 #   guard      did this push move the version?            (no environment, read-only)
 #   publish    test, build, notes, npm publish, tag, GitHub release
 #   notify     the Discord post                           (no permissions, no environment, no OIDC)
+#   docs       the docs deploy, stable versions only      (calls docs-deploy.yml; no environment)
 #
 # Nothing here holds an npm token: the publish job has `id-token: write` and npm exchanges it for a
 # short-lived credential (trusted publishing), which also attaches the provenance attestation.
@@ -85,6 +86,7 @@ jobs:
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       release-url: ${{ steps.release.outputs.url }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     permissions:
       id-token: write # npm trusted publishing (OIDC)
       contents: write # push the tag and create the GitHub release
@@ -197,3 +199,23 @@ jobs:
             curl --fail --silent --show-error --retry 3 \
               --header 'Content-Type: application/json' \
               --data @- "$DISCORD_WEBHOOK"
+
+  # The docs site goes live only once the package it describes exists, and only for a stable version (a
+  # prerelease is not the current release). Skipped when `publish` is skipped (guard saw no version move) or
+  # fails: `prerelease` is then empty. The job is outside the `release` environment on purpose: its OIDC token
+  # cannot be exchanged for an npm credential. A failure here leaves this run red although the package shipped.
+  # Recover it with "Re-run failed jobs" on this run, within 30 days: only what failed runs again, with this
+  # run's sha and ref, so it rebuilds the release commit and `publish` and `notify` do not repeat. Past 30 days,
+  # "Run workflow" on docs-deploy.yml, from main, deploys main's head at that time. A calling job cannot set
+  # `timeout-minutes`; the called jobs set their own.
+  docs:
+    needs: publish
+    if: needs.publish.outputs.prerelease == 'false'
+    permissions:
+      contents: read
+      pages: write # legacy-pages deploys to GitHub Pages
+      id-token: write # actions/deploy-pages (OIDC)
+    uses: ./.github/workflows/docs-deploy.yml
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
