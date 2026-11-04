@@ -1,9 +1,11 @@
 // @vitest-environment node
 
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   auditDist,
@@ -124,6 +126,13 @@ const HEADER = header();
 const PROJECT_FOOTER =
   '<div class="project-footer"><span>MIT 2026 © northguild</span></div>';
 
+// Phase 16 (D18, the leaf-particle hero): the landing alone loads the hero loader and carries the art box, whose still
+// SVG and canvas are aria-hidden. The loader reaches the effect only through a dynamic import().
+const HERO_SCRIPT =
+  '<script type="module" src="/worktree/_astro/HeroLeaves.ghi.js"></script>';
+const HERO_ART =
+  '<div class="art" data-hero-art><svg class="hero-still" aria-hidden="true" focusable="false"></svg><canvas class="hero-canvas" data-hero-canvas aria-hidden="true"></canvas></div>';
+
 function page(path, overrides = {}) {
   const description = overrides.description ?? descriptionOf(path);
   const editHref = overrides.editHref ?? `${EDIT_BASE}${sourceOf(path)}`;
@@ -154,7 +163,8 @@ function page(path, overrides = {}) {
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
     '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
-    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? (path === "" ? "" : `<a href="${editHref}" class="sl-flex">Edit page</a>`)}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? (path === "" ? "" : PROJECT_FOOTER)}${overrides.controls ?? CONTROLS}${landing}${overrides.body ?? ""}</body></html>`,
+    path === "" ? (overrides.heroScript ?? HERO_SCRIPT) : "",
+    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? (path === "" ? "" : `<a href="${editHref}" class="sl-flex">Edit page</a>`)}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? (path === "" ? "" : PROJECT_FOOTER)}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -211,6 +221,12 @@ beforeEach(async () => {
     'button.onclick=()=>import("./Chat.xyz.js");',
   );
   await write(dist, "_astro/Chat.xyz.js", "export const chat = 1;");
+  await write(
+    dist,
+    "_astro/HeroLeaves.ghi.js",
+    'document.addEventListener("x",()=>import("./particles.jkl.js"));',
+  );
+  await write(dist, "_astro/particles.jkl.js", "export const effect = 1;");
 });
 
 afterEach(async () => {
@@ -1386,5 +1402,230 @@ describe("no cyan accent left", () => {
   it("is part of the audit", async () => {
     await sheet("a{color:var(--gmt-cyan)}");
     expect((await audit()).some((f) => /uses cyan/.test(f))).toBe(true);
+  });
+});
+
+// Phase 16 (D18). Expected values: the root alone loads the hero loader, no page (the 404 included) loads the effect up
+// front, the loader is at most 2 KB gzipped and the loader's whole import tree at most 32 KB gzipped, and on the landing
+// the still SVG and the canvas are hidden from assistive technology.
+describe("the leaf-particle hero", () => {
+  const LOADER_BUDGET = 2 * 1024;
+  const EFFECT_BUDGET = 32 * 1024;
+  const gzipBytes = (buffer) => gzipSync(buffer, { level: 9 }).length;
+  // Random bytes do not compress, so a file of n of them is about n gzipped.
+  const incompressible = (n) => randomBytes(n);
+  const heroFailures = async () =>
+    (await audit()).filter((f) => /hero|canvas/i.test(f));
+
+  it("passes the fixture, whose loader is tiny and imports the effect dynamically", async () => {
+    expect(await heroFailures()).toEqual([]);
+  });
+
+  it("fails a landing that does not load the hero loader", async () => {
+    await write(dist, htmlPath(""), page("", { heroScript: "" }));
+    expect((await heroFailures()).some((f) => /loader/.test(f))).toBe(true);
+  });
+
+  it.each([
+    "faq",
+    "commands/branch",
+  ])("fails %s loading the hero loader", async (path) => {
+    await rewrite(path, (html) =>
+      html.replace("</head>", `${HERO_SCRIPT}</head>`),
+    );
+    const failures = await heroFailures();
+    expect(
+      failures.some(
+        (f) => f.includes(`/${path}/`) && /only the landing/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails the 404 loading the hero loader", async () => {
+    await write(dist, "404.html", notFoundPage({ head: HERO_SCRIPT }));
+    expect(
+      (await heroFailures()).some(
+        (f) => f.startsWith("404.html") && /only the landing/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a page that loads the effect chunk with a script tag", async () => {
+    await rewrite("faq", (html) =>
+      html.replace(
+        "</head>",
+        '<script type="module" src="/worktree/_astro/particles.jkl.js"></script></head>',
+      ),
+    );
+    expect((await heroFailures()).some((f) => /effect up front/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails the 404 preloading the effect chunk", async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({
+        head: '<link rel="modulepreload" href="/worktree/_astro/particles.jkl.js">',
+      }),
+    );
+    expect(
+      (await heroFailures()).some(
+        (f) => f.startsWith("404.html") && /effect up front/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a loader that imports the effect statically", async () => {
+    await write(
+      dist,
+      "_astro/HeroLeaves.ghi.js",
+      'import"./particles.jkl.js";',
+    );
+    expect((await heroFailures()).some((f) => /effect up front/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails a loader with no dynamic import of the effect", async () => {
+    await write(dist, "_astro/HeroLeaves.ghi.js", "console.log(1);");
+    expect(
+      (await heroFailures()).some((f) => /no dynamic import/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a loader over 2 KB gzipped", async () => {
+    await write(
+      dist,
+      "_astro/HeroLeaves.ghi.js",
+      Buffer.concat([
+        Buffer.from('import("./particles.jkl.js");//'),
+        incompressible(LOADER_BUDGET + 500),
+      ]),
+    );
+    expect(
+      (await heroFailures()).some((f) => /loader is \d+ B gzipped/.test(f)),
+    ).toBe(true);
+  });
+
+  it("counts the loader's own static imports against its 2 KB", async () => {
+    await write(
+      dist,
+      "_astro/HeroLeaves.ghi.js",
+      'import{t as e}from"./preload-helper.pqr.js";e(()=>import(`./particles.jkl.js`),[]);',
+    );
+    await write(
+      dist,
+      "_astro/preload-helper.pqr.js",
+      incompressible(LOADER_BUDGET + 500),
+    );
+    expect(
+      (await heroFailures()).some((f) => /loader is \d+ B gzipped/.test(f)),
+    ).toBe(true);
+  });
+
+  it("reads the bundler's wrapped dynamic import, quoted with backticks, as the loader's import of the effect", async () => {
+    await write(
+      dist,
+      "_astro/HeroLeaves.ghi.js",
+      'import{t as e}from"./preload-helper.pqr.js";e(()=>import(`./particles.jkl.js`),[]);',
+    );
+    await write(dist, "_astro/preload-helper.pqr.js", "export const t = 1;");
+    expect(await heroFailures()).toEqual([]);
+  });
+
+  it("fails an effect over 32 KB gzipped", async () => {
+    await write(
+      dist,
+      "_astro/particles.jkl.js",
+      incompressible(EFFECT_BUDGET + 2000),
+    );
+    expect(
+      (await heroFailures()).some((f) => /effect and what it imports/.test(f)),
+    ).toBe(true);
+  });
+
+  it("accepts an effect under 32 KB gzipped", async () => {
+    const body = incompressible(20 * 1024);
+    expect(gzipBytes(body)).toBeLessThan(EFFECT_BUDGET);
+    await write(dist, "_astro/particles.jkl.js", body);
+    expect(await heroFailures()).toEqual([]);
+  });
+
+  it("counts what the effect imports against the same 32 KB", async () => {
+    // Each file is well under the budget; together they are over it: the budget is for "everything it imports, together".
+    await write(
+      dist,
+      "_astro/particles.jkl.js",
+      Buffer.concat([
+        Buffer.from('import"./ogl.mno.js";//'),
+        incompressible(20 * 1024),
+      ]),
+    );
+    await write(dist, "_astro/ogl.mno.js", incompressible(20 * 1024));
+    expect(
+      (await heroFailures()).some((f) => /effect and what it imports/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a landing whose canvas is not hidden from assistive technology", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", {
+        heroArt: HERO_ART.replace(
+          'data-hero-canvas aria-hidden="true"',
+          "data-hero-canvas",
+        ),
+      }),
+    );
+    expect(
+      (await heroFailures()).some((f) => /canvas is not aria-hidden/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a landing whose still SVG is not hidden from assistive technology", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", {
+        heroArt: HERO_ART.replace(
+          'class="hero-still" aria-hidden="true"',
+          'class="hero-still"',
+        ),
+      }),
+    );
+    expect(
+      (await heroFailures()).some((f) =>
+        /still SVG is not aria-hidden/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a landing with no still SVG, and one with no canvas", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", { heroArt: HERO_ART.replace(/<svg.*?<\/svg>/, "") }),
+    );
+    expect(
+      (await heroFailures()).some((f) => /0 hero still SVGs/.test(f)),
+    ).toBe(true);
+    await write(
+      dist,
+      htmlPath(""),
+      page("", { heroArt: HERO_ART.replace(/<canvas.*?<\/canvas>/, "") }),
+    );
+    expect((await heroFailures()).some((f) => /0 <canvas>/.test(f))).toBe(true);
+  });
+
+  it("fails another page that carries the hero's art box", async () => {
+    await rewrite("faq", (html) =>
+      html.replace("</body>", `${HERO_ART}</body>`),
+    );
+    expect((await heroFailures()).some((f) => /only the landing/.test(f))).toBe(
+      true,
+    );
   });
 });

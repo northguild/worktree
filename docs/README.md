@@ -207,6 +207,29 @@ avatar links. Its test renders it through
 component under jsdom); `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the
 built footer is checked in `dist/` instead.
 
+## The landing hero
+
+The landing's art box (`src/components/HeroLeaves.astro`, rendered by the landing branch of `Hero.astro` only) is a field of
+leaf-shaped WebGL particles (D18): on load they gust in from every edge of the viewport and from behind the header, build one
+large leaf, become a git graph, write the `worktree` wordmark and flow back into the leaf, holding 5 s on each picture, for as
+long as the page is visible. The pointer pushes leaves near the art box.
+
+- **Code**: `src/hero/` holds `geometry.ts` (the shapes, in design units), `targets.ts` (where each particle goes in the leaf and the
+  graph), `shaders.ts`, `particles.ts` (the simulation and the drawing, on OGL: `Renderer`, `Program`, `Geometry`, `Mesh`) and
+  `loader.ts`. The effect is a port of the approved prototype; the numbers are its.
+- **Loading**: the loader is the hero's only static script, on the landing alone. It waits for the first paint, then probes for
+  WebGL and `import()`s
+  `particles.ts`, which Vite bundles with OGL into a chunk nothing else references, so every other page, the 404 included, ships no
+  hero code. Budget: the loader at most 2 KB gzipped, everything it imports at most 32 KB (`pnpm docs:audit-dist` enforces both).
+- **The still**: under `prefers-reduced-motion: reduce`, without WebGL, or without script, the box shows a static SVG of the
+  formed graph, drawn from the same geometry the particles sample, and the library is never requested. The art box's
+  `data-hero` attribute (`live` or `still`) and CSS choose between the SVG and the canvas. A WebGL context the browser takes back
+  later turns the box to the still for good. The hero's CSS is in the site's shared stylesheet; only its script is landing-only.
+- **Theme**: the leaves read the `--leaf-*` tokens, defined at the foot of `HeroLeaves.astro` (leaf 1 is `--gmt-spring`; the rest
+  are an invented palette), and re-tint when Starlight's theme picker changes `data-theme` on `<html>`.
+- **Drawing** pauses, with the clock, while the tab is hidden or the art box is off screen; the device pixel ratio is capped at 1.5.
+- Both the canvas and the SVG are `aria-hidden`: the heading and the link carry the meaning.
+
 ## Scripts reference
 
 All commands are run from the repo root with `pnpm --filter docs run <command>`,

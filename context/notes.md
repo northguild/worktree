@@ -296,8 +296,8 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
 - The landing h1 rule (`audit-dist.mjs` ≈959) accepts an h1 holding only tags; no test for an empty h1.
 - `Hero.astro` re-renders actions without each action's `attrs`, raw `icon.html` or `DraftContentNotice` —
   `attrs` added to the landing's frontmatter later would be silently dropped.
-- The ±1.4° sway runs forever with no on-page stop (only the OS reduced-motion setting); arguably WCAG 2.2.2.
-- `HeroBranches.astro` ≈108/114 use `as Point` (a type annotation would do); `structured-data.test.ts` ≈60/72/80
+- The hero's loop (phase 16, D18) runs while the page is visible with no on-page stop (only the OS reduced-motion
+  setting); arguably WCAG 2.2.2. `geometry.ts` ≈123/139/140 use `as Point`; `structured-data.test.ts` ≈60/72/80
   still pass `title: "Getting Started"` for `path: ""`.
 - The plan's text is stale after D17: §4.2 "the sitemap lists 23 URLs", §4.8 "`/worktree/` contains Getting
   Started text", D3 "Getting Started is the root" — bring the plan into line at `/feature-close`.

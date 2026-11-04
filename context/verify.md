@@ -114,6 +114,10 @@ classes no page uses and values `theme.css` overrides are not findings). The con
 prints it, and its test in `pnpm docs:test` fails under 4.5:1 (text) or 3:1 (controls, rings). `og:image` is not checked until the preview image is decided
 (`PREVIEW_IMAGE_DECIDED` in the script). The script's own test,
 `docs/scripts/audit-dist.test.mjs`, runs under `pnpm docs:test` (the docs Vitest config takes any `*.test.mjs`).
+Phase 16 added, for the leaf-particle hero (D18): the root alone loads the hero loader (the page script built from `HeroLeaves.astro`) and no other
+page, the 404 included, does or carries the hero's art box; no page loads the effect's chunks (`particles.*`) up front, whether by a script, a modulepreload or
+a static import, the loader reaching them only through a dynamic `import()`; the loader is at most 2 KB gzipped and the effect with everything it imports, together,
+at most 32 KB gzipped; and on the landing there is one canvas and one still SVG, each `aria-hidden="true"`.
 Added 2026-11-04 for #235 and run from the repo root of a worktree that day, exiting 0. CI runs `pnpm docs:build` then
 `pnpm docs:audit-dist` after `pnpm build`, and `docs-deploy.yml` runs the same pair before it deploys anything.
 
@@ -131,7 +135,7 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-11-04 that is 2756 and 322 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-11-04 that is 2756 and 364 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 

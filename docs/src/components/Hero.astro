@@ -1,7 +1,7 @@
 ---
 /**
- * Starlight's Hero, except on the landing (D17), where the title, tagline and actions sit beside the branching tree
- * (HeroBranches) instead of the single image slot Starlight offers. Every other splash page (the 404) keeps Starlight's
+ * Starlight's Hero, except on the landing (D17), where the title, tagline and actions sit beside the leaf-particle
+ * art (HeroLeaves, D18) instead of the single image slot Starlight offers. Every other splash page (the 404) keeps Starlight's
  * own Hero untouched.
  *
  * gmt's landing does the same: its Hero override skips Starlight's own markup on the home route and renders the copy
@@ -10,7 +10,7 @@
  */
 import { LinkButton } from "@astrojs/starlight/components";
 import Default from "@astrojs/starlight/components/Hero.astro";
-import HeroBranches from "./HeroBranches.astro";
+import HeroLeaves from "./HeroLeaves.astro";
 
 const { entry, id } = Astro.locals.starlightRoute;
 // The route id of `index.mdx` is the empty string (Starlight normalises a trailing `index`), as in gmt's Hero.
@@ -40,9 +40,7 @@ const {
           )
         }
       </div>
-      <div class="art">
-        <HeroBranches />
-      </div>
+      <HeroLeaves />
     </div>
   ) : (
     <Default />
@@ -58,6 +56,9 @@ const {
     padding-block: 1rem 2rem;
   }
   .copy {
+    /* Above the hero's full-viewport canvas (HeroLeaves, z-index 0): leaves cross behind the copy, never over it. */
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
@@ -81,13 +82,27 @@ const {
     flex-wrap: wrap;
     gap: 0.75rem 1.25rem;
   }
-  .art {
-    /* A soft wash of the accent behind the canopy. */
-    background: radial-gradient(
-      closest-side,
-      color-mix(in srgb, var(--gmt-spring) 12%, transparent),
-      transparent
-    );
+  /* The copy fades in and rises a little, title, tagline, then actions, from the first paint: CSS only, so it never waits
+     for the hero loader or WebGL (the copy is the page's content; the canvas is decoration). `backwards` fill makes the
+     base style the finished state: where animations do not run the text is simply there. Reduced motion: none. */
+  @media (prefers-reduced-motion: no-preference) {
+    h1,
+    .tagline,
+    .actions {
+      animation: hero-copy-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    }
+    .tagline {
+      animation-delay: 0.1s;
+    }
+    .actions {
+      animation-delay: 0.2s;
+    }
+  }
+  @keyframes hero-copy-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.75rem);
+    }
   }
 
   @media (min-width: 50rem) {

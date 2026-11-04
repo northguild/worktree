@@ -89,7 +89,7 @@ export default defineConfig({
         SocialIcons: "./src/components/SocialIcons.astro",
         Footer: "./src/components/Footer.astro",
         Head: "./src/components/Head.astro",
-        // The landing (D17) sets its copy beside the branching tree; every other splash page (the 404) keeps Starlight's Hero.
+        // The landing (D17) sets its copy beside the leaf-particle hero; every other splash page (the 404) keeps Starlight's Hero.
         Hero: "./src/components/Hero.astro",
       },
       // Preload the display face so the title and headings do not reflow out of the mono fallback.

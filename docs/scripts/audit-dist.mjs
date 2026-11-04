@@ -33,6 +33,12 @@
  * cyan reaches a rule or file the site uses (see `cyanFindings`: the `--gmt-cyan*` variables and their literal colours
  * from the vendored tokens, in the built CSS, the HTML and the scripts).
  *
+ * Also (phase 16, D18, the leaf-particle hero): the root alone loads the hero loader (the script of `HeroLeaves.astro`);
+ * no page, the 404 included, loads the effect's chunks up front (a script, a modulepreload, or a static import: the
+ * loader reaches them only through a dynamic `import()`); the loader is at most 2 KB gzipped and everything it imports,
+ * together, at most 32 KB gzipped; and on the landing the still SVG and the canvas are `aria-hidden`, while no other page
+ * carries the hero's markup.
+ *
  * Not asserted yet, because the thing it checks does not exist until a later phase:
  *   - `og:image` / `twitter:image` (plan §9 Q3: the preview image is undecided). Set PREVIEW_IMAGE_DECIDED to
  *     true when it is; the rule is then a one-line addition in `auditPage`.
@@ -45,6 +51,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import { Temporal } from "@northguild/gmt";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -677,32 +684,152 @@ function tabMinHeightPx(css) {
 }
 
 const isChatChunk = (reference) => /(^|\/)Chat\.[^/]*$/.test(reference);
+// The hero's loader is the page script Astro builds from HeroLeaves.astro; the effect (OGL and the particles) is
+// src/hero/particles.ts, a chunk of its own that only the loader's dynamic import reaches.
+const isHeroLoader = (reference) => /(^|\/)HeroLeaves\.[^/]*$/.test(reference);
+const isHeroChunk = (reference) => /(^|\/)particles\.[^/]*$/.test(reference);
 
-/** Chat code a page loads up front: a script or modulepreload for the chat chunk, or a page script importing it statically. */
-async function chatLoadedUpFront(html, dist) {
-  const references = [
+/** The scripts and modulepreloads a page names, as the URLs the HTML gives. */
+function scriptReferences(html) {
+  return [
     ...tagsOf(html, "script").map((a) => a.src),
     ...tagsOf(html, "link")
       .filter((a) => a.rel === "modulepreload")
       .map((a) => a.href),
   ].filter(Boolean);
-  if (references.some(isChatChunk)) return true;
+}
+
+const fileOf = (dist, reference) =>
+  join(dist, reference.replace(/^\/worktree\//, ""));
+
+/** `from"./x.js"` and `import"./x.js"`, not `import("./x.js")`, which is a dynamic import. The bundler quotes with `"` or a backtick. */
+const staticImportsOf = (source) => [
+  ...[...source.matchAll(/\bfrom\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]),
+  ...[...source.matchAll(/\bimport\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]),
+];
+/** Dynamic imports, also as the bundler wraps them: `import("./x.js")` inside a preload helper call. */
+const dynamicImportsOf = (source) =>
+  [...source.matchAll(/\bimport\(\s*["'`]([^"'`]+)["'`]\s*\)/g)].map(
+    (m) => m[1],
+  );
+
+/** Code a page loads up front: a script or modulepreload for a chunk `isChunk` names, or a page script importing it statically. */
+async function loadedUpFront(html, dist, isChunk) {
+  const references = scriptReferences(html);
+  if (references.some(isChunk)) return true;
   for (const reference of references) {
-    const file = join(dist, reference.replace(/^\/worktree\//, ""));
     let source;
     try {
-      source = await readFile(file, "utf8");
+      source = await readFile(fileOf(dist, reference), "utf8");
     } catch {
       continue;
     }
-    // `from"./x.js"` and `import"./x.js"`, not `import("./x.js")`, which is the dynamic import the launcher uses.
-    const staticImports = [
-      ...source.matchAll(/\bfrom\s*["']([^"']+)["']/g),
-      ...source.matchAll(/\bimport\s*["']([^"']+)["']/g),
-    ];
-    if (staticImports.some((m) => isChatChunk(m[1]))) return true;
+    if (staticImportsOf(source).some(isChunk)) return true;
   }
   return false;
+}
+
+const chatLoadedUpFront = (html, dist) =>
+  loadedUpFront(html, dist, isChatChunk);
+
+// D18's budget: the loader at most 2 KB gzipped, everything it imports, together, at most 32 KB gzipped.
+export const HERO_LOADER_BUDGET = 2 * 1024;
+export const HERO_EFFECT_BUDGET = 32 * 1024;
+const gzipped = (buffer) => gzipSync(buffer, { level: 9 }).length;
+
+/** `files` and everything they import statically, as paths (a file that cannot be read is skipped). */
+async function staticClosure(files) {
+  const seen = new Set();
+  const queue = [...files];
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    let text;
+    try {
+      text = await readFile(file, "utf8");
+    } catch {
+      continue;
+    }
+    for (const specifier of staticImportsOf(text))
+      if (specifier.startsWith(".")) queue.push(join(dirname(file), specifier));
+  }
+  return [...seen];
+}
+
+const totalGzipped = async (files) => {
+  let total = 0;
+  for (const file of files) total += gzipped(await readFile(file));
+  return total;
+};
+
+/**
+ * The hero (D18). `landing` is true for the root, the only page that loads the loader and carries the art box.
+ * Returns failure rules, without the page's label.
+ */
+async function auditHero(html, dist, landing) {
+  const failures = [];
+  const loaders = scriptReferences(html).filter(isHeroLoader);
+  if (await loadedUpFront(html, dist, isHeroChunk))
+    failures.push("loads the hero effect up front");
+  if (!landing) {
+    if (loaders.length > 0)
+      failures.push("loads the hero loader; only the landing may");
+    if (/\bdata-hero-art\b/.test(html))
+      failures.push("carries the hero's art box; only the landing may");
+    return failures;
+  }
+
+  if (loaders.length !== 1) {
+    failures.push(`loads ${loaders.length} hero loaders, expected 1`);
+  } else {
+    const loaderFile = fileOf(dist, loaders[0]);
+    try {
+      // What ships up front: the loader and whatever it imports statically (the bundler's preload helper).
+      const size = await totalGzipped(await staticClosure([loaderFile]));
+      if (size > HERO_LOADER_BUDGET)
+        failures.push(
+          `the hero loader is ${size} B gzipped, over the ${HERO_LOADER_BUDGET} B budget`,
+        );
+      // What the loader fetches later: the effect chunk, with everything that imports.
+      const entries = dynamicImportsOf(await readFile(loaderFile, "utf8"))
+        .filter(isHeroChunk)
+        .map((entry) => join(dirname(loaderFile), entry));
+      if (entries.length === 0)
+        failures.push(
+          "the hero loader has no dynamic import() of the effect chunk",
+        );
+      const total = await totalGzipped(await staticClosure(entries));
+      if (total > HERO_EFFECT_BUDGET)
+        failures.push(
+          `the hero effect and what it imports are ${total} B gzipped, over the ${HERO_EFFECT_BUDGET} B budget`,
+        );
+    } catch (error) {
+      failures.push(`the hero loader cannot be read (${error.message})`);
+    }
+  }
+
+  // Decorative (D18): the still SVG and the canvas are hidden from assistive technology; the heading and the link carry
+  // the meaning.
+  const canvases = [...html.matchAll(/<canvas\b[^>]*>/g)].map((m) =>
+    attributes(m[0].slice(7, -1)),
+  );
+  if (canvases.length !== 1)
+    failures.push(
+      `has ${canvases.length} <canvas> elements, expected the hero's 1`,
+    );
+  for (const canvas of canvases)
+    if (canvas["aria-hidden"] !== "true")
+      failures.push('the hero canvas is not aria-hidden="true"');
+  const stills = [...html.matchAll(/<svg\b[^>]*>/g)]
+    .map((m) => attributes(m[0].slice(4, -1)))
+    .filter((a) => /(^|\s)hero-still(\s|$)/.test(a.class ?? ""));
+  if (stills.length !== 1)
+    failures.push(`has ${stills.length} hero still SVGs, expected 1`);
+  for (const still of stills)
+    if (still["aria-hidden"] !== "true")
+      failures.push('the hero still SVG is not aria-hidden="true"');
+  return failures;
 }
 
 async function auditPage(path, dist, descriptions, options) {
@@ -771,6 +898,7 @@ async function auditPage(path, dist, descriptions, options) {
 
   if (await chatLoadedUpFront(html, dist))
     fail("loads chat code before it is activated");
+  for (const rule of await auditHero(html, dist, path === "")) fail(rule);
 
   failures.push(...auditControls(html, label(path)));
   failures.push(...auditHeader(html, label(path)));
@@ -964,9 +1092,10 @@ async function auditSite(dist) {
   }
 
   try {
-    failures.push(
-      ...auditNotFound(await readFile(join(dist, "404.html"), "utf8")),
-    );
+    const notFound = await readFile(join(dist, "404.html"), "utf8");
+    failures.push(...auditNotFound(notFound));
+    for (const rule of await auditHero(notFound, dist, false))
+      failures.push(`404.html: ${rule}`);
   } catch {
     failures.push("404.html is missing");
   }
