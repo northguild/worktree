@@ -2,9 +2,8 @@
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "Worktree CLI (@northguild/worktree)",
   "description": "CLI for managing git worktrees: branch or check out into a worktree, copy env files, open it in an editor or hand it to a coding agent, then list, remove and clean up. Has a --json agent mode.",
-  "folders": ["docs/src/app/docs", "skills"],
-  "excludeFolders": ["docs/src/app/docs/changelog"],
-  "excludeFiles": ["AGENTS.md", "CLAUDE.md", "CHANGELOG.md"],
+  "folders": ["docs/src/content/docs", "skills"],
+  "excludeFiles": ["AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "changelog.mdx"],
   "rules": [
     "Create a new branch in its own worktree with `worktree branch`; use `worktree checkout` only for a branch that already exists on the remote, because it fails for one that does not.",
     "Run `worktree` only inside a git repository, and run `worktree config` once per repository before first use.",

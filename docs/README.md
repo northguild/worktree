@@ -22,7 +22,7 @@ pnpm --filter docs run dev:local
 pnpm --filter docs run dev:local:watch
 ```
 
-Both commands build the worker, write `.dev.vars`, start the Cloudflare Worker on `http://localhost:8787`, and start Astro on `http://localhost:3000`. The difference is that `dev:local:watch` also runs `worker:build:watch` so the worker bundle stays up to date as you edit.
+Both commands build the worker, write `.dev.vars`, start the Cloudflare Worker on `http://localhost:8787`, and start Astro on `http://localhost:4321`. The difference is that `dev:local:watch` also runs `worker:build:watch` so the worker bundle stays up to date as you edit.
 
 `PUBLIC_GEMINI_WORKER_URL` is the variable that controls which worker the docs app talks to (Astro only exposes `PUBLIC_` variables to client code; unset, the chat falls back to `http://localhost:8787`). The `dev:local*` scripts set it to `http://localhost:8787` so Astro hits your local `wrangler dev` instance. In production, the GitHub Actions workflow bakes in (from its `GEMINI_WORKER_URL` repository variable) the deployed Cloudflare Worker URL at build time.
 
@@ -73,7 +73,7 @@ build time into a single system prompt string (`docs/worker/docs-context.ts`):
 #### 1. MDX documentation pages
 
 `docs/worker/build-context.mjs` scans every `*.mdx` file under
-`docs/src/app/docs/`, strips JSX/imports, and concatenates the plain-text
+`docs/src/content/docs/`, turns each page's frontmatter into a heading, strips JSX/imports (keeping the content of Starlight tabs), and concatenates the plain-text
 content with section labels. This is the authoritative reference the AI uses
 to answer questions.
 
@@ -100,7 +100,7 @@ it reads the docs.
 
 The prompt is serialised with `JSON.stringify` into `docs-context.ts` and
 bundled into the worker via tsup. **No runtime fetching** — the context is
-embedded in the ~30 KB worker bundle.
+embedded in the ~260 KB worker bundle.
 
 #### Regenerating the context
 
@@ -126,11 +126,12 @@ rendering:
 
 | Link type | Outcome |
 |---|---|
-| Relative path in `VALID_DOC_ROUTES` | Rendered as a `<Link>` (internal navigation) |
-| Full GH Pages URL (`https://northguild.github.io/worktree/...`) | Stripped to relative path, then same check as above |
+| Route in `VALID_DOC_ROUTES` (no base path, trailing slash: `/commands/branch/`) | Rendered as an `<a>` with the `/worktree` base prepended (`import.meta.env.BASE_URL`) |
+| Full site URL (`https://northguild.dev/worktree/...`) or the bare base path (`/worktree/...`) | Origin and base stripped to a route (`/commands/branch/`), then same check as above |
+| Legacy GH Pages URL (`https://northguild.github.io/worktree/...`) | Stripped to a route, then same check as above |
 | GitHub repo anchor (`github.com/northguild/worktree#...`) | Rendered as plain text — no link |
 | Any other relative path not in the route list | Rendered as plain text — no link |
-| Any other external URL | Rendered as `<a target="_blank">` |
+| Any other external URL, or a `javascript:`/`data:`/`ftp:`/`mailto:` link | Rendered as plain text — no link (in development only, `http://localhost:4321` renders as `<a target="_blank">`) |
 
 `VALID_DOC_ROUTES` is auto-generated from the MDX filesystem scan — it never
 needs to be maintained by hand.

@@ -161,3 +161,22 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   --project` generates now start with `# yaml-language-server: $schema=https://northguild.dev/worktree/schema/v1.json`,
   and the package `homepage` points to the new docs site at https://northguild.dev/worktree/. Existing files
   keep working, because the old schema URL continues to serve the same schema."
+
+## From phase 6's review (chat knowledge and Worker origins)
+
+- `MarkdownContent.tsx` lists `mailto:` in `SAFE_PROTOCOLS`, but the origin check always rejects it (opaque
+  origin `"null"`), as before; the test pins rejection. Drop it from the set or comment that it never passes.
+- A slashless absolute link (`https://northguild.dev/worktree/commands/branch`) renders as plain text (exact
+  match, as before); appending `/` before the lookup would recover it without widening the allow-list.
+- Phase 6's Done-when grep prints two lines after commit: the legacy strip in `MarkdownContent.tsx` and the
+  test fixture at `MarkdownContent.test.tsx:9` that pins it. Plan wording defect, like phase 12's.
+- Unpinned: refusal of the retired `https://northguild.github.io` origin (only `localhost:3000` is tested);
+  `build-context.mjs` keeping Tabs content (the install commands) in the prompt; the general JSX strippers
+  are gone, so a future `<Aside>` or `<Card>` would leave raw tags in the prompt.
+- `MarkdownContent.tsx:12`'s comment ("an old link resolves instead of vanishing") overstates: a real old
+  link `…github.io/worktree/docs/commands/branch` strips to `/docs/commands/branch` and is rejected; only
+  legacy-host links in the new path form resolve. Reword, or apply D3's `/docs/<p>` → `/<p>/` after the strip.
+- Leniencies: `https://northguild.dev/commands/branch/` (no `/worktree`) also resolves; `{…}` stripping
+  still runs inside code fences.
+- After Gate 2 the caller fixed two stale one-liners the reviewer found: `docs/README.md:103` (~30 KB →
+  ~260 KB worker bundle) and `docs/worker/README.md:67` (`next dev` → `astro dev`).

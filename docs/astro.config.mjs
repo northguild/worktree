@@ -10,8 +10,6 @@ export default defineConfig({
   base: "/worktree",
   trailingSlash: "always",
   build: { format: "directory" },
-  // The Worker allows CORS from http://localhost:3000 only (worker/worker.ts), so the dev server stays on 3000.
-  server: { port: 3000 },
   integrations: [
     starlight({
       title: "Worktree",

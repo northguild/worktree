@@ -16,9 +16,9 @@ const DEFAULT_RATE_LIMIT_MAX = 30;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60;
 
 // Allowed origins for CORS.
-// Production: GitHub Pages static site host (all routes share this origin).
-// Development: local Next.js dev server.
-const CORS_ORIGINS = ["https://northguild.github.io", "http://localhost:3000"];
+// Production: the docs site host (all routes share this origin).
+// Development: Astro dev server, default port 4321.
+const CORS_ORIGINS = ["https://northguild.dev", "http://localhost:4321"];
 
 function getCorsHeaders(origin: string | null): Record<string, string> {
   const allowed =

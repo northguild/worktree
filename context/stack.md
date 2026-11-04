@@ -86,15 +86,15 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
 | `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |
 | `docs/src/content/docs/changelog.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
-| [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/app/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
+| [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/content/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
 
 **Every surface above is sourced from this repository.** The GitHub Pages site is built from `docs/` by
 `docs-deploy.yml`, npm's package page renders the root `README.md`, and `context7.json` fixes what Context7
 may index from the tree. All of it is already in the tree, so sweeping the tree finds every surface. Context7
 lists the repository as `/northguild/worktree`; the claim fields are below.
 
-`context7.json` indexes `docs/src/app/docs/` (minus its `changelog/` page, which is release policy, not usage
-docs), `skills/` and the root `README.md`, and nothing else: `folders` is a whitelist, and Context7 always
+`context7.json` indexes `docs/src/content/docs/` (minus `changelog.mdx`, which is release policy, not usage
+docs; `excludeFiles` takes a bare filename, not a path, and only that one file has the name), `skills/` and the root `README.md`, and nothing else: `folders` is a whitelist, and Context7 always
 indexes root-level markdown, which is why `AGENTS.md`, `CLAUDE.md` and `CHANGELOG.md` are named in
 `excludeFiles` (specifying `excludeFiles` or `excludeFolders` at all switches off Context7's default exclusions).
 
