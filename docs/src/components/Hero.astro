@@ -82,20 +82,25 @@ const {
     flex-wrap: wrap;
     gap: 0.75rem 1.25rem;
   }
-  /* The copy fades in and rises a little, title, tagline, then actions, from the first paint: CSS only, so it never waits
-     for the hero loader or WebGL (the copy is the page's content; the canvas is decoration). `backwards` fill makes the
-     base style the finished state: where animations do not run the text is simply there. Reduced motion: none. */
+  /* The copy fades in and rises a little, title, tagline, then the action a beat later, starting just after the first
+     paint (the user, 2026-11-04: the button "a bit later, and the whole content slightly later also"). CSS only, so it
+     never waits for the hero loader or WebGL (the copy is the page's content; the canvas is decoration). `backwards`
+     fill makes the base style the finished state: where animations do not run the text is simply there. Reduced
+     motion: none. */
   @media (prefers-reduced-motion: no-preference) {
     h1,
     .tagline,
     .actions {
       animation: hero-copy-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
     }
+    h1 {
+      animation-delay: 0.3s;
+    }
     .tagline {
-      animation-delay: 0.1s;
+      animation-delay: 0.45s;
     }
     .actions {
-      animation-delay: 0.2s;
+      animation-delay: 0.85s;
     }
   }
   @keyframes hero-copy-in {
