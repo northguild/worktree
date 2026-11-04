@@ -311,3 +311,13 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   review" entries about `.project-footer`, the footer's `CLI Version: v…` and `MaintainersList` are obsolete.
 - `docs/src/lib/site-meta.ts` still exports `maintainers` and `projectOwnerAvatarUrl` with no reader, on purpose: the
   user will decide later whether the docs name people at all. Not dead code to strip from the sync-version generator.
+
+## From phase 17's review (#238's docs ported from main)
+
+- The merge commit 4689a22 alone fails the audit: its two new pages still carry main's frontmatter, heading and
+  `/docs/...` links, and the port is 9c08a49's. The split is deliberate (a merge commit lists no files, so
+  Starlight could not date pages whose newest commit it was), and departs from git.md's one commit per phase.
+- `build-legacy-pages.test.mjs` asserts every expected route has its stub, not that the bundle holds no others:
+  a stray extra entry in `OLD_ROUTES` would pass. Predates phase 17.
+- The legacy stubs for `/docs/commands/linear-listen` and `/docs/guides/linear-agent-delegation` exist only from
+  this merge on; both pages were already live on GitHub Pages from main's deploy.

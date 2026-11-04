@@ -1,18 +1,17 @@
 ---
-title: Linear Agent Delegation
+title: "Delegate a Linear issue to a coding agent in a git worktree"
+description: "Delegate a Linear issue to your agent app and a git worktree appears on your machine with your coding agent started in it. Covers setup in Linear."
 ---
-
-# Linear Agent Delegation
 
 Delegate a Linear issue to an agent in Linear, and a worktree for it appears on your machine with your coding
 agent started in it. This guide sets that up and says what you will see in Linear while it runs.
 
-It works through [`worktree linear-listen`](/docs/commands/linear-listen), a command you run yourself, in the
+It works through [`worktree linear-listen`](/worktree/commands/linear-listen/), a command you run yourself, in the
 repository it serves. Nothing is hosted for you: you register your own Linear OAuth app, you run the listener, and
 you make its port reachable from Linear. The listener is a foreground process, not a service, and it opens no tunnel.
 
 For the plain `worktree branch --linear` flow, with no delegation, see the
-[Linear Issue Integration](/docs/guides/linear-integration) guide.
+[Linear Issue Integration](/worktree/guides/linear-integration/) guide.
 
 ## Before you start
 
@@ -25,11 +24,11 @@ You also need:
 
 - A coding agent set up for `worktree`, so a new worktree can hand the brief to it. The listener runs
   `worktree branch --linear <KEY> --agent-stdin --json --yes`, and the brief is delivered the way
-  [Agent Dispatch](/docs/commands/branch#agent-dispatch) describes: through `agent.command`, or through
+  [Agent Dispatch](/worktree/commands/branch/#agent-dispatch) describes: through `agent.command`, or through
   `herdr.agent` when the worktree opens as a Herdr space. With a brief and no `agent.command`, and a run Herdr
   will not open, `branch` exits `2` with `missing_value` before it creates the worktree, and the session ends in an
   [error](#what-you-see-in-linear): `The worktree command failed (missing_value): ...`.
-- Your personal Linear API key in `linear.apiKey`, as for the [Linear Issue Integration](/docs/guides/linear-integration)
+- Your personal Linear API key in `linear.apiKey`, as for the [Linear Issue Integration](/worktree/guides/linear-integration/)
   guide. The listener uses it to read the issue, and to find out whose delegations to serve by default.
 - Admin rights in the Linear workspace, to install the app.
 
@@ -70,7 +69,7 @@ You also need:
 
 If a key is missing, `worktree linear-listen` exits `2` with `missing_value` before it listens and names the key. If
 Linear rejects the token or the key, or the port is taken, it exits `1`. All the exit codes are on the
-[command page](/docs/commands/linear-listen#exit-codes).
+[command page](/worktree/commands/linear-listen/#exit-codes).
 
 ## Who may start an agent
 

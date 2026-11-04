@@ -1,19 +1,18 @@
 ---
-title: linear-listen
+title: "worktree linear-listen: start a worktree when Linear delegates an issue"
+description: "worktree linear-listen listens for Linear agent webhooks and starts a git worktree with your coding agent in it for each delegated issue."
 ---
-
-# `worktree linear-listen`
 
 Listen for Linear agent delegations and start a worktree for each one. Run it in the repository it should
 serve. When someone delegates a Linear issue to your agent app, Linear sends a webhook here, and the listener
-runs [`worktree branch --linear`](/docs/commands/branch) for that issue, hands the new worktree to your coding
+runs [`worktree branch --linear`](/worktree/commands/branch/) for that issue, hands the new worktree to your coding
 agent, and tells Linear how it went.
 
 It is a foreground command: it stays running until you stop it with `Ctrl-C`, and it serves one repository (the one
 it is started in). It listens on `127.0.0.1` only. Making that address reachable from Linear is your step: put a
 tunnel or a reverse proxy with HTTPS in front of it and give Linear that public address as the app's webhook URL.
 The command neither opens a tunnel nor installs itself as a service. The
-[Linear Agent Delegation](/docs/guides/linear-agent-delegation) guide walks through the one-time setup in Linear.
+[Linear Agent Delegation](/worktree/guides/linear-agent-delegation/) guide walks through the one-time setup in Linear.
 
 ## Usage
 
@@ -45,10 +44,10 @@ another with `--port`.
 Three git config keys. If one is unset, the command exits `2` with `missing_value` before it listens, and says
 which key to set. No secret is ever printed.
 
-- [`linear.agentToken`](/docs/commands/config) the agent app's OAuth token. It writes the activities you see in
+- [`linear.agentToken`](/worktree/commands/config/) the agent app's OAuth token. It writes the activities you see in
   the Linear session.
-- [`linear.webhookSecret`](/docs/commands/config) the webhook's signing secret.
-- [`linear.apiKey`](/docs/guides/linear-integration) your personal Linear API key. `worktree branch --linear`
+- [`linear.webhookSecret`](/worktree/commands/config/) the webhook's signing secret.
+- [`linear.apiKey`](/worktree/guides/linear-integration/) your personal Linear API key. `worktree branch --linear`
   uses it to read the issue, and it identifies who the listener serves by default.
 
 Then it asks Linear who the token belongs to. If Linear rejects the token, the command exits `1` before it listens.
@@ -58,7 +57,7 @@ Then it asks Linear who the token belongs to. If Linear rejects the token, the c
 A delegation runs a coding agent, with your credentials, on your machine, from text anyone in the Linear
 workspace can write. So only an allowed person can start one.
 
-- With [`linear.agentAllow`](/docs/commands/config) set to a comma-separated list of Linear user ids, those
+- With [`linear.agentAllow`](/worktree/commands/config/) set to a comma-separated list of Linear user ids, those
   people are allowed.
 - With it unset, only the owner of `linear.apiKey` is allowed, which Linear tells the command at start-up.
 
@@ -70,7 +69,7 @@ printed at start-up.
 An issue's description and comments are writable by everyone with access to the issue, and a delegation hands
 them to an agent that can run commands. So by default none of it reaches the agent.
 
-Set [`linear.agentContext`](/docs/commands/config) to `true` to change that, on a machine where you accept the
+Set [`linear.agentContext`](/worktree/commands/config/) to `true` to change that, on a machine where you accept the
 risk. Unset or `false` means off, and any other value is refused. With it on and a session that carries issue
 text, the brief is the same fixed line followed by that text inside a fenced block labelled as untrusted issue
 content. Text inside the block cannot close it, and it is cut at 32 KiB without splitting a character. The text
