@@ -1,13 +1,12 @@
 ---
-title: Project Configuration
+title: "Project configuration for git worktrees with .worktree.yml"
+description: "Share team settings in a committed .worktree.yml: source branch, branch-type prefixes, name template, files to copy and post-create steps."
 ---
-
-# Project Configuration
 
 A repository can carry its team's settings in a `.worktree.yml` file at the repository root, so a new
 teammate does not have to learn the source branch, the branch prefixes or the Jira host from a wiki. The
 file holds team settings only. Anything that belongs to one person or one machine stays in
-[git config](/docs/configuration).
+[git config](/worktree/configuration/).
 
 ```yaml
 # yaml-language-server: $schema=https://northguild.github.io/worktree/schema/v1.json
@@ -81,7 +80,7 @@ under `branchPrefix`.
 
 `github.repository` is the `owner/repo` that `--github` reads and assigns in. It is only needed when that is not the
 repository found otherwise (`upstream` when it is on `github.host` (`github.com` unless set), else `origin`), for example when your
-issues are on your fork and an `upstream` remote exists; see [Forks](/docs/guides/github-issue-integration#forks). `worktree config`
+issues are on your fork and an `upstream` remote exists; see [Forks](/worktree/guides/github-issue-integration/#forks). `worktree config`
 never asks for it.
 
 `github.host` is the GitHub host that `--github` and `--assign` use, a bare hostname such as `ghe.example.com`
@@ -91,7 +90,7 @@ Otherwise the run fails before any request. `gh` applies `GH_ENTERPRISE_TOKEN` t
 host it is asked about, so a merged change to `github.host` is a change to where that token can go; review it like
 code, as for [`jira.host`](#jirahost-receives-everyones-credentials). Your own `github.host` in git config
 overrides the file's, and `github.com` there puts a repository back on the default. `worktree config` never
-asks for it. See [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
+asks for it. See [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
 
 The `branchType` lists under `jira`, `github`, `linear` and `clickup`, and the shared top-level `branchType`, are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
@@ -251,7 +250,7 @@ worktree branch --clickup 9hx --dry-run
 A value with an id is written by id. A value without one, such as a ClickUp tag, is written by name. Fields
 the issue holds no value for are left out of the list; a rule on one of them would never match this issue.
 `worktree branch --dry-run --json` prints the same as one document; its
-[shape](/docs/commands/branch#previewing-a-branch-name) is on the branch page.
+[shape](/worktree/commands/branch/#previewing-a-branch-name) is on the branch page.
 
 ### Mistakes in a rule
 
@@ -289,7 +288,7 @@ is used as given.
 ## Copy files
 
 `copy` lists files that `worktree branch` and `worktree checkout` carry into a new worktree, beside the
-[env files](/docs/guides/env-files) they already copy:
+[env files](/worktree/guides/env-files/) they already copy:
 
 ```yaml
 copy:
@@ -327,7 +326,7 @@ postCreate:
 
 - **Steps run in order**, in the new worktree, each as a program and its arguments with no shell, each
   limited to 10 minutes. The first step that fails stops the rest, and `branch` exits `1` with the worktree
-  kept. See [Installing dependencies](/docs/commands/branch#installing-dependencies).
+  kept. See [Installing dependencies](/worktree/commands/branch/#installing-dependencies).
 - **A step cannot be empty or hold control or formatting characters** (a tab, a newline, an escape, a
   right-to-left override), so the steps you approve are shown exactly as they run. A file with one stops the
   run like any other [broken file](#a-broken-file-stops-the-run).
@@ -380,7 +379,7 @@ The answers are kept in local git config under `northguild.worktree.*`, outside 
 `worktree config --list` does not show them and `worktree config <key> <value>` cannot set them.
 
 `worktree config --list` marks where each value comes from, and `worktree config <key> <value>` for a key the
-file sets shows both values and asks first. See [`config`](/docs/commands/config#project-file).
+file sets shows both values and asks first. See [`config`](/worktree/commands/config/#project-file).
 
 ## A broken file stops the run
 

@@ -72,3 +72,25 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   `context/stack.md`'s layout block — phase 11, which wires the bundle into `docs-deploy.yml`, is the place.
 - Old explicit `.html` URLs (`/worktree/docs/commands/branch.html`) land on `404.html` and go to the new root,
   not the matching page; nothing is known to link that form.
+
+## From phase 3's review (top-level and command pages)
+
+- `/worktree/favicon.svg` is referenced by every page (Starlight's default favicon) and supplied by no phase;
+  the old site had none either. Phase 7 (head) or phase 9 (the 404 and a11y pass) could take it.
+- In `commands/branch.mdx` the moved Jira subsection's "decide in the same order … the write happens at the
+  same point" (≈300-302) now refers to `### Moving the issue to started`, which sits below it (≈371). A link to
+  `#moving-the-issue-to-started` would repair it; D12 left it alone.
+- No rule checks that internal `/worktree/…` links and anchors resolve (Astro does not prefix `base` onto
+  markdown links, so they are written out); nothing pins a page's `description:` to §4.3 either. Seam:
+  `docs/scripts/audit-dist.mjs` (phase 7).
+- FAQ `description:` departs from §4.3: the row was stale after #233 (the FAQ has a Jira Data Center entry);
+  used "Answers on worktree vs git stash, private repos, GitHub Enterprise, Jira Data Center, editors, Herdr,
+  Windows and where to find every command option." (149 chars).
+- Once phase 7 sets the site title to `@northguild/worktree`, the root `<title>` reads "Getting Started with
+  @northguild/worktree | @northguild/worktree".
+- `docs/src/chat/docs-routes.generated.ts` lost the 12 ported routes (its generator still reads
+  `docs/src/app/docs/`), and the chat's `docs-context.ts` lacks these pages — phase 6's.
+- `docs/src/styles/custom.css` (on the Files line) was not created; the content needed no styles.
+- `docs/src/app/docs/commands/_meta.ts`'s comment is stale until phase 4 deletes `docs/src/app/`.
+- Phase 3 is two commits by the user's choice (2026-11-04): the stub's deletion with eleven pure renames,
+  then Getting Started's move onto `index.mdx` with every edit — so all 12 pages keep `git log --follow`.

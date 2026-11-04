@@ -1,8 +1,7 @@
 ---
-title: cleanup
+title: "worktree cleanup: remove stale git worktrees"
+description: "worktree cleanup removes stale git worktrees, such as those whose remote branch is gone after a merged PR, while keeping any with unpushed work."
 ---
-
-# `worktree cleanup`
 
 Remove stale worktrees that are safe to delete.
 
@@ -18,7 +17,7 @@ Typical cleanup targets include:
   — as long as they carry no unmerged commits and hold no uncommitted changes
 - local worktrees with no tracked remote that carry no unmerged commits and hold no
   uncommitted changes
-- worktrees whose [Linear](/docs/guides/linear-integration) issue is canceled and whose commits
+- worktrees whose [Linear](/worktree/guides/linear-integration/) issue is canceled and whose commits
   are all on their remote, as long as they hold no uncommitted changes and no agent is working
   in them — see [Canceled Linear issues](#canceled-linear-issues)
 
@@ -31,7 +30,7 @@ comes from `git status -s`, so untracked files hold a worktree back too.
 removed when its commit count was actually taken and came back zero — a count that could not
 be taken is never read as "no work". This matters most for a branch you never pushed: it has no upstream to compare
 against, so the comparison base is `origin/HEAD`, falling back to
-[`defaultSourceBranch`](/docs/configuration). If neither resolves the count cannot be taken,
+[`defaultSourceBranch`](/worktree/configuration/). If neither resolves the count cannot be taken,
 and the worktree is held back rather than swept.
 
 That second rule is newer than the first, and the ordering is deliberate: committing work
@@ -94,12 +93,12 @@ unmerged commits that it *could* count is not stale, so it is neither removed no
 it simply does not come up, and neither does a worktree tracking a live remote branch whose
 Linear issue is not canceled. A branch whose issue is canceled is the exception: with
 unmerged commits it is listed under the fourth heading, whether it tracks a live remote, has no
-remote, or lost its remote. Use [`list`](/docs/commands/list) to see every worktree and what each one is carrying;
+remote, or lost its remote. Use [`list`](/worktree/commands/list/) to see every worktree and what each one is carrying;
 `cleanup` only ever discusses the ones it would sweep and the ones it stopped short of.
 
 ## Canceled Linear issues
 
-A branch made with [`branch --linear`](/docs/commands/branch) carries a record of its issue in git
+A branch made with [`branch --linear`](/worktree/commands/branch/) carries a record of its issue in git
 config, `branch.<name>.worktreeIssue = linear:ENG-123`. It follows the branch through a rename and
 goes when `cleanup` deletes the branch. Branches made before the record existed, and branches made
 any other way, have none and are decided as they always were.
@@ -124,7 +123,7 @@ alone, because a finished issue's branch is a question for a person, not a sweep
 only on the remote do not matter, since removing the local checkout loses nothing of them.
 
 `cleanup` asks Linear for these states on every run, in one request per 50 linked branches, when at
-least one branch has a record and [`linear.apiKey`](/docs/configuration) is set. With no key, or
+least one branch has a record and [`linear.apiKey`](/worktree/configuration/) is set. With no key, or
 no record, it makes no request and says nothing. If Linear cannot be reached or answers with an
 error, `cleanup` prints one warning, says canceled issues were not considered, and carries on with
 the verdict it would have reached without the signal. A failed `ls-remote` is one warning too: it
@@ -142,14 +141,14 @@ worktrees once a key is set and records exist.
 
 | Flag | Description |
 | --- | --- |
-| `-f`, `--force` | Skip the confirmation prompt. A [non-interactive run](/docs/commands/branch#non-interactive-runs) requires it: without it `cleanup` exits `2` with `worktree: no default for confirmation to delete the stale worktrees; pass --force` |
+| `-f`, `--force` | Skip the confirmation prompt. A [non-interactive run](/worktree/commands/branch/#non-interactive-runs) requires it: without it `cleanup` exits `2` with `worktree: no default for confirmation to delete the stale worktrees; pass --force` |
 | `--ignore-agents` | Remove worktrees even when an agent session is living in them |
 
 ## Agent sessions
 
 A worktree that an agent session is working in is never removed. `cleanup` asks the same two
-sources as [`list --agents`](/docs/commands/list) — `herdr agent list` when `herdr` is installed, and the
-runtime in [`agent.command`](/docs/configuration#agent-command) (or the `herdr.agent` kind when that is
+sources as [`list --agents`](/worktree/commands/list/) — `herdr agent list` when `herdr` is installed, and the
+runtime in [`agent.command`](/worktree/configuration/#agent-command) (or the `herdr.agent` kind when that is
 unset) — which sessions are running and where, and holds back any worktree one of them is working in. Where that worktree is one it
 would otherwise have swept, it is reported under this heading, naming both the worktree and
 the session sitting in it:
@@ -160,9 +159,9 @@ Skipped 1 worktree branch with a live agent session:
 ```
 
 This covers your own terminal and an agent Herdr started, as well as an agent this tool dispatched with
-[`branch --agent`](/docs/commands/branch). Both count as somebody working in the directory,
+[`branch --agent`](/worktree/commands/branch/). Both count as somebody working in the directory,
 and deleting it out from under either is the failure this check exists to prevent. Use
-[`list --agents`](/docs/commands/list) to see which worktrees those are before running
+[`list --agents`](/worktree/commands/list/) to see which worktrees those are before running
 `cleanup`, rather than discovering them from the report.
 
 A session that has finished does not hold anything back — the worktree goes back to being
@@ -178,7 +177,7 @@ status they give has to say idle or done. A session that is working, one that is
 one whose status is not recognised, and one that reports no status at all still hold the worktree back.
 Where a worktree holds several sessions, one that is working holds it back whatever the rest are doing.
 An idle session does not excuse anything else: uncommitted changes and unpushed commits hold the
-worktree back as before. With [`opener`](/docs/configuration) set to `herdr`, the idle pane closes
+worktree back as before. With [`opener`](/worktree/configuration/) set to `herdr`, the idle pane closes
 with the worktree's space.
 
 `--force` does **not** override this. It answers the confirmation prompt, not the safety
@@ -194,7 +193,7 @@ Removing 1 worktree branch despite a live agent session:
 
 It has no short alias on purpose: overruling this one is worth spelling out.
 
-`--ignore-agents` costs more than it used to. With [`opener`](/docs/configuration) set to
+`--ignore-agents` costs more than it used to. With [`opener`](/worktree/configuration/) set to
 `herdr`, a worktree removed this way also has its Herdr space closed — which takes down the
 panes the agent is working in, not just the directory underneath it. Before spaces were
 closed, an overruled agent at least kept its output on screen.
@@ -204,7 +203,7 @@ runtime cannot be reached — no session data is gathered and `cleanup` behaves 
 
 ## Herdr spaces
 
-With [`opener`](/docs/configuration) set to `herdr`, every worktree `cleanup` removes also has its
+With [`opener`](/worktree/configuration/) set to `herdr`, every worktree `cleanup` removes also has its
 Herdr space closed.
 
 Only the ones it actually removed. A worktree held back — for uncommitted changes, a live agent,
@@ -214,4 +213,4 @@ it merely looked at. Each space is closed independently, so one failure does not
 a failed close is a warning that leaves the exit code at `0`.
 
 With `opener` unset or set to `editor`, no Herdr process is started. See
-[Herdr Spaces](/docs/guides/herdr-spaces#when-the-worktree-goes).
+[Herdr Spaces](/worktree/guides/herdr-spaces/#when-the-worktree-goes).

@@ -1,8 +1,7 @@
 ---
-title: config
+title: "worktree config: set up the CLI"
+description: "worktree config runs a setup wizard or reads and sets keys like defaultSourceBranch, codeEditor and opener, stored in git config."
 ---
-
-# `worktree config`
 
 Configure defaults and inspect current configuration.
 
@@ -32,14 +31,14 @@ exits `0`.
 - Without `--list`, it only prompts for missing values.
 - `--names` limits prompting to specific config keys. Naming keys is asking for them, so the optional group
   confirms (Jira, GitHub, Linear, ClickUp, prefixes, opener, editor, Herdr, agent, post-create) are not asked for them.
-- `--yes` (`-y`) makes the run [non-interactive](/docs/commands/branch#non-interactive-runs): nothing is asked.
+- `--yes` (`-y`) makes the run [non-interactive](/worktree/commands/branch/#non-interactive-runs): nothing is asked.
   Each key takes its default, or the value it already holds, and the run fails with exit `2` naming
   `worktree config <key> <value>` for a key with neither, such as a token. Without `--names` the optional groups have no default and the run fails naming `--names <keys>`.
 
 ## Project File
 
 When the repository's `.worktree.yml` sets a team key, `worktree config` knows. See
-[Project Configuration](/docs/project-configuration) for the file.
+[Project Configuration](/worktree/project-configuration/) for the file.
 
 - **The wizard asks nothing the file answers.** A bare `worktree config` says once which keys the file sets
   and skips them, including a personal `postCreate` when the file has steps. The wizard no longer writes a
@@ -110,7 +109,7 @@ worktree config --project
 
 Configuration is stored in Git config under `northguild.worktree.*`. A team can also set some keys for
 everyone in a `.worktree.yml` file, which your own value overrides; see
-[Project Configuration](/docs/project-configuration).
+[Project Configuration](/worktree/project-configuration/).
 
 ## Opener Keys
 
@@ -131,24 +130,24 @@ regardless, so a machine can be configured before Herdr is installed.
 - `github.token` for GitHub API access to github.com. It is never read for, or sent to, a GitHub Enterprise host.
 - `github.autoAssign` whether reading a GitHub issue also assigns it to you: `true` always, `false`
   never, unset means you are asked once and your answer is saved. See
-  [Configuration](/docs/configuration#github-integration-notes).
+  [Configuration](/worktree/configuration/#github-integration-notes).
 - `github.repository` the `owner/repo` that `--github` and `--assign` use, a team key that can also be set in
   `.worktree.yml` under `github:`. Without it `worktree` uses `upstream` when it is on `github.host` (`github.com` unless set), else
   `origin`. **The wizard never asks for it**, and `--missing` never lists it: most people have no fork. Set it by
   name, for example `worktree config github.repository acme/widgets` when your issues are on your fork. See
-  [Forks](/docs/guides/github-issue-integration#forks).
+  [Forks](/worktree/guides/github-issue-integration/#forks).
 - `github.host` the GitHub host that `--github` and `--assign` use, a bare hostname such as `ghe.example.com`
   for GitHub Enterprise. Unset means `github.com`. A team key that can also be set in `.worktree.yml` under
   `github:`. **The wizard never asks for it**, and `--missing` never lists it. Set it by name, for example
   `worktree config github.host ghe.example.com`. See
-  [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
+  [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
 - `branchPrefix.feature` optional prefix used for `Feature` issues.
 - `branchPrefix.bugfix` optional prefix used for `Bug` issues.
 - `branchPrefix.chore` optional prefix used for `Task` issues.
 
 These prefixes are chosen by each provider's built-in mapping (GitHub and Jira by issue type, Linear by label,
 ClickUp by tag). A `branchType` list for that provider, or the shared top-level one, in `.worktree.yml` replaces the mapping; see
-[Branch-type rules](/docs/project-configuration#branch-type-rules).
+[Branch-type rules](/worktree/project-configuration/#branch-type-rules).
 
 `github.token` and `github.autoAssign` are asked together behind one confirm, so declining costs a single
 yes/no. The `github.autoAssign` prompt has three choices: "Yes, always", "No, never" and "Ask me each
@@ -157,7 +156,7 @@ time". The last leaves the key unset, clearing any stored answer, which is the "
 `jira.apiToken`, `linear.apiKey` or `clickup.apiToken` prompt empty, or answering with only spaces, keeps any token you already have,
 rather than clearing it. A pasted value is stored without surrounding whitespace.
 `clickup.workspaceId` is optional and only matters for custom task ids such as `DEV-123`: an empty answer skips it and writes nothing, a non-interactive run skips it rather than failing, and under `--missing` pressing Enter skips its prompt too.
-The ClickUp group asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/docs/configuration#clickup-integration-notes).
+The ClickUp group asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/worktree/configuration/#clickup-integration-notes).
 A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey` and `clickup.apiToken`) with a value that is only
 whitespace is refused with exit `2`, and nothing is stored.
 
@@ -167,14 +166,14 @@ whitespace is refused with exit `2`, and nothing is stored.
 - `jira.deployment` which Jira `jira.host` is: `cloud` (the default) or `datacenter`. A team key, also set under `jira:` in `.worktree.yml`, and never asked for by `worktree config`.
 - `jira.autoAssign` whether `--jira` also assigns the issue to you: `true` always, `false` never, unset
   means you are asked once and your answer is saved. See
-  [Configuration](/docs/configuration#jira-integration-notes).
+  [Configuration](/worktree/configuration/#jira-integration-notes).
 - `jira.autoStart` whether `--jira` also moves the issue to in progress once the worktree exists: `true`
   always (an issue already in progress or done, or with no single in-progress status to move to, is left
   where it is), `false` never, unset means you are asked once and your answer is saved. See
-  [Configuration](/docs/configuration#jira-integration-notes) and
-  [Moving the issue to in progress](/docs/guides/jira-integration#moving-the-issue-to-in-progress).
+  [Configuration](/worktree/configuration/#jira-integration-notes) and
+  [Moving the issue to in progress](/worktree/guides/jira-integration/#moving-the-issue-to-in-progress).
 
-When `jira.deployment` is `datacenter` (from git config or `.worktree.yml`), the wizard does not ask for `jira.email`, a bare run, `--missing` and `--list --missing` do not count it as missing, and the token prompt reads "Jira personal access token" and shows the steps for creating one in Jira instead of the Atlassian Cloud ones. The token still goes in `jira.apiToken`. See [Jira Data Center](/docs/guides/jira-integration#jira-data-center). With `cloud` or unset, nothing changes. Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given.
+When `jira.deployment` is `datacenter` (from git config or `.worktree.yml`), the wizard does not ask for `jira.email`, a bare run, `--missing` and `--list --missing` do not count it as missing, and the token prompt reads "Jira personal access token" and shows the steps for creating one in Jira instead of the Atlassian Cloud ones. The token still goes in `jira.apiToken`. See [Jira Data Center](/worktree/guides/jira-integration/#jira-data-center). With `cloud` or unset, nothing changes. Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given.
 
 The Jira keys are asked together behind one confirm. The `jira.autoAssign` prompt is asked after the token
 and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
@@ -187,7 +186,7 @@ so `--missing` goes on offering the prompt until you settle it. A direct `worktr
 - `linear.apiKey` for Linear API access.
 - `linear.autoStart` whether `--linear` also moves the issue to a started state once the worktree exists:
   `true` always (an issue already started, or in triage, completed, canceled or duplicate, is left where it is), `false` never, unset means you are asked once and your answer is saved. See
-  [Configuration](/docs/configuration#linear-integration-notes).
+  [Configuration](/worktree/configuration/#linear-integration-notes).
 
 The Linear keys are asked together behind one confirm. The `linear.autoStart` prompt is asked after the key
 and has three choices: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so
@@ -197,16 +196,16 @@ accepts only `true` or `false`.
 ## Agent Key
 
 - `agent.command` the command `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The wizard asks for it behind a yes/no, and the [`herdr.agent`](#opener-keys) question is asked separately. Read by
-  [`branch --agent`](/docs/commands/branch#agent-dispatch) and `checkout --agent`, by
-  [`list --agents`](/docs/commands/list), and by [`cleanup`](/docs/commands/cleanup)'s agent check. See
-  [Configuration](/docs/configuration#agent-command).
+  [`branch --agent`](/worktree/commands/branch/#agent-dispatch) and `checkout --agent`, by
+  [`list --agents`](/worktree/commands/list/), and by [`cleanup`](/worktree/commands/cleanup/)'s agent check. See
+  [Configuration](/worktree/configuration/#agent-command).
 
 ## Post-create Key
 
 - `postCreate` a command to run in every new worktree, such as `pnpm install`. Read by
-  [`branch`](/docs/commands/branch#installing-dependencies); when it is unset the steps under `postCreate`
+  [`branch`](/worktree/commands/branch/#installing-dependencies); when it is unset the steps under `postCreate`
   in `.worktree.yml` run instead (after you approve them), else the command is inferred from the lockfile. It is validated like `agent.command`: its first word has to be on `PATH`. See
-  [Configuration](/docs/configuration#post-create-command). The prompt accepts an empty answer, which leaves
+  [Configuration](/worktree/configuration/#post-create-command). The prompt accepts an empty answer, which leaves
   it unset.
 
 ## Approving Post-create Steps
@@ -215,4 +214,4 @@ accepts only `true` or `false`.
 whether to run them in new worktrees on this machine. Yes records the approval for those exact steps in this
 clone's local git config, so `worktree branch` does not ask. It needs a terminal: when nothing can be asked
 it refuses with exit `2`. The approval is not a configuration key, so it is not listed by `--list` and
-cannot be set by name. See [Approving the steps](/docs/project-configuration#approving-the-steps).
+cannot be set by name. See [Approving the steps](/worktree/project-configuration/#approving-the-steps).

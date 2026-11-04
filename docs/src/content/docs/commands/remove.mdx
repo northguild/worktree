@@ -1,8 +1,7 @@
 ---
-title: remove
+title: "worktree remove: delete git worktrees"
+description: "worktree remove deletes one or more git worktrees after a confirmation, holding back any with uncommitted changes, unpushed commits or a live agent."
 ---
-
-# `worktree remove`
 
 Remove one or more worktrees.
 
@@ -39,7 +38,7 @@ This branch has 3 uncommitted changes so you might lose some work. Are you sure 
 
 Commits count here even when the branch was never pushed. Where there is no upstream the
 count is taken against `origin/HEAD`, falling back to
-[`defaultSourceBranch`](/docs/configuration). If neither resolves the count cannot be taken
+[`defaultSourceBranch`](/worktree/configuration/). If neither resolves the count cannot be taken
 at all, and the prompt says that instead of implying there is nothing to weigh:
 
 ```text
@@ -65,7 +64,7 @@ An agent session (feature-one-1f) is working in this worktree. Are you sure you 
 only idle does not count, so nothing is added for it, and the run prints exactly what it printed
 before sessions were looked up.
 
-Removing has no default, so a [non-interactive run](/docs/commands/branch#non-interactive-runs) needs `-f`
+Removing has no default, so a [non-interactive run](/worktree/commands/branch/#non-interactive-runs) needs `-f`
 (`--force`) and a branch name: without `-f` it exits `2` with `worktree: no default for confirmation to remove
 <branch>; pass -f`, and with no branch it names `<branchName> -f` rather than showing the picker.
 
@@ -77,12 +76,12 @@ was working in the worktree, `remove` prints a warning on stderr after removing 
 Removed feature/add-bulk-actions while an agent session (feature-one-1f) was working in it.
 ```
 
-Unlike [`cleanup`](/docs/commands/cleanup), `remove` names one worktree that you chose, so
+Unlike [`cleanup`](/worktree/commands/cleanup/), `remove` names one worktree that you chose, so
 `--force` here answers only the confirmation you would otherwise have been given.
 
 Running `remove` with no branch shows a picker instead, grouped into branches that are safe
 to delete and branches that are still active. Each entry carries the same detail
-[`list`](/docs/commands/list) shows, so unpushed commits are visible before you select
+[`list`](/worktree/commands/list/) shows, so unpushed commits are visible before you select
 anything, and a worktree an agent session is working in is listed under the active branches
 with its `Agent:` detail beside it. A session that is only idle leaves the worktree where it
 was. Selecting an active branch asks the usual "not safe to delete" question, and
@@ -101,12 +100,12 @@ An argument is read as a path only when it is written as one — absolute, `.`, 
 `../` — and as a branch name otherwise; `remove "(detached HEAD)"` reaches only the first. A path that names no
 worktree exits `2` with `No worktree to remove at "<path>".`, and so does the worktree you are standing in:
 the current worktree is never removed, detached or not. A detached worktree
-has no branch, so `remove` and [`cleanup`](/docs/commands/cleanup) remove its directory and git's record of it
+has no branch, so `remove` and [`cleanup`](/worktree/commands/cleanup/) remove its directory and git's record of it
 without running `git branch -D`.
 
 ## Herdr spaces
 
-With [`opener`](/docs/configuration) set to `herdr`, removing a worktree also closes the Herdr space
+With [`opener`](/worktree/configuration/) set to `herdr`, removing a worktree also closes the Herdr space
 that was built around it, so the space does not outlive the checkout.
 
 Only a worktree that was actually removed has its space closed. A branch that was not found, a
@@ -115,12 +114,12 @@ still on disk. A failed close is a warning and the command still exits `0`: by t
 already gone, so there is nothing to retry.
 
 With `opener` unset or set to `editor`, nothing here applies and no Herdr process is started. See
-[Herdr Spaces](/docs/guides/herdr-spaces#when-the-worktree-goes).
+[Herdr Spaces](/worktree/guides/herdr-spaces/#when-the-worktree-goes).
 
 ## JSON output
 
 `--json` prints **exactly one JSON document** on stdout, on one line, and implies a
-[non-interactive run](/docs/commands/branch#non-interactive-runs): nothing is asked, so it needs a branch name
+[non-interactive run](/worktree/commands/branch/#non-interactive-runs): nothing is asked, so it needs a branch name
 and `-f`.
 
 ```bash
@@ -138,7 +137,7 @@ worktree remove feature/add-bulk-actions --force --json
 | `warnings` | what went wrong without stopping the run, such as a Herdr space that would not close |
 
 The spinner lines and warnings go to stderr. A failure prints `{"error":{"code","message"}}` on stdout instead
-and exits non-zero; the codes are listed under [`branch`](/docs/commands/branch#json-output). A named branch
+and exits non-zero; the codes are listed under [`branch`](/worktree/commands/branch/#json-output). A named branch
 that does not exist is `not_found`, a missing `-f` is `missing_value`, and a removal that did not happen is
 `failed` — with `--json`, "nothing removed" is never reported as a success. When git refused the removal, its
 reason is in the message (`Could not remove the worktree <branch>: fatal: …`); without `--json` the same line

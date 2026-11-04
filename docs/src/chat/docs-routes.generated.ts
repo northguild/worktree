@@ -4,17 +4,6 @@
 export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/docs",
   "/docs/changelog",
-  "/docs/commands",
-  "/docs/commands/branch",
-  "/docs/commands/checkout",
-  "/docs/commands/cleanup",
-  "/docs/commands/config",
-  "/docs/commands/list",
-  "/docs/commands/open",
-  "/docs/commands/remove",
-  "/docs/configuration",
-  "/docs/faq",
-  "/docs/getting-started",
   "/docs/guides",
   "/docs/guides/clickup-integration",
   "/docs/guides/context-switching",
@@ -25,5 +14,4 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/docs/guides/jira-integration",
   "/docs/guides/linear-integration",
   "/docs/guides/team-conventions",
-  "/docs/project-configuration",
 ]);

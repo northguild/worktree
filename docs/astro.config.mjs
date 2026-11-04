@@ -15,8 +15,26 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Worktree",
-      // Placeholder until the pages are ported.
-      sidebar: [{ label: "Getting Started", link: "/" }],
+      // The Guides group and the Changelog join in the guides phase: a sidebar link to a page that does not exist is broken.
+      sidebar: [
+        { label: "Getting Started", link: "/" },
+        {
+          label: "Commands",
+          items: [
+            { label: "Overview", slug: "commands" },
+            { label: "branch", slug: "commands/branch" },
+            { label: "checkout", slug: "commands/checkout" },
+            { label: "config", slug: "commands/config" },
+            { label: "list", slug: "commands/list" },
+            { label: "open", slug: "commands/open" },
+            { label: "remove", slug: "commands/remove" },
+            { label: "cleanup", slug: "commands/cleanup" },
+          ],
+        },
+        { label: "Configuration", slug: "configuration" },
+        { label: "Project Configuration", slug: "project-configuration" },
+        { label: "FAQ", slug: "faq" },
+      ],
       // Tailwind here serves the chat's utility classes only; preflight is left out of globals.css.
       customCss: [
         "./src/styles/northguild/tokens.css",

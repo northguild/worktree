@@ -1,11 +1,9 @@
 ---
-title: Getting Started
+title: "Getting Started with @northguild/worktree"
+description: "Install the worktree CLI with npm, pnpm, yarn or bun, set a source branch and editor, and create your first git worktree in one command."
 ---
 
-import { Tabs } from "@astrojs/starlight/components";
-import { TerminalBlock } from "../../../components/TerminalBlock";
-
-# Getting Started
+import { Tabs, TabItem } from "@astrojs/starlight/components";
 
 `worktree` streamlines common Git worktree tasks into a repeatable workflow.
 
@@ -13,43 +11,77 @@ import { TerminalBlock } from "../../../components/TerminalBlock";
 
 Install globally:
 
-<Tabs items={["npm", "pnpm", "yarn", "bun"]}>
-  <Tabs.Tab>
-    <TerminalBlock>npm install -g @northguild/worktree</TerminalBlock>
-  </Tabs.Tab>
-  <Tabs.Tab>
-    <TerminalBlock>pnpm add -g @northguild/worktree</TerminalBlock>
-  </Tabs.Tab>
-  <Tabs.Tab>
-    <TerminalBlock>yarn global add @northguild/worktree</TerminalBlock>
-  </Tabs.Tab>
-  <Tabs.Tab>
-    <TerminalBlock>bun add -g @northguild/worktree</TerminalBlock>
-  </Tabs.Tab>
+<Tabs syncKey="pm">
+  <TabItem label="npm">
+
+```bash
+npm install -g @northguild/worktree
+```
+
+  </TabItem>
+  <TabItem label="pnpm">
+
+```bash
+pnpm add -g @northguild/worktree
+```
+
+  </TabItem>
+  <TabItem label="yarn">
+
+```bash
+yarn global add @northguild/worktree
+```
+
+  </TabItem>
+  <TabItem label="bun">
+
+```bash
+bun add -g @northguild/worktree
+```
+
+  </TabItem>
 </Tabs>
 
 Or run directly without global install:
 
-<Tabs items={["npm", "pnpm", "yarn", "bun"]}>
-  <Tabs.Tab>
-    <TerminalBlock>npx @northguild/worktree --help</TerminalBlock>
-  </Tabs.Tab>
-  <Tabs.Tab>
-    <TerminalBlock>pnpm dlx @northguild/worktree --help</TerminalBlock>
-  </Tabs.Tab>
-  <Tabs.Tab>
-    <TerminalBlock>yarn dlx @northguild/worktree --help</TerminalBlock>
-  </Tabs.Tab>
-  <Tabs.Tab>
-    <TerminalBlock>bunx @northguild/worktree --help</TerminalBlock>
-  </Tabs.Tab>
+<Tabs syncKey="pm">
+  <TabItem label="npm">
+
+```bash
+npx @northguild/worktree --help
+```
+
+  </TabItem>
+  <TabItem label="pnpm">
+
+```bash
+pnpm dlx @northguild/worktree --help
+```
+
+  </TabItem>
+  <TabItem label="yarn">
+
+```bash
+yarn dlx @northguild/worktree --help
+```
+
+  </TabItem>
+  <TabItem label="bun">
+
+```bash
+bunx @northguild/worktree --help
+```
+
+  </TabItem>
 </Tabs>
 
 ### Agent skill
 
 To teach a coding agent how to drive `worktree`, including its `--json` agent mode, add the usage skill:
 
-<TerminalBlock>npx skills add northguild/worktree --skill worktree</TerminalBlock>
+```bash
+npx skills add northguild/worktree --skill worktree
+```
 
 At a terminal the command asks which agent(s) to install the skill into; run from inside a coding agent it installs without asking, and `--agent <name>` chooses. It installs into the current project; add `--global` (`-g`) to install it for your user instead, so the agent has it in every repository. It is separate from, and in addition to, the install above: the skill teaches an agent the CLI, it does not install the CLI.
 
@@ -66,7 +98,7 @@ prefixes and Jira host and does not offer to configure them. The wizard says whi
 does not ask for them, so it no longer writes a personal copy of a team value; to override one for yourself,
 run `worktree config <key> <value>`. If the repository has no file yet, `worktree config --project` writes one
 from the team settings in your git config, and on a terminal `worktree` offers it once. See
-[Project Configuration](/docs/project-configuration).
+[Project Configuration](/worktree/project-configuration/).
 
 Common values:
 
@@ -75,7 +107,7 @@ Common values:
 - `agent.command`: optional, such as `claude --bg`, the command `--agent` runs to hand a brief to a coding agent
 
 To open worktrees as [Herdr](https://herdr.dev) spaces instead of editor windows, set
-`opener` to `herdr` — see [Herdr Spaces](/docs/guides/herdr-spaces). Set it to `none` to open nothing:
+`opener` to `herdr` — see [Herdr Spaces](/worktree/guides/herdr-spaces/). Set it to `none` to open nothing:
 `branch` prints `Worktree created at <path>` and stops.
 
 ## First Workflow
@@ -104,6 +136,6 @@ If you use automatic editor opening, ensure your editor command is available on 
 
 ## Next
 
-- [Command Reference](/docs/commands)
-- [Configuration](/docs/configuration)
-- [Guides](/docs/guides/context-switching)
+- [Command Reference](/worktree/commands/)
+- [Configuration](/worktree/configuration/)
+- [Guides](/worktree/guides/)
