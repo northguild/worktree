@@ -119,3 +119,26 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   `MaintainersList.astro`). Applying the suggested fixes would delete used imports.
 - Phase 4 is split into a rename-only commit and an edits commit (user, 2026-11-04) so `guides/index.mdx`
   (18 lines, below the 50% rename threshold after its edits) keeps its history.
+
+## From phase 5's review (chat on demand)
+
+- Focus on drawer close is unverified: the drawer opens without `Drawer.Trigger`, so Base UI may return focus
+  to the hidden launcher button and land on `<body>`. Setting `finalFocus` on `Drawer.Popup` to the
+  `ChatTrigger` would make it certain — §8's browser pass at the latest.
+- `.chat-launcher-status:empty { display: none; }` makes the live region appear with its message, which some
+  screen readers announce unreliably — phase 9's a11y pass.
+- A render error in the chat after mount escapes `launcher.ts`'s try/catch, leaving the launcher hidden and
+  no trigger at all.
+- Rules nothing asserts: D6 at the built-output level (a static `import` of `Chat` in another `.astro` file
+  would pass every test — pin it with a dist scan beside `build-legacy-pages.test.mjs`); no `dark:` in
+  `docs/src/chat`; the loaded trigger's name returning to "Open chat" after close.
+- `ChatLauncher.test.tsx:184`'s handover assertion proves little (a modal dialog hides everything outside it);
+  the mocked test at ≈95–109 is what pins the handover. The new tests use `fireEvent` where
+  `react/testing.md` prefers `userEvent`. The error text is pinned by its own wording.
+- `useLocalStorage.getSnapshot` reads `window.localStorage` outside its try/catch (pre-existing).
+- Re-review of phase 5: Alt+Shift+C calls `preventDefault` wherever focus is, so on a Mac (where
+  Option+Shift+C types "Ç") nobody can type "Ç" on the site — not in the chat's field, not in search. Ignoring
+  the shortcut when focus is in `input`/`textarea`/`[contenteditable]`, or a key that types nothing, would fix
+  it. Raised with the user. Screen-reader and OS bindings for Alt+Shift+C are unverified (§8 browser pass with
+  NVDA and VoiceOver). `aria-keyshortcuts="Alt+Shift+C"` on both launcher buttons would announce it (phase 9).
+  Where `color-mix` is unsupported, `bg-chat-danger-wash` falls back to a solid `--gmt-danger` fill.

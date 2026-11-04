@@ -19,7 +19,7 @@ export function ChatSubmitButton({ disabled }: ChatSubmitButtonProps) {
       type="submit"
       disabled={!!(disabled || isSubmitting || !String(value ?? "").trim())}
       className={cn(
-        "bg-blue-600 hover:bg-blue-500 dark:bg-blue-500 dark:hover:bg-blue-400 text-white rounded-lg transition-colors",
+        "bg-chat-accent text-chat-on-accent hover:brightness-110 rounded-lg transition-colors",
         "disabled:opacity-80 disabled:cursor-not-allowed",
         // The transparent border is load-bearing: it is the second half of the
         // arithmetic below, matching the 1px the field spends on its own.

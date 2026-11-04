@@ -107,7 +107,7 @@ function getTextContent(node: React.ReactNode): string {
 }
 
 const LINK_CLASS =
-  "text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-500 dark:hover:text-blue-300 transition-colors";
+  "text-chat-accent-ink underline underline-offset-2 hover:text-chat-fg transition-colors";
 
 const components: Components = {
   // Bold — auto-link if text matches a known doc page
@@ -132,7 +132,7 @@ const components: Components = {
       return <code className="text-sm font-mono">{children}</code>;
     }
     return (
-      <code className="bg-blue-50 dark:bg-blue-950/50 text-blue-900 dark:text-blue-200 rounded px-1 py-0.5 text-[0.85em] font-mono border border-blue-200 dark:border-neutral-700">
+      <code className="bg-chat-raised text-chat-fg rounded px-1 py-0.5 text-[0.85em] font-mono border border-chat-border">
         {children}
       </code>
     );
@@ -141,7 +141,7 @@ const components: Components = {
   // Fenced code blocks
   pre({ children }) {
     return (
-      <pre className="my-2 overflow-x-auto rounded-md bg-neutral-900 dark:bg-neutral-950 text-gray-100 px-3 py-2 text-sm font-mono leading-relaxed">
+      <pre className="my-2 overflow-x-auto rounded-md bg-chat-raised text-chat-fg border border-chat-border px-3 py-2 text-sm font-mono leading-relaxed">
         {children}
       </pre>
     );

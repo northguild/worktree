@@ -1,24 +1,19 @@
 import { useEffect, useEffectEvent } from "react";
+import { matchesShortcut, type Shortcut } from "../shortcut";
 
-interface UseGlobalKeyDownProps {
-  key: string;
-  ctrlOrMeta: boolean;
+interface UseGlobalKeyDownProps extends Shortcut {
   callback: () => void;
 }
 
 export function useGlobalKeyDown({
-  key,
-  ctrlOrMeta,
   callback,
+  ...shortcut
 }: UseGlobalKeyDownProps) {
-  // useEffectEvent captures the latest key/ctrlOrMeta/callback on every
+  // useEffectEvent captures the latest shortcut/callback on every
   // render without requiring them as useEffect deps. The listener is only
   // attached once (no unnecessary remove/re-add on every render).
   const onKey = useEffectEvent((e: KeyboardEvent) => {
-    if (
-      (ctrlOrMeta ? e.ctrlKey || e.metaKey : true) &&
-      e.key.toLowerCase() === key.toLowerCase()
-    ) {
+    if (matchesShortcut(e, shortcut)) {
       e.preventDefault();
       callback();
     }

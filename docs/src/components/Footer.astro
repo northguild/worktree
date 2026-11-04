@@ -12,6 +12,7 @@ import {
   projectOwnerName,
   projectOwnerProfileUrl,
 } from "../lib/site-meta";
+import ChatLauncher from "./ChatLauncher.astro";
 import MaintainersList from "./MaintainersList.astro";
 
 const year = getToday().split("-")[0];
@@ -35,6 +36,8 @@ const owner = {
     <MaintainersList maintainers={maintainers} label="Maintainers" />
   </div>
 </div>
+
+<ChatLauncher />
 
 <style>
   .project-footer {

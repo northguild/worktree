@@ -1,5 +1,3 @@
-"use client";
-
 import { Button } from "@base-ui/react";
 import { Drawer } from "@base-ui/react/drawer";
 import { Menu } from "@base-ui/react/menu";
@@ -9,6 +7,7 @@ import { cn } from "../../utils";
 import { FREE_MODELS } from "../constants";
 import { useEnterAnimation } from "../hooks/useEnterAnimation";
 import { useGlobalKeyDown } from "../hooks/useGlobalKeyDown";
+import { CHAT_SHORTCUT } from "../shortcut";
 import { useChatContext } from "./ChatContext";
 import { ChatModelSelect } from "./ChatModelSelect";
 import { ChatPanel } from "./ChatPanel";
@@ -59,10 +58,9 @@ export function ChatDrawer() {
     }
   }
 
-  // keyboard: open chat with Ctrl+K for convenience
+  // keyboard: toggle the chat with CHAT_SHORTCUT (Alt+Shift+C)
   useGlobalKeyDown({
-    key: "k",
-    ctrlOrMeta: true,
+    ...CHAT_SHORTCUT,
     callback: () => {
       if (isDrawerOpen) {
         handleClose();
@@ -101,30 +99,30 @@ export function ChatDrawer() {
               "w-[400px] max-w-full h-full",
               "transform-gpu",
               "[-webkit-backface-visibility:hidden]",
-              "bg-gray-50 dark:bg-neutral-950",
-              "border-l border-gray-200 dark:border-neutral-800",
-              "flex flex-col shadow-2xl text-gray-900 dark:text-gray-100",
+              "bg-chat-bg",
+              "border-l border-chat-border",
+              "flex flex-col shadow-2xl text-chat-fg",
               "transition-transform duration-500 ease-in-out",
               entered && !isDrawerClosing
                 ? "translate-x-0"
                 : "translate-x-full",
             )}
           >
-            <div className="flex flex-col p-4 border-b border-gray-200 dark:border-neutral-800 gap-2">
+            <div className="flex flex-col p-4 border-b border-chat-border gap-2">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <h2 className="font-semibold text-lg">
+                  <Drawer.Title className="font-semibold text-lg">
                     Chat with the Worktree CLI docs
-                  </h2>
+                  </Drawer.Title>
                   {IS_LOCAL_WORKER && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 cursor-default select-none">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-chat-warn-wash text-chat-warn-ink cursor-default select-none">
                       dev
                     </span>
                   )}
                 </div>
                 <Drawer.Close
                   aria-label="Close chat"
-                  className="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-800 transition-colors"
+                  className="p-1 rounded hover:bg-chat-fill-strong transition-colors"
                 >
                   <XMarkIcon className="h-5 w-5" />
                 </Drawer.Close>
@@ -139,18 +137,18 @@ export function ChatDrawer() {
                   />
                 </div>
                 {/* Split clear button */}
-                <div className="flex items-stretch border rounded overflow-hidden border-gray-200 dark:border-neutral-700 shrink-0">
+                <div className="flex items-stretch border rounded overflow-hidden border-chat-control-border shrink-0">
                   <Button
                     onClick={clearMessages}
-                    className="px-2 py-1 text-sm bg-gray-100 dark:bg-neutral-800 hover:bg-gray-200 dark:hover:bg-neutral-700 transition-colors"
+                    className="px-2 py-1 text-sm bg-chat-fill hover:bg-chat-fill-strong transition-colors"
                     aria-label="Clear current chat"
                   >
                     Clear
                   </Button>
-                  <div className="w-px bg-gray-200 dark:bg-neutral-700 self-stretch" />
+                  <div className="w-px bg-chat-border self-stretch" />
                   <Menu.Root>
                     <Menu.Trigger
-                      className="px-1 bg-gray-100 dark:bg-neutral-800 hover:bg-gray-200 dark:hover:bg-neutral-700 transition-colors flex items-center"
+                      className="px-1 bg-chat-fill hover:bg-chat-fill-strong transition-colors flex items-center"
                       aria-label="More clear options"
                     >
                       <ChevronDownIcon className="w-3 h-3" />
@@ -163,17 +161,17 @@ export function ChatDrawer() {
                         positionMethod="fixed"
                         className="z-[10001]"
                       >
-                        <Menu.Popup className="bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 rounded shadow-lg min-w-[160px] py-1">
+                        <Menu.Popup className="bg-chat-bg border border-chat-border rounded shadow-lg min-w-[160px] py-1">
                           <Menu.Item
                             onClick={clearMessages}
-                            className="px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-neutral-800 data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-neutral-800"
+                            className="px-3 py-1.5 text-sm cursor-pointer hover:bg-chat-fill data-[highlighted]:bg-chat-fill"
                           >
                             Clear chat
                           </Menu.Item>
-                          <Menu.Separator className="my-1 border-t border-gray-200 dark:border-neutral-700" />
+                          <Menu.Separator className="my-1 border-t border-chat-border" />
                           <Menu.Item
                             onClick={clearAllMessages}
-                            className="px-3 py-1.5 text-sm cursor-pointer text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-neutral-800 data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-neutral-800"
+                            className="px-3 py-1.5 text-sm cursor-pointer text-chat-danger hover:bg-chat-fill data-[highlighted]:bg-chat-fill"
                           >
                             Clear all chats
                           </Menu.Item>
