@@ -1,7 +1,7 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import { createHmac } from "node:crypto";
 import { Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, connect } from "node:net";
 import { networkInterfaces } from "node:os";
 import * as linear from "../integrations/linear.js";
 import { createSessionLedger } from "../integrations/linear-agent.js";
@@ -70,7 +70,12 @@ describe("linear-listen server", () => {
   }
 
   async function start(
-    options: { teamKey?: string; allowed?: string[]; child?: boolean } = {},
+    options: {
+      teamKey?: string;
+      allowed?: string[];
+      child?: boolean;
+      drainTimeoutMs?: number;
+    } = {},
   ) {
     activities = [];
     spawns = [];
@@ -80,6 +85,7 @@ describe("linear-listen server", () => {
       secret: SECRET,
       path: "/webhook",
       now: () => NOW,
+      drainTimeoutMs: options.drainTimeoutMs,
       log: (line: string) => logs.push(line),
       dispatch: {
         token: TOKEN,
@@ -219,6 +225,67 @@ describe("linear-listen server", () => {
     const body = Buffer.alloc(MIB + 1, "a");
     const response = await post(body);
     expect(response.status).toBe(413);
+    expect(spawns).toEqual([]);
+  });
+
+  // #242: the 413 used to be sent while the sender was still writing, and the
+  // close that followed reset the connection before the sender read the reply.
+  // It lost that race about a fifth of the time, so one request proves little.
+  it("delivers the 413 to a sender that is still writing, every time", async () => {
+    await start();
+    const body = Buffer.alloc(MIB + 1, "a");
+    const statuses: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      statuses.push((await post(body)).status);
+    }
+    expect(statuses).toEqual(Array(40).fill(413));
+    expect(spawns).toEqual([]);
+  });
+
+  it("answers a chunked body that goes over 1 MiB with 413", async () => {
+    await start();
+    const chunk = new Uint8Array(64 * 1024).fill(97);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > MIB) {
+          controller.close();
+          return;
+        }
+        sent += chunk.length;
+        controller.enqueue(chunk);
+      },
+    });
+    const response = await fetch(`${base}/webhook`, {
+      method: "POST",
+      body,
+      duplex: "half",
+    } as RequestInit);
+    expect(response.headers.get("content-length")).toBe("0");
+    expect(response.status).toBe(413);
+    expect(spawns).toEqual([]);
+  });
+
+  it("disconnects an oversized sender that stops writing, with no reply", async () => {
+    await start({ drainTimeoutMs: 50 });
+    const { port } = listener.server.address() as AddressInfo;
+    const socket = connect(port, "127.0.0.1");
+    let received = "";
+    socket.on("data", (data: Buffer) => {
+      received += data.toString("latin1");
+    });
+    const closed = new Promise<void>((resolve) =>
+      socket.on("close", () => resolve()),
+    );
+    socket.write(
+      `POST /webhook HTTP/1.1\r\nHost: 127.0.0.1\r\nLinear-Delivery: stalled-1\r\nContent-Length: ${10 * MIB}\r\n\r\n`,
+    );
+    socket.write(Buffer.alloc(MIB + 1, "a"));
+    await closed;
+    expect(received).toBe("");
+    expect(logs).toContain(
+      "delivery=stalled-1 status=- oversized body not drained",
+    );
     expect(spawns).toEqual([]);
   });
 
