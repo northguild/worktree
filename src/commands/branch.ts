@@ -57,6 +57,7 @@ import {
   getTeamConfigValue,
   loadProjectConfig,
   offerProjectConfig,
+  showLinesVisibly,
   showVisibly,
 } from "../lib/project-config.js";
 import {
@@ -794,7 +795,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       spinner.warn(message);
       this.recordWarning(message);
     } catch (error) {
-      const message = `Could not assign issue #${issueNumber}. ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Could not assign issue #${issueNumber}. ${showVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`;
       spinner.warn(message);
       this.recordWarning(message);
     }
@@ -816,16 +817,16 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       if (result.outcome !== "held-by-other") {
         spinner.succeed(
           result.outcome === "assigned"
-            ? `Assigned ${issueKey} to ${result.displayName}`
+            ? `Assigned ${issueKey} to ${showVisibly(redactSecrets(result.displayName))}`
             : `${issueKey} is already assigned to you`,
         );
         return true;
       }
-      const message = `${issueKey} is already assigned to ${result.heldBy}, so it was left alone. Reassign it in Jira if it should be yours.`;
+      const message = `${issueKey} is already assigned to ${showVisibly(redactSecrets(result.heldBy))}, so it was left alone. Reassign it in Jira if it should be yours.`;
       spinner.warn(message);
       this.recordWarning(message);
     } catch (error) {
-      const message = `Could not assign ${issueKey}. ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Could not assign ${issueKey}. ${showVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`;
       spinner.warn(message);
       this.recordWarning(message);
     }
@@ -1497,7 +1498,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         await gitSetBranchIssueLink(branchName, issue.key);
       } catch (error) {
         this.warn(
-          `Could not record the Linear link for "${branchName}", so cleanup will not see its Linear state. ${error instanceof Error ? error.message : String(error)}`,
+          `Could not record the Linear link for "${branchName}", so cleanup will not see its Linear state. ${showLinesVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`,
         );
       }
     }

@@ -1383,6 +1383,15 @@ describe("catch", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it("prints control characters in the error text as visible escapes (#228)", async () => {
+    await command.catchError(new Error("bad\u001b[2J\u202e text"));
+
+    expect(errorSpy.mock.calls[0][0]).toContain(
+      "Error: bad\\x1b[2J\\u{202e} text",
+    );
+    expect(errorSpy.mock.calls[0][0]).not.toContain("\u001b[2J");
+  });
+
   it("exits 2 for an error raised through this.error", async () => {
     let thrown: unknown;
     try {

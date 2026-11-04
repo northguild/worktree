@@ -2681,6 +2681,23 @@ jira:
         // The run went on past the failed write.
         expect(calls).toEqual(["create", "start", "env"]);
       });
+
+      it("shows control characters in git's lines visibly and keeps the line breaks (#228)", async () => {
+        mockLink.mockRejectedValue(
+          new Error(
+            "Command failed: git config branch.feat.worktreeIssue linear:ENG-1\nerror: bad\u001b[2J\n",
+          ),
+        );
+
+        const document = await go({ start: true });
+
+        expect(document?.warnings).toHaveLength(1);
+        expect(document?.warnings[0]?.split("\n")[0]).toBe(
+          'Could not record the Linear link for "feature/ENG-123-add-dark-mode", so cleanup will not see its Linear state. Command failed: git config branch.feat.worktreeIssue linear:ENG-1',
+        );
+        expect(document?.warnings[0]).toContain("error: bad\\x1b[2J");
+        expect(document?.warnings[0]).not.toContain("\u001b");
+      });
     });
 
     describe("with --json", () => {
@@ -3798,6 +3815,23 @@ jira:
         expect(spinner.succeed).not.toHaveBeenCalled();
       });
 
+      it("shows control characters in the assignment error visibly (#228)", async () => {
+        vi.spyOn(githubIntegration, "assignGitHubIssue").mockRejectedValue(
+          new Error("GitHub: denied\u001b[2J\u202e"),
+        );
+        githubRun({ assign: true });
+        vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+          "/path/to/worktree",
+        );
+
+        await branch.run();
+
+        const spinner = vi.mocked(ora).mock.results.at(-1)?.value;
+        expect(spinner.warn).toHaveBeenCalledWith(
+          "Could not assign issue #42. GitHub: denied\\x1b[2J\\u{202e}",
+        );
+      });
+
       it("still creates the worktree when the issue comes back unassigned", async () => {
         // D6's silent no-op shape: a 201 whose assignees never gained the
         // login. Reported as a warning, not as success.
@@ -4193,6 +4227,47 @@ jira:
           expect(spinner.succeed).not.toHaveBeenCalled();
           expect(document?.warnings).toContain(
             "DEV-123 is already assigned to Grace Hopper, so it was left alone. Reassign it in Jira if it should be yours.",
+          );
+        });
+
+        it("shows control characters in a holder's name and in a rejection visibly (#228)", async () => {
+          spyAssign({
+            outcome: "held-by-other",
+            displayName: "Ada",
+            heldBy: "Grace\u001b[2J\u202e",
+          });
+          jiraRun({ assign: true });
+          vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+            "/path/to/worktree",
+          );
+
+          await branch.run();
+
+          expect(lastSpinner().warn).toHaveBeenCalledWith(
+            "DEV-123 is already assigned to Grace\\x1b[2J\\u{202e}, so it was left alone. Reassign it in Jira if it should be yours.",
+          );
+        });
+
+        it("shows control characters in an assignee's name and in an assignment error visibly (#228)", async () => {
+          spyAssign({ outcome: "assigned", displayName: "Ada\u001b[2J" });
+          jiraRun({ assign: true });
+          vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+            "/path/to/worktree",
+          );
+
+          await branch.run();
+
+          expect(lastSpinner().succeed).toHaveBeenCalledWith(
+            "Assigned DEV-123 to Ada\\x1b[2J",
+          );
+
+          vi.spyOn(jiraIntegration, "assignJiraIssue").mockRejectedValue(
+            new Error("Jira: denied\u001b[2J"),
+          );
+          await branch.run();
+
+          expect(lastSpinner().warn).toHaveBeenCalledWith(
+            "Could not assign DEV-123. Jira: denied\\x1b[2J",
           );
         });
 

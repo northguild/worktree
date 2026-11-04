@@ -32,6 +32,7 @@ import {
   renderProjectFile,
   resetProjectConfigCache,
   resolveTeamConfig,
+  showLinesVisibly,
   summariseProjectFile,
   writeProjectFile,
 } from "./project-config.js";
@@ -1885,5 +1886,17 @@ describe("offerProjectConfig: migration (D21)", () => {
 
     expect(confirm).not.toHaveBeenCalled();
     expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+  });
+});
+
+describe("showLinesVisibly", () => {
+  it("keeps line breaks and tabs, and escapes every other control character", () => {
+    expect(
+      showLinesVisibly("error: would be overwritten:\n\tsrc/foo.ts\u001b[2J\n"),
+    ).toBe("error: would be overwritten:\n\tsrc/foo.ts\\x1b[2J\n");
+  });
+
+  it("drops the \\r of a CRLF line end but escapes a lone one", () => {
+    expect(showLinesVisibly("one\r\ntwo\rthree")).toBe("one\ntwo\\x0dthree");
   });
 });

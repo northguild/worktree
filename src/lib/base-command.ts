@@ -30,7 +30,11 @@ import {
   setNonInteractive,
 } from "./interaction.js";
 import { createSpinner } from "./progress.js";
-import { getTeamConfigValue, isTeamConfigKey } from "./project-config.js";
+import {
+  getTeamConfigValue,
+  isTeamConfigKey,
+  showLinesVisibly,
+} from "./project-config.js";
 import { askConfirm, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
 import type {
@@ -998,10 +1002,13 @@ export abstract class BaseCommand extends Command {
       // default); anything else is a plain failure.
       // One line in the plan's D2 shape; its own exit code rides on `oclif.exit`.
       const message = redactSecrets(error.message);
+      // Escaped after redacting, never before: `redactSecrets` anchors its
+      // token shapes on `\b`, which an escape's trailing word character hides.
+      const shown = showLinesVisibly(message);
       console.error(
         error instanceof MissingValueError
-          ? `worktree: ${message}`
-          : chalk.red(`Error: ${message}`),
+          ? `worktree: ${shown}`
+          : chalk.red(`Error: ${shown}`),
       );
       process.exitCode = (error as Partial<OclifError>).oclif?.exit ?? 1;
       // Under `--json` stdout carries the failure as the one document (D6), so
