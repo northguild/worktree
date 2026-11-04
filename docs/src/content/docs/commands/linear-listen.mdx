@@ -85,7 +85,7 @@ For each request, in this order:
 | --- | --- |
 | The method is not `POST` | `405`, with `Allow: POST` |
 | The path is not `--path` | `404` |
-| The body is over 1 MiB | `413` |
+| The body is over 1 MiB | `413`, once the rest of the body has been read and thrown away; a sender still writing 5 seconds later is disconnected with no reply. The 5 seconds count from the headers when `Content-Length` declares more than 1 MiB, and from the byte that passes 1 MiB otherwise |
 | The `Linear-Signature` header is not the HMAC-SHA256 of the raw body under `linear.webhookSecret` | `401` |
 | The body is not JSON | `400` |
 | The body is JSON but not an agent session event the listener acts on: another webhook category, an action other than `created` or `prompted`, a session with no issue, or `null` | `200`, logged as `ignored`, and nothing else happens |
@@ -116,7 +116,8 @@ command.
 ## Output and stopping
 
 Start-up prints the local address, the path, the team and the allowed creators on stdout. Each delivery logs one
-`status=` line on stderr with the `Linear-Delivery` id and the status it was answered with. An accepted delivery
+`status=` line on stderr with the `Linear-Delivery` id and the status it was answered with, or `status=-` for an
+oversized delivery that was disconnected before it finished sending. An accepted delivery
 also logs a line per step (such as `session.done`, or `activity.failed` when Linear could not be written to), each
 starting with the same delivery id. Secrets are redacted.
 
