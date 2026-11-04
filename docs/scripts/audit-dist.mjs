@@ -11,7 +11,11 @@
  *
  * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11), and the
  * "Edit this page" link is the repository's `edit/main/docs/src/content/docs/<source>` URL for a source file that
- * exists. These apply to the 24 pages only; `404.html` is not one of them and has neither. Per site: `llms.txt`
+ * exists. These apply to the 24 pages only; `404.html` is not one of them and has neither. Phase 15 turns both around on
+ * the landing, which has no footer: the root must carry no date, no edit link and no project line, while every other page
+ * keeps its project line (licence, version, maintainers); and no page shows the northguild organisation's GitHub avatar,
+ * the second logo the footer once carried beside the header's mark; no id appears twice on a page; and the landing has one
+ * action ("Get started") and no section below the hero. Per site: `llms.txt`
  * (D13) is a llmstxt.org file listing the same 24 URLs, each with a title and the page's own description.
  *
  * Also (phase 9, accessibility): every button has an accessible name (an icon-only one needs an `aria-label`, an
@@ -193,6 +197,8 @@ const COMMUNITY_LINKS = Object.freeze([
   { href: "https://discord.gg/TdvQdP3t5a", names: "Discord" },
 ]);
 const NEW_TAB_WORDING = "(opens in a new tab)";
+// The northguild organisation's GitHub avatar, at any size (phase 15: one logo, the header's).
+const ORG_AVATAR = /^https:\/\/github\.com\/northguild\.png(\?|$)/;
 
 /** The page's `<header>` element, from its opening tag to its closing tag; "" when it has none. */
 function headerOf(html) {
@@ -770,8 +776,40 @@ async function auditPage(path, dist, descriptions, options) {
   failures.push(...auditHeader(html, label(path)));
   failures.push(...auditSvgs(html, label(path)));
 
-  // Last updated (D11): the rendered <time> must be the independently computed date.
+  // Ids are unique in a document (HTML Living Standard, "the id attribute"); the header's and the footer's marks each
+  // find their gradients by id (phase 15).
+  const ids = new Map();
+  for (const [, id] of html.matchAll(/\sid="([^"]*)"/g))
+    ids.set(id, (ids.get(id) ?? 0) + 1);
+  for (const [id, count] of ids)
+    if (count > 1) fail(`id "${id}" appears ${count} times`);
+
+  // A second NorthGuild logo (phase 15): the organisation's GitHub avatar, which the footer once showed beside the
+  // header's own mark.
+  for (const img of tagsOf(html, "img"))
+    if (ORG_AVATAR.test(img.src ?? ""))
+      fail(`shows ${img.src}, a second logo beside the header's mark`);
+
   const times = tagsOf(html, "time");
+  const edits = tagsOf(html, "a").filter((a) => a.href?.includes("/edit/"));
+  const projectFooter = /class="[^"]*\bproject-footer\b/.test(html);
+
+  // The landing has no footer (phase 15): no date, no edit link, no project line. The chat launcher is checked with
+  // the other controls above, so it is still required there.
+  if (path === "") {
+    if (times.length > 0)
+      fail("the landing carries a last updated date; it has no footer");
+    if (edits.length > 0)
+      fail("the landing carries an edit link; it has no footer");
+    if (projectFooter)
+      fail("the landing carries the project footer; it has no footer");
+    return failures;
+  }
+
+  if (!projectFooter)
+    fail("no project footer (licence, version and maintainers)");
+
+  // Last updated (D11): the rendered <time> must be the independently computed date.
   const expectedDate = options.expectedDate(path);
   if (times.length === 0) fail("no last updated date (<time>) on the page");
   else if (expectedDate === undefined)
@@ -786,7 +824,6 @@ async function auditPage(path, dist, descriptions, options) {
 
   // Edit link: starts with the repository URL and names the page's real source file.
   const source = options.sourcePath(path);
-  const edits = tagsOf(html, "a").filter((a) => a.href?.includes("/edit/"));
   if (edits.length !== 1)
     fail(`${edits.length} edit links, expected exactly 1`);
   else if (source === undefined)
@@ -964,6 +1001,20 @@ async function auditSite(dist) {
     if (!getStarted)
       failures.push(
         '/ (root): the landing has no "Get started" link to /worktree/getting-started/',
+      );
+    // Phase 15 (the user, 2026-11-04): the hero alone, with one action. The Install action and the Install and "Where
+    // to next" sections are gone.
+    const actions = [...root.matchAll(/<a\b([^>]*)>/g)].filter(([, attrs]) =>
+      /(^|\s)sl-link-button(\s|$)/.test(attributes(attrs).class ?? ""),
+    ).length;
+    if (actions > 1)
+      failures.push(
+        `/ (root): the landing has ${actions} actions, expected only "Get started"`,
+      );
+    const sections = (root.match(/<h2\b/g) ?? []).length;
+    if (sections > 0)
+      failures.push(
+        `/ (root): the landing has ${sections} section(s) below the hero, expected the hero alone`,
       );
   } catch {
     // auditPage already reports the missing root.

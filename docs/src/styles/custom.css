@@ -20,16 +20,26 @@ starlight-tabs .tab > [role="tab"] {
 
 /* ---- The sidebar as a git graph ----
  * The top level is the trunk (main): a vertical line with a commit dot beside each entry. A group (Commands,
- * Guides) forks off it: a diamond on the trunk, an elbow out to its own line, and a dot per page on that line.
+ * Guides) forks off it: a diamond on the trunk, a curve out to its own line, and a dot per page on that line.
  * Every offset below is derived from these few lengths so the dots and lines stay on one axis.
+ *
+ * Lines sit under markers (phase 15): every line is z-index 0 and every marker 1, so a hollow dot or a diamond is
+ * opaque over whatever line runs through it, wherever in the tree the line is drawn from. Without that, a branch's line
+ * (drawn by its list's ::after, after the entries) and the fork's curve (drawn from below the group's summary) paint
+ * over the markers they pass.
+ *
+ * The gutters leave the current page's ring clear of its highlight: line to entry is 1.125rem (18px), the ring's
+ * outer radius is half of --g-head plus 4px (11px), so 7px stays between them.
  */
 .sidebar-content ul.top-level {
   --g-dot: 0.6rem;
+  --g-head: 0.875rem; /* the current page's dot, before its ring */
   --g-line: 2px;
-  --g-gutter: 1.5rem; /* room left of the entries for the trunk and its dots */
+  --g-gutter: 1.625rem; /* room left of the entries for the trunk and its dots */
   --g-trunk: 0.5rem; /* the trunk's centre line, from the list's left edge */
-  --g-branch: 0.75rem; /* a branch's centre line, from the left edge of the group's entries */
-  --g-branch-gutter: 1.5rem; /* room left of a branch's entries */
+  --g-branch: 0.25rem; /* a branch's centre line, from the left edge of the group's entries */
+  --g-branch-gutter: 1.375rem; /* room left of a branch's entries */
+  --g-curve: 0.5rem; /* the radius where a fork leaves the trunk and where it joins its branch */
   --g-color: var(--gmt-border-strong);
   --g-ink: var(--gmt-spring-ink);
   position: relative;
@@ -38,6 +48,7 @@ starlight-tabs .tab > [role="tab"] {
 .sidebar-content ul.top-level::before {
   content: "";
   position: absolute;
+  z-index: 0;
   inset-block: 0.75rem;
   inset-inline-start: calc(var(--g-trunk) - var(--g-line) / 2);
   inline-size: var(--g-line);
@@ -52,6 +63,7 @@ starlight-tabs .tab > [role="tab"] {
 .sidebar-content ul.top-level a::before {
   content: "";
   position: absolute;
+  z-index: 1;
   inset-block-start: 50%;
   inset-inline-start: calc(var(--g-trunk) - var(--g-gutter) - var(--g-dot) / 2);
   inline-size: var(--g-dot);
@@ -64,26 +76,28 @@ starlight-tabs .tab > [role="tab"] {
   transition: background var(--gmt-duration-fast) var(--gmt-easing);
 }
 
-/* HEAD: the current page. Larger, solid, and ringed, so it differs in shape and size from every other dot. */
+/* HEAD: the current page. Larger, solid, and ringed, so it differs in shape and size from every other dot. The gap in
+   the ring is the sidebar's own colour, so a line entering the dot stops at the ring. */
 .sidebar-content ul.top-level a[aria-current="page"]::before {
-  inline-size: calc(var(--g-dot) + 0.3rem);
-  block-size: calc(var(--g-dot) + 0.3rem);
+  inline-size: var(--g-head);
+  block-size: var(--g-head);
   inset-inline-start: calc(
     var(--g-trunk) -
     var(--g-gutter) -
-    (var(--g-dot) + 0.3rem) /
+    var(--g-head) /
     2
   );
   background: var(--g-ink);
   box-shadow:
-    0 0 0 3px var(--sl-color-bg-sidebar),
-    0 0 0 5px var(--g-ink);
+    0 0 0 2px var(--sl-color-bg-sidebar),
+    0 0 0 4px var(--g-ink);
 }
 
 /* A group forks off the trunk: a diamond where it leaves... */
 .sidebar-content ul.top-level summary::before {
   content: "";
   position: absolute;
+  z-index: 1;
   inset-block-start: 50%;
   inset-inline-start: calc(var(--g-trunk) - var(--g-gutter) - var(--g-dot) / 2);
   inline-size: var(--g-dot);
@@ -94,13 +108,18 @@ starlight-tabs .tab > [role="tab"] {
   transform: translateY(-50%) rotate(45deg);
 }
 
-/* ... an elbow out to the branch's own line, which the entries' dots then sit on. */
+/* ... a curve out of the trunk, across, and a second curve down into the branch's own line, which the entries' dots
+   then sit on. The two pseudo-elements meet at --g-fork-y, a little below the list's top edge, so the
+   join sits just above the first entry's dot and the second curve ends under it. */
 .sidebar-content ul.top-level details > ul {
   position: relative;
+  --g-fork-y: 0.25rem;
 }
 .sidebar-content ul.top-level details > ul::before {
   content: "";
   position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
   inset-inline-start: calc(
     var(--g-trunk) -
     var(--g-gutter) -
@@ -111,22 +130,27 @@ starlight-tabs .tab > [role="tab"] {
   inline-size: calc(
     var(--g-branch) +
     var(--g-gutter) -
-    var(--g-trunk) +
+    var(--g-trunk) -
+    var(--g-curve) +
     var(--g-line) /
     2
   );
-  block-size: 1.4rem;
+  block-size: calc(0.9rem + var(--g-fork-y) + var(--g-line) / 2);
   border-inline-start: var(--g-line) solid var(--g-color);
   border-block-end: var(--g-line) solid var(--g-color);
-  border-end-start-radius: 0.9rem;
+  border-end-start-radius: var(--g-curve);
 }
 .sidebar-content ul.top-level details > ul::after {
   content: "";
   position: absolute;
-  inset-block: 0.5rem 0.75rem;
-  inset-inline-start: calc(var(--g-branch) - var(--g-line) / 2);
-  inline-size: var(--g-line);
-  background: var(--g-color);
+  z-index: 0;
+  box-sizing: border-box;
+  inset-block: calc(var(--g-fork-y) - var(--g-line) / 2) 0.75rem;
+  inset-inline-start: calc(var(--g-branch) - var(--g-curve));
+  inline-size: calc(var(--g-curve) + var(--g-line) / 2);
+  border-block-start: var(--g-line) solid var(--g-color);
+  border-inline-end: var(--g-line) solid var(--g-color);
+  border-start-end-radius: var(--g-curve);
 }
 /* Starlight's own 1px rule beside nested entries is replaced by the branch line above. */
 .sidebar-content ul.top-level details > ul > li {
@@ -146,7 +170,7 @@ starlight-tabs .tab > [role="tab"] {
   inset-inline-start: calc(
     var(--g-branch) -
     var(--g-branch-gutter) -
-    (var(--g-dot) + 0.3rem) /
+    var(--g-head) /
     2
   );
 }
@@ -157,8 +181,8 @@ starlight-tabs .tab > [role="tab"] {
   background: var(--g-ink);
 }
 
-/* ---- Leaves and branch tips ----
- * In the page text a list item is a leaf, a nested one a branch tip. The real marker stays in place (so the list is
+/* ---- Leaves ----
+ * In the page text a list item is a leaf, a nested one a younger, hollow leaf. The real marker stays in place (so the list is
  * still a list to every browser and screen reader) and is only made transparent; the shape is a mask, painted in
  * the ink tier. In forced-colors mode the real marker is left alone.
  */
@@ -187,11 +211,14 @@ starlight-tabs .tab > [role="tab"] {
     mask: var(--leaf) center / contain no-repeat;
     --leaf: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 14C2 7 6 2 14 2c0 7-4 12-12 12Z'/%3E%3C/svg%3E");
   }
-  .sl-markdown-content
-    ul:not(:where(.not-content *, .contains-task-list))
+  /* A nested item is a younger leaf: the same shape, hollow, with its midrib, and a size smaller. */
+  .sl-markdown-content ul:not(:where(.not-content *, .contains-task-list))
     ul
     > li::before {
-    --leaf: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M2 14 8 8m0 0V3m0 5 5-2'/%3E%3C/svg%3E");
+    inset-block-start: 0.5em;
+    inline-size: 0.75em;
+    block-size: 0.75em;
+    --leaf: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.75' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M3 13C3 7.5 6.5 3 13 3c0 6.5-3.5 10-10 10Z'/%3E%3Cpath d='M3 13 8.5 7.5'/%3E%3C/svg%3E");
   }
 }
 

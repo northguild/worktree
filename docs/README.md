@@ -73,7 +73,7 @@ build time into a single system prompt string (`docs/worker/docs-context.ts`):
 #### 1. MDX documentation pages
 
 `docs/worker/build-context.mjs` scans every `*.mdx` file under
-`docs/src/content/docs/`, turns each page's frontmatter into a heading, strips imports and Starlight `<Tabs>`/`<TabItem>` tags (keeping their content); other component tags, such as the landing page's `<CardGrid>`/`<LinkCard>`, pass through as written, and concatenates the plain-text
+`docs/src/content/docs/`, turns each page's frontmatter into a heading, strips imports and Starlight `<Tabs>`/`<TabItem>` tags (keeping their content); any other component tag would pass through as written (no page uses one), and concatenates the plain-text
 content with section labels. This is the authoritative reference the AI uses
 to answer questions.
 
@@ -178,10 +178,10 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
   "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home).
   `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, opening in a new tab and saying so in
   their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only).
-- **Sidebar as a git graph, and the leaf and branch-tip list markers, and the growing link underline.** All in `src/styles/custom.css`, as
+- **Sidebar as a git graph, and the leaf list markers (a hollow leaf for a nested item), and the growing link underline.** All in `src/styles/custom.css`, as
   CSS on Starlight's own markup: pseudo-elements with empty content, so nothing is added to the page, nothing decorative can take
   focus and nothing is announced. The graph's lengths are variables at the top of its rule (`--g-dot`, `--g-trunk`, ...), and the
-  dots, elbow and lines are derived from them, so change a length there and not in each rule. Every transition is switched off
+  dots, lines and the two curves of each fork are derived from them, so change a length there and not in each rule. Every transition is switched off
   under `prefers-reduced-motion: reduce`.
 - **The 404** (`src/content/docs/404.md`) is a splash page headed `fatal: no such branch`, with a broken-twig graphic
   (inline SVG, `aria-hidden`). `audit-dist.mjs` asserts the heading is a git error line and that every `<svg>` on every page is
@@ -189,7 +189,7 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 
 To refresh: `git -C <northguild.dev clone> show origin/main:packages/theme/<file>` into the same path, put a
 new header above it naming the new commit, copy the font the same way, then check that every
-`var(--gmt-*)` in `theme.css` and `SiteTitle.astro` is still defined and that body text, muted text,
+`var(--gmt-*)` in `theme.css`, `SiteTitle.astro` and `NorthGuildMark.astro` is still defined and that body text, muted text,
 links and inline code still reach 4.5:1 on their surfaces in both themes, and run `pnpm docs:build`.
 `astro build` warns that `./fonts/michroma-latin-400-normal.woff2` did not resolve: that is the vendored
 `@font-face`, overridden by the one in `theme.css`; the warning is expected.
@@ -198,7 +198,11 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 
 `src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (edit link, last
 updated, pagination) through `Default`, then the licence line, the CLI version and the maintainers, all read from
-`src/lib/site-meta.ts`. `MaintainersList.astro` draws the avatar links. Its test renders it through
+`src/lib/site-meta.ts`. The landing renders neither part: it is the hero alone. The chat launcher is rendered from the
+same file on every page, the landing included, because Starlight has no slot of its own for it. The licence line
+carries the header's NorthGuild mark (`NorthGuildMark.astro`, shared with `SiteTitle.astro`; each instance takes its
+own `id` for its gradients), not the organisation's GitHub avatar. `MaintainersList.astro` draws the maintainers'
+avatar links. Its test renders it through
 `astro/container` in the node environment (`// @vitest-environment node`, because Astro refuses to render a
 component under jsdom); `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the
 built footer is checked in `dist/` instead.

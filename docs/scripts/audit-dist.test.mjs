@@ -118,6 +118,12 @@ const header = (parts = {}) =>
   `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
 const HEADER = header();
 
+// Phase 15 (the user, 2026-11-04): the landing is the hero alone, with no footer, so it carries no edit link, no
+// date and no project line; every other page keeps all three. The project line is the footer's licence, version and
+// maintainers block.
+const PROJECT_FOOTER =
+  '<div class="project-footer"><span>MIT 2026 © northguild</span></div>';
+
 function page(path, overrides = {}) {
   const description = overrides.description ?? descriptionOf(path);
   const editHref = overrides.editHref ?? `${EDIT_BASE}${sourceOf(path)}`;
@@ -133,7 +139,7 @@ function page(path, overrides = {}) {
   const landing =
     path === ""
       ? (overrides.landing ??
-        '<a href="/worktree/getting-started/" class="action">Get started</a>')
+        '<a href="/worktree/getting-started/" class="sl-link-button primary">Get started</a>')
       : "";
   return [
     "<!doctype html><html><head>",
@@ -148,7 +154,7 @@ function page(path, overrides = {}) {
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
     '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
-    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? `<a href="${editHref}" class="sl-flex">Edit page</a>`}${overrides.updated ?? `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`}${overrides.controls ?? CONTROLS}${landing}${overrides.body ?? ""}</body></html>`,
+    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? (path === "" ? "" : `<a href="${editHref}" class="sl-flex">Edit page</a>`)}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? (path === "" ? "" : PROJECT_FOOTER)}${overrides.controls ?? CONTROLS}${landing}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -461,7 +467,10 @@ describe("auditDist", () => {
   // redirect): the landing must be a real page with a heading and a "Get started" link to /getting-started/.
   it("fails a landing with no Get started link", async () => {
     await rewrite("", (html) =>
-      html.replace(/<a [^>]*class="action">Get started<\/a>/, ""),
+      html.replace(
+        /<a [^>]*class="sl-link-button primary">Get started<\/a>/,
+        "",
+      ),
     );
     expect((await audit()).some((f) => /landing.*Get started/.test(f))).toBe(
       true,
@@ -608,6 +617,124 @@ describe("auditDist", () => {
   it("fails a page with no edit link", async () => {
     await write(dist, htmlPath("faq"), page("faq", { edit: "" }));
     expect((await audit()).some((f) => /faq.*edit/i.test(f))).toBe(true);
+  });
+
+  // Phase 15 (the user, 2026-11-04): "ditch the footer" on the landing. The root is still one of the 24 pages, so
+  // the date and edit-link rules turn around there: the footer that carries them is gone.
+  it("fails a landing that carries an edit link", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", { edit: `<a href="${EDIT_BASE}index.mdx">Edit page</a>` }),
+    );
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/^\/ \(root\).*edit/i);
+  });
+
+  it("fails a landing that carries a last-updated date", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", {
+        updated: `<p>Last updated: <time datetime="${DATE}T10:00:00.000Z">Nov 4, 2026</time></p>`,
+      }),
+    );
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/^\/ \(root\).*last updated/i);
+  });
+
+  it("fails a landing that carries the project footer", async () => {
+    await write(dist, htmlPath(""), page("", { footer: PROJECT_FOOTER }));
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/^\/ \(root\).*footer/i);
+  });
+
+  it("fails a page that has lost its project footer", async () => {
+    await write(dist, htmlPath("faq"), page("faq", { footer: "" }));
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/faq.*footer/i);
+  });
+
+  // Phase 15 (the user, 2026-11-04): "skip the install button, install and where to next parts in the front page. Just
+  // keep the hero with one getting started button". The removed parts were a second hero action and two `##` sections.
+  it("fails a landing with a second action beside Get started", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", {
+        body: '<a href="#install" class="sl-link-button secondary">Install</a>',
+      }),
+    );
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/^\/ \(root\).*2 actions/);
+  });
+
+  it("fails a landing that has sections below the hero again", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", { body: '<h2 id="install">Install</h2>' }),
+    );
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/^\/ \(root\).*section/);
+  });
+
+  // Phase 15: the header and the footer each draw the NorthGuild mark, whose gradients are found by id; HTML requires
+  // an id to be unique in its document (HTML Living Standard, "the id attribute").
+  it("fails a page with the same id twice", async () => {
+    await write(
+      dist,
+      htmlPath("faq"),
+      page("faq", {
+        body: '<svg aria-hidden="true"><linearGradient id="ng-mark-pane"></linearGradient></svg><svg aria-hidden="true"><linearGradient id="ng-mark-pane"></linearGradient></svg>',
+      }),
+    );
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/faq.*id "ng-mark-pane".*2 times/);
+  });
+
+  it("still requires the chat launcher on the landing", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", { controls: `${SEARCH_BUTTON}${MENU_BUTTON}` }),
+    );
+    expect(
+      (await audit()).some((f) => /^\/ \(root\).*chat launcher/.test(f)),
+    ).toBe(true);
+  });
+
+  // Phase 15 (the user, 2026-11-04): "let's stick to the version [of the logo] in the header". The second version
+  // was the GitHub avatar of the northguild organisation, github.com/northguild.png, in the footer.
+  it("fails a page that shows the organisation's GitHub avatar as a second logo", async () => {
+    await write(
+      dist,
+      htmlPath("faq"),
+      page("faq", {
+        footer: `<div class="project-footer"><img src="https://github.com/northguild.png?size=64" alt="northguild"></div>`,
+      }),
+    );
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/faq.*github\.com\/northguild\.png/);
+  });
+
+  it("does not take a maintainer's avatar for the organisation's", async () => {
+    await write(
+      dist,
+      htmlPath("faq"),
+      page("faq", {
+        footer: `<div class="project-footer"><img src="https://github.com/baldurpan.png?size=64" alt=""></div>`,
+      }),
+    );
+    expect(await audit()).toEqual([]);
   });
 
   it("does not require a date or an edit link on 404.html (it is not one of the 24 pages)", async () => {
