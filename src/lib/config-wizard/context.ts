@@ -1,6 +1,6 @@
 import { resolveJiraDeployment } from "../../integrations/jira.js";
 import { gitGetConfigValue } from "../config.js";
-import { askConfirm, askInput, InvalidValueError } from "../prompt.js";
+import { askInput, InvalidValueError } from "../prompt.js";
 import type { ConfigName } from "../types.js";
 
 /**
@@ -17,28 +17,6 @@ export type WizardContext = {
 
 export function shouldPrompt(ctx: WizardContext, name: ConfigName) {
   return ctx.configNames.includes(name);
-}
-
-/**
- * The group question. Naming keys with `--names` is asking for them (R4), so
- * it is answered yes without asking, in both modes. A bare run walks every
- * key, so it asks, and a non-interactive one has no default.
- */
-export function confirmGroup(
-  ctx: WizardContext,
-  message: string,
-  group: string,
-) {
-  if (ctx.names) {
-    return true;
-  }
-  return askConfirm(
-    { message },
-    {
-      value: `whether to configure ${group}`,
-      flag: "--names <keys>",
-    },
-  );
 }
 
 /**

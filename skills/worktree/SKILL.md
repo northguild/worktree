@@ -23,9 +23,11 @@ npm install -g @northguild/worktree
 
 # Run once inside your git repository
 worktree config
-# prompts for: defaultSourceBranch (e.g. origin/main), codeEditor (e.g. code)
-# agent.command (e.g. claude --bg) and postCreate (e.g. pnpm install), each
-# behind a confirm. The Herdr keys
+# opens with one checklist, "What do you want to set up?" (GitHub, Jira, Linear,
+# ClickUp, how worktrees open, the --agent command, branch prefixes, the
+# post-create command), then asks defaultSourceBranch (e.g. origin/main) and
+# the questions of each ticked item. Items already set up start ticked; unticking
+# clears nothing. `--names <keys>` skips the checklist. The Herdr keys
 # herdr.focus and herdr.agent are offered only when `herdr` is on PATH; opener is
 # always offered. `worktree config <key>` prints one value, for scripts.
 # It skips any key the project's .worktree.yml sets and says which.

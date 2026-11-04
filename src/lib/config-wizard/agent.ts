@@ -1,21 +1,9 @@
 import { gitSetConfigValue } from "../config.js";
 import { isValidCommandLine } from "../validators.js";
-import {
-  askConfigInput,
-  confirmGroup,
-  shouldPrompt,
-  type WizardContext,
-} from "./context.js";
+import { askConfigInput, shouldPrompt, type WizardContext } from "./context.js";
 
 export async function configureAgentCommand(ctx: WizardContext): Promise<void> {
-  if (
-    shouldPrompt(ctx, "agent.command") &&
-    (await confirmGroup(
-      ctx,
-      "Do you want to set the command that `--agent` runs to start a coding agent?",
-      "the coding agent",
-    ))
-  ) {
+  if (shouldPrompt(ctx, "agent.command")) {
     // No fallback default: the agent runtime is deliberately not named here.
     // Suggesting one would make this tool depend on a particular CLI, which
     // AGENT-MODE-PLAN §2 rules out.

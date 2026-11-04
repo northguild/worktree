@@ -1,8 +1,15 @@
 import { EOL } from "node:os";
 import chalk from "chalk";
+import { gitGetConfigValue } from "../config.js";
+import { askCheckbox } from "../prompt.js";
 import { configureAgentCommand } from "./agent.js";
 import { configureDefaultSourceBranch, configurePostCreate } from "./basics.js";
 import { configureBranchNames } from "./branch-names.js";
+import {
+  type ChecklistId,
+  listChecklistItems,
+  preTickedIds,
+} from "./checklist.js";
 import type { WizardContext } from "./context.js";
 import {
   configureCodeEditor,
@@ -16,19 +23,68 @@ import {
   configureLinear,
 } from "./trackers.js";
 
-/** The wizard's sequence. Each section decides for itself what to ask. */
+// What a ticked item asks. Each function asks only the keys in the run's
+// prompt list, so an item never asks what `--missing` or a project file removed.
+const CONFIGURE: Record<ChecklistId, (ctx: WizardContext) => Promise<void>> = {
+  github: configureGithub,
+  jira: configureJira,
+  linear: configureLinear,
+  clickup: configureClickUp,
+  opening: async (ctx) => {
+    await configureOpener(ctx);
+    await configureCodeEditor(ctx);
+    await configureHerdr(ctx);
+  },
+  agent: configureAgentCommand,
+  branchPrefixes: configureBranchNames,
+  postCreate: configurePostCreate,
+};
+
+/**
+ * The wizard's sequence. Naming keys with `--names` is asking for them, so a
+ * named run asks each named key directly and never shows the checklist. A bare
+ * run shows it, then asks `defaultSourceBranch`, then what was ticked, in
+ * checklist order. Un-ticking only means "do not ask now": nothing is cleared.
+ */
 export async function runWizard(ctx: WizardContext): Promise<void> {
-  await configureJira(ctx);
-  await configureGithub(ctx);
-  await configureLinear(ctx);
-  await configureClickUp(ctx);
-  await configureDefaultSourceBranch(ctx);
-  await configureBranchNames(ctx);
-  await configureOpener(ctx);
-  await configureCodeEditor(ctx);
-  await configureHerdr(ctx);
-  await configureAgentCommand(ctx);
-  await configurePostCreate(ctx);
+  if (ctx.names) {
+    await configureJira(ctx);
+    await configureGithub(ctx);
+    await configureLinear(ctx);
+    await configureClickUp(ctx);
+    await configureDefaultSourceBranch(ctx);
+    await configureBranchNames(ctx);
+    await configureOpener(ctx);
+    await configureCodeEditor(ctx);
+    await configureHerdr(ctx);
+    await configureAgentCommand(ctx);
+    await configurePostCreate(ctx);
+  } else {
+    const items = listChecklistItems(ctx.configNames);
+    let ticked: readonly ChecklistId[] = [];
+    if (items.length > 0) {
+      const preTicked = await preTickedIds(items, gitGetConfigValue);
+      ticked = await askCheckbox<ChecklistId>(
+        {
+          message:
+            "What do you want to set up? (space to tick or untick, enter to continue)",
+          choices: items.map((item) => ({
+            name: item.label,
+            value: item.id,
+            checked: preTicked.has(item.id),
+          })),
+        },
+        { value: "what to set up", flag: "--names <keys>" },
+      );
+    }
+
+    await configureDefaultSourceBranch(ctx);
+    for (const item of items) {
+      if (ticked.includes(item.id)) {
+        await CONFIGURE[item.id](ctx);
+      }
+    }
+  }
 
   ctx.log(`${chalk.green("✔")} Configuration complete!${EOL}`);
 }

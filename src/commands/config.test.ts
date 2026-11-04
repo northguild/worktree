@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { confirm, input, select } from "@inquirer/prompts";
+import { checkbox, confirm, input, select } from "@inquirer/prompts";
 import * as cli from "../lib/cli.js";
 import * as gitConfig from "../lib/config.js";
 import {
@@ -18,20 +18,37 @@ import * as validators from "../lib/validators.js";
 import Config from "./config.js";
 
 vi.mock("@inquirer/prompts", () => ({
+  checkbox: vi.fn(),
   confirm: vi.fn(),
   input: vi.fn(),
   select: vi.fn(),
 }));
 
+// The setup checklist's eight items, in plan #236 D2's order. A bare run asks
+// only the ticked ones, so the mock ticks all of them unless a case says
+// otherwise: that is the old "answer every group yes" behaviour.
+const ALL_ITEMS = [
+  "github",
+  "jira",
+  "linear",
+  "clickup",
+  "opening",
+  "agent",
+  "branchPrefixes",
+  "postCreate",
+];
+
 describe("config command", () => {
   let config: Config;
   let mockConsoleLog: ReturnType<typeof vi.spyOn>;
+  const mockCheckbox = vi.mocked(checkbox);
   const mockInput = vi.mocked(input);
   const mockConfirm = vi.mocked(confirm);
   const mockSelect = vi.mocked(select);
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCheckbox.mockResolvedValue(ALL_ITEMS as never);
 
     const mockConfig = {
       runCommand: vi.fn().mockResolvedValue(undefined),
@@ -910,6 +927,204 @@ describe("config command", () => {
     });
   });
 
+  describe("the setup checklist (#236)", () => {
+    const bare = (flags: Record<string, unknown> = {}) => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, yes: false, ...flags },
+      });
+    };
+    const choicesOf = () =>
+      mockCheckbox.mock.calls[0]?.[0].choices as {
+        name: string;
+        value: string;
+        checked: boolean;
+      }[];
+
+    // D1/§4: skipping everything costs the checklist and defaultSourceBranch.
+    it("asks exactly two questions when nothing is ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
+      mockInput.mockResolvedValue("origin/main");
+      bare();
+
+      await config.run();
+
+      expect(mockCheckbox).toHaveBeenCalledTimes(1);
+      expect(mockCheckbox).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("What do you want to set up?"),
+        }),
+      );
+      expect(mockInput.mock.calls.map(([o]) => o.message)).toEqual([
+        "Which branch should new worktrees be based on?",
+      ]);
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    // D2 lists the eight items in this order; nothing is pre-ticked on a clean
+    // config. The labels say what each does and tell no one a key name.
+    it("lists the eight items in order, none ticked on a clean config", async () => {
+      mockCheckbox.mockResolvedValue([]);
+      mockInput.mockResolvedValue("origin/main");
+      bare();
+
+      await config.run();
+
+      expect(choicesOf().map((c) => c.value)).toEqual(ALL_ITEMS);
+      expect(choicesOf().map((c) => c.checked)).toEqual(
+        ALL_ITEMS.map(() => false),
+      );
+    });
+
+    it("pre-ticks only the items whose keys hold a value", async () => {
+      mockCheckbox.mockResolvedValue([]);
+      mockInput.mockResolvedValue("origin/main");
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "linear.apiKey") return Promise.resolve("lin_x");
+          if (key === "postCreate") return Promise.resolve("pnpm install");
+          return Promise.resolve("");
+        },
+      );
+      bare();
+
+      await config.run();
+
+      expect(
+        choicesOf()
+          .filter((c) => c.checked)
+          .map((c) => c.value),
+      ).toEqual(["linear", "postCreate"]);
+    });
+
+    // Un-ticking means "do not ask now" (D2, constraint 5): the stored token
+    // is neither asked for nor cleared.
+    it("leaves a configured tracker's token in git config when it is un-ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
+      mockInput.mockResolvedValue("origin/main");
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "jira.apiToken") return Promise.resolve("secret");
+          return Promise.resolve("");
+        },
+      );
+      const set = vi.spyOn(gitConfig, "gitSetConfigValue");
+      bare();
+
+      await config.run();
+
+      expect(choicesOf().find((c) => c.value === "jira")?.checked).toBe(true);
+      expect(
+        set.mock.calls
+          .map(([name]) => name)
+          .filter((name) => name !== "has-called-config"),
+      ).toEqual(["defaultSourceBranch"]);
+    });
+
+    // Plan §4: with Jira on Cloud and Herdr installed, ticking all eight asks
+    // Jira 5, GitHub 2, Linear 2, ClickUp 3, opener, codeEditor, herdr.focus
+    // and herdr.agent 4, agent.command 1, prefixes 3, postCreate 1 and
+    // defaultSourceBranch 1: the old per-group questions minus every confirm.
+    it("asks every group's questions, and no confirm but herdr.focus, when all are ticked", async () => {
+      mockCheckbox.mockResolvedValue(ALL_ITEMS as never);
+      mockInput.mockResolvedValue("value");
+      mockSelect.mockResolvedValue("editor");
+      mockConfirm.mockResolvedValue(true);
+      bare();
+
+      await config.run();
+
+      expect(mockInput).toHaveBeenCalledTimes(15);
+      expect(mockSelect).toHaveBeenCalledTimes(6);
+      expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
+        "Should opening a worktree focus its Herdr space?",
+      ]);
+      expect(mockInput.mock.calls[0]?.[0].message).toBe(
+        "Which branch should new worktrees be based on?",
+      );
+    });
+
+    it("asks the ticked items in checklist order whatever order they were ticked in", async () => {
+      mockCheckbox.mockResolvedValue(["postCreate", "linear"] as never);
+      mockInput.mockResolvedValue("value");
+      mockSelect.mockResolvedValue("");
+      bare();
+
+      await config.run();
+
+      expect(mockInput.mock.calls.map(([o]) => o.message)).toEqual([
+        "Which branch should new worktrees be based on?",
+        "Linear API key",
+        expect.stringContaining("Command to run in each new worktree"),
+      ]);
+    });
+
+    it("never shows the checklist for --names, and asks the named keys directly", async () => {
+      mockInput.mockResolvedValue("value");
+      bare({ names: "jira.host,jira.apiToken" });
+
+      await config.run();
+
+      expect(mockCheckbox).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput.mock.calls.map(([o]) => o.message)).toEqual([
+        "Jira host (for example https://your-domain.atlassian.net)",
+        "Jira API token",
+      ]);
+    });
+
+    it("lists no item, and shows no checklist, when every key is already answered", async () => {
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockResolvedValue("set");
+      mockInput.mockResolvedValue("origin/main");
+      bare({ missing: false });
+      // --missing with everything set has nothing to ask at all.
+      bare({ missing: true });
+
+      await config.run();
+
+      expect(mockCheckbox).not.toHaveBeenCalled();
+      expect(mockConsoleLog).toHaveBeenCalledWith("No missing config found.");
+    });
+
+    it("fails a bare --yes run with exit 2 naming --names <keys>", async () => {
+      setNonInteractive(true);
+      bare({ yes: true });
+
+      await expect(config.run()).rejects.toMatchObject({
+        message: expect.stringContaining("--names <keys>"),
+        oclif: { exit: 2 },
+      });
+      expect(mockCheckbox).not.toHaveBeenCalled();
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it("asks nothing for the keys the wizard never asks, with everything ticked", async () => {
+      mockCheckbox.mockResolvedValue(ALL_ITEMS as never);
+      mockInput.mockResolvedValue("value");
+      mockSelect.mockResolvedValue("");
+      mockConfirm.mockResolvedValue(true);
+      bare();
+
+      await config.run();
+
+      const asked = [
+        ...mockInput.mock.calls,
+        ...mockSelect.mock.calls,
+        ...mockConfirm.mock.calls,
+      ].map(([o]) => (o as { message: string }).message);
+      expect(
+        asked.filter((m) =>
+          /repositor|deployment|webhook|delegat|allowlist|agent token|GitHub.*host/i.test(
+            m,
+          ),
+        ),
+      ).toEqual([]);
+    });
+  });
+
   describe("branch prefix prompts", () => {
     it("should prompt for all branch prefix variables without a group confirm when the keys are named", async () => {
       mockInput
@@ -957,8 +1172,8 @@ describe("config command", () => {
       );
     });
 
-    it("should skip branch prefix prompts when a bare run is declined", async () => {
-      mockConfirm.mockResolvedValue(false);
+    it("should skip branch prefix prompts when Branch prefixes is not ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -971,12 +1186,29 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to configure branch name prefixes?",
-      });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).not.toHaveBeenCalledWith(
         expect.objectContaining({ message: "Prefix for feature branches" }),
       );
+    });
+
+    it("asks the three prefixes with no confirm when Branch prefixes is ticked", async () => {
+      mockCheckbox.mockResolvedValue(["branchPrefixes"] as never);
+      mockInput.mockResolvedValue("x/");
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, yes: false },
+      });
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockInput.mock.calls.map(([o]) => o.message)).toEqual([
+        "Which branch should new worktrees be based on?",
+        "Prefix for feature branches",
+        "Prefix for bugfix branches",
+        "Prefix for chore branches",
+      ]);
     });
 
     it("takes the defaults without asking when the run is non-interactive", async () => {
@@ -1137,8 +1369,8 @@ describe("config command", () => {
       expect(mockSetConfigValue).toHaveBeenCalledWith("postCreate", "");
     });
 
-    it("skips the prompt when a bare run is declined", async () => {
-      mockConfirm.mockResolvedValue(false);
+    it("skips the prompt when the post-create item is not ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
         flags: { list: false, missing: false },
@@ -1146,10 +1378,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message:
-          "Do you want to run a command in new worktrees after they are created?",
-      });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).not.toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining("Command to run in each new"),
@@ -1228,8 +1457,8 @@ describe("config command", () => {
       );
     });
 
-    it("should skip the agent prompt when a bare run is declined", async () => {
-      mockConfirm.mockResolvedValue(false);
+    it("should skip the agent prompt when the coding agent is not ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -1238,10 +1467,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message:
-          "Do you want to set the command that `--agent` runs to start a coding agent?",
-      });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).not.toHaveBeenCalledWith(
         expect.objectContaining({
           message:
@@ -1637,8 +1863,8 @@ describe("config command", () => {
       expect(mockSetConfigValue).toHaveBeenCalledWith("herdr.focus", "true");
     });
 
-    it("should skip both prompts when a bare run is declined", async () => {
-      mockConfirm.mockResolvedValue(false);
+    it("should skip both prompts when How worktrees open is not ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -1651,12 +1877,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to choose where new worktrees are opened?",
-      });
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to configure Herdr space options?",
-      });
+      expect(mockSelect).not.toHaveBeenCalled();
       expect(mockConfirm).not.toHaveBeenCalledWith(
         expect.objectContaining({
           message: "Should opening a worktree focus its Herdr space?",
@@ -1824,11 +2045,8 @@ describe("config command", () => {
       });
     };
 
-    it("asks one confirm for the group, then the key with instructions", async () => {
-      mockConfirm.mockImplementation(
-        async ({ message }) =>
-          message === "Do you want to configure Linear integration?",
-      );
+    it("asks the key with instructions when Linear is ticked, with no confirm", async () => {
+      mockCheckbox.mockResolvedValue(["linear"] as never);
       mockInput.mockResolvedValue("lin_api_prompted");
       const mockSet = vi
         .spyOn(gitConfig, "gitSetConfigValue")
@@ -1837,9 +2055,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to configure Linear integration?",
-      });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockConsoleLog).toHaveBeenCalledWith(
         expect.stringContaining(
           "Settings -> Security & access -> Personal API keys",
@@ -1848,15 +2064,13 @@ describe("config command", () => {
       expect(mockSet).toHaveBeenCalledWith("linear.apiKey", "lin_api_prompted");
     });
 
-    it("skips the key prompt when the group is declined", async () => {
-      mockConfirm.mockResolvedValue(false);
+    it("skips the key prompt when Linear is not ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
       linearRun({});
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to configure Linear integration?",
-      });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).not.toHaveBeenCalledWith(
         expect.objectContaining({ message: "Linear API key" }),
       );
@@ -1990,10 +2204,8 @@ describe("config command", () => {
     };
     const groupMessage = "Do you want to configure ClickUp integration?";
 
-    it("asks one confirm, then the token with instructions, then the workspace id", async () => {
-      mockConfirm.mockImplementation(
-        async ({ message }) => message === groupMessage,
-      );
+    it("asks the token with instructions, then the workspace id, with no confirm", async () => {
+      mockCheckbox.mockResolvedValue(["clickup"] as never);
       mockInput.mockImplementation(async ({ message }) =>
         message === "ClickUp API token" ? "pk_prompted" : "12345",
       );
@@ -2004,7 +2216,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({ message: groupMessage });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockConsoleLog).toHaveBeenCalledWith(
         expect.stringContaining("avatar -> Settings -> Apps -> API Token"),
       );
@@ -2012,13 +2224,13 @@ describe("config command", () => {
       expect(mockSet).toHaveBeenCalledWith("clickup.workspaceId", "12345");
     });
 
-    it("skips both prompts when the group is declined", async () => {
-      mockConfirm.mockResolvedValue(false);
+    it("skips both prompts when ClickUp is not ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
       clickUpRun({});
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({ message: groupMessage });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).not.toHaveBeenCalledWith(
         expect.objectContaining({ message: "ClickUp API token" }),
       );
@@ -2216,7 +2428,6 @@ describe("config command", () => {
   describe("clickup.autoStart prompt (D10)", () => {
     const startMessage =
       "Should `branch --clickup` move the task to in progress once the worktree exists?";
-    const groupMessage = "Do you want to configure ClickUp integration?";
     const withStored = (stored: string) =>
       vi
         .spyOn(gitConfig, "gitGetConfigValue")
@@ -2326,9 +2537,7 @@ describe("config command", () => {
     });
 
     it("should ask the token, the workspace id and then the select in the ClickUp group", async () => {
-      mockConfirm.mockImplementation(
-        async ({ message }) => message === groupMessage,
-      );
+      mockCheckbox.mockResolvedValue(["clickup"] as never);
       mockInput.mockImplementation(async ({ message }) =>
         message === "ClickUp API token" ? "pk_x" : "12345",
       );
@@ -2340,12 +2549,13 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockInput.mock.calls[0][0].message).toBe("ClickUp API token");
-      expect(mockInput.mock.calls[1][0].message).toContain(
+      // The first input is defaultSourceBranch, which a bare run asks first.
+      expect(mockInput.mock.calls[1][0].message).toBe("ClickUp API token");
+      expect(mockInput.mock.calls[2][0].message).toContain(
         "ClickUp workspace id",
       );
       expect(mockSelect).toHaveBeenCalledTimes(1);
-      expect(mockInput.mock.invocationCallOrder[1]).toBeLessThan(
+      expect(mockInput.mock.invocationCallOrder[2]).toBeLessThan(
         mockSelect.mock.invocationCallOrder[0],
       );
       expect(mockSelect).toHaveBeenCalledWith(
@@ -2637,8 +2847,8 @@ describe("config command", () => {
       );
     });
 
-    it("should ask one confirm for the group and skip both prompts when a bare run is declined", async () => {
-      mockConfirm.mockResolvedValue(false);
+    it("should skip both prompts when GitHub is not ticked", async () => {
+      mockCheckbox.mockResolvedValue([]);
 
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
@@ -2651,9 +2861,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(mockConfirm).toHaveBeenCalledWith({
-        message: "Do you want to configure GitHub issue options?",
-      });
+      expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockInput).not.toHaveBeenCalledWith(
         expect.objectContaining({ message: "GitHub personal access token" }),
       );
@@ -3114,11 +3322,8 @@ describe("config command", () => {
       );
     });
 
-    it("should offer jira.autoStart behind the Jira confirm on a bare run", async () => {
-      mockConfirm.mockImplementation(
-        async ({ message }) =>
-          message === "Do you want to configure Jira integration?",
-      );
+    it("should offer jira.autoStart when Jira is ticked on a bare run", async () => {
+      mockCheckbox.mockResolvedValue(["jira"] as never);
       mockInput.mockResolvedValue("value");
       mockSelect.mockResolvedValueOnce("true").mockResolvedValueOnce("false");
       const mockSetConfigValue = vi
@@ -3138,8 +3343,8 @@ describe("config command", () => {
       );
     });
 
-    it("should ask no Jira select when the Jira confirm is declined on a bare run", async () => {
-      mockConfirm.mockResolvedValue(false);
+    it("should ask no Jira select when Jira is not ticked on a bare run", async () => {
+      mockCheckbox.mockResolvedValue([]);
       const mockSetConfigValue = vi
         .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
@@ -3290,10 +3495,7 @@ describe("config command", () => {
       });
 
       it("should ask the select after the key on a bare run", async () => {
-        mockConfirm.mockImplementation(
-          async ({ message }) =>
-            message === "Do you want to configure Linear integration?",
-        );
+        mockCheckbox.mockResolvedValue(["linear"] as never);
         mockInput.mockResolvedValueOnce("lin_api_x");
         mockSelect.mockResolvedValueOnce("true");
         vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
@@ -3417,9 +3619,11 @@ describe("config command", () => {
       expect(listedNames()).toContain("opener");
     });
 
-    it("asks the opener confirm but not the Herdr one when herdr is absent", async () => {
+    it("asks the opener but not the Herdr questions when herdr is absent", async () => {
       vi.spyOn(cli, "commandExists").mockResolvedValue(false);
-      mockConfirm.mockResolvedValue(false);
+      mockCheckbox.mockResolvedValue(["opening"] as never);
+      mockSelect.mockResolvedValue("editor");
+      mockInput.mockResolvedValue("code");
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
         flags: { list: false, missing: true, yes: false },
@@ -3427,18 +3631,19 @@ describe("config command", () => {
 
       await config.run();
 
-      const asked = mockConfirm.mock.calls.map((call) => call[0]?.message);
-      expect(asked).toContain(
-        "Do you want to choose where new worktrees are opened?",
-      );
-      expect(asked).not.toContain(
-        "Do you want to configure Herdr space options?",
-      );
+      const selects = mockSelect.mock.calls.map((call) => call[0]?.message);
+      const inputs = mockInput.mock.calls.map((call) => call[0]?.message);
+      expect(selects).toContain("Which opener should new worktrees use?");
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(inputs.filter((m) => /Herdr/.test(m))).toEqual([]);
     });
 
-    it("asks both confirms when herdr is installed", async () => {
+    it("asks the Herdr questions too when herdr is installed", async () => {
       vi.spyOn(cli, "commandExists").mockResolvedValue(true);
-      mockConfirm.mockResolvedValue(false);
+      mockCheckbox.mockResolvedValue(["opening"] as never);
+      mockSelect.mockResolvedValue("editor");
+      mockConfirm.mockResolvedValue(true);
+      mockInput.mockResolvedValue("code");
       (config as any).parse = vi.fn().mockResolvedValue({
         args: {},
         flags: { list: false, missing: true, yes: false },
@@ -3446,11 +3651,14 @@ describe("config command", () => {
 
       await config.run();
 
-      const asked = mockConfirm.mock.calls.map((call) => call[0]?.message);
-      expect(asked).toContain(
-        "Do you want to choose where new worktrees are opened?",
-      );
-      expect(asked).toContain("Do you want to configure Herdr space options?");
+      const selects = mockSelect.mock.calls.map((call) => call[0]?.message);
+      const confirms = mockConfirm.mock.calls.map((call) => call[0]?.message);
+      const inputs = mockInput.mock.calls.map((call) => call[0]?.message);
+      expect(selects).toContain("Which opener should new worktrees use?");
+      expect(confirms).toEqual([
+        "Should opening a worktree focus its Herdr space?",
+      ]);
+      expect(inputs.filter((m) => /Herdr/.test(m)).length).toBe(1);
     });
 
     it("un-hides every Herdr key when opener is explicitly herdr", async () => {
@@ -3566,6 +3774,13 @@ postCreate:
       );
     }
 
+    function checklistIds(): string[] {
+      const choices = mockCheckbox.mock.calls[0]?.[0].choices as {
+        value: string;
+      }[];
+      return choices.map((choice) => choice.value);
+    }
+
     function printed(): string[] {
       return mockConsoleLog.mock.calls.map((call: unknown[]) => call.join(" "));
     }
@@ -3626,20 +3841,33 @@ postCreate:
       it("asks a personal postCreate nothing when the file has steps, but does when it has none", async () => {
         await withFile("postCreate: []\n");
         parsed({}, { missing: false });
-        mockConfirm.mockResolvedValue(false);
+        mockCheckbox.mockResolvedValue([]);
 
         await config.run();
 
-        expect(
-          mockConfirm.mock.calls.some(([p]) =>
-            (p as { message: string }).message.includes(
-              "run a command in new worktrees",
-            ),
-          ),
-        ).toBe(true);
+        expect(checklistIds()).toContain("postCreate");
         expect(printed().some((l) => l.includes(".worktree.yml sets"))).toBe(
           false,
         );
+      });
+
+      it("does not list an item whose keys the file supplies, and lists the rest", async () => {
+        await withFile(EXAMPLE);
+        parsed({}, { missing: false });
+        mockCheckbox.mockResolvedValue([]);
+
+        await config.run();
+
+        // EXAMPLE sets all three branchPrefix keys and postCreate, so those two
+        // items have nothing left to ask; jira.host alone does not empty Jira.
+        expect(checklistIds()).toEqual([
+          "github",
+          "jira",
+          "linear",
+          "clickup",
+          "opening",
+          "agent",
+        ]);
       });
 
       it("asks for a file-set key that --names names, since naming it is asking", async () => {

@@ -1,11 +1,6 @@
 import { gitSetConfigValue } from "../config.js";
 import { isValidBranch, isValidCommandLine } from "../validators.js";
-import {
-  askConfigInput,
-  confirmGroup,
-  shouldPrompt,
-  type WizardContext,
-} from "./context.js";
+import { askConfigInput, shouldPrompt, type WizardContext } from "./context.js";
 
 export async function configureDefaultSourceBranch(
   ctx: WizardContext,
@@ -24,14 +19,7 @@ export async function configureDefaultSourceBranch(
 }
 
 export async function configurePostCreate(ctx: WizardContext): Promise<void> {
-  if (
-    shouldPrompt(ctx, "postCreate") &&
-    (await confirmGroup(
-      ctx,
-      "Do you want to run a command in new worktrees after they are created?",
-      "the post-create command",
-    ))
-  ) {
+  if (shouldPrompt(ctx, "postCreate")) {
     const postCreate = await askConfigInput("postCreate", {
       message:
         "Command to run in each new worktree, for example `pnpm install` (empty to infer one from the lockfile)",
