@@ -5,8 +5,9 @@
  * (https://northguild.github.io/worktree/). It holds
  *   - schema/v1.json, byte-identical to docs/public/schema/v1.json, so every released CLI's `$schema`
  *     comment and every npm README link keeps resolving;
- *   - one stub per old route, each carrying a canonical link, a meta refresh and a visible link to the
- *     new URL (D3: https://northguild.dev/worktree/<path>/);
+ *   - one stub per old route, each carrying a canonical link, a script that redirects with the link's
+ *     #fragment kept, a meta refresh for a visitor without scripts (which drops it), and a visible link to
+ *     the new URL (D3: https://northguild.dev/worktree/<path>/);
  *   - a root stub and a 404.html.
  *
  * The route list is the 24 routes committed at 2633f3a and the two #238 added (5c741ee), not derived from the new code (D4), and the
@@ -71,6 +72,15 @@ const escapeAttr = (value) =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 
+/** The target as a script string literal; `<` escaped so no target can close the script element. */
+const scriptString = (value) =>
+  JSON.stringify(value).replaceAll("<", "\\u003c");
+
+/**
+ * A meta refresh cannot carry the old link's #fragment, so `/docs/commands/branch#usage` would land at the top of the
+ * new page (review of #240). The script runs first, while the head is parsed, and keeps it; the meta refresh is the
+ * fallback for a visitor without scripts.
+ */
 export function renderStub(target, heading = "This page has moved") {
   const href = escapeAttr(target);
   return `<!doctype html>
@@ -79,6 +89,7 @@ export function renderStub(target, heading = "This page has moved") {
 <meta charset="utf-8">
 <title>${heading} | Worktree</title>
 <link rel="canonical" href="${href}">
+<script>location.replace(${scriptString(target)} + location.hash)</script>
 <meta http-equiv="refresh" content="0; url=${href}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>

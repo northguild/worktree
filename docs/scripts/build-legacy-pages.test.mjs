@@ -69,6 +69,12 @@ describe("legacy Pages bundle", () => {
       expect(html).toContain(
         `<meta http-equiv="refresh" content="0; url=${target}">`,
       );
+      // The script keeps the old link's #fragment, and runs before the meta refresh can.
+      const script = `<script>location.replace(${JSON.stringify(target)} + location.hash)</script>`;
+      expect(html).toContain(script);
+      expect(html.indexOf(script)).toBeLessThan(
+        html.indexOf('<meta http-equiv="refresh"'),
+      );
       expect(html).toContain(`<a href="${target}">`);
       // Nothing but the D3 target is a URL in the stub.
       expect(new Set(html.match(/https?:\/\/[^\s"'<>]+/g))).toEqual(
