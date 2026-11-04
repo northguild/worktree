@@ -1,0 +1,82 @@
+/*
+ * Every value the landing-particles mockup uses.
+ *
+ * Borrowed (copied, not invented):
+ *   docs/src/styles/northguild/tokens.css        --gmt-void, --gmt-surface, --gmt-spring, --gmt-ice, --gmt-ice-dim, fonts
+ *   docs/src/styles/northguild/tokens-light.css  the [data-theme="light"] values of the same, and --gmt-spring-ink
+ *   docs/src/styles/theme.css                    the spring accent mapping (accent = --gmt-spring, text accent = --gmt-spring-ink)
+ *   Starlight 0.42.8                              --sl-text-* sizes, the hero h1 clamp, LinkButton's primary shape
+ *   docs/src/components/Hero.astro               the landing grid (1.05fr / 1fr from 50rem) and the copy styles
+ *
+ * INVENTED values are marked `INVENTED` on their line. The leaf palette is the main proposal.
+ */
+
+:root {
+  /* ---- tokens.css (dark, the default) ---- */
+  --gmt-void: #03080c;
+  --gmt-surface: #061018;
+  --gmt-spring: #4ade80;
+  --gmt-spring-ink: var(--gmt-spring);
+  --gmt-ice: #cfeaf2;
+  --gmt-ice-dim: #98b2be;
+  --gmt-font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --gmt-font-display: "Michroma", var(--gmt-font-mono);
+  --gmt-hairline: color-mix(in srgb, var(--gmt-spring) 18%, transparent); /* theme.css's re-derivation */
+
+  /* ---- Starlight sizes ---- */
+  --sl-text-sm: 0.875rem;
+  --sl-text-base: 1rem;
+  --sl-text-xl: 1.25rem;
+  --sl-text-3xl: 1.8125rem;
+  --sl-text-5xl: 2.625rem;
+  --sl-line-height-headings: 1.2;
+
+  /* ---- The leaf palette (INVENTED: the proposal this mockup exists to judge) ----
+   * Six greens, weighted in particles.js from the most common (1) to the rarest (6). Dark ground: the spring token
+   * plus Tailwind's green/emerald/lime neighbours, lighter than the ground so they glow a little. */
+  --leaf-1: var(--gmt-spring); /* #4ade80, borrowed */
+  --leaf-2: #22c55e; /* INVENTED: green-500, a step deeper */
+  --leaf-3: #86efac; /* INVENTED: green-300, the light tint */
+  --leaf-4: #16a34a; /* INVENTED: green-600, the deep tone */
+  --leaf-5: #34d399; /* INVENTED: emerald-400, a cool note */
+  --leaf-6: #bef264; /* INVENTED: lime-300, the rare warm leaf */
+  /* How strongly a leaf's far half is shaded, and how bright the ambient cloud is. INVENTED. */
+  --leaf-fold: 0.78; /* INVENTED */
+  --leaf-ambient-alpha: 0.5; /* INVENTED */
+
+  /* ---- Mockup chrome (INVENTED: only the toolbar, which the real page does not have) ---- */
+  --proto-toolbar-bg: color-mix(in srgb, var(--gmt-surface) 85%, transparent); /* INVENTED */
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  /* ---- tokens-light.css ---- */
+  --gmt-void: #ffffff;
+  --gmt-surface: #f5f5f5;
+  --gmt-spring: #16a34a;
+  --gmt-spring-ink: #0a5626;
+  --gmt-ice: #1a1a1a;
+  --gmt-ice-dim: #4b4b4b;
+
+  /* Light ground: the same family, a tier darker, so the leaves read on white. INVENTED except leaf-1. */
+  --leaf-1: var(--gmt-spring); /* #16a34a, borrowed */
+  --leaf-2: #15803d; /* INVENTED: green-700 */
+  --leaf-3: #4ade80; /* INVENTED: green-400, the light tint (dark theme's spring) */
+  --leaf-4: #166534; /* INVENTED: green-800, the deep tone */
+  --leaf-5: #059669; /* INVENTED: emerald-600 */
+  --leaf-6: #65a30d; /* INVENTED: lime-600 */
+  --leaf-fold: 0.8; /* INVENTED */
+  --leaf-ambient-alpha: 0.45; /* INVENTED */
+
+  color-scheme: light;
+}
+
+/* The site preloads and serves this face from docs/public/fonts; the mockup reads the same file. */
+@font-face {
+  font-family: "Michroma";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../../docs/public/fonts/michroma-latin-400-normal.woff2") format("woff2");
+}

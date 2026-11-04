@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Landing particles · prototype</title>
+    <script>
+      // Starlight's picker sets data-theme on <html>, defaulting to the system preference; the mockup does the same.
+      document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    </script>
+    <link rel="preload" href="../../docs/public/fonts/michroma-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--gmt-void);
+        color: var(--gmt-ice);
+        font-family: var(--gmt-font-mono);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* A stand-in for the product header, so the hero is judged in its frame. INVENTED layout, borrowed type. */
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        block-size: 3.5rem;
+        padding-inline: 1rem;
+        border-block-end: 1px solid var(--gmt-hairline);
+        font-family: var(--gmt-font-display);
+        font-size: 0.85rem;
+        letter-spacing: 0.04em;
+      }
+      .bar .slash {
+        color: var(--gmt-ice-dim);
+      }
+      .bar .product {
+        color: var(--gmt-spring-ink);
+      }
+
+      main {
+        /* INVENTED: Starlight's splash width is close to this; the real page inherits its own. */
+        max-inline-size: 76rem;
+        margin-inline: auto;
+        padding: 1.5rem 1rem 3rem;
+      }
+
+      /* ---- Hero.astro's landing grid and copy, verbatim apart from the art box ---- */
+      .landing {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: center;
+        gap: 2rem;
+        padding-block: 1rem 2rem;
+      }
+      .copy {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+        align-items: flex-start;
+      }
+      h1 {
+        margin: 0;
+        font-family: var(--gmt-font-display);
+        font-weight: 400;
+        font-size: clamp(var(--sl-text-3xl), 1.1rem + 3.2vw, var(--sl-text-5xl));
+        line-height: var(--sl-line-height-headings);
+        overflow-wrap: anywhere;
+        color: var(--gmt-ice);
+      }
+      .tagline {
+        max-inline-size: 36ch;
+        margin: 0;
+        font-size: clamp(var(--sl-text-base), 0.9rem + 0.5vw, var(--sl-text-xl));
+        line-height: 1.6;
+        color: var(--gmt-ice-dim);
+      }
+      /* Starlight's LinkButton, primary. */
+      .button {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5em;
+        padding: 0.4375rem 1.125rem;
+        border: 1px solid var(--gmt-spring-ink);
+        border-radius: 999rem;
+        background: var(--gmt-spring-ink);
+        color: var(--gmt-void);
+        font-size: var(--sl-text-sm);
+        line-height: 1.1875;
+        text-decoration: none;
+        outline-offset: 0.25rem;
+      }
+      .button:focus-visible {
+        outline: 2px solid var(--gmt-spring-ink);
+      }
+      .button svg {
+        inline-size: 1.25em;
+        block-size: 1.25em;
+      }
+
+      /* The art box: the canvas fills it and fades out at the edges, so the field has no hard frame. */
+      .art {
+        position: relative;
+        /* INVENTED: the SVG reserved 480×560; the canvas keeps a similar box so the layout does not shift. */
+        aspect-ratio: 6 / 7;
+        inline-size: 100%;
+        max-inline-size: 34rem;
+        margin-inline: auto;
+      }
+      .art canvas {
+        position: absolute;
+        inset: 0;
+        inline-size: 100%;
+        block-size: 100%;
+        /* INVENTED: the fade at the edges. */
+        -webkit-mask-image: radial-gradient(closest-side, #000 84%, transparent);
+        mask-image: radial-gradient(closest-side, #000 84%, transparent);
+      }
+      .art .fallback {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        margin: 0;
+        color: var(--gmt-ice-dim);
+        font-size: var(--sl-text-sm);
+        text-align: center;
+      }
+      .art .fallback[hidden] {
+        display: none;
+      }
+
+      @media (min-width: 50rem) {
+        .landing {
+          grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+          gap: 3rem;
+          padding-block: clamp(1rem, 4vmin, 3rem);
+        }
+        .button {
+          font-size: var(--sl-text-base);
+          padding: 0.9375rem 1.25rem;
+        }
+      }
+
+      /* ---- Mockup controls, not part of the design (INVENTED) ---- */
+      .proto {
+        position: fixed;
+        inset-block-end: 0.75rem;
+        inset-inline-end: 0.75rem;
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+        padding: 0.35rem 0.5rem;
+        border: 1px solid var(--gmt-hairline);
+        border-radius: 0.5rem;
+        background: var(--proto-toolbar-bg);
+        font-size: 0.75rem;
+        color: var(--gmt-ice-dim);
+      }
+      .proto button {
+        font: inherit;
+        color: var(--gmt-ice);
+        background: transparent;
+        border: 1px solid var(--gmt-hairline);
+        border-radius: 0.35rem;
+        padding: 0.2rem 0.5rem;
+        cursor: pointer;
+      }
+      .proto output {
+        min-inline-size: 11ch;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="bar"><span>NorthGuild</span><span class="slash">/</span><span class="product">worktree</span></header>
+
+    <main>
+      <div class="landing">
+        <div class="copy">
+          <h1 id="_top">A git worktree for every branch</h1>
+          <p class="tagline">
+            A command-line tool that gives each branch or issue its own folder, copies your env files across and opens your
+            editor. No more stashing to switch.
+          </p>
+          <a class="button" href="#getting-started">
+            Get started
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d="M17.92 11.62a1 1 0 0 0-.21-.33l-5-5a1 1 0 0 0-1.42 1.42l3.3 3.29H7a1 1 0 0 0 0 2h7.59l-3.3 3.29a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l5-5a1 1 0 0 0 .21-.33 1 1 0 0 0 0-.76Z" /></svg>
+          </a>
+        </div>
+        <div class="art">
+          <canvas id="leaves" aria-hidden="true"></canvas>
+          <p class="fallback" id="leaves-fallback" hidden aria-hidden="true">WebGL is unavailable: the real page shows a still image here.</p>
+        </div>
+      </div>
+    </main>
+
+    <div class="proto" aria-label="Prototype controls">
+      <output id="proto-stage">loading</output>
+      <output id="proto-fps"></output>
+      <button type="button" id="proto-replay">Replay</button>
+      <button type="button" id="proto-theme">Theme</button>
+    </div>
+
+    <script>
+      document.getElementById("proto-theme").addEventListener("click", () => {
+        const root = document.documentElement;
+        root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
+      });
+    </script>
+    <script type="module" src="particles.js"></script>
+  </body>
+</html>
