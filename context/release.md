@@ -167,8 +167,8 @@ stable version has been published.
   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (no `secrets: inherit`), declares its own `contents: read`,
   `pages: write` and `id-token: write`, and has no `release` environment, so its OIDC token cannot be exchanged for
   an npm credential. The called workflow builds the release commit, the one `v<version>` tags. It is skipped when
-  `publish` is. It can also be run by hand (`workflow_dispatch`), from `main` only: the `github-pages`
-  environment accepts no other branch. Two jobs. `site` tests, builds `docs/dist`, audits it (`pnpm docs:audit-dist`), copies it to
+  `publish` is. It can also be run by hand (`workflow_dispatch`), from `main` only: `site` carries
+  `if: github.ref == 'refs/heads/main'` (#243), so a run from any other ref skips both jobs and deploys nothing. Two jobs. `site` tests, builds `docs/dist`, audits it (`pnpm docs:audit-dist`), copies it to
   `docs/.deploy/worktree/` and runs `wrangler deploy` with `docs/wrangler.jsonc` (a Worker with static assets and no
   script, on the Route `northguild.dev/worktree*`), then runs `docs/scripts/deploy-smoke.mjs` against the live URL,
   retrying for route propagation. `legacy-pages` runs only after `site` is green and publishes the generated

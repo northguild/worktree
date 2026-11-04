@@ -6,8 +6,8 @@ name: Deploy Docs
 #                   redirect stub per old route
 # publish.yml calls this workflow (workflow_call) after it publishes a stable version, passing the two Cloudflare
 # secrets; the deploy builds the release commit. Nothing else triggers it except workflow_dispatch, the manual
-# route for a docs fix that cannot wait. Run it from main: the github-pages environment accepts only that branch,
-# so legacy-pages fails from any other ref.
+# route for a docs fix that cannot wait. Run it from main: from any other ref the `site` job's guard skips it, and
+# legacy-pages with it, so nothing deploys.
 on:
   workflow_call:
     secrets:
@@ -23,6 +23,10 @@ permissions:
 jobs:
   site:
     runs-on: ubuntu-latest
+    # A manual run from any other branch deploys nothing (#243); legacy-pages needs this job, so it skips too.
+    # The same guard publish.yml's `guard` job uses. A workflow_call sees the caller's ref, and publish.yml runs
+    # only on main, so the release deploy passes it.
+    if: github.ref == 'refs/heads/main'
     # Both jobs set their own timeout: the publish.yml job that calls this workflow cannot set one, and while they
     # run they hold its `publish` concurrency group, so a hang would hold back the next release.
     timeout-minutes: 20
