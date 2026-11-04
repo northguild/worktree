@@ -18,6 +18,7 @@
     "worker:deploy": "pnpm run worker:test && pnpm run worker:build && wrangler deploy --config worker/wrangler.toml",
     "prebuild": "pnpm -C .. run docs:sync-version && pnpm run worker:build-context",
     "build": "astro build",
+    "build:legacy": "node scripts/build-legacy-pages.mjs",
     "typecheck": "pnpm run worker:build-context && astro check",
     "test": "vitest run"
   },

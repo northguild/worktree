@@ -55,3 +55,20 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
 - `context/stack.md` says Biome owns formatting and linting; it could mention `docs/src/styles/northguild/` is
   excluded (`biome.json`), for the byte-for-byte rule.
 - No browser pass or LCP/CLS measurement yet (R12); Michroma title truncation at phone width unseen.
+
+## From phase 10's review (legacy Pages bundle)
+
+- `build-legacy-pages.mjs` hands its CLI `outDir` argument straight to `rm(out, { recursive: true, force:
+  true })`; a wrong argument such as `.` or `~` deletes that tree. Phase 11 calls it from CI — worth refusing
+  a path outside `docs/`, or one that does not look like a previous bundle.
+- The exported `targetFor` can leave `https://northguild.dev/worktree/` on hostile input (`/docs///evil.com/x`
+  → `https://evil.com/x/`); its only input today is the frozen route list. A guard that throws unless the
+  result starts with the root would make the property hold for any input.
+- Test gaps: the only-D3-URLs assertion is not applied to the root stub or `404.html`; an extra route in
+  `OLD_ROUTES` fails nothing; nothing pins D5 (the script not importing from `src/`).
+- `escapeAttr` and the test's `read` are const arrows where `typescript/rules.md` asks for `function`
+  declarations; other `.mjs` scripts here do the same.
+- `build:legacy` is in no `docs/README.md` table and `docs/scripts/` / `docs/legacy/` are not in
+  `context/stack.md`'s layout block — phase 11, which wires the bundle into `docs-deploy.yml`, is the place.
+- Old explicit `.html` URLs (`/worktree/docs/commands/branch.html`) land on `404.html` and go to the new root,
+  not the matching page; nothing is known to link that form.

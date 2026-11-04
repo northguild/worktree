@@ -101,7 +101,7 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-11-04 that is 2751 and 55 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-11-04 that is 2751 and 83 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 
