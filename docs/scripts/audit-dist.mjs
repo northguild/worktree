@@ -14,6 +14,14 @@
  * exists. These apply to the 23 pages only; `404.html` is not one of them and has neither. Per site: `llms.txt`
  * (D13) is a llmstxt.org file listing the same 23 URLs, each with a title and the page's own description.
  *
+ * Also (phase 9, accessibility): every button has an accessible name (an icon-only one needs an `aria-label`, an
+ * `aria-labelledby` or a `title`), and a name that stands beside visible text contains it (WCAG 2.5.3); every
+ * `<select>` is labelled; every page has the search button; the chat launcher announces its shortcut with
+ * `aria-keyshortcuts="Alt+Shift+C"` (WAI-ARIA 1.2 syntax); the built CSS gives the package-manager tabs a minimum
+ * height of at least 44px; and `404.html` has the site's search, a link to Getting Started, and no canonical link or
+ * JSON-LD (it is not a page of the site, so it must not point at one). The search *input* is made by Pagefind in the
+ * browser and is not in the HTML: its label is a real-browser check.
+ *
  * Not asserted yet, because the thing it checks does not exist until a later phase:
  *   - `og:image` / `twitter:image` (plan §9 Q3: the preview image is undecided). Set PREVIEW_IMAGE_DECIDED to
  *     true when it is; the rule is then a one-line addition in `auditPage`.
@@ -159,6 +167,124 @@ function jsonLdTypes(html) {
   return { types };
 }
 
+const CHAT_SHORTCUT_ARIA = "Alt+Shift+C";
+const MIN_TAB_HEIGHT_PX = 44;
+// A rem is the root font size, 16px unless the site changes it; the site does not.
+const PX_PER_REM = 16;
+
+const textOf = (html) =>
+  decode(html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ")).trim();
+
+/** `html` without the elements `name` opens, repeated so nested ones go too. */
+function withoutElements(
+  html,
+  name,
+  openTag = new RegExp(`<${name}\\b[^>]*>`),
+) {
+  const closing = `</${name}>`;
+  let out = html;
+  for (let guard = 0; guard < 20; guard++) {
+    const open = out.match(openTag);
+    if (!open) break;
+    const end = out.indexOf(closing, open.index);
+    if (end === -1) break;
+    out = out.slice(0, open.index) + out.slice(end + closing.length);
+  }
+  return out;
+}
+
+/** What the sighted see of a button: no icon, no keyboard-hint, no screen-reader-only text. */
+function visibleLabel(inner) {
+  const srOnly = /<span\b[^>]*class="[^"]*\bsr-only\b[^"]*"[^>]*>/;
+  return textOf(
+    withoutElements(
+      withoutElements(withoutElements(inner, "svg"), "kbd"),
+      "span",
+      srOnly,
+    ),
+  );
+}
+
+/** Failures in how a page's controls are named (WCAG 4.1.2 and 2.5.3) and in the chat launcher's announced shortcut. */
+function auditControls(html, where) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: ${rule}`);
+  const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
+  let hasSearch = false;
+  let launcher;
+  for (const [, rawAttrs, inner] of buttons) {
+    const attrs = attributes(rawAttrs);
+    if ("data-open-modal" in attrs) hasSearch = true;
+    if ("data-chat-launcher" in attrs) launcher = attrs;
+    const ariaLabel = (attrs["aria-label"] ?? "").trim();
+    const hidden = (re) => withoutElements(inner, "span", re);
+    const contentName = textOf(
+      hidden(/<span\b[^>]*aria-hidden="true"[^>]*>/).replace(
+        /<svg\b[\s\S]*?<\/svg>/g,
+        "",
+      ),
+    );
+    const named =
+      ariaLabel !== "" ||
+      (attrs["aria-labelledby"] ?? "").trim() !== "" ||
+      contentName !== "" ||
+      (attrs.title ?? "").trim() !== "";
+    const describe = rawAttrs.trim().slice(0, 60);
+    if (!named) fail(`button (${describe}) has no accessible name`);
+    const visible = visibleLabel(inner);
+    if (
+      ariaLabel !== "" &&
+      visible !== "" &&
+      !ariaLabel.toLowerCase().includes(visible.toLowerCase())
+    )
+      fail(
+        `button "${visible}": aria-label "${ariaLabel}" does not contain its visible text (WCAG 2.5.3)`,
+      );
+  }
+  if (!hasSearch) fail("no search button (data-open-modal)");
+
+  if (launcher === undefined)
+    fail("no chat launcher button (data-chat-launcher)");
+  else if (launcher["aria-keyshortcuts"] === undefined)
+    fail(
+      `chat launcher has no aria-keyshortcuts, expected ${CHAT_SHORTCUT_ARIA}`,
+    );
+  else if (launcher["aria-keyshortcuts"] !== CHAT_SHORTCUT_ARIA)
+    fail(
+      `chat launcher aria-keyshortcuts is ${launcher["aria-keyshortcuts"]}, expected ${CHAT_SHORTCUT_ARIA}`,
+    );
+
+  const labels = [
+    ...html.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/g),
+  ].filter(([, inner]) => textOf(withoutElements(inner, "select")) !== "");
+  for (const select of html.matchAll(/<select\b([^>]*)>/g)) {
+    const attrs = attributes(select[1]);
+    const inLabel = labels.some(
+      (label) =>
+        select.index > label.index &&
+        select.index < label.index + label[0].length,
+    );
+    if (!inLabel && (attrs["aria-label"] ?? "").trim() === "")
+      fail("select has no label");
+  }
+  return failures;
+}
+
+/** The largest minimum height, in px, that a built stylesheet gives an element with `role=tab`; undefined when none does. */
+function tabMinHeightPx(css) {
+  let largest;
+  for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!/\[role=["']?tab["']?\]/.test(selector)) continue;
+    for (const [, value, unit] of body.matchAll(
+      /min-(?:block-size|height)\s*:\s*([\d.]+)(px|rem)/g,
+    )) {
+      const px = Number(value) * (unit === "rem" ? PX_PER_REM : 1);
+      if (largest === undefined || px > largest) largest = px;
+    }
+  }
+  return largest;
+}
+
 const isChatChunk = (reference) => /(^|\/)Chat\.[^/]*$/.test(reference);
 
 /** Chat code a page loads up front: a script or modulepreload for the chat chunk, or a page script importing it statically. */
@@ -254,6 +380,8 @@ async function auditPage(path, dist, descriptions, options) {
 
   if (await chatLoadedUpFront(html, dist))
     fail("loads chat code before it is activated");
+
+  failures.push(...auditControls(html, label(path)));
 
   // Last updated (D11): the rendered <time> must be the independently computed date.
   const times = tagsOf(html, "time");
@@ -362,6 +490,25 @@ async function auditLlms(dist, descriptions) {
   return failures;
 }
 
+/** The 404: the site's search, a link to Getting Started, and nothing that names a URL the site does not have. */
+function auditNotFound(html) {
+  const failures = auditControls(html, "404.html");
+  const fail = (rule) => failures.push(`404.html: ${rule}`);
+  if (tagsOf(html, "link").some((l) => l.rel === "canonical"))
+    fail("has a canonical link, but /404/ is not a page of the site");
+  if (/<script type="application\/ld\+json">/.test(html))
+    fail("has JSON-LD (a BreadcrumbList would name /404/ as a page)");
+  const toGettingStarted = [
+    ...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g),
+  ].some(
+    ([, attrs, inner]) =>
+      attributes(attrs).href === "/worktree/" &&
+      /getting started/i.test(textOf(inner)),
+  );
+  if (!toGettingStarted) fail('no link to Getting Started (href="/worktree/")');
+  return failures;
+}
+
 async function auditSite(dist) {
   const failures = [];
 
@@ -382,10 +529,27 @@ async function auditSite(dist) {
   }
 
   try {
-    await readFile(join(dist, "404.html"));
+    failures.push(
+      ...auditNotFound(await readFile(join(dist, "404.html"), "utf8")),
+    );
   } catch {
     failures.push("404.html is missing");
   }
+
+  const heights = [];
+  for (const file of await filesUnder(dist)) {
+    if (!file.endsWith(".css")) continue;
+    const height = tabMinHeightPx(await readFile(file, "utf8"));
+    if (height !== undefined) heights.push(height);
+  }
+  if (heights.length === 0)
+    failures.push(
+      "tabs: no stylesheet sets a minimum height on [role=tab] (custom.css, plan #235 requirement 8)",
+    );
+  else if (Math.max(...heights) < MIN_TAB_HEIGHT_PX)
+    failures.push(
+      `tabs: minimum height is ${Math.max(...heights)}px, expected at least ${MIN_TAB_HEIGHT_PX}px`,
+    );
 
   try {
     const root = await readFile(join(dist, "index.html"), "utf8");

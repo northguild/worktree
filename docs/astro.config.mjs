@@ -79,6 +79,7 @@ export default defineConfig({
         "./src/styles/northguild/primitives.css",
         "./src/styles/theme.css",
         "./src/styles/globals.css",
+        "./src/styles/custom.css",
       ],
       components: {
         SiteTitle: "./src/components/SiteTitle.astro",

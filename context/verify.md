@@ -99,10 +99,10 @@ unique meta description of at most 155 characters, one canonical link in the for
 script loaded up front, a "Last updated" date equal to `git log --follow -1` for the page's source file (as a UTC
 date), and an "Edit this page" link that is the repository URL + `/edit/main/docs/src/content/docs/<source>` for a
 source file that exists; across the site, a sitemap and an `llms.txt` (llmstxt.org format) each listing exactly those 23
-URLs, a `404.html`, Getting Started text in the root page's HTML, and no `shuding/nextra` string. The date rule is only meaningful on
+URLs, a `404.html` (with the site's search, a link to Getting Started, and no canonical link or JSON-LD), Getting Started text in the root page's HTML, and no `shuding/nextra` string. The date rule is only meaningful on
 full git history (CI uses `fetch-depth: 0`): on a shallow clone Starlight and the oracle both read the same truncated log. It prints every failed rule, one line each, and
 exits 1 on any. To run it by hand: `pnpm docs:build && pnpm docs:audit-dist`, or point it at another build with
-`node docs/scripts/audit-dist.mjs <dir>`. `og:image` is not checked until the preview image is decided
+`node docs/scripts/audit-dist.mjs <dir>`. It also checks accessible names on every page and the 404 (each button named, a name beside visible text containing it, each `<select>` labelled, the search button, and the chat launcher's `aria-keyshortcuts="Alt+Shift+C"`) and that the built CSS gives `[role=tab]` a minimum height of at least 44px; the search *input* is made in the browser and is checked there. `og:image` is not checked until the preview image is decided
 (`PREVIEW_IMAGE_DECIDED` in the script). The script's own test,
 `docs/scripts/audit-dist.test.mjs`, runs under `pnpm docs:test` (the docs Vitest config takes any `*.test.mjs`).
 Added 2026-11-04 for #235 and run from the repo root of a worktree that day, exiting 0.

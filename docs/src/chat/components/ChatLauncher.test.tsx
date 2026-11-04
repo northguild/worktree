@@ -111,6 +111,98 @@ describe("ChatLauncher", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
+  // Typing must not be swallowed: Option+Shift+C types "Ç" on a Mac, so while focus is where characters are
+  // entered the shortcut stands down. A text field is anything that takes typed characters: an <input> of a
+  // text-like type (HTML Standard, input type states: Text, Search, Telephone, URL, Email, Password, Date,
+  // Month, Week, Time, Local Date and Time, Number), <textarea>, <select> (type-ahead selection) and an
+  // editing host (`contenteditable`). Taken from the HTML Standard, not from the code under test.
+  it.each([
+    "text",
+    "search",
+    "tel",
+    "url",
+    "email",
+    "password",
+    "number",
+    "date",
+    "datetime-local",
+    "month",
+    "week",
+    "time",
+  ])("ignores the shortcut while focus is in <input type=%s>", (type) => {
+    const { load } = setup();
+    const input = document.createElement("input");
+    input.type = type;
+    document.body.append(input);
+    input.focus();
+
+    const notPrevented = fireEvent.keyDown(input, ALT_SHIFT_C);
+
+    expect(notPrevented).toBe(true);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("ignores the shortcut in an <input> with no type attribute (it is a text field)", () => {
+    const { load } = setup();
+    document.body.insertAdjacentHTML("beforeend", "<input id='bare'>");
+    const input = document.getElementById("bare") as HTMLElement;
+
+    expect(fireEvent.keyDown(input, ALT_SHIFT_C)).toBe(true);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["textarea", "<textarea id='t'></textarea>"],
+    ["select", "<select id='t'><option>a</option></select>"],
+    ["contenteditable", "<div id='t' contenteditable>x</div>"],
+    ["contenteditable=true", "<div id='t' contenteditable='true'>x</div>"],
+    [
+      "contenteditable=plaintext-only",
+      "<div id='t' contenteditable='plaintext-only'>x</div>",
+    ],
+    [
+      "an element inside contenteditable",
+      "<div contenteditable><p><b id='t'>x</b></p></div>",
+    ],
+  ])("ignores the shortcut while focus is in a %s", (_name, markup) => {
+    const { load } = setup();
+    document.body.insertAdjacentHTML("beforeend", markup);
+    const target = document.getElementById("t") as HTMLElement;
+
+    expect(fireEvent.keyDown(target, ALT_SHIFT_C)).toBe(true);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a button", "<button id='t'>b</button>"],
+    ["a link", "<a id='t' href='#x'>l</a>"],
+    ["a checkbox", "<input id='t' type='checkbox'>"],
+    ["a radio button", "<input id='t' type='radio'>"],
+    ["a submit button", "<input id='t' type='submit'>"],
+    ["a range slider", "<input id='t' type='range'>"],
+    ["contenteditable=false", "<div id='t' contenteditable='false'>x</div>"],
+    ["a plain paragraph", "<p id='t'>x</p>"],
+  ])("still opens the chat from %s", async (_name, markup) => {
+    const mountChat = vi.fn();
+    setup(vi.fn().mockResolvedValue({ mountChat }));
+    document.body.insertAdjacentHTML("beforeend", markup);
+    const target = document.getElementById("t") as HTMLElement;
+
+    const notPrevented = fireEvent.keyDown(target, ALT_SHIFT_C);
+
+    await waitFor(() => expect(mountChat).toHaveBeenCalledWith({ open: true }));
+    expect(notPrevented).toBe(false);
+  });
+
+  it("still opens the chat from the page body", async () => {
+    const mountChat = vi.fn();
+    setup(vi.fn().mockResolvedValue({ mountChat }));
+
+    fireEvent.keyDown(document.body, ALT_SHIFT_C);
+
+    await waitFor(() => expect(mountChat).toHaveBeenCalledWith({ open: true }));
+  });
+
   it("imports once however many times it is activated while loading", async () => {
     const mountChat = vi.fn();
     const { load } = setup(vi.fn().mockResolvedValue({ mountChat }));
@@ -213,5 +305,20 @@ describe("ChatLauncher with the real chat", () => {
     ).toBeVisible();
     // The static launcher has handed over (it is hidden), so assistive tech meets no stale "Open chat".
     expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+
+    // WAI-ARIA 1.2, aria-keyshortcuts: modifiers first and the key last, joined by "+", modifier names from UI
+    // Events ("Alt" is Option on Apple keyboards), letters case-insensitive. Alt+Shift+C is the chat shortcut.
+    expect(document.querySelector(".chat-launcher")).toHaveAttribute(
+      "aria-keyshortcuts",
+      "Alt+Shift+C",
+    );
+
+    // Typing is not swallowed in the chat's own text field either: the shortcut stands down and the chat stays open.
+    const notPrevented = fireEvent.keyDown(
+      within(dialog).getByRole("textbox"),
+      ALT_SHIFT_C,
+    );
+    expect(notPrevented).toBe(true);
+    expect(screen.getByRole("dialog")).toBeVisible();
   }, 20_000);
 });

@@ -5,10 +5,17 @@
  * few lines of script below. `.chat-launcher` is styled in globals.css, shared with the loaded chat's trigger.
  * The icon is heroicons' outline chat-bubble-bottom-center, as in the loaded chat.
  */
+import { CHAT_SHORTCUT_ARIA } from "../chat/shortcut";
 ---
 
 <div data-chat-launcher-root>
-  <button type="button" class="chat-launcher" aria-label="Open chat" data-chat-launcher>
+  <button
+    type="button"
+    class="chat-launcher"
+    aria-label="Open chat"
+    aria-keyshortcuts={CHAT_SHORTCUT_ARIA}
+    data-chat-launcher
+  >
     <svg
       xmlns="http://www.w3.org/2000/svg"
       fill="none"

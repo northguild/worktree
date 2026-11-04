@@ -82,4 +82,15 @@ describe("llms.txt", () => {
     const first = text.split("\n").find((l) => l.startsWith("- "));
     expect(first).toContain(`](${ORIGIN}):`);
   });
+
+  // The content collection also holds 404.md (the custom 404). It is not a page of the site, so a crawler told
+  // to read it would be sent to a URL that answers 404.
+  it("leaves the 404 out, whichever way the collection names it", () => {
+    const text = renderLlmsTxt([
+      ...expectedPages(),
+      { id: "404", title: "Page not found", description: "Not a page." },
+    ]);
+    expect(text).not.toContain("404");
+    expect(text).toBe(body().text);
+  });
 });

@@ -18,9 +18,13 @@ export interface LlmsPage {
   description: string;
 }
 
+/** `404.md` is in the content collection (it makes the custom 404) but is not a page of the site. */
+const NOT_FOUND_PATH = "404";
+
 export function renderLlmsTxt(pages: LlmsPage[]): string {
   const items = pages
     .map((page) => ({ ...page, path: pathOf(page.id) }))
+    .filter(({ path }) => path !== NOT_FOUND_PATH)
     // The root page first, then alphabetical, so the file is stable between builds.
     .sort((a, b) => a.path.localeCompare(b.path))
     .map(

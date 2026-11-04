@@ -136,7 +136,7 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   the mocked test at ≈95–109 is what pins the handover. The new tests use `fireEvent` where
   `react/testing.md` prefers `userEvent`. The error text is pinned by its own wording.
 - `useLocalStorage.getSnapshot` reads `window.localStorage` outside its try/catch (pre-existing).
-- Re-review of phase 5: Alt+Shift+C calls `preventDefault` wherever focus is, so on a Mac (where
+- (Resolved by phase 9: the shortcut now stands down in text fields.) Re-review of phase 5: Alt+Shift+C calls `preventDefault` wherever focus is, so on a Mac (where
   Option+Shift+C types "Ç") nobody can type "Ç" on the site — not in the chat's field, not in search. Ignoring
   the shortcut when focus is in `input`/`textarea`/`[contenteditable]`, or a key that types nothing, would fix
   it. Raised with the user. Screen-reader and OS bindings for Alt+Shift+C are unverified (§8 browser pass with
@@ -227,3 +227,21 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
 - Phase 9: a `404.md` in `src/content/docs` would enter `getCollection("docs")`, so `llms.txt` would list
   `/worktree/404/` and the audit would fail — the endpoint must filter it.
 - `context/stack.md:34` describes `docs/src/` without `pages/` or `components/` (incomplete, not false).
+
+## From phase 9's review (accessibility and the 404)
+
+- The Pagefind search input is named "Search" by its `title` (same as its visible placeholder), with no
+  `<label>`: meets the Scope and WCAG 4.1.2/2.5.3 but not `react/accessibility.md` :12/:57 literally. Starlight
+  has no option for a label; an override of its Search component would be a follow-up.
+- `isTextEntry` also exempts `<select>` (so the shortcut does nothing from the theme picker); treats
+  `contenteditable="FALSE"` and invalid values as editable; `closest()` misses shadow-root inputs (none today).
+- `og:url` dropped on the 404 (`Head.astro`) is untested — one line in `auditNotFound` plus a test.
+- `404.md` sits in the Context7-indexed folder; adding it to `context7.json` `excludeFiles` would keep the stub
+  out of agents' answers (then fix `stack.md`'s "only that one file has the name").
+- Audit robustness: `/<button\b([^>]*)>/` mis-splits Expressive Code copy buttons whose `data-code` holds a
+  raw `>`; `aria-labelledby` is accepted without checking the id exists; `tabMinHeightPx` accepts a
+  `[role=tab]` rule inside a media query.
+- `404.md` hard-codes `/worktree/` for the hero link (Starlight does not base-prefix hero links).
+- The favicon (`/worktree/favicon.svg`) still 404s on every page; no phase owns it.
+- The real-browser pass (headless Chrome) did not exercise the chat answering (needs the Gemini Worker and its
+  secret) or LCP/CLS — §8 rows for after the deploy.

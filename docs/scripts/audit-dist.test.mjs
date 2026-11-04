@@ -79,6 +79,23 @@ function jsonLd(path) {
   });
 }
 
+// Phase 9 (accessibility, plan #235 Scope): every icon-only button has an accessible name; a name that stands beside
+// visible text contains it (WCAG 2.5.3 Label in Name); the chat launcher announces its shortcut with
+// aria-keyshortcuts, valued "Alt+Shift+C" per WAI-ARIA 1.2 (the user's 2026-11-04 addition to the Scope); the
+// package-manager tabs are at least 44px tall (the issue, requirement 8). The markup below is what the built
+// pages carry for those controls, read off the build.
+const SEARCH_BUTTON =
+  '<button data-open-modal aria-label="Search"><svg aria-hidden="true"></svg><span aria-hidden="true">Search</span><kbd><kbd>Ctrl</kbd><kbd>K</kbd></kbd></button>';
+const MENU_BUTTON =
+  '<button popovertarget="starlight__sidebar"><svg aria-hidden="true"></svg><span class="sr-only">Menu</span></button>';
+const LAUNCHER =
+  '<button type="button" class="chat-launcher" aria-label="Open chat" aria-keyshortcuts="Alt+Shift+C" data-chat-launcher><svg aria-hidden="true"></svg></button>';
+const COPY_BUTTON =
+  '<button title="Copy to clipboard" data-code="x"><div></div></button>';
+const THEME_SELECT =
+  '<label><span class="sr-only">Select theme</span><select><option>Dark</option></select></label>';
+const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}${THEME_SELECT}${LAUNCHER}`;
+
 function page(path, overrides = {}) {
   const description = overrides.description ?? descriptionOf(path);
   const editHref = overrides.editHref ?? `${EDIT_BASE}${sourceOf(path)}`;
@@ -99,7 +116,21 @@ function page(path, overrides = {}) {
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
     '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
-    `</head><body><h1>${heading}</h1>${overrides.edit ?? `<a href="${editHref}" class="sl-flex">Edit page</a>`}${overrides.updated ?? `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`}${overrides.body ?? ""}</body></html>`,
+    `</head><body><h1>${heading}</h1>${overrides.edit ?? `<a href="${editHref}" class="sl-flex">Edit page</a>`}${overrides.updated ?? `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`}${overrides.controls ?? CONTROLS}${overrides.body ?? ""}</body></html>`,
+  ].join("\n");
+}
+
+// The 404 (plan #235 Scope): the site's search, a link to Getting Started, and none of what ties a page to a URL
+// it does not have: no canonical, no JSON-LD (so no BreadcrumbList to /worktree/404/).
+function notFoundPage(overrides = {}) {
+  return [
+    "<!doctype html><html><head><title>Page not found | @northguild/worktree</title>",
+    overrides.head ?? "",
+    "</head><body>",
+    overrides.controls ?? CONTROLS,
+    "<h1>Page not found</h1>",
+    overrides.link ?? '<a href="/worktree/">Getting Started</a>',
+    "</body></html>",
   ].join("\n");
 }
 
@@ -120,7 +151,12 @@ let dist;
 beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), "audit-dist-"));
   for (const path of PATHS) await write(dist, htmlPath(path), page(path));
-  await write(dist, "404.html", "<!doctype html><title>Not found</title>");
+  await write(dist, "404.html", notFoundPage());
+  await write(
+    dist,
+    "_astro/common.abc.css",
+    ".tab>[role=tab]{display:flex;min-block-size:44px}",
+  );
   await write(
     dist,
     "sitemap-index.xml",
@@ -468,6 +504,193 @@ describe("auditDist", () => {
   it("does not require a date or an edit link on 404.html (it is not one of the 23 pages)", async () => {
     // beforeEach's 404.html has neither, and the compliant site passes.
     expect(await audit()).toEqual([]);
+  });
+
+  describe("accessible names", () => {
+    // The control under test beside a search button and a launcher, which a page always has.
+    const withControls = (path, controls) =>
+      write(
+        dist,
+        htmlPath(path),
+        page(path, { controls: `${SEARCH_BUTTON}${LAUNCHER}${controls}` }),
+      );
+
+    it("fails an icon-only button with no accessible name, naming the page", async () => {
+      await withControls(
+        "faq",
+        '<button class="x"><svg aria-hidden="true"></svg></button>',
+      );
+      const failures = await audit();
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toMatch(/faq.*button.*accessible name/);
+    });
+
+    it("fails an empty aria-label, which names nothing", async () => {
+      await withControls(
+        "faq",
+        '<button aria-label=""><svg aria-hidden="true"></svg></button>',
+      );
+      expect((await audit()).some((f) => /faq.*accessible name/.test(f))).toBe(
+        true,
+      );
+    });
+
+    it("accepts a name from visible text, aria-labelledby, aria-label or title", async () => {
+      await withControls(
+        "faq",
+        '<button>Cancel</button><button aria-labelledby="a"><svg></svg></button><button aria-label="Close"><svg></svg></button><button title="Copy"><div></div></button>',
+      );
+      expect(await audit()).toEqual([]);
+    });
+
+    it("fails an icon-only button on 404.html too", async () => {
+      await write(
+        dist,
+        "404.html",
+        notFoundPage({ controls: "<button><svg></svg></button>" }),
+      );
+      expect((await audit()).some((f) => /404.*accessible name/.test(f))).toBe(
+        true,
+      );
+    });
+
+    // WCAG 2.5.3 Label in Name: the accessible name contains the visible label text.
+    it("fails a button whose aria-label leaves out its visible text", async () => {
+      await withControls("faq", '<button aria-label="Go">Search docs</button>');
+      expect((await audit()).some((f) => /faq.*Search docs/.test(f))).toBe(
+        true,
+      );
+    });
+
+    it("accepts an aria-label that contains its visible text, in any case", async () => {
+      await withControls(
+        "faq",
+        '<button aria-label="Open the Search dialog">search</button>',
+      );
+      expect(await audit()).toEqual([]);
+    });
+
+    it("does not count screen-reader-only or shortcut-hint text as the visible label", async () => {
+      await withControls(
+        "faq",
+        '<button aria-label="Search"><span class="sr-only">Find</span><kbd>Ctrl</kbd></button>',
+      );
+      expect(await audit()).toEqual([]);
+    });
+
+    it("fails a select with no label", async () => {
+      await withControls("faq", "<select><option>a</option></select>");
+      expect((await audit()).some((f) => /faq.*select/.test(f))).toBe(true);
+    });
+
+    it("fails a page with no search button", async () => {
+      await write(dist, htmlPath("faq"), page("faq", { controls: LAUNCHER }));
+      expect((await audit()).some((f) => /faq.*search/i.test(f))).toBe(true);
+    });
+  });
+
+  describe("the chat launcher's shortcut", () => {
+    it("fails a launcher without aria-keyshortcuts", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          controls:
+            SEARCH_BUTTON + LAUNCHER.replace(/ aria-keyshortcuts="[^"]*"/, ""),
+        }),
+      );
+      expect(
+        (await audit()).some((f) => /faq.*aria-keyshortcuts/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails a launcher announcing a shortcut the page does not bind", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          controls:
+            SEARCH_BUTTON + LAUNCHER.replace("Alt+Shift+C", "Control+K"),
+        }),
+      );
+      expect(
+        (await audit()).some((f) =>
+          /faq.*aria-keyshortcuts.*Control\+K/.test(f),
+        ),
+      ).toBe(true);
+    });
+
+    it("fails a page with no launcher", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", { controls: SEARCH_BUTTON }),
+      );
+      expect((await audit()).some((f) => /faq.*launcher/i.test(f))).toBe(true);
+    });
+  });
+
+  describe("package-manager tabs", () => {
+    const css = (rule) => write(dist, "_astro/common.abc.css", rule);
+
+    it("fails a build with no tab rule", async () => {
+      await css(".other{min-block-size:44px}");
+      expect((await audit()).some((f) => /tab/i.test(f))).toBe(true);
+    });
+
+    it("fails a tab rule shorter than 44px, and passes 44px, 2.75rem and a longer one", async () => {
+      await css(".tab>[role=tab]{min-block-size:43px}");
+      expect((await audit()).some((f) => /tab.*43/i.test(f))).toBe(true);
+      await css('.tab>[role="tab"]{min-height:44px}');
+      expect(await audit()).toEqual([]);
+      await css(".tab>[role=tab]{min-block-size:2.75rem}");
+      expect(await audit()).toEqual([]);
+      await css(".tab>[role=tab]{min-block-size:3rem}");
+      expect(await audit()).toEqual([]);
+    });
+
+    it("fails a tab rule that sets no minimum height", async () => {
+      await css(".tab>[role=tab]{padding:.275rem 1.25rem}");
+      expect((await audit()).some((f) => /tab/i.test(f))).toBe(true);
+    });
+  });
+
+  describe("404.html", () => {
+    const notFound = (overrides) =>
+      write(dist, "404.html", notFoundPage(overrides));
+
+    it("fails a 404 with a canonical link to a page that does not exist", async () => {
+      await notFound({
+        head: '<link rel="canonical" href="https://northguild.dev/worktree/404/"/>',
+      });
+      expect((await audit()).some((f) => /404.*canonical/.test(f))).toBe(true);
+    });
+
+    it("fails a 404 carrying JSON-LD, a BreadcrumbList above all", async () => {
+      await notFound({
+        head: '<script type="application/ld+json">{"@type":"BreadcrumbList"}</script>',
+      });
+      expect((await audit()).some((f) => /404.*JSON-LD/.test(f))).toBe(true);
+    });
+
+    it("fails a 404 with no link to Getting Started", async () => {
+      await notFound({ link: '<a href="/worktree/faq/">FAQ</a>' });
+      expect((await audit()).some((f) => /404.*Getting Started/.test(f))).toBe(
+        true,
+      );
+    });
+
+    it("fails a 404 whose Getting Started link goes elsewhere", async () => {
+      await notFound({ link: '<a href="/worktree/faq/">Getting Started</a>' });
+      expect((await audit()).some((f) => /404.*Getting Started/.test(f))).toBe(
+        true,
+      );
+    });
+
+    it("fails a 404 with no search", async () => {
+      await notFound({ controls: LAUNCHER });
+      expect((await audit()).some((f) => /404.*search/i.test(f))).toBe(true);
+    });
   });
 });
 

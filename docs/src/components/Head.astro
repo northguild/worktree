@@ -15,11 +15,20 @@ import { buildStructuredData, headTitle } from "../lib/structured-data";
 const { head, entry, siteTitle } = Astro.locals.starlightRoute;
 
 // "|" is Starlight's default titleDelimiter, which astro.config.mjs states outright.
-const tags = head.map((tag) =>
-  tag.tag === "title"
-    ? { ...tag, content: headTitle(entry.data.title, siteTitle, "|") }
-    : tag,
-);
+// The 404 (404.md) is in the collection but is not a page of the site: no canonical, no og:url and no JSON-LD may name
+// /worktree/404/, which answers 404. The audit checks the built 404.html for each.
+const isNotFound = entry.id === "404";
+const namesThisUrl = ({ tag, attrs }: (typeof head)[number]) =>
+  (tag === "link" && attrs?.rel === "canonical") ||
+  (tag === "meta" && attrs?.property === "og:url");
+
+const tags = head
+  .filter((tag) => !(isNotFound && namesThisUrl(tag)))
+  .map((tag) =>
+    tag.tag === "title"
+      ? { ...tag, content: headTitle(entry.data.title, siteTitle, "|") }
+      : tag,
+  );
 
 // Path relative to the site root: "" for Getting Started, "commands/branch" for a nested page.
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -30,4 +39,4 @@ const structuredData = JSON.stringify(
 ---
 
 {tags.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
-<script type="application/ld+json" set:html={structuredData} />
+{!isNotFound && <script type="application/ld+json" set:html={structuredData} />}

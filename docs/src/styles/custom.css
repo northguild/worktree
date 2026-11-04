@@ -1,0 +1,10 @@
+/*
+ * Accessibility adjustments to Starlight's own components (plan #235, phase 9).
+ *
+ * Package-manager tabs (<Tabs syncKey="pm">, D14): Starlight's tab is a line-height plus 0.275rem of padding, about
+ * 30px; the requirement is a target of at least 44px. `min-block-size` leaves a longer label free to wrap taller;
+ * the tab is already `display: flex; align-items: center`, so the label stays centred in the extra height.
+ */
+starlight-tabs .tab > [role="tab"] {
+  min-block-size: 44px;
+}
