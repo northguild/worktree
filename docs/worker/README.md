@@ -6,7 +6,7 @@ static site to the Google Gemini API, keeping `GEMINI_API_KEY` out of the browse
 ## How it fits together
 
 ```
-Browser (GitHub Pages)  →  POST https://<worker>.workers.dev?model=...
+Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev?model=...
                               ↓
                         Cloudflare Worker  (docs/worker/)
                               ↓

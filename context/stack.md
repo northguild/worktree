@@ -2,7 +2,7 @@
 
 `@northguild/worktree` is a Node CLI for managing git worktrees, published to npm and built on
 [oclif](https://oclif.io/docs/api_reference). The repository is a two-package pnpm workspace: the CLI at
-the root, and an Astro/Starlight documentation site under `docs/` that deploys to GitHub Pages and talks to
+the root, and an Astro/Starlight documentation site under `docs/` that deploys to Cloudflare as a Worker with static assets and talks to
 a small Cloudflare Worker proxying Gemini for its chat feature.
 
 One piece of history explains a lot of the current shape: the project moved from the `@burglekitt` org to
@@ -17,7 +17,7 @@ confusing errors rather than obvious ones — see the prerequisites and *Prepare
 | Package manager | pnpm 12.15.0 (`packageManager` in both `package.json` files; pnpm settings such as `overrides` and `allowBuilds` live in `pnpm-workspace.yaml`, since pnpm 11+ no longer reads the `pnpm` field of `package.json`), workspace of the root and `docs` (the root is listed as `"."` so Changesets can see it; `pnpm -r` still skips it) |
 | Database | none |
 | Storage | none |
-| Hosting | CLI → npm; docs → GitHub Pages; chat proxy → Cloudflare Workers |
+| Hosting | CLI → npm; docs → a Cloudflare Worker with static assets on the Route `northguild.dev/worktree*` (`docs/wrangler.jsonc`); the old GitHub Pages site is only a generated bundle (the schema file and redirect stubs); chat proxy → a second Cloudflare Worker |
 
 ## Layout
 
@@ -33,7 +33,8 @@ docs/                 Astro 7 + Starlight docs site, React 19 islands, Base UI; 
 docs/src/content/docs/ Starlight pages (23 pages: `index.mdx` is Getting Started, plus `commands/` (7 command pages and an index), `guides/` (9 guides and an index), `configuration`, `project-configuration`, `faq` and `changelog`)
 docs/src/             chat client, site metadata, styles
 docs/src/styles/northguild/ the NorthGuild theme, vendored unedited from `northguild/northguild.dev` `packages/theme/` (each file's header names the commit); `docs/src/styles/theme.css` is this site's own `--gmt-*` → `--sl-*` mapping. To refresh, see `docs/README.md` (Theme)
-docs/worker/          Cloudflare Worker proxying Gemini for the docs chat
+docs/wrangler.jsonc   the docs site's Worker config (assets from `docs/.deploy`, the build staged under `worktree/` by `stage:deploy`); `docs/scripts/` holds `audit-dist.mjs`, `build-legacy-pages.mjs` (writes the gitignored `docs/legacy/`) and `deploy-smoke.mjs`
+docs/worker/          Cloudflare Worker proxying Gemini for the docs chat (its own `wrangler.toml`)
 context/              planning-workflow artifacts (this directory)
 context7.json         what Context7 (context7.com) may index from this repo: the user docs, the usage skill and the README — see Documentation below
 .github/agents/       documentation-only agent manifests — nothing executes them
@@ -88,8 +89,8 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | `docs/src/content/docs/changelog.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
 | [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/content/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
 
-**Every surface above is sourced from this repository.** The GitHub Pages site is built from `docs/` by
-`docs-deploy.yml`, npm's package page renders the root `README.md`, and `context7.json` fixes what Context7
+**Every surface above is sourced from this repository.** The site is built from `docs/` and deployed by
+`docs-deploy.yml` (the old GitHub Pages site is a generated bundle from the same workflow), npm's package page renders the root `README.md`, and `context7.json` fixes what Context7
 may index from the tree. All of it is already in the tree, so sweeping the tree finds every surface. Context7
 lists the repository as `/northguild/worktree`; the claim fields are below.
 

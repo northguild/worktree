@@ -155,7 +155,15 @@ or no bump.
   serves 2.1.2. `v1.2.8` was once tagged and never released, so never published; that gap is closed
   because tag and release no longer come apart.
 - **Deploy (docs)** — `docs-deploy.yml`, on any push to `main` touching `docs/**`, `package.json`, the
-  lockfile, the workspace file or the version-sync script. **Runs**, green. It is not gated on a version.
+  lockfile, the workspace file, the version-sync script or the workflow itself. It is not gated on a version.
+  Two jobs. `site` tests, builds `docs/dist`, audits it (`pnpm docs:audit-dist`), copies it to
+  `docs/.deploy/worktree/` and runs `wrangler deploy` with `docs/wrangler.jsonc` (a Worker with static assets and no
+  script, on the Route `northguild.dev/worktree*`), then runs `docs/scripts/deploy-smoke.mjs` against the live URL,
+  retrying for route propagation. `legacy-pages` runs only after `site` is green and publishes the generated
+  `docs/legacy/` bundle to GitHub Pages: `schema/v1.json` plus a redirect stub per old route. The old Pages site is
+  that bundle and nothing else. **Never yet run in this shape**: the old single-job Pages deploy ran green, but the
+  Route deploy needs `CLOUDFLARE_API_TOKEN` to cover Routes on the `northguild.dev` zone, which no run has shown (it
+  was set for the chat Worker on `workers.dev`). Until a run's smoke test passes, do not call the site live.
 - **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`, or a manual
   dispatch. **Has succeeded once**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
   repository secrets on 2026-10-03, and a manual dispatch that day succeeded. Every earlier run, the last
@@ -167,14 +175,14 @@ or no bump.
 | Path | On a merge to `main` | Leaves behind |
 |---|---|---|
 | `@northguild/worktree` (root) | if its version moved: tested, built, published to npm, tagged, released | npm version + tag + GitHub release (all automatic) |
-| `docs` | deployed to GitHub Pages if the merge touched `docs/**` or `package.json` — version or not | nothing |
+| `docs` | built, audited and deployed to `northguild.dev/worktree/` (Cloudflare Worker with static assets), then the legacy bundle to GitHub Pages, if the merge touched `docs/**`, `package.json` or the other paths `docs-deploy.yml` lists — version or not | nothing |
 | `docs/worker` | deployed to Cloudflare if the merge touched `docs/worker/**` — version or not | nothing |
 
 **The npm path is gated on its own version, correctly.** `publish.yml` keys on the root version moving, and
 a merge that does not bump it publishes, tags and releases nothing.
 
-**The docs deploy is not gated at all**, and that is recorded as what this repository does rather than as
-the gate it could have. It ships whatever `docs/` holds at merge time. Because a feature's merge no longer
+**The docs deploy is not gated on a version**, and that is recorded as what this repository does rather than as
+the gate it could have (it is gated on the tests, the build and the audit passing). It ships whatever `docs/` holds at merge time. Because a feature's merge no longer
 bumps anything, the window is now the time between a merge and the release PR that publishes it: the live
 docs can describe behaviour npm does not have yet, and a docs change merged without a release describes
 behaviour that is not published at all. A deployed site leaves no tag and no release, so nothing records which commit

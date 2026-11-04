@@ -44,7 +44,7 @@ full data flow — nothing is a black box.
 ### Architecture overview
 
 ```
-Browser (GitHub Pages static site)
+Browser (static site on northguild.dev/worktree/)
   │
   │  POST /  { model, messages[] }
   ▼
@@ -196,6 +196,10 @@ or use the root-level aliases where noted.
 | `worker:setup-secret` | Store `GEMINI_API_KEY` as an encrypted Cloudflare secret (one-time) |
 | `worker:setup-dev-vars` | Write `worker/.dev.vars` from `.env.local` for local wrangler dev |
 | `worker:deploy` | Test → build → `wrangler deploy` |
+| `audit-dist` | Assert the SEO requirements over `dist/` (run after `build`; root alias `pnpm docs:audit-dist`) |
+| `build:legacy` | Write `legacy/` (gitignored): the bundle for the old GitHub Pages site |
+| `stage:deploy` | Copy `dist/` to `.deploy/worktree/` (gitignored), the directory `wrangler.jsonc` serves |
+| `deploy:smoke` | Check the live routes on `https://northguild.dev/worktree/` (`SMOKE_ORIGIN` overrides the origin) |
 
 ---
 
@@ -214,8 +218,8 @@ Set in **GitHub repo → Settings → Secrets and variables → Actions**.
 
 | Name | Type | Purpose |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | Secret | Used by `worker-deploy.yml` to authenticate `wrangler deploy` |
-| `CLOUDFLARE_ACCOUNT_ID` | Secret | Used by `worker-deploy.yml` alongside the API token |
+| `CLOUDFLARE_API_TOKEN` | Secret | Used by `worker-deploy.yml` and `docs-deploy.yml` to authenticate `wrangler deploy`; the site deploy needs it to cover Routes on the `northguild.dev` zone |
+| `CLOUDFLARE_ACCOUNT_ID` | Secret | Used by both workflows alongside the API token |
 | `GEMINI_WORKER_URL` | Variable (not secret) | Public worker URL baked into the static bundle at docs build time |
 
 `GEMINI_WORKER_URL` is a **variable**, not a secret — its value is the public
@@ -233,7 +237,16 @@ API key itself never leaves Cloudflare.
 ## Deployment
 
 The docs site deploys automatically on every push to `main` that touches
-`docs/**` (see `.github/workflows/docs-deploy.yml`).
+`docs/**` (see `.github/workflows/docs-deploy.yml`), as two jobs:
+
+- **`site`** builds `docs/dist`, audits it, copies it to `docs/.deploy/worktree/` and runs `wrangler deploy` with
+  `docs/wrangler.jsonc`: a Worker with static assets and no script, on the Route `northguild.dev/worktree*`.
+  The copy exists because a Route does not strip its path, while `astro build` writes `dist/` without the
+  `/worktree` base. It then runs `deploy:smoke` against the live URL, retrying for route propagation.
+- **`legacy-pages`** runs after `site` and publishes `docs/legacy/` (from `build:legacy`) to GitHub Pages: the
+  schema file at `https://northguild.github.io/worktree/schema/v1.json` plus a redirect stub per old route.
+
+The Worker config is not the chat Worker's: that one is `docs/worker/wrangler.toml`.
 
 The Cloudflare Worker deploys automatically on pushes to `main` that touch
 `docs/worker/**` (see `.github/workflows/worker-deploy.yml`).

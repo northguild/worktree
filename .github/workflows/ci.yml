@@ -43,4 +43,6 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm --filter docs typecheck
       - run: pnpm build
+      - run: pnpm docs:build
+      - run: pnpm docs:audit-dist
       - run: pnpm test

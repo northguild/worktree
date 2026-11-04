@@ -105,7 +105,8 @@ exits 1 on any. To run it by hand: `pnpm docs:build && pnpm docs:audit-dist`, or
 `node docs/scripts/audit-dist.mjs <dir>`. It also checks accessible names on every page and the 404 (each button named, a name beside visible text containing it, each `<select>` labelled, the search button, and the chat launcher's `aria-keyshortcuts="Alt+Shift+C"`) and that the built CSS gives `[role=tab]` a minimum height of at least 44px; the search *input* is made in the browser and is checked there. `og:image` is not checked until the preview image is decided
 (`PREVIEW_IMAGE_DECIDED` in the script). The script's own test,
 `docs/scripts/audit-dist.test.mjs`, runs under `pnpm docs:test` (the docs Vitest config takes any `*.test.mjs`).
-Added 2026-11-04 for #235 and run from the repo root of a worktree that day, exiting 0.
+Added 2026-11-04 for #235 and run from the repo root of a worktree that day, exiting 0. CI runs `pnpm docs:build` then
+`pnpm docs:audit-dist` after `pnpm build`, and `docs-deploy.yml` runs the same pair before it deploys anything.
 
 ## Test
 
@@ -158,7 +159,11 @@ test that genuinely has to be skipped is a conversation, not an edit to this pat
 - **`pnpm changeset:prepare-release`** — not a gate: it mutates the tree (bumps `package.json`, writes
   `CHANGELOG.md`, deletes the consumed notes) and is run once, by a maintainer, to make a release pull
   request. Never run it to verify anything.
-- **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
+- **`pnpm --filter docs deploy:smoke`** — requests the live `https://northguild.dev/worktree/` and retries up to 6
+  times, 10 s apart (about a minute), so it needs the network and a deployed site; `docs-deploy.yml` runs it after the deploy.
+- **`pnpm --filter docs stage:deploy`** and **`pnpm --filter docs build:legacy`** — produce the gitignored
+  `docs/.deploy/` and `docs/legacy/` for the deploy jobs; neither verifies anything.
+- **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` (the chat Worker's and the site's) — need `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID`. Never run against production from a workstation; `worker-deploy.yml` owns it.
 
 ## Prepare a fresh tree

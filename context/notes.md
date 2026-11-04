@@ -245,3 +245,22 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
 - The favicon (`/worktree/favicon.svg`) still 404s on every page; no phase owns it.
 - The real-browser pass (headless Chrome) did not exercise the chat answering (needs the Gemini Worker and its
   secret) or LCP/CLS — §8 rows for after the deploy.
+
+## From phase 11's review (deploy and CI)
+
+- The plan's phase 11 Done-when ("serves `./dist`") and D15 ("`assets.directory` = `./dist`") disagree with
+  the code on paper: `docs/wrangler.jsonc` serves `./.deploy`, where `stage:deploy` copies `dist` under
+  `worktree/`, because a Route does not strip its path and Astro writes `dist/` without the base. Same layout as
+  gmt's `outDir: ./dist/gmt`; the reviewer recommends amending the plan's wording, not the code.
+- Three settings must agree and nothing checks them before a live deploy: `wrangler.jsonc`'s `./.deploy`,
+  `stage:deploy`'s `worktree/` level and Astro's `base: "/worktree"`. A `docs/scripts/*.test.mjs` asserting the
+  staged directory holds `<base>/index.html` would pin it. `deploy-smoke.mjs`'s chain logic is untested
+  (export `run`, drive it against a local `http.createServer`).
+- `context/stack.md` ≈70-72 says `worker-deploy.yml` "has never succeeded" while `release.md` says once
+  (pre-existing on main); after this phase the docs deploy depends on the Cloudflare token too, so the "check
+  release.md before assuming a Worker change is live" line should cover docs changes.
+- `/worktreex` (matched by `worktree*`) gets an empty-body 404 — no `404.html` at `.deploy`'s root. Harmless.
+- The smoke test's slash-less row requires exactly `307`; a different redirect code in production turns `site`
+  red and skips `legacy-pages` — intended, worth knowing at the first deploy.
+- `docs/README.md` ≈239-240 says the site deploys on pushes touching `docs/**` only; the filter lists six paths.
+- The coder's dry run reported 116 assets; `docs/dist` and `docs/.deploy` hold 87 files each now.
