@@ -1,6 +1,6 @@
-import { gitSetConfigValue } from "../config.js";
 import { isValidBranch, isValidCommandLine } from "../validators.js";
 import { askConfigInput, shouldPrompt, type WizardContext } from "./context.js";
+import { saveConfigValue } from "./written.js";
 
 export async function configureDefaultSourceBranch(
   ctx: WizardContext,
@@ -14,7 +14,7 @@ export async function configureDefaultSourceBranch(
       },
       "origin/main",
     );
-    await gitSetConfigValue("defaultSourceBranch", defaultBranchName);
+    await saveConfigValue("defaultSourceBranch", defaultBranchName);
   }
 }
 
@@ -29,6 +29,6 @@ export async function configurePostCreate(ctx: WizardContext): Promise<void> {
       validate: async (value: string) =>
         value.trim() === "" || (await isValidCommandLine(value.trim())),
     });
-    await gitSetConfigValue("postCreate", postCreate.trim());
+    await saveConfigValue("postCreate", postCreate.trim());
   }
 }

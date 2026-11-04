@@ -1,9 +1,10 @@
-import { gitGetConfigValue, gitSetConfigValue } from "../config.js";
+import { gitGetConfigValue } from "../config.js";
 import { askConfirm } from "../prompt.js";
 import { splitCommandValue } from "../utils.js";
 import { isValidAgentKind, isValidCommandLine } from "../validators.js";
 import { askConfigInput, shouldPrompt, type WizardContext } from "./context.js";
 import { getStoredOpener } from "./opening.js";
+import { saveConfigValue } from "./written.js";
 
 /**
  * The `agent.command` question as `--names agent.command` asks it. Empty is
@@ -20,7 +21,7 @@ export async function configureAgentCommand(ctx: WizardContext): Promise<void> {
         "Command that `--agent` runs to start the coding agent (for example `claude --bg`)",
       validate: isValidCommandLine,
     });
-    await gitSetConfigValue("agent.command", agentCommand);
+    await saveConfigValue("agent.command", agentCommand);
   }
 }
 
@@ -46,7 +47,7 @@ export async function configureAgent(ctx: WizardContext): Promise<void> {
     ).trim();
     // Nothing stored and nothing given: nothing to write.
     if (answer !== "" || command !== "") {
-      await gitSetConfigValue("agent.command", answer);
+      await saveConfigValue("agent.command", answer);
     }
     command = answer;
   }
@@ -86,8 +87,8 @@ export async function configureAgent(ctx: WizardContext): Promise<void> {
     },
   );
   if (!startInSpace) {
-    await gitSetConfigValue("herdr.agent", "");
+    await saveConfigValue("herdr.agent", "");
   } else if (stored === "") {
-    await gitSetConfigValue("herdr.agent", derived);
+    await saveConfigValue("herdr.agent", derived);
   }
 }

@@ -962,6 +962,146 @@ describe("config command", () => {
       expect(mockSelect).not.toHaveBeenCalled();
     });
 
+    // D7 and phase 5: headings and the closing summary. The wording ("Setting
+    // up <title>", "Saved: <keys>") is phase 5's own choice; that no value, no
+    // unchanged key and no `has-called-config` appears in it is D7 and
+    // constraint 5, which are not decided by the code.
+    describe("headings and the closing summary (D7)", () => {
+      const printed = () => mockConsoleLog.mock.calls.flat().join("\n");
+      const closing = () =>
+        String(
+          mockConsoleLog.mock.calls
+            .flat()
+            .filter((line: unknown) =>
+              String(line).includes("Configuration complete"),
+            )
+            .at(-1),
+        );
+
+      it("prints a heading for a ticked item and none for an unticked one", async () => {
+        mockCheckbox.mockResolvedValue(["postCreate"] as never);
+        mockInput.mockResolvedValue("origin/main");
+        bare();
+
+        await config.run();
+
+        expect(printed()).toContain("Setting up the post-create command");
+        expect(printed()).not.toContain("Setting up Jira");
+        expect(printed()).not.toContain("Setting up branch prefixes");
+      });
+
+      it("prints no heading for an item with nothing left to ask", async () => {
+        // --missing with every Jira key stored: the Jira item is not listed.
+        const stored: Record<string, string> = {
+          "has-called-config": "true",
+          "jira.host": "x.atlassian.net",
+          "jira.email": "a@b.c",
+          "jira.apiToken": "secret",
+          "jira.autoAssign": "true",
+          "jira.autoStart": "true",
+          opener: "none",
+        };
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key) =>
+          Promise.resolve(stored[key] ?? ""),
+        );
+        mockCheckbox.mockResolvedValue(["jira", "postCreate"] as never);
+        mockInput.mockResolvedValue("pnpm install");
+        bare({ missing: true });
+
+        await config.run();
+
+        expect(printed()).not.toContain("Setting up Jira");
+        expect(printed()).toContain("Setting up the post-create command");
+      });
+
+      it("names only the keys written, never a stored or entered token", async () => {
+        const stored: Record<string, string> = {
+          "has-called-config": "true",
+          "linear.apiKey": "lin_STORED_secret",
+        };
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key) =>
+          Promise.resolve(stored[key] ?? ""),
+        );
+        mockCheckbox.mockResolvedValue(["linear", "postCreate"] as never);
+        mockInput.mockImplementation((async (o: { message: string }) =>
+          o.message === "Linear API key"
+            ? "lin_ENTERED_secret"
+            : "origin/main") as never);
+        mockSelect.mockResolvedValue("true" as never);
+        bare();
+
+        await config.run();
+
+        expect(closing()).toContain("linear.apiKey");
+        expect(printed()).not.toContain("lin_STORED_secret");
+        expect(printed()).not.toContain("lin_ENTERED_secret");
+        expect(closing()).not.toContain("has-called-config");
+      });
+
+      it("does not name a key whose answer matches what was stored", async () => {
+        const stored: Record<string, string> = {
+          "has-called-config": "true",
+          defaultSourceBranch: "origin/main",
+        };
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key) =>
+          Promise.resolve(stored[key] ?? ""),
+        );
+        mockCheckbox.mockResolvedValue(["postCreate"] as never);
+        mockInput.mockResolvedValue("origin/main");
+        bare();
+
+        await config.run();
+
+        expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
+          "defaultSourceBranch",
+          "origin/main",
+        );
+        expect(closing()).toContain("Saved: postCreate");
+        expect(closing()).not.toContain("defaultSourceBranch");
+        expect(closing()).not.toContain("has-called-config");
+      });
+
+      it("still asks two questions with nothing ticked and says nothing changed", async () => {
+        const stored: Record<string, string> = {
+          "has-called-config": "true",
+          defaultSourceBranch: "origin/main",
+        };
+        vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key) =>
+          Promise.resolve(stored[key] ?? ""),
+        );
+        mockCheckbox.mockResolvedValue([]);
+        mockInput.mockResolvedValue("origin/main");
+        bare();
+
+        await config.run();
+
+        expect(
+          mockCheckbox.mock.calls.length + mockInput.mock.calls.length,
+        ).toBe(2);
+        expect(printed()).not.toContain("Setting up");
+        expect(closing()).toContain("Nothing changed");
+      });
+
+      it("prints the summary before the project-config offer", async () => {
+        mockCheckbox.mockResolvedValue([]);
+        mockInput.mockResolvedValue("origin/main");
+        bare();
+
+        await config.run();
+
+        const summaryAt =
+          mockConsoleLog.mock.invocationCallOrder[
+            mockConsoleLog.mock.calls.findIndex((call: unknown[]) =>
+              String(call[0]).includes("Configuration complete"),
+            )
+          ];
+        const offerAt = vi.mocked(projectConfig.offerProjectConfig).mock
+          .invocationCallOrder[0];
+        expect(summaryAt).toBeDefined();
+        expect(summaryAt).toBeLessThan(offerAt as number);
+      });
+    });
+
     // D2 lists the eight items in this order; nothing is pre-ticked on a clean
     // config. The labels say what each does and tell no one a key name.
     it("lists the eight items in order, none ticked on a clean config", async () => {

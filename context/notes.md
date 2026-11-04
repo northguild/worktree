@@ -45,3 +45,14 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - After the loopback: no test pins "no invalid-kind hint when the opener is not `herdr`" — it holds only by the order of the early return and the kind check in `agent.ts`.
 - The config page's "a first word that is not a valid kind … is not stored" parenthetical sits after "which it keeps" and can read as applying when `herdr.agent` is already set, where the question is still asked.
 - A bare `--missing` run with `opener=herdr`, a path-headed stored `agent.command` and only `herdr.agent` missing lists Coding agent, asks nothing, and prints the hint — another narrow "listed, asks nothing" case.
+
+## Phase 5 — Headings and the closing summary (#236)
+
+- A listed, ticked item can print its heading and then ask nothing: `--missing` with `agent.command` stored, `herdr.agent` unset (Herdr on PATH) and `opener=editor`; or `opener=editor` and `codeEditor` stored with only `herdr.focus` unset. §4's "nothing left to ask → not listed" holds; the config page's "an item with nothing to ask prints none" slightly overstates this case.
+- The `has-called-config` exclusion assertion in `config.test.ts` cannot fail: both tests seed it as `"true"` before the run. Seeding it `""` would pin the rule.
+- The summary's key order (first-write order) is pinned in `run.test.ts` with no source beyond the implementation; D7 names no order.
+- `run.test.ts` "prints no heading for an item with nothing to ask" never ticks the item it checks; the `config.test.ts` counterpart does pin the rule.
+- `src/lib/config-wizard/written.ts` keeps module-level recording state (scoped by try/finally, one caller); a `save` on `WizardContext` would make the coupling explicit. Nested runs record only in the inner map; concurrent runs would mis-attribute — neither happens today.
+- Files touched outside the Files line: `written.ts`, `checklist.ts` (`title`), and the five section modules (`gitSetConfigValue` → `saveConfigValue`).
+- Writing `""` to an unset key is not listed in the summary (unset reads as `""`); clearing a stored value is.
+- During this phase's Gate 1, `src/commands/linear-listen.test.ts` failed intermittently with write ECONNRESET under full-suite load (pre-existing on main since #238; filed as #242).

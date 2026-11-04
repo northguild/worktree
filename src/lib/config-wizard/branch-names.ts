@@ -1,5 +1,5 @@
-import { gitSetConfigValue } from "../config.js";
 import { askConfigInput, shouldPrompt, type WizardContext } from "./context.js";
+import { saveConfigValue } from "./written.js";
 
 export async function configureBranchNames(ctx: WizardContext): Promise<void> {
   if (shouldPrompt(ctx, "branchPrefix.feature")) {
@@ -10,7 +10,7 @@ export async function configureBranchNames(ctx: WizardContext): Promise<void> {
       },
       "feature/",
     );
-    await gitSetConfigValue("branchPrefix.feature", featurePrefix);
+    await saveConfigValue("branchPrefix.feature", featurePrefix);
   }
 
   if (shouldPrompt(ctx, "branchPrefix.bugfix")) {
@@ -21,7 +21,7 @@ export async function configureBranchNames(ctx: WizardContext): Promise<void> {
       },
       "fix/",
     );
-    await gitSetConfigValue("branchPrefix.bugfix", bugfixPrefix);
+    await saveConfigValue("branchPrefix.bugfix", bugfixPrefix);
   }
 
   if (shouldPrompt(ctx, "branchPrefix.chore")) {
@@ -32,6 +32,6 @@ export async function configureBranchNames(ctx: WizardContext): Promise<void> {
       },
       "chore/",
     );
-    await gitSetConfigValue("branchPrefix.chore", chorePrefix);
+    await saveConfigValue("branchPrefix.chore", chorePrefix);
   }
 }

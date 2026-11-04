@@ -1,5 +1,5 @@
 import { EOL } from "node:os";
-import { gitGetConfigValue, gitSetConfigValue } from "../config.js";
+import { gitGetConfigValue } from "../config.js";
 import { askInput, askSelect } from "../prompt.js";
 import { isValidEmail, isValidWorkspaceId } from "../validators.js";
 import {
@@ -8,6 +8,7 @@ import {
   shouldPrompt,
   type WizardContext,
 } from "./context.js";
+import { saveConfigValue } from "./written.js";
 
 export async function configureJira(ctx: WizardContext): Promise<void> {
   if (shouldPrompt(ctx, "jira.host")) {
@@ -19,7 +20,7 @@ export async function configureJira(ctx: WizardContext): Promise<void> {
       message: "Jira host (for example https://your-domain.atlassian.net)",
       validate: (value) => (value.trim() ? true : "Jira host cannot be empty"),
     });
-    await gitSetConfigValue("jira.host", jiraHost);
+    await saveConfigValue("jira.host", jiraHost);
   }
 
   if (shouldPrompt(ctx, "jira.email")) {
@@ -27,7 +28,7 @@ export async function configureJira(ctx: WizardContext): Promise<void> {
       message: "Jira email",
       validate: isValidEmail,
     });
-    await gitSetConfigValue("jira.email", jiraEmail);
+    await saveConfigValue("jira.email", jiraEmail);
   }
 
   if (shouldPrompt(ctx, "jira.apiToken")) {
@@ -67,7 +68,7 @@ export async function configureJira(ctx: WizardContext): Promise<void> {
     // empty (or whitespace-only) answer keeps the stored token instead of
     // clearing it.
     if (jiraApiToken.trim()) {
-      await gitSetConfigValue("jira.apiToken", jiraApiToken.trim());
+      await saveConfigValue("jira.apiToken", jiraApiToken.trim());
     }
   }
 
@@ -97,7 +98,7 @@ export async function configureJira(ctx: WizardContext): Promise<void> {
         fallback: jiraAutoAssignDefault,
       },
     );
-    await gitSetConfigValue("jira.autoAssign", jiraAutoAssign);
+    await saveConfigValue("jira.autoAssign", jiraAutoAssign);
   }
 
   if (shouldPrompt(ctx, "jira.autoStart")) {
@@ -126,7 +127,7 @@ export async function configureJira(ctx: WizardContext): Promise<void> {
         fallback: jiraAutoStartDefault,
       },
     );
-    await gitSetConfigValue("jira.autoStart", jiraAutoStart);
+    await saveConfigValue("jira.autoStart", jiraAutoStart);
   }
 }
 
@@ -165,7 +166,7 @@ export async function configureGithub(ctx: WizardContext): Promise<void> {
     // prompt does not trim, and a stored whitespace token reads back as
     // unset, so it is judged and written trimmed.
     if (githubToken.trim()) {
-      await gitSetConfigValue("github.token", githubToken.trim());
+      await saveConfigValue("github.token", githubToken.trim());
     }
   }
 
@@ -197,7 +198,7 @@ export async function configureGithub(ctx: WizardContext): Promise<void> {
         fallback: autoAssignDefault,
       },
     );
-    await gitSetConfigValue("github.autoAssign", githubAutoAssign);
+    await saveConfigValue("github.autoAssign", githubAutoAssign);
   }
 }
 
@@ -229,7 +230,7 @@ export async function configureLinear(ctx: WizardContext): Promise<void> {
     // `worktree config` prompts every key whatever it already holds, so an
     // empty answer keeps the stored key instead of clearing it.
     if (linearApiKey.trim()) {
-      await gitSetConfigValue("linear.apiKey", linearApiKey.trim());
+      await saveConfigValue("linear.apiKey", linearApiKey.trim());
     }
   }
 
@@ -259,7 +260,7 @@ export async function configureLinear(ctx: WizardContext): Promise<void> {
         fallback: linearAutoStartDefault,
       },
     );
-    await gitSetConfigValue("linear.autoStart", linearAutoStart);
+    await saveConfigValue("linear.autoStart", linearAutoStart);
   }
 }
 
@@ -293,7 +294,7 @@ export async function configureClickUp(ctx: WizardContext): Promise<void> {
     // Only a real answer is written: an empty answer keeps the stored
     // token instead of clearing it.
     if (clickUpApiToken.trim()) {
-      await gitSetConfigValue("clickup.apiToken", clickUpApiToken.trim());
+      await saveConfigValue("clickup.apiToken", clickUpApiToken.trim());
     }
   }
 
@@ -306,7 +307,7 @@ export async function configureClickUp(ctx: WizardContext): Promise<void> {
     });
     // Empty skips the key rather than writing an empty value.
     if (clickUpWorkspaceId.trim()) {
-      await gitSetConfigValue("clickup.workspaceId", clickUpWorkspaceId.trim());
+      await saveConfigValue("clickup.workspaceId", clickUpWorkspaceId.trim());
     }
   }
 
@@ -336,6 +337,6 @@ export async function configureClickUp(ctx: WizardContext): Promise<void> {
         fallback: clickUpAutoStartDefault,
       },
     );
-    await gitSetConfigValue("clickup.autoStart", clickUpAutoStart);
+    await saveConfigValue("clickup.autoStart", clickUpAutoStart);
   }
 }

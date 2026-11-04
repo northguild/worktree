@@ -12,6 +12,8 @@ export type ChecklistId =
 
 export type ChecklistItem = {
   readonly id: ChecklistId;
+  /** Completes "Setting up …", the heading printed before the item's questions. */
+  readonly title: string;
   /** Says what the item does; never a key name. */
   readonly label: string;
   /** The keys the item asks, when still in the run's prompt list; a stored value in any pre-ticks it. */
@@ -25,6 +27,7 @@ export type ChecklistItem = {
 export const CHECKLIST_ITEMS: readonly ChecklistItem[] = [
   {
     id: "github",
+    title: "GitHub",
     label: "GitHub issues: a token, and whether to assign issues to you",
     // A stored value in any key pre-ticks the item. The token is optional
     // (`gh auth token` supplies one), so `gh auth` alone does not: only a
@@ -33,6 +36,7 @@ export const CHECKLIST_ITEMS: readonly ChecklistItem[] = [
   },
   {
     id: "jira",
+    title: "Jira",
     label: "Jira: your site, sign-in, and whether to assign and start issues",
     keys: [
       "jira.host",
@@ -44,21 +48,25 @@ export const CHECKLIST_ITEMS: readonly ChecklistItem[] = [
   },
   {
     id: "linear",
+    title: "Linear",
     label: "Linear: your API key, and whether to start issues",
     keys: ["linear.apiKey", "linear.autoStart"],
   },
   {
     id: "clickup",
+    title: "ClickUp",
     label: "ClickUp: your API token, workspace, and whether to start tasks",
     keys: ["clickup.apiToken", "clickup.workspaceId", "clickup.autoStart"],
   },
   {
     id: "opening",
+    title: "how worktrees open",
     label: "How worktrees open: in an editor or Herdr, or not at all",
     keys: ["opener", "codeEditor", "herdr.focus"],
   },
   {
     id: "agent",
+    title: "your coding agent",
     label: "Coding agent: the command that `--agent` runs",
     // `herdr.agent` is listed here, not under "How worktrees open": its
     // question follows the agent command (plan #236, D4).
@@ -66,11 +74,13 @@ export const CHECKLIST_ITEMS: readonly ChecklistItem[] = [
   },
   {
     id: "branchPrefixes",
+    title: "branch prefixes",
     label: "Branch prefixes: for feature, bugfix and chore branches",
     keys: ["branchPrefix.feature", "branchPrefix.bugfix", "branchPrefix.chore"],
   },
   {
     id: "postCreate",
+    title: "the post-create command",
     label: "Command to run after creating a worktree",
     keys: ["postCreate"],
   },

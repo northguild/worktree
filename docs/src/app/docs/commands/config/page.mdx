@@ -51,6 +51,13 @@ above. Nothing is asked behind a yes/no, so ticking nothing costs two questions.
 a key left to ask: `--missing` and the keys a [project file](#project-file) supplies take keys out before the
 checklist is built, and with no item left the checklist is not shown.
 
+Each ticked item opens with a one-line heading, such as "Setting up Jira", so you can see which part you are in; an
+item with nothing to ask prints none, and a `--names` run prints no headings because it has no checklist. The
+run ends with one line naming the keys it saved, for example "Configuration complete! Saved: opener, codeEditor",
+or "Configuration complete! Nothing changed." when it stored nothing new. The line lists key names only, never a
+value, so a token never reaches your screen or a pasted bug report. A key whose answer matches what was already
+stored is not listed. Both read as words, without colour.
+
 ## Project File
 
 When the repository's `.worktree.yml` sets a team key, `worktree config` knows. See

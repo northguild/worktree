@@ -1,9 +1,10 @@
-import { gitGetConfigValue, gitSetConfigValue } from "../config.js";
+import { gitGetConfigValue } from "../config.js";
 import { OPENER_KINDS } from "../constants.js";
 import { askConfirm, askSelect } from "../prompt.js";
 import type { OpenerKind } from "../types.js";
 import { isValidAgentKind, isValidCommand } from "../validators.js";
 import { askConfigInput, shouldPrompt, type WizardContext } from "./context.js";
+import { saveConfigValue } from "./written.js";
 
 /**
  * The opener the wizard works from: a stored value that is one of the three
@@ -46,7 +47,7 @@ export async function configureOpener(
       fallback: openerDefault,
     },
   );
-  await gitSetConfigValue("opener", opener);
+  await saveConfigValue("opener", opener);
   return opener;
 }
 
@@ -82,7 +83,7 @@ export async function configureCodeEditor(ctx: WizardContext): Promise<void> {
       },
       "code",
     );
-    await gitSetConfigValue("codeEditor", codeEditor);
+    await saveConfigValue("codeEditor", codeEditor);
   }
 }
 
@@ -111,7 +112,7 @@ export async function configureHerdrFocus(ctx: WizardContext): Promise<void> {
         fallback: focusDefault,
       },
     );
-    await gitSetConfigValue("herdr.focus", String(herdrFocus));
+    await saveConfigValue("herdr.focus", String(herdrFocus));
   }
 }
 
@@ -129,6 +130,6 @@ export async function configureHerdrAgentKind(
       validate: (value: string) =>
         value.trim() === "" || isValidAgentKind(value.trim()),
     });
-    await gitSetConfigValue("herdr.agent", herdrAgent.trim());
+    await saveConfigValue("herdr.agent", herdrAgent.trim());
   }
 }

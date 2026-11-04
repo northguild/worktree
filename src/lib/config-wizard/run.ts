@@ -23,6 +23,7 @@ import {
   configureJira,
   configureLinear,
 } from "./trackers.js";
+import { recordWrittenKeys } from "./written.js";
 
 // What a ticked item asks. Each function asks only the keys in the run's
 // prompt list, so an item never asks what `--missing` or a project file removed.
@@ -44,6 +45,15 @@ const CONFIGURE: Record<ChecklistId, (ctx: WizardContext) => Promise<void>> = {
  * checklist order. Un-ticking only means "do not ask now": nothing is cleared.
  */
 export async function runWizard(ctx: WizardContext): Promise<void> {
+  const written = await recordWrittenKeys(() => askQuestions(ctx));
+  // Names only, never a value: a token must not reach a screen share or a
+  // pasted bug report. A key put back to what it held is not "written".
+  const summary =
+    written.length > 0 ? `Saved: ${written.join(", ")}` : "Nothing changed.";
+  ctx.log(`${chalk.green("✔")} Configuration complete! ${summary}${EOL}`);
+}
+
+async function askQuestions(ctx: WizardContext): Promise<void> {
   if (ctx.names) {
     await configureJira(ctx);
     await configureGithub(ctx);
@@ -78,10 +88,11 @@ export async function runWizard(ctx: WizardContext): Promise<void> {
     await configureDefaultSourceBranch(ctx);
     for (const item of items) {
       if (ticked.includes(item.id)) {
+        // Words, not colour: the bold is lost under NO_COLOR and the heading
+        // still reads. A listed item has a key left to ask (checklist.ts).
+        ctx.log(chalk.bold(`Setting up ${item.title}`));
         await CONFIGURE[item.id](ctx);
       }
     }
   }
-
-  ctx.log(`${chalk.green("✔")} Configuration complete!${EOL}`);
 }
