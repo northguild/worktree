@@ -44,7 +44,8 @@
  * the 404 link an icon (`rel="icon"`), with every icon link (`icon`, `shortcut icon`, `apple-touch-icon`) naming a file
  * in the build, a regular file and not a directory. The favicon 404'd on every page until then, and nothing noticed. The
  * og:image is 1200×630 (plan §4.4), read from the file's own header, and `og:image:type`, `:width` and `:height` say what
- * the file is.
+ * the file is. Every page's and the 404's `<title>` is its `og:title` and `og:site_name` joined by GMT's ` · ` (the user,
+ * 2026-11-04, replacing Starlight's default ` | `), or its `og:title` alone where that already names the site.
  *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
@@ -128,6 +129,30 @@ export function imageSize(bytes) {
 
 /** Plan §4.4: a 1200×630 preview image. */
 const PREVIEW_SIZE = { width: 1200, height: 630 };
+
+/**
+ * The title is the page's own (its `og:title`) and the site's (`og:site_name`), joined by GMT's middle dot ` · ` (the user,
+ * 2026-11-04, replacing D9's ` | `); a page whose own title already names the site carries it alone, never twice (D9).
+ * Starlight's default delimiter is the pipe, so a title built anywhere but Head.astro would bring it back; GMT's own 404
+ * shows the drift (`404 | @northguild/gmt`). On a page a missing `og:title` or `og:site_name` is its own rule's failure;
+ * the 404 has no such rule, so `reportMissing` reports it here.
+ */
+function auditTitle(html, { reportMissing = false } = {}) {
+  const title = html.match(/<title>([^<]*)<\/title>/)?.[1];
+  if (title === undefined) return ["no <title>"];
+  const meta = (property) =>
+    tagsOf(html, "meta").find((m) => m.property === property)?.content;
+  const own = meta("og:title");
+  const site = meta("og:site_name");
+  if (!own || !site)
+    return reportMissing
+      ? ["the title cannot be checked: no og:title or og:site_name"]
+      : [];
+  const expected = own.includes(site) ? own : `${own} · ${site}`;
+  return decode(title) === expected
+    ? []
+    : [`title is "${decode(title)}", expected "${expected}"`];
+}
 
 /** Every page and the 404 link an icon, and every icon link names a file in the build (plan §9 Q3). */
 function auditIcons(html, dist) {
@@ -1008,6 +1033,7 @@ async function auditPage(path, dist, descriptions, options) {
   if (!metaContent("name", "twitter:image:alt"))
     fail("no twitter:image:alt tag");
   for (const rule of auditIcons(html, dist)) fail(rule);
+  for (const rule of auditTitle(html)) fail(rule);
 
   const ld = jsonLdTypes(html);
   if (ld.error)
@@ -1221,7 +1247,10 @@ async function auditSite(dist) {
   try {
     const notFound = await readFile(join(dist, "404.html"), "utf8");
     failures.push(...auditNotFound(notFound));
-    for (const rule of auditIcons(notFound, dist))
+    for (const rule of [
+      ...auditIcons(notFound, dist),
+      ...auditTitle(notFound, { reportMissing: true }),
+    ])
       failures.push(`404.html: ${rule}`);
     for (const rule of await auditHero(notFound, dist, false))
       failures.push(`404.html: ${rule}`);

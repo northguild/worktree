@@ -13,7 +13,7 @@ import { buildStructuredData, headTitle } from "../lib/structured-data";
 
 const { head, entry, siteTitle } = Astro.locals.starlightRoute;
 
-// "|" is Starlight's default titleDelimiter, which astro.config.mjs states outright.
+// "·" is astro.config.mjs's titleDelimiter (GMT's middle dot); the audit fails any title that still carries " | ".
 // The 404 (404.md) is in the collection but is not a page of the site: no canonical, no og:url and no JSON-LD may name
 // /worktree/404/, which answers 404. The audit checks the built 404.html for each.
 const isNotFound = entry.id === "404";
@@ -25,7 +25,7 @@ const tags = head
   .filter((tag) => !(isNotFound && namesThisUrl(tag)))
   .map((tag) =>
     tag.tag === "title"
-      ? { ...tag, content: headTitle(entry.data.title, siteTitle, "|") }
+      ? { ...tag, content: headTitle(entry.data.title, siteTitle, "·") }
       : tag,
   );
 

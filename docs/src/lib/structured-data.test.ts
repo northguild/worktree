@@ -205,16 +205,16 @@ describe("buildStructuredData", () => {
   });
 });
 
-// D9: titles read `<page> | <site title>`. A page whose own title already names the site would repeat it.
+// D9, with GMT's middle dot (the user, 2026-11-04): titles read `<page> · <site title>`. A page whose own title already names the site would repeat it.
 describe("headTitle", () => {
   it("joins the page title and the site title with the delimiter", () => {
     expect(
       headTitle(
         "worktree list: see every git worktree",
         "@northguild/worktree",
-        "|",
+        "·",
       ),
-    ).toBe("worktree list: see every git worktree | @northguild/worktree");
+    ).toBe("worktree list: see every git worktree · @northguild/worktree");
   });
 
   it("leaves a title that already names the site as it is", () => {
@@ -222,7 +222,7 @@ describe("headTitle", () => {
       headTitle(
         "Getting Started with @northguild/worktree",
         "@northguild/worktree",
-        "|",
+        "·",
       ),
     ).toBe("Getting Started with @northguild/worktree");
   });

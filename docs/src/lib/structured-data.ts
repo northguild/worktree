@@ -110,7 +110,7 @@ export function buildStructuredData(
   return { "@context": "https://schema.org", "@graph": graph };
 }
 
-/** `<page> | <site>`; a page whose own title already names the site is left as it is, not repeated. */
+/** `<page> · <site>`; a page whose own title already names the site is left as it is, not repeated. */
 export function headTitle(
   pageTitle: string,
   siteTitle: string,

@@ -211,7 +211,7 @@ function page(path, overrides = {}) {
       : "";
   return [
     "<!doctype html><html><head>",
-    `<title>${titleOf(path)} | @northguild/worktree</title>`,
+    `<title>${titleOf(path)} · @northguild/worktree</title>`,
     `<link rel="canonical" href="${canonical}"/>`,
     `<meta property="og:title" content="${path || "Home"}"/>`,
     `<meta property="og:description" content="${description}"/>`,
@@ -233,7 +233,9 @@ function page(path, overrides = {}) {
 // it does not have: no canonical, no JSON-LD (so no BreadcrumbList to /worktree/404/).
 function notFoundPage(overrides = {}) {
   return [
-    "<!doctype html><html><head><title>Page not found | @northguild/worktree</title>",
+    "<!doctype html><html><head><title>Page not found · @northguild/worktree</title>",
+    overrides.og ??
+      '<meta property="og:title" content="Page not found"/><meta property="og:site_name" content="@northguild/worktree"/>',
     overrides.icons ?? ICONS,
     overrides.head ?? "",
     "</head><body>",
@@ -589,6 +591,68 @@ describe("auditDist", () => {
       await write(dist, "404.html", notFoundPage({ icons: "" }));
       expect(await audit()).toEqual([
         '404.html: no favicon (a <link rel="icon">)',
+      ]);
+    });
+  });
+
+  // D9 with GMT's middle dot (the user, 2026-11-04): a title is its og:title and the site's name joined by " · ", or its
+  // og:title alone where that already names the site. Starlight's default pipe, or any other delimiter, fails.
+  describe("the title", () => {
+    it.each([
+      ["the pipe", " | "],
+      ["a dash", " - "],
+    ])("fails a page title joined with %s", async (_label, delimiter) => {
+      await rewrite("faq", (html) =>
+        html.replace(
+          " · @northguild/worktree</title>",
+          `${delimiter}@northguild/worktree</title>`,
+        ),
+      );
+      expect(await audit()).toEqual([
+        `/faq/: title is "faq${delimiter}@northguild/worktree", expected "faq · @northguild/worktree"`,
+      ]);
+    });
+
+    it("fails a title that repeats a site name its page title already carries", async () => {
+      await rewrite("faq", (html) =>
+        html
+          .replace(
+            '<meta property="og:title" content="faq"/>',
+            '<meta property="og:title" content="faq for @northguild/worktree"/>',
+          )
+          .replace(
+            "<title>faq · @northguild/worktree</title>",
+            "<title>faq for @northguild/worktree · @northguild/worktree</title>",
+          ),
+      );
+      expect(await audit()).toEqual([
+        '/faq/: title is "faq for @northguild/worktree · @northguild/worktree", expected "faq for @northguild/worktree"',
+      ]);
+    });
+
+    it("fails a page with no <title>", async () => {
+      await rewrite("faq", (html) => html.replace(/<title>[^<]*<\/title>/, ""));
+      expect(await audit()).toEqual(["/faq/: no <title>"]);
+    });
+
+    it("fails a 404 title that uses the pipe", async () => {
+      await write(
+        dist,
+        "404.html",
+        notFoundPage().replace(
+          "Page not found · @northguild/worktree",
+          "Page not found | @northguild/worktree",
+        ),
+      );
+      expect(await audit()).toEqual([
+        '404.html: title is "Page not found | @northguild/worktree", expected "Page not found · @northguild/worktree"',
+      ]);
+    });
+
+    it("fails a 404 whose title cannot be checked (no og:title)", async () => {
+      await write(dist, "404.html", notFoundPage({ og: "" }));
+      expect(await audit()).toEqual([
+        "404.html: the title cannot be checked: no og:title or og:site_name",
       ]);
     });
   });

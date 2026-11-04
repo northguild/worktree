@@ -17,8 +17,9 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "@northguild/worktree",
-      // The delimiter in `<title>`: `<page> | @northguild/worktree` (D9). Starlight's default, stated so Head.astro can rely on it.
-      titleDelimiter: "|",
+      // The delimiter in `<title>`: `<page> · @northguild/worktree`, the middle dot GMT's pages use (`Core Rules · GMT`; the
+      // user, 2026-11-04, replacing D9's ` | `). Head.astro builds the title itself and passes the same character.
+      titleDelimiter: "·",
       // "Edit this page" links: baseUrl + the page's path from the docs root (D11's sibling; `docs/` is the Astro root).
       editLink: {
         baseUrl: "https://github.com/northguild/worktree/edit/main/docs/",
