@@ -2,7 +2,7 @@
 
 `@northguild/worktree` is a Node CLI for managing git worktrees, published to npm and built on
 [oclif](https://oclif.io/docs/api_reference). The repository is a two-package pnpm workspace: the CLI at
-the root, and a Next.js/Nextra documentation site under `docs/` that deploys to GitHub Pages and talks to
+the root, and an Astro/Starlight documentation site under `docs/` that deploys to Cloudflare as a Worker with static assets and talks to
 a small Cloudflare Worker proxying Gemini for its chat feature.
 
 One piece of history explains a lot of the current shape: the project moved from the `@burglekitt` org to
@@ -17,7 +17,7 @@ confusing errors rather than obvious ones — see the prerequisites and *Prepare
 | Package manager | pnpm 12.15.0 (`packageManager` in both `package.json` files; pnpm settings such as `overrides` and `allowBuilds` live in `pnpm-workspace.yaml`, since pnpm 11+ no longer reads the `pnpm` field of `package.json`), workspace of the root and `docs` (the root is listed as `"."` so Changesets can see it; `pnpm -r` still skips it) |
 | Database | none |
 | Storage | none |
-| Hosting | CLI → npm; docs → GitHub Pages; chat proxy → Cloudflare Workers |
+| Hosting | CLI → npm; docs → a Cloudflare Worker with static assets on the Route `northguild.dev/worktree*` (`docs/wrangler.jsonc`); the old GitHub Pages site is only a generated bundle (the schema file and redirect stubs); chat proxy → a second Cloudflare Worker |
 
 ## Layout
 
@@ -28,12 +28,13 @@ src/lib/              CLI helpers — git integration, validators, env, types, c
 src/integrations/     GitHub, Jira, Linear and ClickUp integrations
 scripts/              version-sync script, run by `pnpm sync-version`; `release-notes.mjs`, which publish.yml uses to cut a version's CHANGELOG section
 .changeset/           Changesets config and pending release notes (`.changeset/<name>.md`)
-patches/              pnpm patches applied through `patchedDependencies` in `pnpm-workspace.yaml`; `nextra-theme-docs@4.6.1` makes its layout's `children` optional, which zod >=4.4 otherwise rejects at prerender. Drop it once nextra ships a fix
 skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`. Nothing on npm discovers it since TanStack Intent went (`skills add` reads GitHub); it stays in `files` so an `npm i -g` install has a copy matching its own version on disk
-docs/                 Next.js 16 + Nextra 4 docs app, React 19, Base UI; own package.json
-docs/src/app/         docs content
-docs/src/             UI, components, chat client, site metadata
-docs/worker/          Cloudflare Worker proxying Gemini for the docs chat
+docs/                 Astro 7 + Starlight docs site, React 19 islands, Base UI; own package.json, `astro.config.mjs`
+docs/src/content/docs/ Starlight pages (26 pages: `index.mdx` is the landing at `/worktree/`, `getting-started.mdx` is Getting Started at `/worktree/getting-started/`, plus `commands/` (8 command pages and an index), `guides/` (10 guides and an index), `configuration`, `project-configuration`, `faq` and `changelog`)
+docs/src/             chat client, site metadata, styles; `components/Hero.astro` puts the landing's copy beside `HeroLeaves.astro` (the leaf-particle hero: a still SVG, a canvas and a small loader script; the effect itself, in `hero/` with OGL, is a chunk only the loader's dynamic `import()` reaches, so the landing alone ships hero script; its CSS is in the shared stylesheet)
+docs/src/styles/northguild/ the NorthGuild theme, vendored unedited from `northguild/northguild.dev` `packages/theme/` (each file's header names the commit); `docs/src/styles/theme.css` is this site's own `--gmt-*` → `--sl-*` mapping. To refresh, see `docs/README.md` (Theme)
+docs/wrangler.jsonc   the docs site's Worker config (assets from `docs/.deploy`, the build staged under `worktree/` by `stage:deploy`); `docs/scripts/` holds `audit-dist.mjs`, `theme-contrast.mjs` (measures the theme's contrast pairs), `build-legacy-pages.mjs` (writes the gitignored `docs/legacy/`) and `deploy-smoke.mjs`
+docs/worker/          Cloudflare Worker proxying Gemini for the docs chat (its own `wrangler.toml`)
 context/              planning-workflow artifacts (this directory)
 context7.json         what Context7 (context7.com) may index from this repo: the user docs, the usage skill and the README — see Documentation below
 .github/agents/       documentation-only agent manifests — nothing executes them
@@ -54,7 +55,7 @@ context7.json         what Context7 (context7.com) may index from this repo: the
   example or template — Biome 2 loads every one it finds as a nested config, and no exclusion in the root
   config can stop it. [`verify.md`](verify.md) has the detail; the standards bundle's starter template is
   renamed to `biome-example.json` here for exactly this reason.
-- **The docs app is static/SSR and must never hold a secret.** `GEMINI_API_KEY` lives in Cloudflare Worker
+- **The docs site is static and must never hold a secret.** `GEMINI_API_KEY` lives in Cloudflare Worker
   secrets (`pnpm --filter docs worker:setup-secret`, i.e. `wrangler secret put`). For local development,
   `worker:setup-dev-vars` reads it from `docs/.env.local` and writes `docs/worker/.dev.vars`; both are
   gitignored. `ci.yml` runs a secret scan that fails the build if a key value is committed.
@@ -62,7 +63,7 @@ context7.json         what Context7 (context7.com) may index from this repo: the
   `docs/src/lib/site-meta.ts`. The version bump arrives through `pnpm changeset:prepare-release` in the
   release pull request, which runs `pnpm sync-version` after `changeset version`; never bump by hand. CI
   hard-fails on drift via `git diff --exit-code`. Use the root `pnpm docs:dev`, not `pnpm --filter docs dev`
-  — the former syncs the version first.
+  — the former syncs the version first. The chat reads the Worker URL from `PUBLIC_GEMINI_WORKER_URL` (Astro only exposes `PUBLIC_` variables to client code); `docs-deploy.yml` feeds it from the `GEMINI_WORKER_URL` repository variable.
 - **One lockfile, at the root.** There is no `.npmrc` — the one that pinned
   `shared-workspace-lockfile=true` was removed in 260eb2f, and pnpm's default keeps the behaviour. CI
   still fails the build if `docs/pnpm-lock.yaml` ever appears, so do not add one.
@@ -81,20 +82,20 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | Surface | Who reads it | What has to reach it |
 |---|---|---|
 | [`README.md`](../README.md) | someone deciding whether to install; npm renders it as the package page | the fast path — a new command, a renamed flag, a change to what the tool is for |
-| `docs/src/app/docs/` | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (8), plus `configuration/`, `getting-started/`, `faq/`, and `guides/` (10) |
+| `docs/src/content/docs/` | users looking something up, at https://northguild.dev/worktree/ | any user-visible CLI behaviour. One page per command under `commands/` (8), plus `configuration.mdx`, `project-configuration.mdx`, `index.mdx` (the landing), `getting-started.mdx`, `faq.mdx`, and `guides/` (10) |
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
 | `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |
-| `docs/src/app/docs/changelog/page.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
-| [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/app/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
+| `docs/src/content/docs/changelog.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
+| [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/content/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
 
-**Every surface above is sourced from this repository.** The GitHub Pages site is built from `docs/` by
-`docs-deploy.yml`, npm's package page renders the root `README.md`, and `context7.json` fixes what Context7
+**Every surface above is sourced from this repository.** The site is built from `docs/` and deployed by
+`docs-deploy.yml` (the old GitHub Pages site is a generated bundle from the same workflow), npm's package page renders the root `README.md`, and `context7.json` fixes what Context7
 may index from the tree. All of it is already in the tree, so sweeping the tree finds every surface. Context7
 lists the repository as `/northguild/worktree`; the claim fields are below.
 
-`context7.json` indexes `docs/src/app/docs/` (minus its `changelog/` page, which is release policy, not usage
-docs), `skills/` and the root `README.md`, and nothing else: `folders` is a whitelist, and Context7 always
+`context7.json` indexes `docs/src/content/docs/` (minus `changelog.mdx`, which is release policy, not usage
+docs; `excludeFiles` takes a bare filename, not a path, and only that one file has the name), `skills/` and the root `README.md`, and nothing else: `folders` is a whitelist, and Context7 always
 indexes root-level markdown, which is why `AGENTS.md`, `CLAUDE.md` and `CHANGELOG.md` are named in
 `excludeFiles` (specifying `excludeFiles` or `excludeFolders` at all switches off Context7's default exclusions).
 

@@ -1,9 +1,15 @@
 name: Deploy Docs
 
+# Two deploys from one push (#235):
+#   site          - the Astro build, as a Worker with static assets on northguild.dev/worktree* (docs/wrangler.jsonc)
+#   legacy-pages  - the generated bundle on https://northguild.github.io/worktree/: the schema file plus a
+#                   redirect stub per old route
 on:
   push:
     branches:
       - main
+    # Everything that changes the built site: the docs workspace (content, config, scripts, the Worker config),
+    # the version it shows (package.json, synced by scripts/sync-docs-version.mjs), the install, this file.
     paths:
       - "docs/**"
       - "package.json"
@@ -15,20 +21,70 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
-  build:
+  site:
     runs-on: ubuntu-latest
+    # An in-flight deploy is never cancelled mid-publish.
+    concurrency:
+      group: docs-site
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The audit's "Last updated" rule reads git history for each page's source file.
           fetch-depth: 0
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm docs:test
+
+      - run: pnpm docs:build
+        env:
+          # Public URL of the deployed chat Worker, baked into the static bundle at build time.
+          # Set as a repository variable (not a secret) in GH repo settings > Variables.
+          PUBLIC_GEMINI_WORKER_URL: ${{ vars.GEMINI_WORKER_URL }}
+
+      # Nothing deploys unless the built site passes the SEO audit (docs/scripts/audit-dist.mjs).
+      - run: pnpm docs:audit-dist
+
+      # Copies docs/dist to docs/.deploy/worktree, the directory docs/wrangler.jsonc serves: a Route does not
+      # strip its path, so the files must sit under worktree/.
+      - run: pnpm --filter docs stage:deploy
+
+      # The wrangler in the docs workspace's lockfile, run through pnpm; no wrangler-action, which runs npx.
+      - name: Deploy the Worker
+        working-directory: docs
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Live routes, retried for route propagation (docs/scripts/deploy-smoke.mjs). A failure marks the run
+      # red and does not roll back.
+      - name: Smoke-test the deployed routes
+        run: pnpm --filter docs deploy:smoke
+
+  legacy-pages:
+    # Only after the new site answers: the stubs redirect to it.
+    needs: site
+    runs-on: ubuntu-latest
+    environment: github-pages
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
@@ -40,23 +96,13 @@ jobs:
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm docs:test
-
-      - run: pnpm docs:build
-        env:
-          # Public URL of the deployed Cloudflare Worker — baked into the static bundle at build time.
-          # Set as a repository variable (not secret) in GH repo settings → Variables.
-          GEMINI_WORKER_URL: ${{ vars.GEMINI_WORKER_URL }}
+      # Writes docs/legacy/ (schema/v1.json, one stub per old route, 404.html).
+      - run: pnpm --filter docs build:legacy
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: docs/out
+          path: docs/legacy
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: github-pages
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

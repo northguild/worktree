@@ -1,0 +1,172 @@
+---
+title: "Create a git worktree from a Linear issue"
+description: "Create a git worktree from a Linear issue: worktree names the branch from its labels, links it, and can move the issue to started."
+---
+
+`worktree` can derive branch names directly from Linear issues in your Linear workspace.
+
+To start a worktree and an agent by delegating an issue to an agent inside Linear, see
+[Linear Agent Delegation](/worktree/guides/linear-agent-delegation/).
+
+## Basic Usage
+
+```bash
+worktree branch --linear ENG-123
+worktree branch --linear eng-123
+worktree branch -l ENG-123
+worktree branch --linear https://linear.app/acme/issue/ENG-123/fix-login
+worktree branch --linear
+```
+
+Pass the issue identifier, the team key and number Linear shows on the issue (`ENG-123`). It is accepted in any
+case. A pasted issue URL, `https://linear.app/<workspace>/issue/ENG-123` with or without the title slug, is accepted
+too; the workspace in it must be the one the issue is in, or the run exits `2` with `invalid_value` before anything is
+created. If Linear returns no URL for the issue, the workspace cannot be confirmed and the run warns and carries on.
+
+Leave the identifier out (`worktree branch --linear`, with nothing after it or only another flag) and `worktree`
+lists your own unstarted and started issues, each as identifier, title and state name, and asks you to pick one.
+The run then goes on exactly as if you had typed that identifier. One request fetches up to 50 issues; when more
+match, the prompt says so and names the way out, which is to quit and pass the identifier. With none assigned to
+you the command exits `1` and says to pass an identifier. The pick needs a terminal: `--json`, `--yes`,
+`--non-interactive`, `CI`, a missing terminal and `--dry-run` all exit `2` with `missing_value` before any request,
+so a script or an agent must pass the identifier.
+
+The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
+
+`--linear` cannot be combined with `--github`, `--jira` or `--clickup`. `--assign` does not work with `--linear`:
+assigning a Linear issue is not supported yet, so the flag warns `Assignment is not supported for Linear issues yet.`
+and the worktree is still created. Moving the issue to a started state is supported, see
+[Moving the issue to started](#moving-the-issue-to-started).
+
+## How Branch Names Are Built
+
+1. Read the issue's identifier, title and labels from the Linear API.
+2. Sanitize the title into a branch-safe slug, cut to at most 48 characters at the last dash so it ends on a whole word. A single word longer than 48 characters is cut at 48.
+3. Prepend a configured prefix chosen from the issue's labels.
+
+The name is the prefix, the identifier and the slug, for example `fix/ENG-123-fix-login-redirect`. Keeping the
+identifier in the name is what lets Linear's GitHub integration link the branch to the issue. A long title is cut:
+ENG-124 titled "Login redirect loops forever when the session cookie expires during checkout" becomes
+`fix/ENG-124-login-redirect-loops-forever-when-the-session`.
+
+Linear has no issue type, so the prefix comes from the issue's labels. Labels are compared by exact name,
+ignoring case:
+
+- a `bug` label -> `branchPrefix.bugfix`
+- otherwise a `chore` or `maintenance` label -> `branchPrefix.chore`
+- otherwise (a `Feature` or `Improvement` label, any other label, or none) -> `branchPrefix.feature`
+
+When an issue carries several of these labels, `bug` wins. A label such as `bugfix` or `Bug fix` is not `bug`,
+so it does not match.
+
+If a prefix key is not configured, no prefix is applied.
+
+That mapping applies only when no `linear.branchType` rules (or shared top-level `branchType` rules) are set. A
+`linear.branchType` list, or the shared list, in `.worktree.yml` replaces it: the rules can match the issue's `Labels` by name or by `{ id: ... }`, and an issue
+no rule matches gets no prefix unless the list ends with `- otherwise: <kind>`. See
+[Branch-type rules](/worktree/project-configuration/#branch-type-rules) and
+[Branch name template](/worktree/project-configuration/#branch-name-template).
+
+## What Is Read From the Issue
+
+**Issue content is used for the branch name and nothing else, with two exceptions: the menu, and the opt-in context of [`worktree linear-listen`](/worktree/commands/linear-listen/#issue-text).** When you leave the
+identifier out, the identifier, title and state name of each of your own unstarted and started issues are shown to
+you in the menu (control and formatting characters in them shown as escapes), and only to you at the terminal: never
+in `--json`, which refuses that run, and never passed to an agent. For the issue you then name, `worktree` reads the issue's identifier, its title
+and the names of its labels (and, when `linear.branchType` or the shared `branchType` is set, their ids). The title is reduced to lowercase letters, digits and `-` before it becomes part of
+the branch name, and the labels only select one of the configured `branchPrefix.*` values, or none. The issue
+description and comments are never requested, never printed, never written to the `--json` document (whose `issue`
+field carries only the provider, the identifier and the URL) and never passed to an agent.
+
+With `--json`, `issue` is `{"provider":"linear","key":"ENG-123","url":"https://linear.app/..."}`. The `url` is the
+one Linear returns, and is `null` only if Linear sent none.
+
+When the issue is moved to started (below), `worktree` also reads the issue's current workflow state (its id, name
+and type) and its team's started states (id, name and position). That is workflow metadata: still no description,
+no comments, and nothing from it reaches an agent. The state names are printed.
+
+[`cleanup`](/worktree/commands/cleanup/#canceled-linear-issues) and [`list --issues`](/worktree/commands/list/#showing-linear-issues)
+read one more thing: the **type** of the state of each issue a worktree is linked to (`canceled`, `started` and so on),
+by identifier, in one request per 50 issues. They never read the state's name, title, labels, description or
+comments, and nothing from that request reaches an agent or a `--json` document beyond the type itself.
+
+Requests to Linear are cut off after 15 seconds.
+
+## The issue link and cleaning up
+
+`branch --linear` records the issue in git config as `branch.<name>.worktreeIssue = linear:ENG-123`, once the
+worktree exists. The record follows the branch through a rename and goes when `cleanup` deletes the branch;
+worktrees made before it existed, or any other way, have none.
+
+[`cleanup`](/worktree/commands/cleanup/#canceled-linear-issues) reads the record on every run, and asks Linear when a record exists and
+`linear.apiKey` is set. A worktree whose issue is `canceled` is removed even though its remote branch still exists,
+provided it holds no uncommitted changes, no live agent works in it, and the remote confirms every commit is there
+(`cleanup` runs `git ls-remote --heads` for this). Any other state leaves the verdict alone, and so does any
+failure: a failed lookup is one warning and `cleanup` decides as it did before. `cleanup --force` skips the prompt,
+so a script that uses it starts removing these worktrees. [`list --issues`](/worktree/commands/list/#showing-linear-issues)
+shows the same states without removing anything.
+
+## Moving the issue to started
+
+`worktree branch --linear ENG-123` can also move the issue to the team's started state (In Progress, in a default
+workflow) once the worktree exists, so the board says the work has begun.
+
+```bash
+worktree branch --linear ENG-123 --start       # move it, whatever linear.autoStart says
+worktree branch --linear ENG-123 --no-start    # leave it, this run only
+worktree config linear.autoStart true          # always move it, stop asking
+```
+
+Without a flag, [`linear.autoStart`](/worktree/configuration/#linear-integration-notes) decides: `true` moves, `false`
+never does, and unset means you are asked once ("Move this issue to started?") and the answer is saved to the key.
+**A non-interactive run, including `--json` and an agent's run, moves the issue by default**, without saving
+anything; pass `--no-start` or set `linear.autoStart false` to keep it read-only.
+
+- **Only an issue that has not begun moves.** One in a backlog or unstarted state goes to the team's started state
+  with the lowest position. One that is already started (In Review, say) stays, and so do triage, completed, canceled
+  and duplicate issues, and a team with no started state. Each is said in words with the state's name, and with
+  `--json` `started` is `true` (moved, or already started), `false` (left alone, no started state, or the attempt
+  failed) or `null` (not attempted).
+- **A failed move never fails the run.** The worktree is still created, and a warning carries Linear's message.
+- **It needs a key with the Write permission** and access to the issue's team. A read-only key, or one limited to
+  other teams, is refused by Linear, and the warning says so.
+- **Nothing happens on a dry run** or when an existing worktree is reopened. See
+  [`branch`](/worktree/commands/branch/#moving-the-issue-to-started) for the order of the run.
+
+## Authentication Resolution
+
+Authentication uses one config key, `linear.apiKey`, read from local git config. In a terminal, `branch --linear`
+offers to run `worktree config` when it is missing. Without a key after that, and in any non-interactive run, the
+command exits with code `2` and `missing_value`, naming `worktree config linear.apiKey <key>`, before a worktree
+is created.
+
+## Suggested Setup
+
+```bash
+worktree config linear.apiKey <api-key>
+worktree config branchPrefix.feature feature/
+worktree config branchPrefix.bugfix fix/
+worktree config branchPrefix.chore chore/
+```
+
+You can also run `worktree config` and answer yes to the Linear group, or configure only missing values:
+
+```bash
+worktree config --missing --names linear.apiKey,branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
+```
+
+An empty answer to the key prompt keeps the key already stored rather than clearing it.
+
+## Getting a Linear API Key
+
+1. In Linear, open Settings -> Security & access -> Personal API keys
+2. Click "New API key" and give it a label
+3. Copy the key and use it with `worktree config linear.apiKey`
+
+Reading an issue needs only a key that can see it. To let `worktree` [move the issue to started](#moving-the-issue-to-started),
+create the key with the Write permission and access to the teams you work in; without it the move warns and the
+worktree is still created.
+
+The key is stored locally in git config and never sent anywhere except to Linear. `worktree` never prints it:
+any `lin_api_` key that would reach the output is replaced first. The key is checked the first time `--linear`
+uses it (`cleanup` and `list --issues` use it without checking it first: a rejected key is one warning there); `worktree config` refuses a key that is only whitespace but does not check it with Linear.

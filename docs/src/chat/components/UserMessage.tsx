@@ -13,10 +13,7 @@ export function UserMessage({ message }: UserMessageProps) {
   const titleId = useId();
 
   return (
-    <article
-      aria-labelledby={titleId}
-      className="mb-4 text-gray-800 dark:text-gray-100"
-    >
+    <article aria-labelledby={titleId} className="mb-4 text-chat-fg">
       <MessageMeta titleId={titleId} title="You" createdAt={createdAt} />
       {/*
         The user's own text is rendered as text, never through MarkdownContent
@@ -26,7 +23,7 @@ export function UserMessage({ message }: UserMessageProps) {
         lines, and break-words keeps an unbroken paste (a URL, a path) inside
         the bubble instead of widening it.
       */}
-      <div className="bg-gray-100 dark:bg-neutral-800 rounded-lg px-3 py-2 whitespace-pre-wrap break-words">
+      <div className="bg-chat-raised rounded-lg px-3 py-2 whitespace-pre-wrap break-words">
         {content}
       </div>
     </article>

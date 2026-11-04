@@ -1,0 +1,65 @@
+---
+/**
+ * The header's community links, as on northguild.dev: GitHub and Discord icons that open in a new tab. They replace
+ * Starlight's own social icons, which come from the `social` option and have no new-tab wording or `rel`; Starlight
+ * renders this one in the header and again in the mobile menu, so a phone keeps them.
+ *
+ * The paths and hrefs are from northguild/northguild.dev, apps/site/src/components/Header.astro at commit
+ * ade22a5d30f274d02d50a33eb6ccdd705c2f5cbd. An icon has no visible text, so the aria-label is the name; it states
+ * that the link opens in a new tab (WCAG 2.2 SC 4.1.2, and the technique for a new-tab link).
+ */
+const links = [
+  {
+    label: "NorthGuild on GitHub",
+    href: "https://github.com/northguild",
+    path: "M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z",
+  },
+  {
+    label: "NorthGuild on Discord",
+    href: "https://discord.gg/TdvQdP3t5a",
+    path: "M20.32 4.37A19.8 19.8 0 0 0 15.4 2.85a.07.07 0 0 0-.08.04c-.21.38-.45.87-.61 1.26a18.3 18.3 0 0 0-5.42 0 12.6 12.6 0 0 0-.62-1.26.08.08 0 0 0-.08-.04 19.7 19.7 0 0 0-4.9 1.52.07.07 0 0 0-.03.03C.53 9.05-.32 13.6.1 18.1a.08.08 0 0 0 .03.06 19.9 19.9 0 0 0 6 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.22-2a.08.08 0 0 0-.04-.1 13 13 0 0 1-1.87-.9.08.08 0 0 1 0-.13l.37-.29a.07.07 0 0 1 .08-.01c3.93 1.8 8.18 1.8 12.06 0a.07.07 0 0 1 .08.01l.37.29a.08.08 0 0 1 0 .13c-.6.35-1.22.65-1.87.9a.08.08 0 0 0-.04.1c.36.7.77 1.37 1.22 2a.08.08 0 0 0 .08.03 19.8 19.8 0 0 0 6.02-3.03.08.08 0 0 0 .03-.06c.5-5.2-.84-9.72-3.55-13.7a.06.06 0 0 0-.03-.03ZM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42s.95-2.42 2.16-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42Zm7.97 0c-1.18 0-2.16-1.09-2.16-2.42s.95-2.42 2.16-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42Z",
+  },
+];
+---
+
+{
+  links.map((link) => (
+    <a
+      class="social-link"
+      href={link.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${link.label} (opens in a new tab)`}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor">
+        <path d={link.path} />
+      </svg>
+    </a>
+  ))
+}
+
+<style>
+  /* A chip with the same reach as northguild.dev's icon button (0.5em of padding round a 1.25em glyph); the
+     negative margin keeps the larger target from spreading the header row. Hover and focus are changes of colour
+     and of the chip's fill and border, not of position, so there is no motion to reduce. */
+  .social-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5em;
+    margin: -0.25em;
+    border: 1px solid transparent;
+    border-radius: var(--gmt-radius-md);
+    color: var(--sl-color-text-accent);
+    text-decoration: none;
+  }
+  .social-link:hover {
+    color: var(--sl-color-white);
+    background: var(--gmt-fill-strong);
+    border-color: var(--gmt-border);
+  }
+  svg {
+    inline-size: 1.25em;
+    block-size: 1.25em;
+  }
+</style>

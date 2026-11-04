@@ -1,0 +1,66 @@
+---
+title: "Open a git worktree in VS Code or any editor"
+description: "Open every new git worktree in VS Code or any editor that opens a directory: set the codeEditor command once and worktree launches it for you."
+---
+
+Configure your editor command once:
+
+```bash
+worktree config codeEditor code
+```
+
+Then open any worktree quickly:
+
+```bash
+worktree open feature/add-bulk-actions
+```
+
+If omitted, `worktree open` will show an interactive branch picker.
+
+Similarly, if omitted, `worktree checkout` will show an interactive remote branch picker.
+
+## The `codeEditor` value
+
+Set it to the executable plus any arguments it needs. The worktree path is appended as the final
+argument:
+
+```bash
+worktree config codeEditor code          # code <path>
+worktree config codeEditor "code -n"     # code -n <path>
+worktree config codeEditor "subl -w"     # subl -w <path>
+```
+
+The value is split on whitespace, and quotes group — so an argument containing a space survives:
+
+```bash
+worktree config codeEditor 'open -a "Sublime Text"'
+```
+
+No shell is involved. The executable is run directly with those arguments, which is what lets a
+worktree path containing a space open correctly. It also means nothing is expanded: `~` and
+`$EDITOR` are passed through literally rather than resolved, and a backslash is an ordinary
+character rather than an escape — quote `an argument like this` instead of writing
+`an\ argument\ like\ this`. Use an absolute path, or a wrapper script on your `PATH`, instead of
+relying on expansion.
+
+Quote characters group wherever they appear, as a shell's do, with one exception: an apostrophe
+between two letters or digits, such as the one in `/Users/o'brien/bin/ed`, is an ordinary
+character and stays in the value. Your own shell still parses what you type, so wrap the value in
+double quotes (or single quotes with the apostrophe spelled `'"'"'`) to get it to `worktree` intact:
+
+```bash
+worktree config codeEditor "/Users/o'brien/bin/ed"
+worktree config codeEditor "/Users/o'brien/bin/ed --wait"
+```
+
+An apostrophe anywhere else, such as at the start or end of a word, still opens a quote.
+
+## Opening somewhere other than an editor
+
+Set `opener` to `herdr` to have worktrees land as Herdr spaces instead. See
+[Herdr Spaces](/worktree/guides/herdr-spaces/).
+
+## Platform support
+
+`worktree` is developed and tested on macOS and Linux. Windows is not supported: the editor is
+launched without a shell, so a `PATHEXT` wrapper such as `code.cmd` is not resolved.

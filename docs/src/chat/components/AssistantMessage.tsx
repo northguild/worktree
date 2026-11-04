@@ -8,12 +8,9 @@ import { MessageMeta } from "./MessageMeta";
 
 const BUBBLE_BASE =
   "rounded-lg px-3 py-2 transition-[background-color,color,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]";
-const DEFAULT_CLASS =
-  "bg-blue-50 dark:bg-blue-950/60 text-gray-800 dark:text-gray-100";
-const WARNING_CLASS =
-  "bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200";
-const ERROR_CLASS =
-  "bg-red-50 dark:bg-red-900/40 text-red-800 dark:text-red-200";
+const DEFAULT_CLASS = "bg-chat-fill text-chat-fg";
+const WARNING_CLASS = "bg-chat-warn-wash text-chat-warn-ink";
+const ERROR_CLASS = "bg-chat-danger-wash text-chat-fg";
 
 interface AssistantMessageProps {
   message: ChatMessage;
@@ -34,7 +31,7 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
       <MessageMeta
         titleId={titleId}
         title="Assistant"
-        titleClass="font-semibold text-blue-600 dark:text-blue-400"
+        titleClass="font-semibold text-chat-accent-ink"
         createdAt={createdAt}
       />
       <div

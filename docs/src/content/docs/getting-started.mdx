@@ -1,0 +1,141 @@
+---
+title: "Getting Started with @northguild/worktree"
+description: "Install the worktree CLI with npm, pnpm, yarn or bun, set a source branch and editor, and create your first git worktree in one command."
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+`worktree` streamlines common Git worktree tasks into a repeatable workflow.
+
+## Install
+
+Install globally:
+
+<Tabs syncKey="pm">
+  <TabItem label="npm">
+
+```bash
+npm install -g @northguild/worktree
+```
+
+  </TabItem>
+  <TabItem label="pnpm">
+
+```bash
+pnpm add -g @northguild/worktree
+```
+
+  </TabItem>
+  <TabItem label="yarn">
+
+```bash
+yarn global add @northguild/worktree
+```
+
+  </TabItem>
+  <TabItem label="bun">
+
+```bash
+bun add -g @northguild/worktree
+```
+
+  </TabItem>
+</Tabs>
+
+Or run directly without global install:
+
+<Tabs syncKey="pm">
+  <TabItem label="npm">
+
+```bash
+npx @northguild/worktree --help
+```
+
+  </TabItem>
+  <TabItem label="pnpm">
+
+```bash
+pnpm dlx @northguild/worktree --help
+```
+
+  </TabItem>
+  <TabItem label="yarn">
+
+```bash
+yarn dlx @northguild/worktree --help
+```
+
+  </TabItem>
+  <TabItem label="bun">
+
+```bash
+bunx @northguild/worktree --help
+```
+
+  </TabItem>
+</Tabs>
+
+### Agent skill
+
+To teach a coding agent how to drive `worktree`, including its `--json` agent mode, add the usage skill:
+
+```bash
+npx skills add northguild/worktree --skill worktree
+```
+
+At a terminal the command asks which agent(s) to install the skill into; run from inside a coding agent it installs without asking, and `--agent <name>` chooses. It installs into the current project; add `--global` (`-g`) to install it for your user instead, so the agent has it in every repository. It is separate from, and in addition to, the install above: the skill teaches an agent the CLI, it does not install the CLI.
+
+## Initial Configuration
+
+Run once inside your repository:
+
+```bash
+worktree config
+```
+
+If your repository commits a `.worktree.yml`, `worktree branch` already has the team's source branch,
+prefixes and Jira host and does not offer to configure them. The wizard says which keys the file sets and
+does not ask for them, so it no longer writes a personal copy of a team value; to override one for yourself,
+run `worktree config <key> <value>`. If the repository has no file yet, `worktree config --project` writes one
+from the team settings in your git config, and on a terminal `worktree` offers it once. See
+[Project Configuration](/worktree/project-configuration/).
+
+Common values:
+
+- `defaultSourceBranch`: usually `origin/main`
+- `codeEditor`: usually `code`
+- `agent.command`: optional, such as `claude --bg`, the command `--agent` runs to hand a brief to a coding agent
+
+To open worktrees as [Herdr](https://herdr.dev) spaces instead of editor windows, set
+`opener` to `herdr` — see [Herdr Spaces](/worktree/guides/herdr-spaces/). Set it to `none` to open nothing:
+`branch` prints `Worktree created at <path>` and stops.
+
+## First Workflow
+
+Create your first branch worktree:
+
+```bash
+worktree branch feature/improve-readme
+```
+
+This command will:
+
+1. Branch from your configured source branch.
+2. Create a worktree under `<repo>.worktrees/feature/improve-readme`.
+3. Copy the gitignored env files from your main repository — `.env*`, `.dev.vars*` and `.envrc`.
+4. Open the new worktree in your configured editor, or as a Herdr space when `opener` is `herdr`.
+
+## Requirements
+
+- Git available on your `PATH`
+- Node.js `^20.17.0`, `^22.13.0` or `>=23.5.0` (the range `@inquirer/prompts` supports; Node 21 is not)
+- Existing Git repository
+- macOS or Linux — Windows is not supported
+
+If you use automatic editor opening, ensure your editor command is available on your `PATH` (for example, `code`).
+
+## Next
+
+- [Command Reference](/worktree/commands/)
+- [Configuration](/worktree/configuration/)
+- [Guides](/worktree/guides/)

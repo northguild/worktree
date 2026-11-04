@@ -1,0 +1,32 @@
+---
+title: "Team conventions for git worktrees"
+description: "Team conventions for git worktrees: branch naming prefixes, a shared source branch in .worktree.yml, and a regular cleanup habit."
+---
+
+Use conventions that keep worktree names and cleanup behavior predictable.
+
+## Naming
+
+- `feature/<topic>` for feature work
+- `fix/<topic>` for bug fixes
+- `chore/<topic>` for maintenance
+
+## Source Branch
+
+Commit the shared default source branch to `.worktree.yml` at the repository root, so every clone agrees
+without any setup:
+
+```yaml
+defaultSourceBranch: origin/main
+```
+
+See [Project Configuration](/worktree/project-configuration/) for the file and its other team keys. A person
+can still set their own with `worktree config defaultSourceBranch origin/develop`, which overrides the file.
+
+## Cleanup Habit
+
+Run periodic cleanup:
+
+```bash
+worktree cleanup
+```

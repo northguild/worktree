@@ -1,0 +1,21 @@
+---
+/**
+ * Starlight's Footer, unchanged (last updated, pagination; no edit link, as no `editLink` is set), rendered through
+ * `Default`. The licence line, CLI
+ * version and maintainers this file once added are gone (the user, 2026-11-04: "lose this content that is on every
+ * damn page"); the CLI version is in the header.
+ *
+ * The landing has no footer (phase 15): it is the hero alone, so `Default` is not rendered there. The chat launcher is
+ * not part of the footer, only rendered from here because Starlight has no slot of its own for it, so it stays on
+ * every page, the landing included.
+ */
+import Default from "@astrojs/starlight/components/Footer.astro";
+import ChatLauncher from "./ChatLauncher.astro";
+
+// The route id of `index.mdx` is the empty string (Starlight normalises a trailing `index`), as in Hero.astro.
+const isLanding = Astro.locals.starlightRoute.id === "";
+---
+
+{!isLanding && <Default><slot /></Default>}
+
+<ChatLauncher />

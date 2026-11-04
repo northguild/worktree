@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "worktree-docs",
+  // Shape follows northguild/gmt apps/dox/wrangler.jsonc (read at gmt 6efa06e): a Worker whose only job is
+  // to serve static assets on one path of the shared northguild.dev zone.
+  "compatibility_date": "2026-08-26",
+  // northguild.dev/worktree* — one pattern, because route matching includes the query string and a
+  // pattern may not contain one: "northguild.dev/worktree" alone would miss "/worktree?a=1", and only a
+  // trailing * reaches it (Cloudflare Workers docs, Routes > Matching behavior). The cost: a trailing *
+  // matches every suffix, so this Worker also takes any apex path that merely starts with "/worktree"
+  // ("/worktree-guide" too), and the landing site must not use one. It owns every other path as a Custom
+  // Domain; a Route takes precedence over a Custom Domain on the same hostname. gmt's "northguild.dev/gmt*"
+  // makes the same trade.
+  "routes": [
+    { "pattern": "northguild.dev/worktree*", "zone_name": "northguild.dev" }
+  ],
+  // Explicit: with `routes` set, workers_dev defaults to false. Nothing links to a workers.dev URL for this
+  // site, so it is switched off rather than left as a second, unindexed copy of it.
+  "workers_dev": false,
+  // No `main`: assets alone answer every request, so there is no Worker script. With the default
+  // html_handling ("auto-trailing-slash") a request for /worktree is answered 307 to /worktree/ because
+  // worktree/index.html exists (Cloudflare Workers docs, Static Assets > Routing > HTML handling).
+  "assets": {
+    // docs/.deploy holds the Astro build under worktree/ (the `stage:deploy` script), because a Route does not
+    // strip its path: a request for /worktree/x looks up the asset worktree/x. `astro build` writes
+    // docs/dist without the `base` prefix, so deploying docs/dist itself would answer 404 everywhere.
+    "directory": "./.deploy",
+    // Serves the nearest 404.html up the request path, here worktree/404.html.
+    "not_found_handling": "404-page"
+  }
+}

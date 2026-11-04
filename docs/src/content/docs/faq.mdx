@@ -1,0 +1,85 @@
+---
+title: "FAQ: @northguild/worktree and git worktrees"
+description: "Answers on worktree vs git stash, private repos, GitHub Enterprise, Jira Data Center, editors, Herdr, Windows and where to find every command option."
+---
+
+## Why use Git worktrees instead of stashing?
+
+Worktrees let you keep multiple branches checked out simultaneously in separate directories. This avoids repeated stash/apply cycles and reduces context-switch overhead.
+
+## Does this modify my main repository history?
+
+No. Worktrees are alternate checkouts that still point to the same underlying Git repository.
+
+## Can I use this with private GitHub repositories?
+
+Yes. Any repository you can clone and operate with Git locally can be managed.
+
+## Does `--github` work with GitHub Enterprise?
+
+Yes. Set the host with `worktree config github.host <host>`, keep a remote of the clone on that host, and sign in
+with `gh auth login --hostname <host>`. See [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
+
+## Does `--jira` work with Jira Data Center?
+
+Yes. Run `worktree config jira.deployment datacenter`, set `jira.host`, and store a personal access token in
+`jira.apiToken`; no email is needed. A private certificate authority is trusted through Node's `NODE_EXTRA_CA_CERTS`.
+See [Jira Data Center](/worktree/guides/jira-integration/#jira-data-center).
+
+## Is there a required branch naming scheme?
+
+No hard requirement, but a team naming convention (for example `feature/*`, `fix/*`, `chore/*`) makes list and cleanup flows easier.
+
+## Which editor can I open worktrees in?
+
+Any editor command that can open a directory. Configure your preferred command with:
+
+```bash
+worktree config codeEditor <command>
+```
+
+The value is the executable plus any arguments, run without a shell. See
+[Editor Integration](/worktree/guides/editor-integration/).
+
+## Can I open worktrees somewhere other than an editor?
+
+Yes. Set `opener` to `herdr` to have each worktree land as a
+[Herdr](https://herdr.dev) space instead:
+
+```bash
+worktree config opener herdr
+```
+
+See [Herdr Spaces](/worktree/guides/herdr-spaces/).
+
+To open it nowhere, set `opener` to `none`. The command prints `Worktree created at <path>` and stops,
+without starting an editor or Herdr.
+
+```bash
+worktree config opener none
+```
+
+## What happens to a Herdr space when I remove the worktree?
+
+It is closed with it. `worktree remove` and `worktree cleanup` close the space of every worktree
+they delete, so you are not left tidying up spaces with no checkout under them.
+
+Only worktrees that were actually removed. One held back — for uncommitted changes, a live agent, or
+unpushed commits — keeps its space, and so does a removal you declined — in each case the checkout is still on disk. If
+Herdr cannot be reached the close is a warning and the command still exits `0`, because by then the
+worktree is already gone.
+
+See [When the worktree goes](/worktree/guides/herdr-spaces/#when-the-worktree-goes).
+
+## Does `worktree` run on Windows?
+
+It is developed and tested on macOS and Linux only. Windows is not supported.
+
+## Where can I see all command options?
+
+Use the [command reference pages](/worktree/commands/) and run:
+
+```bash
+worktree --help
+worktree <command> --help
+```

@@ -37,7 +37,8 @@ export function useStreamChat(model: string): UseStreamChatReturn {
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
-  const base = process.env.GEMINI_WORKER_URL || "http://localhost:8787";
+  const base =
+    import.meta.env.PUBLIC_GEMINI_WORKER_URL || "http://localhost:8787";
 
   const mutation = useMutation({
     mutationFn: async ({

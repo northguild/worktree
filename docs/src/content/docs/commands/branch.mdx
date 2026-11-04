@@ -1,0 +1,627 @@
+---
+title: "worktree branch: create a git worktree for a new branch"
+description: "worktree branch creates a new git branch in its own worktree, named from a GitHub, Jira, Linear or ClickUp issue, and can hand it to a coding agent."
+---
+
+Create a new branch in a dedicated worktree.
+
+## Usage
+
+```bash
+worktree branch <name>
+worktree branch <name> --source <remote-branch>
+worktree branch --github <issue-number>
+worktree branch --github <issue-number> --assign
+worktree branch --github <issue-number> --no-assign
+worktree branch --jira <issue-id>
+worktree branch --jira <issue-id> --assign
+worktree branch --jira <issue-id> --start
+worktree branch --jira <issue-id> --no-start
+worktree branch --linear
+worktree branch --linear <issue-id>
+worktree branch --linear <issue-id> --start
+worktree branch --linear <issue-id> --no-start
+worktree branch --clickup <task-id>
+worktree branch --clickup <task-id> --start
+worktree branch --clickup <task-id> --no-start
+worktree branch --jira <issue-id> --dry-run
+worktree branch <name> --agent "<prompt>"
+worktree branch <name> --agent-file <path>
+worktree branch <name> --agent-stdin
+worktree branch <name> --no-agent
+worktree branch <name> --no-open
+worktree branch <name> --install
+worktree branch <name> --no-install
+worktree branch <name> --json
+```
+
+## Examples
+
+```bash
+worktree branch feature/add-bulk-actions
+worktree branch feature/add-bulk-actions --source origin/release/1.4
+worktree branch --github 42
+worktree branch --github "#42"
+worktree branch --github 42 --assign
+worktree branch --github 42 --no-assign
+worktree branch --jira DEV-123
+worktree branch --jira dev-123
+worktree branch --linear
+worktree branch --linear ENG-123
+worktree branch --linear eng-123
+worktree branch --linear ENG-123 --no-start
+worktree branch --clickup 9hx
+worktree branch --clickup DEV-123
+worktree branch --jira DEV-123 --dry-run
+worktree branch --github 42 --dry-run --json
+worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
+worktree branch --github 42 --agent "implement the issue"
+worktree branch --github 42 --agent-file brief.md
+cat brief.md | worktree branch --github 42 --agent-stdin
+worktree branch --github 42 --no-agent
+worktree branch feature/add-bulk-actions --no-open
+worktree branch feature/add-bulk-actions --install
+worktree branch feature/add-bulk-actions --no-install
+worktree branch --github 42 --json --agent-file brief.md
+```
+
+## GitHub Issue Branching
+
+Use the `--github` flag to create a suggested branch name from an issue. The issue is read from the
+repository named by `github.repository`, else the `upstream` remote when it is on `github.host` (`github.com` unless set), else `origin`; in a
+fork that means the original's issues, and the output names the repository whenever it is not `origin`'s. See
+[Forks](/worktree/guides/github-issue-integration/#forks).
+
+For a GitHub Enterprise host, see [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
+
+- The issue number can be passed as `42` or `"#42"`, or as the issue's URL, `https://github.com/<owner>/<repo>/issues/42`
+  (`www.github.com` works too, and a pull request's `/pull/42` URL reaches the pull request refusal below). A
+  trailing slash, query string and fragment such as `#issuecomment-1` are ignored. The URL's repository must be
+  the one this run reads, compared ignoring case; otherwise the run exits `2` with `invalid_value`, naming both
+  repositories and pointing at `github.repository`, before the issue is fetched or anything is created. The URL's host must be
+  `github.host` (`github.com` when unset; for a GitHub Enterprise host the URL is `https://<host>/<owner>/<repo>/issues/42`),
+  compared ignoring case, and it is never contacted. Any other URL is refused the same way.
+- A pull request number is refused as a usage error, since the pull request already has a branch. The message names
+  `worktree checkout <head-branch>` when that branch is on `origin` and its name is only letters, digits,
+  `_`, `.`, `/` and `-`; otherwise, a fork's or `upstream`'s branch included, it says to run `worktree checkout` and pick one.
+- A closed issue gets a warning. An interactive run asks before continuing, and answering no ends the run with exit
+  `1` and no worktree; a [non-interactive run](#non-interactive-runs) carries on, and `--json` reports the warning
+  in `warnings`.
+- The generated name is pre-filled in the prompt and still editable. A [non-interactive run](#non-interactive-runs)
+  takes it as it is.
+- If issue types are configured in the repository, these optional prefixes are applied:
+	- `branchPrefix.feature` for issue type `Feature`
+	- `branchPrefix.bugfix` for issue type `Bug`
+	- `branchPrefix.chore` for issue type `Task`
+- An issue with no type, or any other type, gets no prefix. A `github.branchType` list, or a shared top-level `branchType` list, in `.worktree.yml`
+  replaces that mapping (matching the issue's `Type` and `Labels`), and `- otherwise: feature` at its end opts
+  an unmatched issue in to a prefix. See [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+
+If no prefix is configured, `worktree` falls back to an empty prefix and still generates a valid branch name.
+
+By default the name is `<prefix><number>-<slug>`; a `branchName` template in `.worktree.yml` changes its shape (see [Branch name template](/worktree/project-configuration/#branch-name-template)). The title becomes a lowercase slug of letters, digits and dashes, cut to at most 48 characters at the last
+dash, so the name ends on a whole word. A single word longer than 48 characters is cut at 48. The name is the
+same whether or not you are asked, so one issue never gives two different branches.
+
+GitHub authentication on github.com is resolved in this order:
+
+1. `northguild.worktree.github.token` from local git config.
+2. `gh auth token --hostname github.com` if GitHub CLI is installed and authenticated. It is read on each run and not saved, and neither `GH_HOST` nor a `gh` login to another host supplies it.
+3. Interactive token prompt, which is then saved in local git config. Only a typed or `worktree config`-set token is stored.
+
+On a GitHub Enterprise host (`github.host`) the stored token is never read or sent, and there is no prompt: the token comes only from `gh auth token --hostname <host>`, and without one the run exits `2` naming `gh auth login --hostname <host>`. See [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
+
+On github.com, a non-interactive run has no token prompt. It exits `2` with one line on stderr, which never includes a token:
+
+```text
+worktree: no default for a GitHub token; pass `worktree config github.token <token>` or run `gh auth login`
+```
+
+### Assigning the issue to yourself
+
+`--assign` assigns the issue to the authenticated user as part of creating the branch, and `--no-assign`
+skips it for that one run. It works with `--github` and `--jira`; `--linear` and `--clickup` do not assign
+yet. The decision is made in this order:
+
+1. `--assign` or `--no-assign`.
+2. The provider's key: [`github.autoAssign`](/worktree/configuration/#github-integration-notes) for `--github`,
+   `jira.autoAssign` for `--jira`. `true` assigns, `false` never does. The two keys are independent.
+3. A non-interactive run assigns. The default is not saved, so one unattended run does not settle the key.
+4. Otherwise you are asked once, and your answer is saved to the provider's key so the question is not repeated.
+
+A configured `false` is respected in every mode; pass `--assign` to override it for one run.
+
+```bash
+worktree branch --github 42 --assign
+worktree branch --github 42 --no-assign
+worktree branch --jira DEV-123 --assign
+worktree config github.autoAssign true    # always assign, stop asking
+worktree config jira.autoAssign true
+```
+
+- **For `--github`, assigning needs a token whose account has push access to the repository; a fine-grained token also
+  needs the Issues (or Pull requests) permission set to Read and write.** Without that permission GitHub
+  refuses the call (`403 Resource not accessible by personal access token`) and `worktree` warns with
+  GitHub's message followed by the sentence above. Reading an issue needs neither, so a public repository that `--github` has always worked
+  against without a token may ask for one the first time you assign — the resolution order above still
+  applies, so an authenticated `gh` supplies it silently.
+- **A Jira issue that someone else holds is left alone.** Jira keeps one assignee, so assigning would take the
+  issue off a colleague. `worktree` leaves it, warns with their name, and the document says `assigned: false`;
+  `--assign` does not override this, so reassign it in Jira if that is what you want. An issue that is already
+  yours is reported as such and nothing is written. Assigning in Jira needs the *Browse Projects* and
+  *Assign Issues* permissions on the issue's project; without them `worktree` warns and carries on. See
+  [Jira Issue Integration](/worktree/guides/jira-integration/#assigning-the-issue).
+- For `--github`, success is confirmed against the API response rather than assumed. If the issue comes back without you on
+  it, `worktree` says so instead of reporting success — GitHub documents that it accepts an assignee change
+  and ignores it when the account lacks push access. That case has not been tested against GitHub, and
+  neither has whether an account with only the triage role can assign.
+- **A failed assignment never stops the branch.** The worktree is created either way; you get a warning, not
+  an error.
+- The assignment happens before the worktree is created, so the question is never buried behind creation
+  output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees, and a
+  Jira issue that is already yours is not written again — so retrying after a failed creation is harmless.
+- `--assign` and `--no-assign` both require one of `--github`, `--jira`, `--linear` or `--clickup`; on their own there is no issue to act
+  on. `--assign --linear` and `--assign --clickup` warn that assignment is not supported for that provider yet
+  and carry on.
+
+## Previewing a branch name
+
+`--dry-run` shows what `branch` would name a branch, and why, without making it. Pass it with one of
+`--github`, `--jira`, `--linear` or `--clickup`: it fetches that issue, applies the
+[`branchType` rules](/worktree/project-configuration/#branch-type-rules) and the
+[`branchName` template](/worktree/project-configuration/#branch-name-template), and stops after naming. On its own
+it is refused with exit `2`, because with no issue there is nothing to evaluate the rules against. A bare `--linear` is
+refused the same way: choosing an issue is a question, and a dry run asks nothing, so give it the identifier.
+
+```bash
+worktree branch --jira DEV-123 --dry-run
+```
+
+```text
+Dry run: nothing was created, assigned or saved.
+Branch name: chore/DEV-123-tidy-the-billing-job
+Rule: rule 1 of jira.branchType: when: { customfield_10359: { id: "10301" } }, type: chore
+Fields with a value (2), each with a line to paste into jira.branchType:
+  Work Category (id customfield_10359)
+    Maintenance (id 10301)
+      - when: { customfield_10359: { id: "10301" } }   # Work Category = Maintenance
+  Issue Type (id issuetype)
+    Task (id 10009)
+      - when: { issuetype: { id: "10009" } }   # Issue Type = Task
+```
+
+- **Nothing is changed.** A dry run creates no worktree, assigns no issue, writes no git config, runs no
+  install or `postCreate` step, moves no issue, starts no agent, opens nothing and asks no question. A closed `--github`
+  issue is a warning instead of a prompt. `--agent`, `--agent-file`, `--agent-stdin`, `--source`, `--assign`,
+  `--start`, `--install` and `--no-open` flags are accepted and ignored.
+- **The `Rule:` line** names the rule that chose the prefix by its position in the list and its text, and
+  names the list: `jira.branchType`, or `branchType` when the shared list decided. It
+  reads `built-in mapping` when the file has neither a rule list for that provider nor a shared `branchType`, and `none matched` when it has rules
+  and none matched, so the name has no prefix.
+- **Every field the issue has a value for** is listed with its id and its name as your account sees it, and
+  each of its values with its id where it has one. Empty fields are left out. Each value comes with a line to
+  paste into a `branchType` list; see
+  [Writing rules with a dry run](/worktree/project-configuration/#writing-rules-with-a-dry-run).
+- **Provider-only fields** are marked when the shared list decided. Any field but `Type` and `Labels`, in either case, is
+  that provider's own, so the dry run names `<provider>.branchType` beside it as the list to paste its lines into: a
+  shared rule naming it never matches the other providers and does not warn on a real run. A provider's own list
+  replaces the shared one for that provider, so copy across any shared rules you still want there.
+- **Jira field names** come from `?expand=names` on the issue request (`?expand=names,schema` on Jira Data Center), which a dry run always asks for. The
+  paste-ready lines name ids, except that `Type` and `Labels` are by name when the shared `branchType` list decided, because an id belongs to one provider.
+
+With `--json` a dry run prints one document, not the [`branch` document](#json-output):
+
+```json
+{"dryRun":true,"branch":"chore/DEV-123-tidy-the-billing-job","issue":{"provider":"jira","key":"DEV-123","url":"https://acme.atlassian.net/browse/DEV-123"},
+ "kind":"chore","match":{"source":"rule","position":1,"rule":"when: { customfield_10359: { id: \"10301\" } }, type: chore"},
+ "fields":[{"id":"customfield_10359","name":"Work Category","pasteInto":"jira.branchType","values":[{"id":"10301","name":"Maintenance","when":"- when: { customfield_10359: { id: \"10301\" } }   # Work Category = Maintenance"}]}],
+ "warnings":[]}
+```
+
+| Key | Value |
+| --- | --- |
+| `dryRun` | always `true` |
+| `branch`, `issue` | the name `branch` would give, and the issue it came from, as in the `branch` document |
+| `kind` | `feature`, `bugfix` or `chore`; `null` when no prefix applies |
+| `match` | `{source:"rule", position, rule}` for the rule that matched, `{source:"built-in"}` or `{source:"none"}` |
+| `fields` | the non-empty fields: `{id, name, pasteInto, values:[{id, name, when}]}`. `pasteInto` is the list the field's lines belong in; `id` or `name` is `null` where the value has none (a GitHub label has both; a ClickUp tag has a name only); `when` is the paste-ready line |
+| `warnings` | the same as in the `branch` document, such as a rule naming a field the issue does not have |
+
+## Installing dependencies
+
+After the worktree exists and its env files are copied, `branch` can install its dependencies, **before**
+anything is opened or any agent is started, so neither lands in a tree without them.
+
+- **The command** is [`postCreate`](/worktree/configuration/#post-create-command) when it is set in your git
+  config. Otherwise it is the list of steps under `postCreate` in the repository's
+  [`.worktree.yml`](/worktree/project-configuration/#post-create-steps), run in order. With neither, it is
+  inferred from the first lockfile found in the new worktree:
+
+  | Lockfile | Command |
+  |---|---|
+  | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
+  | `package-lock.json` | `npm ci` |
+  | `yarn.lock` | `yarn install` |
+  | `bun.lock` | `bun install --frozen-lockfile` |
+
+  `bun.lockb` is not recognised. `yarn install` has no lock flag because classic and berry disagree on it.
+- **When it runs:** a [non-interactive run](#non-interactive-runs) installs by default. A terminal run
+  installs only when `postCreate` is set or `--install` is given. `--no-install` switches it off for the run,
+  whatever else is set.
+- **Approval:** the steps from `.worktree.yml` must be approved by you first, and this is checked before
+  anything is created. On a terminal `branch` lists every step and asks; no exits `1`. A non-interactive
+  run that has not approved them exits `2` with `missing_value`, naming `worktree config --approve` (run it
+  in a terminal) and `--no-install`. A `postCreate` you set yourself, `--no-install` and `--dry-run` need
+  no approval. See [Approving the steps](/worktree/project-configuration/#approving-the-steps).
+- **How it runs:** each step by argv in the new worktree, never through a shell, with its output on stderr
+  and a 10 minute limit per step. The first failing step stops the rest.
+- **Nothing to run:** with no `postCreate` and no lockfile, or when the program of your own `postCreate` or
+  of the lockfile command is not on `PATH`, `branch` says why on stderr and carries on.
+- **A failed install** (a step exits non-zero, or the limit is reached; a file step whose program is not on
+  `PATH` fails like any other step) keeps the worktree, opens nothing, starts no
+  agent, and exits `1`. Nothing is rolled back. Fix the install in the worktree and run
+  `worktree open <branch>`, or run `worktree remove <branch> -f` and re-run `branch` with `--no-install`.
+  Re-running `branch` as it was does not create anything: the branch name is taken, so it reopens the
+  worktree (on a terminal) or refuses — see [A branch name that is already taken](#a-branch-name-that-is-already-taken).
+
+`checkout` has no install step.
+
+## Jira Issue Branching
+
+Use the `--jira` flag to create a suggested branch name from an issue in your Jira workspace.
+
+- The issue ID can be passed in any case (`dev-123`, `DEV-123`, etc.), or as the issue's URL,
+  `https://<host>/browse/DEV-123`. A trailing slash, query string and fragment are ignored. The URL's base, everything
+  before `/browse/` (a context path such as `/jira` included), must be your `jira.host`, compared ignoring case;
+  otherwise the run exits `2` with `invalid_value` naming both, and the URL's site is never contacted, so your
+  credentials are only ever sent to `jira.host`. A key may contain `_` on Jira Data Center. Pass the key, or check that
+  the URL is from your Jira site. Any other URL is refused the same way.
+- The generated name is pre-filled in the prompt and still editable.
+- If issue types are configured in the repository, these optional prefixes are applied:
+	- `branchPrefix.feature` for issue types like `Feature`, `Story`, and most non-bug/chore types
+	- `branchPrefix.bugfix` for issue type `Bug`
+	- `branchPrefix.chore` for issue type `Task`
+- That mapping applies only when no `jira.branchType` (or shared `branchType`) rules are set. With rules in `.worktree.yml`, the rules
+  decide the kind, and an issue no rule matches gets no prefix unless the list ends with `otherwise`. See
+  [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+
+If no prefix is configured, `worktree` falls back to an empty prefix and still generates a valid branch name.
+
+Jira authentication requires three configuration keys on Jira Cloud, and two on Jira Data Center:
+
+1. `northguild.worktree.jira.host` (or `jira.host` in `.worktree.yml`, see [Project Configuration](/worktree/project-configuration/#jirahost-receives-everyones-credentials)) - Your Jira workspace URL (e.g., `https://company.atlassian.net`)
+2. `northguild.worktree.jira.email` - Your Jira email address (Cloud only; not asked and not read on Data Center)
+3. `northguild.worktree.jira.apiToken` - Your Jira API token, or on Data Center a personal access token sent as a Bearer token
+
+Set `jira.deployment` to `datacenter` for Jira Data Center or Server; see [Jira Data Center](/worktree/guides/jira-integration/#jira-data-center).
+
+### Moving the Jira issue to in progress
+
+With `--jira`, `--start` and `--no-start` decide in the same order, with
+[`jira.autoStart`](/worktree/configuration/#jira-integration-notes) as the key, and the question and its saved answer name
+that key. The write happens at the same point: after the worktree exists, before the env files, the install and the
+opener, and never when reopening an existing worktree. A dry run ignores `--start`, asks nothing and moves nothing.
+
+```bash
+worktree branch --jira DEV-123 --start
+worktree branch --jira DEV-123 --no-start
+worktree config jira.autoStart true    # always start, stop asking
+```
+
+- **Only an issue in the To Do category moves.** Jira puts every status in a category, and the move goes by that,
+  never by a status name. An issue in To Do goes through the transition Jira offers from its current status that
+  leads to an In Progress category status. An issue already in that category is reported as already started and not
+  moved, so `started` is `true`. An issue in the Done category, or any other, is a warning and is left where it is;
+  `started` is `false`.
+- **It will not guess between statuses.** When the transitions available lead to more than one in-progress status,
+  or to none, nothing is written and `started` is `false`: with several, the warning names the statuses it found, and
+  you move the issue in Jira. With none, the warning says the workflow may have none or the account may lack the
+  Transition Issues permission, because Jira answers the same way for both.
+- **A non-interactive run with the key unset moves the issue**, without saving anything, so a script that passes
+  `--jira` now changes the issue's status. `false` or `--no-start` still skips it.
+- **The worktree is the deliverable.** A move that fails (no network, a transition that needs a field set in Jira,
+  an account without the Transition Issues permission) warns with the reason and carries on with the exit code the
+  run would have had. The warning appears in `warnings` and `started` is `false`. Nothing but the status is
+  written.
+- **It reads the issue's status and the transitions Jira offers from it**, never its description or comments. See
+  the [Jira guide](/worktree/guides/jira-integration/#moving-the-issue-to-in-progress).
+
+## Linear Issue Branching
+
+Use the `--linear` flag (short: `-l`) to create a suggested branch name from an issue in your Linear workspace. It
+cannot be combined with `--github`, `--jira` or `--clickup`. See the [Linear guide](/worktree/guides/linear-integration/).
+
+- The issue identifier can be passed in any case (`eng-123`, `ENG-123`, etc.), or as the issue's URL,
+  `https://linear.app/<workspace>/issue/ENG-123`, with or without the title slug Linear appends. A trailing slash,
+  query string and fragment are ignored. The URL's workspace is checked against the workspace of the issue Linear
+  returns, ignoring case, after the one fetch and before anything is created; another workspace exits `2` with
+  `invalid_value`. When Linear returns no URL for the issue, the workspace cannot be confirmed, so the run warns and
+  carries on. Any other URL is refused the same way.
+- With no identifier (`worktree branch --linear`), a menu lists your own unstarted and started issues, each as identifier, title and state name, and the one you pick is used exactly as if you had typed it. Only one page of up to 50 is fetched; when more match, the prompt says so and names the way out, which is to quit and pass the identifier. If none is assigned to you the command exits `1` and says to pass an identifier. See [Picking an issue](#picking-a-linear-issue).
+- The generated name is pre-filled in the prompt and still editable.
+- Linear has no issue type, so the issue's labels pick the optional prefix, by exact name and ignoring case:
+	- `branchPrefix.bugfix` for a `bug` label
+	- `branchPrefix.chore` for a `chore` or `maintenance` label, when there is no `bug` label
+	- `branchPrefix.feature` for anything else, including no label
+- That mapping applies only when no `linear.branchType` (or shared `branchType`) rules are set; with rules, the rules decide and an
+  unmatched issue gets no prefix unless the list ends with `otherwise`.
+
+If no prefix is configured, `worktree` falls back to an empty prefix and still generates a valid branch name.
+
+Linear authentication requires one configuration key, `northguild.worktree.linear.apiKey`, your Linear personal
+API key. Without it the command offers to run `worktree config`, and when there is still no key (or the run is non-interactive) exits `2` with `missing_value`. Assigning the issue is not supported yet; [moving it to started](#moving-the-issue-to-started) is.
+
+### Picking a Linear issue
+
+`--linear` with no identifier, last on the line or followed by another flag, asks you to pick one of your own
+unstarted and started Linear issues. It sends one request for them, after your key is checked, and the menu shows
+each issue's identifier, title and state name in words. Titles and state names are written by anyone in your
+workspace, so control and formatting characters in them are shown as escapes such as `\x1b`.
+
+A pick needs a person at a terminal. `--json`, `--yes`, `--non-interactive`, `CI` and a missing terminal exit `2`
+with `missing_value` (`no default for the Linear issue; pass --linear <identifier>`) before the fetch and before
+any request, and so does `--dry-run`, which asks nothing. Ctrl-C at the menu ends the run quietly with nothing
+created.
+
+```bash
+worktree branch --linear
+worktree branch --linear --no-start
+```
+
+### Moving the issue to started
+
+`--start` moves the Linear issue to its team's first started state once the worktree exists, and `--no-start`
+skips it for that one run. It works with `--linear`, with `--clickup` (see
+[Moving the ClickUp task to in progress](#moving-the-clickup-task-to-in-progress)) and with `--jira` (see
+[Moving the Jira issue to in progress](#moving-the-jira-issue-to-in-progress)); `--start` with `--github` warns that
+it is not supported and carries on, and `--no-start` there warns nothing. On its own either flag exits `2`, as
+`--assign` does, because there is no issue to act on. The decision is made in this order:
+
+1. `--start` or `--no-start`.
+2. [`linear.autoStart`](/worktree/configuration/#linear-integration-notes) (or `clickup.autoStart` for `--clickup`, `jira.autoStart` for `--jira`): `true` starts, `false` never does.
+3. A non-interactive run starts. The default is not saved, so one unattended run does not settle the key.
+4. Otherwise you are asked "Move this issue to started?" once, and your answer is saved to `linear.autoStart` (`clickup.autoStart` for `--clickup`, `jira.autoStart` for `--jira`) so the question is not repeated.
+
+A configured `false` is respected in every mode; pass `--start` to override it for one run.
+
+```bash
+worktree branch --linear ENG-123 --start
+worktree branch --linear ENG-123 --no-start
+worktree config linear.autoStart true    # always start, stop asking
+```
+
+- **Only issues that have not begun move.** An issue in a backlog or unstarted state goes to the team's
+  started state with the lowest position (usually In Progress). An issue that is already started (In Review,
+  say) is reported and left where it is, as are triage, completed, canceled and duplicate issues, and a team
+  with no started state. Each outcome is said in words, with the state names, and a left-alone issue is a
+  warning that names its state.
+- **It happens after the worktree exists**, and before the env files, the install and the opener. A failed
+  creation moves nothing, and reopening an existing worktree moves nothing. The question is asked before the
+  worktree is created, so it is never buried behind creation output or a launched editor.
+- **The worktree is the deliverable.** A move that fails (no network, a rate limit, a key without the Write
+  permission or without access to the issue's team) warns with Linear's message and carries on with the exit
+  code the run would have had. The warning appears in `warnings` and `started` is `false`.
+- **It reads and writes the issue's workflow state** (names, types and positions), never its description or
+  comments. Moving an issue needs a key with the Write permission; see the
+  [Linear guide](/worktree/guides/linear-integration/#moving-the-issue-to-started).
+
+## ClickUp Task Branching
+
+Use the `--clickup` flag (short: `-c`) to create a suggested branch name from a task in your ClickUp Workspace. It
+cannot be combined with `--github`, `--jira` or `--linear`. See the [ClickUp guide](/worktree/guides/clickup-integration/).
+
+- Pass the task id in either form: the short id in the task's URL and ID field (`9hx`, typed without `CU-`; case
+  matters), or a custom id (`DEV-123`, sent to ClickUp as typed and upper-cased in the branch name) when your Workspace has custom task ids switched on.
+  Anything else, including `CU-9hx`, exits `2` with `invalid_value` before any request.
+- A custom id needs `clickup.workspaceId`; without it the command exits `2` with `missing_value`.
+- A short id becomes `CU-<id>` in the branch name (`feature/CU-9hx-fix-login`); a custom id is upper-cased
+  (`fix/DEV-123-fix-login`).
+- The generated name is pre-filled in the prompt and still editable.
+- ClickUp's tags pick the optional prefix, by exact name and ignoring case:
+	- `branchPrefix.bugfix` for a `bug` tag
+	- `branchPrefix.chore` for a `chore` or `maintenance` tag, when there is no `bug` tag
+	- `branchPrefix.feature` for anything else, including no tag
+- That mapping applies only when no `clickup.branchType` (or shared `branchType`) rules are set; with rules, the rules decide and an
+  unmatched task gets no prefix unless the list ends with `otherwise`.
+
+ClickUp authentication requires one configuration key, `northguild.worktree.clickup.apiToken`, your ClickUp personal
+API token. Without it the command offers to run `worktree config`, and when there is still no token (or the run is
+non-interactive) exits `2` with `missing_value`. Assigning the task is not supported yet; [moving it to in progress](#moving-the-clickup-task-to-in-progress) is.
+
+### Moving the ClickUp task to in progress
+
+With `--clickup`, `--start` and `--no-start` decide in the same order, with
+[`clickup.autoStart`](/worktree/configuration/#clickup-integration-notes) as the key, and the question and its saved
+answer name that key. The write happens at the same point: after the worktree exists, before the env files, the
+install and the opener, and never when reopening an existing worktree. A dry run ignores `--start`, asks nothing and
+moves nothing.
+
+```bash
+worktree branch --clickup 9hx --start
+worktree branch --clickup 9hx --no-start
+worktree config clickup.autoStart true    # always start, stop asking
+```
+
+- **Only a task in an open status moves.** ClickUp tells statuses apart by type. A task whose status type is
+  `open` (To Do, say) goes to the List's first `custom` status by position, which is the nearest ClickUp has to
+  "in progress". A task already in a `custom` status (In Progress, In Review) is reported as already started and
+  not moved, so `started` is `true`. A task in a `done` or `closed` status, or any other type, is a warning and is
+  left where it is, and so is a List with no `custom` status; `started` is `false` for those. Each outcome is said
+  in words, with the status names.
+- **A non-interactive run with the key unset moves the task**, without saving anything. `false` or `--no-start`
+  still skips it.
+- **The worktree is the deliverable.** A move that fails (no network, a rate limit, a refused write, an answer that
+  does not show the new status) warns with the reason and carries on with the exit code the run would have had.
+  The warning appears in `warnings` and `started` is `false`. Moving a task needs edit access to it.
+- **It reads the task's status and its List's statuses**, never its description or comments. See the
+  [ClickUp guide](/worktree/guides/clickup-integration/#moving-the-task-to-in-progress).
+
+## Agent Dispatch
+
+Use the `--agent` flag (short: `-a`) to hand the new worktree to a coding agent with a prompt, called the
+brief. The brief can come from one of three places, and they are mutually exclusive:
+
+| Flag | The brief is |
+|---|---|
+| `--agent "<text>"` | the flag's value |
+| `--agent-file <path>` | the whole of a file, which has to exist and be a regular file |
+| `--agent-stdin` | the whole of piped stdin; a terminal on stdin is refused rather than waited on |
+
+```bash
+worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
+worktree branch --github 42 --agent-file brief.md
+```
+
+An empty brief, or one over **131,071 bytes** (the most a single argument can carry on Linux), is rejected before anything is created. The brief is delivered
+verbatim, so quotes, apostrophes, semicolons and newlines in it reach the agent unchanged and no shell
+interprets it.
+
+There is **one agent per worktree**, started one of two ways:
+
+- **When the worktree opens as a Herdr space** (`opener` `herdr`), the agent is started in the space's pane
+  with `herdr agent start`, and the brief is then submitted to it with `herdr agent prompt`, once, after the
+  agent is ready. The brief is never part of the start command.
+  - The agent kind is [`herdr.agent`](/worktree/guides/herdr-spaces/#start-an-agent-with-the-space), or else the program
+    [`agent.command`](/worktree/configuration/#agent-command) names. With a brief and neither, and Herdr as the opener and installed, the run exits `2` before the worktree is
+    created, with `` worktree: no default for the agent kind; pass `worktree config herdr.agent <kind>` ``.
+  - When `agent.command` names the same program, its arguments are passed to the agent, minus `--bg` and
+    `--background` (a note says so on stderr): Herdr runs the agent in the pane, so a background flag would
+    take it out of sight.
+  - For `claude`, `--name <session>` is added. The session name is `<repo>-<branch>`, lowercased, with every
+    run of characters outside `a-z`, `0-9` and `-` turned into `-`, and never shortened. It is printed on
+    stderr. Herdr's own handle for the agent is separate and capped at 32 characters.
+  - If starting the agent fails, or the brief cannot be delivered, a warning says so (a failed delivery names the brief by its size, never its text), the worktree and
+    space are kept, and the run exits `1`.
+- **Otherwise** (editor opener, `opener` `none`, or Herdr failing to open) `agent.command` is launched
+  detached with the brief as its last argument and the new worktree as its working directory. It is started
+  and left running; `worktree` does not wait for it and its output does not appear here. That output is not
+  kept anywhere either, so name an agent that keeps its own session record, such as `claude --bg`
+  (reachable through `claude agents`) or `codex exec` (unless `--ephemeral` is passed). With a brief, no
+  `agent.command` and a run Herdr will not open (editor, `none`, `--no-open`, or `herdr` not on your `PATH`),
+  the run exits `2` before the worktree is created, with
+  `` worktree: no default for the agent command; pass `worktree config agent.command "<command>"` ``. If
+  Herdr was expected to open and failed, and there is no `agent.command` to fall back to, the worktree is
+  kept and the run exits `1`.
+  If the program in `agent.command` cannot be started (it is not installed, say), a warning says so, the
+  worktree is kept, no `Agent started` line is printed, `agent` is `null`, and the run exits `1`.
+
+`--no-agent` opens the worktree as usual but starts no agent. `--no-open` creates the worktree and prints
+`Worktree created at <path>` without calling Herdr or the editor, for this run only, like `opener` `none`;
+an agent is still started, detached, when a brief is given, unless `--no-agent` says otherwise.
+
+[`checkout`](/worktree/commands/checkout/) takes `--agent` and follows the same rules.
+
+## Non-interactive runs
+
+A run is non-interactive when stdin is not a terminal, `CI` is set (and is not empty, `0` or `false`),
+`--non-interactive` or `--yes` (`-y`) is given, or `--json` is given; every command accepts the two flags. It never prompts and never
+animates; progress goes to stderr as plain lines.
+
+- A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign` or `jira.autoAssign` assigns
+  the issue (without saving the key); `false` or `--no-assign` still skips it. An unset `linear.autoStart` moves a
+  `--linear` issue to started the same way, an unset `clickup.autoStart` moves a `--clickup` task to in progress, and an unset
+  `jira.autoStart` moves a `--jira` issue to in progress; `false` or `--no-start` still skips it.
+- A prompt with none fails at once, exit `2`, with one line on stderr:
+  `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
+  `--source` without the `origin/` prefix (`--source origin/<branch>`), and a `--linear` with no identifier
+  (`--linear <identifier>`), which is refused before the fetch and before any request.
+- Dependencies are installed by default, from `postCreate` or the lockfile; `--no-install` skips it. Steps from `.worktree.yml` that you have not approved stop the run with exit `2` and `missing_value` before anything is created; the message names `worktree config --approve` and `--no-install`.
+- A branch name that is already taken is refused, exit `2` with `invalid_value`, naming the existing worktree's path and `worktree open <branch>`; it is never opened unasked.
+- Missing config is not offered to `config`: `defaultSourceBranch` unset in both your git config and `.worktree.yml` warns and falls back to `origin/main`.
+
+## What It Does
+
+With `--dry-run`, steps 2 to 10 do not happen: the command stops after naming, see
+[Previewing a branch name](#previewing-a-branch-name).
+
+1. Fetches from `origin` once, then reads the team's [`.worktree.yml`](/worktree/project-configuration/) from the
+   default branch. A file that cannot be used stops the command here, with exit `2`, before anything is created.
+2. Assigns the issue to you, when creating from `--github` or `--jira` and assignment is enabled.
+3. Creates a branch from your configured source branch (`--source`, else your `defaultSourceBranch`, else the
+   file's, else `origin/main`).
+4. Adds a worktree under `<repo>.worktrees/<branch-name>`.
+5. Records the issue the branch was made for, when creating from `--linear`: one git config entry,
+   `branch.<branch-name>.worktreeIssue` set to `linear:<identifier>` (for example `linear:ENG-123`), written
+   after the worktree exists and whether or not the issue is moved to started. Git carries the entry along when
+   the branch is renamed and drops it when the branch is deleted. A failed write warns, saying `cleanup` will
+   not see the branch's Linear state, and the run carries on. A reopened branch and the other providers write
+   nothing.
+6. Moves the issue to started, when creating from `--linear`, `--clickup` or `--jira` and starting is enabled — see
+   [Moving the issue to started](#moving-the-issue-to-started),
+   [Moving the ClickUp task to in progress](#moving-the-clickup-task-to-in-progress) and
+   [Moving the Jira issue to in progress](#moving-the-jira-issue-to-in-progress). A failure warns and the run carries on.
+7. Copies the gitignored env files into the new worktree, and the gitignored files the project file lists
+   under `copy` — see [Environment Files](/worktree/guides/env-files/) and
+   [Copy files](/worktree/project-configuration/#copy-files).
+8. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
+9. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
+10. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
+
+## A branch name that is already taken
+
+`branch` checks the final branch name before it assigns an issue, resolves a source or creates anything.
+Git's own `a branch named … already exists` does not say which of four states you are in, so `branch`
+tells them apart:
+
+| State | On a terminal | Non-interactive (and `--json`) |
+|---|---|---|
+| The branch has a worktree under `<repo>.worktrees/` | asks whether to open it; `y` opens it, `n` exits `1` | refuses, exit `2` (`invalid_value`), naming the path and `worktree open <branch>` |
+| The branch exists but has no worktree | refuses, exit `2`, saying to choose another name or delete the branch | the same |
+| The branch is checked out elsewhere, such as the main checkout | refuses, exit `2`, naming the path | the same |
+| A worktree record exists but its directory was deleted | refuses, exit `2`, naming the path and `git worktree prune` | the same |
+
+Opening an existing worktree creates nothing, so it copies no env files, installs nothing and assigns or moves no
+issue, and `--source`, `--assign`, `--start` and `--install` are ignored. It passes `--no-open`, `--no-agent` and any
+brief through to the same opener as a new worktree. With a brief, the question says that `y` starts a new
+agent there, beside any agent already running in it. It prints no [JSON document](#json-output); a
+non-interactive run refuses instead, so `--json` never reaches it.
+
+## JSON output
+
+`--json` makes stdout carry **exactly one JSON document** and nothing else, on one line, for a script or
+another agent to parse. It implies a [non-interactive run](#non-interactive-runs). Everything meant for a
+person goes to stderr instead: the spinner lines, the env-file list, notes and warnings.
+
+```json
+{"path":"/abs/repo.worktrees/70-headless-agent-mode","branch":"70-headless-agent-mode","source":"origin/main",
+ "issue":{"provider":"github","number":70,"url":"https://github.com/acme/demo/issues/70"},"assigned":true,"started":null,
+ "envFilesCopied":["docs/.env.local"],
+ "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
+ "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-70-headless-agent-mode"},
+ "agent":{"name":"demo-70-headless-agent-mode","kind":"claude","command":["claude","--name","demo-70-headless-agent-mode"],"prompted":true},
+ "warnings":[]}
+```
+
+| Key | Value |
+| --- | --- |
+| `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
+| `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}` or `{provider:"clickup", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
+| `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, or a Jira issue is held by someone else); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
+| `started` | `true` once the Linear issue, ClickUp task or Jira issue is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (none of `--linear`, `--clickup` or `--jira`, `--no-start`, a configured `false`, or a declined prompt) |
+| `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
+| `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`) or `"lockfile"` |
+| `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |
+| `agent` | `{name, kind, command, prompted}` for the agent that was started; `null` when none was. `command` leaves out the brief. `name` is the session name, `null` where `worktree` named nothing (a detached start) |
+| `warnings` | what went wrong without stopping the run: a failed assignment or start, a Herdr or agent failure, missing config, a closed `--github` issue |
+
+A failed install still prints the document, with `installed.ok` `false` and the message in `warnings`, and
+exits `1`: the worktree exists, so its path is reported rather than left out of an error. A brief that was
+given and reached no agent is reported the same way, with `agent` `null` or `agent.prompted` `false` —
+`agent.prompted` is the receipt that the agent has the brief.
+
+A failure otherwise prints a different document, still one line on stdout, and exits non-zero. A line
+describing it goes to stderr as usual:
+
+```json
+{"error":{"code":"missing_value","message":"no default for the branch name; pass <branchName>","details":{"value":"the branch name","flag":"<branchName>"}}}
+```
+
+| `code` | Means | Exit |
+| --- | --- | --- |
+| `missing_value` | a value with no default was not given, such as `--linear` with no identifier in a run that cannot ask or with `--dry-run`; `details` names it and the flag | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github`, `--jira` or `--linear` URL for another repository or GitHub host, Jira site or Linear workspace or of a shape not accepted, a `--github` number that is a pull request, a branch name that is already taken | `2` |
+| `not_found` | something named does not exist, such as the `--source` branch | `2` |
+| `timeout` | a call that is bounded did not answer in time | `1` |
+| `failed` | anything else | `1` |
+
+No token or password is ever printed: URL credentials and token-shaped strings are masked in every message.

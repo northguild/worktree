@@ -1,0 +1,209 @@
+---
+title: "worktree list: see every git worktree"
+description: "worktree list shows the git worktrees in a repository with ahead/behind counts, and optionally agent sessions, churn and Linear issues, or JSON."
+---
+
+List known worktrees managed for the current repository.
+
+## Usage
+
+```bash
+worktree list
+worktree list --agents
+worktree list --churn
+worktree list --issues
+worktree list --json
+worktree list --agents --json
+worktree list --churn --json
+worktree list --issues --json
+```
+
+Use this before `open`, `remove`, or cleanup decisions.
+
+## Flags
+
+| Flag | Alias | Description |
+| --- | --- | --- |
+| `--agents` | `-a` | Show the agent session living in each worktree |
+| `--churn` | | Show how much each worktree has changed: files, insertions and deletions |
+| `--issues` | | Show each worktree's Linear issue and whether it is canceled |
+| `--json` | | Print one JSON document on stdout instead of the list, and run [non-interactively](/worktree/commands/branch/#non-interactive-runs) |
+
+## Showing agent sessions
+
+`--agents` finds the agent sessions that are open and names the one found in each worktree. It asks two
+sources and joins them on the directory each session runs in, compared as real paths so a symlinked or
+differently-cased spelling of the same directory still matches:
+
+- **Herdr**, through `herdr agent list`, when `herdr` is installed. This finds agents Herdr started for
+  you, including ones the runtime does not list a process for.
+- **The agent runtime**, through `<program> agents --json`. The program is the first word of
+  [`agent.command`](/worktree/configuration/#agent-command), or the
+  [`herdr.agent`](/worktree/configuration/) kind when `agent.command` is unset.
+
+A Herdr agent that matches a runtime session by session id is named by that session; one the runtime does
+not list is named `<kind>@<pane>`, for example `claude@w5:p1`.
+
+```text
+- feature/one (Agent: feature-one-1f)
+- feature/two (Ahead: 2, Behind: 1, Agent: feature-two-1f [waiting])
+- feature/three (Agent: notes-1f [interactive])
+- feature/four (Agent: feature-four-1f [interactive, waiting])
+- feature/five (Agent: feature-five-1f [done])
+```
+
+- **No marker** — a background agent that is getting on with its work.
+- **`[waiting]`** — a background agent that is live but not progressing: idle between
+  turns or blocked on a question, so it is probably waiting on you.
+- **`[done]`** — a session the runtime reports as finished. It no longer holds anything back, so
+  `cleanup` treats the worktree as ordinary stale work. The exceptions are a session Herdr still shows in
+  a pane and one whose process is still running, which the runtime has been seen to report as finished:
+  those are not marked `[done]`. A session Herdr shows holds the worktree back only while Herdr reports it
+  as anything other than idle or done. A running one is weighed by its status like any live session: it is
+  `[waiting]` when it is idle or blocked on a question, and it holds the worktree back unless it is only idle.
+- **`[interactive]`** — a session in a terminal rather than a background one: somebody's
+  own, or an agent `worktree branch` started through Herdr. It is listed because `cleanup` will refuse to remove a worktree
+  somebody is working in, and this is where you find out which those are.
+- **`[interactive, waiting]`** — an interactive session that is live but not progressing,
+  on the same terms as `[waiting]`: an agent that has finished its turn or stopped on a question.
+  One that is only idle, rather than blocked on a question, does not hold the worktree back.
+
+A worktree with no `Agent:` detail has no session in it. Where a worktree holds
+more than one — a dispatched agent and your own terminal, say — the entry names
+one of them, and the marker describes the session it names.
+
+Without `--agents`, `list` asks neither source anything and its output is
+unchanged. If neither is available — `herdr` is not installed and neither `agent.command` nor
+`herdr.agent` is set, or the runtime reports nothing usable — `--agents` simply lists no sessions
+rather than failing.
+
+## Showing churn
+
+`Ahead:` says how many commits a worktree carries, not how big they are. `--churn` adds the size, so a
+one-line fix can be told from a rewrite without entering the directory:
+
+```text
+- feature/one (Ahead: 3, Churn: +120 -8, 5 files)
+- feature/two (Ahead: 1, Churn: +3 -1, 1 file, Behind: 2)
+```
+
+The figure is the lines added, the lines removed and the files touched by the committed work, the same
+numbers `git diff --shortstat <base>...HEAD` prints. The base is the one
+[`Ahead:` was counted against](#ahead-and-behind-counts), so the two describe the same commits. Uncommitted
+edits are not part of it; they are counted separately as `N uncommitted changes`.
+
+- **It sits beside `Ahead:` and is shown only where `Ahead:` is.** A worktree with nothing ahead, and one
+  whose branch is already merged, show no `Churn:` detail. The [JSON](#json-output) still carries what was
+  taken for a merged branch.
+- **It is left out where it could not be taken** — no comparison base resolved, the directory is gone, or
+  the diff failed, did not answer within 10 seconds or printed something unrecognised — rather than printed as `+0 -0`.
+- **It costs one more git call per worktree**, which is why it is opt-in. Without `--churn`, `list` runs
+  exactly what it ran before, and [`remove`](/worktree/commands/remove/) and [`cleanup`](/worktree/commands/cleanup/)
+  never show it.
+
+## Showing Linear issues
+
+A worktree made with [`branch --linear`](/worktree/commands/branch/) carries a record of its Linear issue in git
+config. `--issues` reads those records and shows, beside each linked worktree, the issue and the type of its
+state:
+
+```text
+- feature/eng-123-dark-mode (Linear ENG-123: canceled)
+- feature/eng-124-export (Ahead: 2, Linear ENG-124: started)
+- feature/eng-125-search (Linear ENG-125: state unknown)
+```
+
+- **It asks Linear.** With at least one record and [`linear.apiKey`](/worktree/configuration/) set, `list` sends one
+  request per 50 linked branches, cut off after 15 seconds. Only the state type is read, never the state's name.
+  A worktree with no record shows no `Linear` detail.
+- **It can ask a remote.** Under `--issues`, `safeToRemove` counts a canceled issue as
+  [`cleanup`](/worktree/commands/cleanup/#canceled-linear-issues) does, which includes the remote's
+  confirmation of the tip; a live session counts only with `--agents`. So when an issue is canceled, `list --issues` runs `git ls-remote --heads` against the
+  remote that branch tracks, once per remote, bounded to 60 seconds. Without `--issues`, `list` runs no `ls-remote`.
+- **`state unknown`** means the type could not be read: the lookup failed, Linear did not return the issue, or the
+  type is not one Linear documents.
+- **With records but no key**, `list --issues` prints one warning saying so and shows every state as unknown.
+  If Linear cannot be reached it prints one warning and does the same, and a remote that does not answer the
+  `ls-remote` is one warning too, keeping that remote's canceled branches as not removable. A warning never changes the exit code,
+  and never carries the key.
+
+Without `--issues`, `list` reads no record, sends no request, runs no `ls-remote` and its output is
+unchanged. [`remove`](/worktree/commands/remove/) never reads them.
+
+## Ahead and behind counts
+
+`Ahead:` counts commits this worktree carries that its comparison base does not.
+**The count is taken for every worktree whose directory is present, including
+one on a branch you have never pushed** — that is the case worth seeing, because
+those commits exist in exactly one place.
+
+The base depends on whether the branch tracks a remote:
+
+| The branch | `Ahead:` counts against | `Behind:` |
+| --- | --- | --- |
+| tracks a remote branch that still exists | its upstream | shown |
+| tracks nothing, or a remote branch that is gone | `origin/HEAD`, falling back to [`defaultSourceBranch`](/worktree/configuration/) | not shown |
+
+A worktree whose commits are all already applied in that base shows where they
+landed instead of how many there are:
+
+```text
+- feature/bulk-actions (Remote removed, Merged into origin/main)
+```
+
+The count is not hidden to be tidy. It is replaced because it would be
+misleading: a squash merge lands a branch as one new commit and a rebase
+rewrites every commit it touches, so a merged branch stays "7 ahead" of `main`
+forever while holding nothing that is not already there. `Ahead:` is in this
+list to say what removing the worktree would cost, and for that branch the
+answer is nothing. Where even one commit is *not* already in the base, the count
+is shown as usual — the whole change is what is compared, so a branch that has
+moved on since it was merged counts as carrying work again.
+
+`Behind:` is only ever counted against an upstream. Against the default branch it
+would mean "commits on `main` this branch does not have", which is true of almost
+every worktree the moment `main` moves — so where there is no upstream the figure
+is left out rather than printed as a `0` that was never counted. A count of zero
+is not shown either way; only a non-zero figure earns a line.
+
+If neither `origin/HEAD` nor `defaultSourceBranch` resolves, the count cannot be
+taken at all, and the entry says so instead of looking empty:
+
+```text
+- feature/orphan (Unpushed commits unknown: no comparison base; set defaultSourceBranch or run git remote set-head origin --auto)
+```
+
+The same detail appears in [`remove`](/worktree/commands/remove/)'s picker and in
+[`cleanup`](/worktree/commands/cleanup/)'s report of what it held back, because all
+three render a worktree the same way.
+
+## JSON output
+
+`--json` prints **exactly one JSON document** on stdout, on one line, in place of the list. The spinner lines
+and any warning go to stderr. It implies a [non-interactive run](/worktree/commands/branch/#non-interactive-runs).
+
+```json
+{"worktrees":[{"branch":"feature/one","path":"/abs/repo.worktrees/feature/one","current":false,"pathExists":true,"remote":"origin/feature/one","remoteExists":true,"ahead":2,"behind":1,"mergedInto":null,"uncommittedChanges":0,"safeToRemove":false}]}
+```
+
+| Key | Value |
+| --- | --- |
+| `branch`, `path` | the worktree's branch and absolute path |
+| `current` | whether it is the worktree you are in |
+| `pathExists` | whether its directory is still on disk |
+| `remote`, `remoteExists` | the upstream the branch tracks, `null` when it tracks none, and whether that remote branch still exists |
+| `ahead`, `behind` | the [counts above](#ahead-and-behind-counts) as numbers |
+| `mergedInto` | the base whose commits already contain all of this branch's changes; `null` when not known to be merged |
+| `uncommittedChanges` | the number of uncommitted changes; `null` when the directory is gone, as there is nothing to count |
+| `safeToRemove` | the verdict [`cleanup`](/worktree/commands/cleanup/) acts on, from the data this run gathered. `cleanup` weighs agent sessions and canceled Linear issues; `list` does so only with `--agents` and `--issues`, so without them it can report `false` for a worktree `cleanup` would remove through a canceled issue, and `true` for one it would hold back for a live session. With both flags it is `cleanup`'s verdict, except for the worktree you are in (`current: true`), which `cleanup` never considers |
+| `churn` | only with `--churn`: `{files, insertions, deletions}` for the committed work, [as above](#showing-churn), or `null` when it could not be taken. All zeros means the diff was taken and was empty |
+| `issue` | only with `--issues`: `null` when the branch has no recorded Linear issue, otherwise `{provider, key, state}`: `provider` is `"linear"`, `key` the identifier such as `ENG-123`, and `state` the issue's state type (`canceled`, `started`, ...) or `null` when it could not be read. Only the type is read, never the state's name |
+| `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}`. `waiting` is `true` for a live session that is idle between turns or blocked on a question, whether or not it is interactive. `herdrAgent` is the name Herdr gives the agent, as `branch --json` reports it in `herdr.agent`, or the agent's pane id when Herdr reports no name |
+
+**A count or flag that could not be taken is `null`, never `0` and never left out.** `ahead` and `uncommittedChanges` are
+`null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, `churn` is `null` when no figure was taken for the worktree, `issue.state` is `null` when the type could not be read (a warning goes to stderr, and stdout is still one document), and
+inside `agent` any of `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` is `null` when the
+source did not say. A `0` always means the count was taken and is zero.
+
+A failure prints `{"error":{"code","message"}}` on stdout instead and exits non-zero; the codes are listed under
+[`branch`](/worktree/commands/branch/#json-output).

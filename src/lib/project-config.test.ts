@@ -58,7 +58,7 @@ vi.mock("./config.js", () => ({
 
 // The example file from plan §4, verbatim: the expected values below come from
 // it and its comments, not from the schema under test.
-const EXAMPLE = `# yaml-language-server: $schema=https://northguild.github.io/worktree/schema/v1.json
+const EXAMPLE = `# yaml-language-server: $schema=https://northguild.dev/worktree/schema/v1.json
 defaultSourceBranch: origin/main
 
 branchPrefix:
@@ -1603,7 +1603,7 @@ postCreate:
     await writeProjectFile();
 
     expect(fs.readFileSync(target(), "utf8").split("\n")[0]).toBe(
-      "# yaml-language-server: $schema=https://northguild.github.io/worktree/schema/v1.json",
+      "# yaml-language-server: $schema=https://northguild.dev/worktree/schema/v1.json",
     );
   });
 

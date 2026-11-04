@@ -1,0 +1,308 @@
+---
+title: "Configure @northguild/worktree"
+description: "Configure the worktree CLI: source branch, editor command, agent command, opener, and GitHub, Jira, Linear and ClickUp credentials."
+---
+
+`worktree` stores your config in Git config under `northguild.worktree.*`. A repository can also carry its
+team's settings in a `.worktree.yml` file; see [Project Configuration](/worktree/project-configuration/). For a
+team key your git config wins over the file, and the file wins over the built-in default.
+`worktree config` does not ask for a key the file sets, and `worktree config --list` marks each value
+`(.worktree.yml)` or `(overrides .worktree.yml: <file value>)`; see
+[`config`](/worktree/commands/config/#project-file). `worktree config --project` writes the file from your git
+config.
+
+## Common Keys
+
+- `defaultSourceBranch` (example: `origin/main`) — see [Default source branch](#default-source-branch)
+- `opener` (`editor`, `herdr` or `none`, default `editor`)
+- `codeEditor` (example: `code`)
+- `herdr.focus` (`true` or `false`, default `true`)
+- `herdr.agent` (example: `claude`; the agent kind that starts in every new Herdr space. Unset means no agent, unless `worktree branch` or `checkout` is given a brief, which falls back to `agent.command`'s program)
+- `agent.command` (the command `--agent` runs to hand a brief to a coding agent, example: `claude --bg`)
+- `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means the steps in `.worktree.yml`, else infer from the lockfile)
+- `github.token` (GitHub personal access token, for github.com only; a GitHub Enterprise host's token comes from `gh auth token --hostname <host>`)
+- `github.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
+- `github.repository` (example: `acme/widgets`; the repository `--github` reads and assigns in, only needed when it is not the repository found otherwise (`upstream` when it is on `github.host` (`github.com` unless set), else `origin`), for example when your issues are on your fork and an `upstream` remote exists; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
+- `github.host` (example: `ghe.example.com`; the GitHub host `--github` and `--assign` use, a bare hostname, default `github.com`; for GitHub Enterprise, which also needs a remote on that host; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
+- `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
+- `jira.deployment` (`cloud` or `datacenter`, default `cloud`; which Jira `jira.host` is, Jira Cloud or Jira Data Center; a team key, also set under `jira:` in `.worktree.yml`; never asked for by `worktree config`)
+- `jira.email` (Your Jira email address)
+- `jira.apiToken` (Jira API token)
+- `jira.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
+- `jira.autoStart` (`true` or `false`, unset means you are asked, or the issue is moved to in progress when non-interactive)
+- `linear.apiKey` (Linear personal API key, example: `lin_api_...`)
+- `linear.autoStart` (`true` or `false`, unset means you are asked, or the issue is started when non-interactive)
+- `linear.agentToken` (the Linear agent app's OAuth token; secret; read by `worktree linear-listen`, which starts worktrees for a Linear agent; never asked for by `worktree config` and not allowed in `.worktree.yml`)
+- `linear.webhookSecret` (the Linear agent app's webhook signing secret; secret; read by `worktree linear-listen`; never asked for by `worktree config` and not allowed in `.worktree.yml`)
+- `linear.agentAllow` (comma-separated Linear user ids allowed to delegate an issue to the agent, example: `user-id-1,user-id-2`; read by `worktree linear-listen`, and unset means only the owner of `linear.apiKey`; never asked for by `worktree config`, and a `linear.agentAllow` in `.worktree.yml` is ignored with a warning)
+- `linear.agentContext` (`true` or `false`, anything else is refused; `true` lets `worktree linear-listen` add the delegated issue's text to the agent's brief, fenced as untrusted and capped at 32 KiB, and unset means `false`; never asked for by `worktree config`, and a `linear.agentContext` in `.worktree.yml` is ignored with a warning)
+- `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
+- `clickup.workspaceId` (optional; your ClickUp Workspace id, a number, needed only for custom task ids like `DEV-123`)
+- `clickup.autoStart` (`true` or `false`, unset means you are asked, or the task is moved to in progress when non-interactive)
+- `branchPrefix.feature` (example: `feature/`)
+- `branchPrefix.bugfix` (example: `fix/`)
+- `branchPrefix.chore` (example: `chore/`)
+
+## Default source branch
+
+`defaultSourceBranch` answers two questions, and they are not the same one.
+
+**Where a new branch starts.** `worktree branch` uses it when you pass no
+`--source`, and prompts if it is unset.
+
+**What counts as unpushed work.** `list`, `cleanup` and `remove` compare each
+worktree against a base to decide how many commits it carries that nowhere else
+has. That base is `origin/HEAD` — the repository's own record of its default
+branch — and `defaultSourceBranch` is the fallback when `origin/HEAD` is not
+set, which happens in clones made before git began recording it.
+
+It is also the base a merged branch is recognised against. Where a worktree is
+ahead of it, the change it carries is compared with what that base already holds
+— so a squash-merged or rebased branch, whose commits survive under new
+identities, is seen for what it is rather than counted as work at risk. See
+[`cleanup`](/worktree/commands/cleanup/) for what that does and does not permit.
+
+`origin/HEAD` is asked first deliberately. If the config key were read first,
+setting it to `origin/develop` because that is where you branch from would also
+change which commits count as unpushed, and a worktree could be classified as
+safe to delete on the strength of a preference about branching.
+
+If neither resolves, no count is taken. Nothing is guessed and nothing is
+treated as zero, and a worktree whose directory still exists is never
+classified as safe to remove — an unanswered question is not an answer of
+"nothing".
+
+All three commands say so rather than leaving you to guess.
+[`list`](/worktree/commands/list/) and [`remove`](/worktree/commands/remove/)'s picker
+name such a worktree as uncountable, and [`cleanup`](/worktree/commands/cleanup/)
+reports it under its own heading rather than sweeping it or passing over it in
+silence. To fix it, set the key or
+restore the ref:
+
+```bash
+worktree config defaultSourceBranch origin/main
+# or, to let git record it again:
+git remote set-head origin --auto
+```
+
+## Editor Command
+
+`codeEditor` is a command line, not just a program name. It is split on whitespace: the first word is the
+program to launch, and anything after it is passed to that program as arguments, ahead of the worktree
+path.
+
+```bash
+worktree config codeEditor code       # runs: code <worktree-path>
+worktree config codeEditor "code -n"  # runs: code -n <worktree-path>
+```
+
+The worktree path is always passed as a single argument, so a project or branch whose path contains a
+space opens correctly.
+
+**Quotes group, so an argument containing a space survives:**
+
+```bash
+worktree config codeEditor 'open -a "Sublime Text"'   # runs: open -a "Sublime Text" <worktree-path>
+```
+
+Quote characters are removed by the split and never reach the program, except an apostrophe between two letters or digits (as in `/Users/o'brien/bin/ed`), which is kept. Nothing else is interpreted: no
+shell parses this value, so `~` and `$EDITOR` are passed through literally rather than expanded, and a
+backslash is an ordinary character rather than an escape. Quote `an argument like this` instead of writing
+`an\ argument\ like\ this`, and use an absolute path or a wrapper script on your `PATH` rather than
+relying on expansion.
+
+## Agent Command
+
+`agent.command` is the command that `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The agent that starts in every new Herdr space, brief or not, is [`herdr.agent`](/worktree/guides/herdr-spaces/#start-an-agent-with-the-space). Like `codeEditor` it is a command
+line, not just a program name, and it is split the same way: the first word is the program to launch, and
+anything after it is passed to that program as leading arguments.
+
+```bash
+worktree config agent.command claude
+worktree config agent.command "claude --bg"
+worktree config agent.command "codex exec"
+```
+
+Only the first word is checked when you set the value, so flags and subcommands do not have to resolve to
+anything on their own:
+
+```bash
+worktree config agent.command "claude --bg"   # accepted — only `claude` is looked up
+worktree config agent.command "nope --bg"     # rejected — Command not found: nope
+```
+
+`worktree` does not assume a particular agent. There is no default value, and nothing about this key is
+specific to one vendor — any agent CLI of the same shape works. A detached agent's output is discarded, not
+kept anywhere, so the shape includes keeping its own session record: `claude --bg` is reachable through
+`claude agents`, and `codex exec` keeps its session files unless `--ephemeral` is passed. The same rules as
+[Editor Command](#editor-command) apply: no shell parses the value, quotes group an argument containing a
+space, and `~` and `$VAR` are not expanded.
+
+The key is optional and unset by default.
+
+When the worktree opens as a Herdr space, the agent is started by Herdr instead, and `agent.command` only
+supplies what to start: its program is the agent kind when a brief is given and [`herdr.agent`](/worktree/guides/herdr-spaces/#start-an-agent-with-the-space) is unset, and its
+arguments are reused when the program is that kind — without `--bg` or `--background`, which would take the
+agent out of the pane. For `claude`, `--name <repo>-<branch>` is added. See
+[Agent Dispatch](/worktree/commands/branch/#agent-dispatch).
+
+## Post-create Command
+
+`postCreate` is the command `worktree branch` runs in a new worktree to install its dependencies. It is a
+command line, split and validated exactly like `agent.command`: the first word is the program and has to be
+on `PATH` when you set it, quotes group an argument containing a space, and no shell parses the value.
+
+```bash
+worktree config postCreate "pnpm install"
+worktree config postCreate "make setup"
+```
+
+When it is set it is used as written, and it also turns the install on for a terminal run. Because you set
+it, it runs without asking. It wins over the `postCreate` steps in a repository's
+[`.worktree.yml`](/worktree/project-configuration/#post-create-steps), which run only after you approve them
+(`worktree config --approve`, or the prompt `branch` shows on a terminal). When both are unset, `branch` infers the command from the new worktree's lockfile (`pnpm-lock.yaml`, `package-lock.json`,
+`yarn.lock`, then `bun.lock`) and installs by default only when non-interactive. `--no-install` skips it for
+one run. See [`branch`](/worktree/commands/branch/#installing-dependencies).
+
+The key is optional and unset by default.
+
+## Platform Support
+
+`worktree` is developed and tested on macOS and Linux. **Windows is not supported.** Nothing here is
+launched through a shell, so a `.cmd` or `.bat` shim — which is what `code` is on Windows — cannot be
+started, and Herdr is a unix-socket application.
+
+## Commands
+
+```bash
+worktree config --list
+worktree config --missing
+worktree config --missing --names defaultSourceBranch,github.token
+worktree config defaultSourceBranch origin/main
+worktree config codeEditor code
+worktree config opener herdr
+worktree config herdr.focus false
+worktree config herdr.agent claude
+worktree config agent.command "claude --bg"
+worktree config postCreate "pnpm install"
+worktree config github.token <token>
+worktree config jira.host https://company.atlassian.net
+worktree config jira.email your-email@example.com
+worktree config jira.apiToken <api-token>
+worktree config jira.deployment datacenter   # Jira Data Center only; no jira.email then
+worktree config linear.apiKey <api-key>
+worktree config clickup.apiToken <api-token>
+worktree config clickup.workspaceId <workspace-id>
+worktree config branchPrefix.feature feature/
+worktree config branchPrefix.bugfix fix/
+worktree config branchPrefix.chore chore/
+```
+
+## Opener Notes
+
+- `opener` selects where a finished worktree is handed off: `editor` uses `codeEditor`, `herdr`
+  opens it as a Herdr space — and closes that space again when the worktree is removed, and `none`
+  opens nothing: the command prints `Worktree created at <path>` and stops. Unset means `editor`.
+- `codeEditor` is used only by the `editor` opener — see [Editor Command](#editor-command) above and
+  the [Editor Integration](/worktree/guides/editor-integration/) guide.
+- `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`. See
+  [Herdr Spaces](/worktree/guides/herdr-spaces/).
+- `herdr.focus` and `herdr.agent` are shown by `worktree config` only when the `herdr` CLI is on
+  your `PATH`. Without it they are neither listed nor prompted for, so the feature stays out of the way.
+  This gating never hides a key that already holds a value, and setting `opener` to `herdr` un-hides both
+  whether or not the CLI is found. `opener` itself is always shown. Naming a key with `--names`, or setting it directly, always
+  works.
+
+## GitHub Integration Notes
+
+- `worktree branch --github <issue-number>` reads issues from the repository named by `github.repository`
+  (git config, then `.worktree.yml`), else the `upstream` remote when it is on `github.host` (`github.com` unless set), else `origin`. When
+  that is not `origin`'s repository, the output names it. To read a fork's own issues, or any other repository,
+  set the key. It is a team key, so it can live in `.worktree.yml` under `github:`, and git config overrides it.
+  See [Forks](/worktree/guides/github-issue-integration/#forks).
+- Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
+- If `github.token` is missing, `worktree` can attempt to use `gh auth token --hostname github.com` (read each run and never saved; neither `GH_HOST` nor a `gh` login to another host supplies it) and then prompt; only a typed or configured token is stored. On a GitHub Enterprise host (`github.host`) the stored token is never read or sent: the only source is `gh auth token --hostname <host>`, there is no prompt, and a missing token exits `2` naming `gh auth login --hostname <host>`.
+- `github.host` names the one GitHub host that `--github` and `--assign` use, and the clone needs a remote on it as well (the remote the repository is read from, or `origin` when `github.repository` is set). Both have to agree, or the run fails before any request. See [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
+- `github.autoAssign` decides whether reading an issue also assigns it to you. It has three states, not
+  two: `true` always assigns, `false` never does, and leaving it **unset** means you are asked, once, and
+  your answer is saved to this key. A non-interactive run does not ask: it assigns and saves nothing. Assigning needs a token whose account has push access to the repository; a fine-grained token also needs the Issues (or Pull requests) permission set to Read and write.
+- `worktree branch --assign` and `--no-assign` override the key for a single run, whatever it holds. See
+  [`branch`](/worktree/commands/branch/#assigning-the-issue-to-yourself).
+- If you answered no and want the offer back, set the key directly:
+
+```bash
+worktree config github.autoAssign true
+```
+
+- To pin the repository, for example when your issues are on your fork although an `upstream` remote exists:
+
+```bash
+worktree config github.repository <owner/repo>
+```
+
+- `github.token` and `github.autoAssign` are prompted together, behind one confirm, so `worktree config`
+  costs a single yes/no to anyone who does not use GitHub issues.
+
+## Jira Integration Notes
+
+- `worktree branch --jira <issue-id>` reads issues from your configured Jira workspace.
+- On Jira Cloud (`jira.deployment` unset or `cloud`) all three Jira connection keys (`jira.host`, `jira.email`, `jira.apiToken`) are required. On `datacenter` only `jira.host` and `jira.apiToken` are, and the token is a personal access token; see [Jira Data Center](/worktree/guides/jira-integration/#jira-data-center).
+- `jira.autoAssign` is optional and decides whether `--jira` also assigns the issue to you. It has three states, like `github.autoAssign`: `true` always assigns unless someone else already holds the issue, which is then left with them, `false` never assigns, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it assigns and saves nothing. `worktree branch --assign` and `--no-assign` override the key for a single run. To set it directly:
+
+```bash
+worktree config jira.autoAssign true
+```
+
+- `jira.autoStart` is optional and decides whether `--jira` also moves the issue to in progress once the worktree exists. It has three states, like `linear.autoStart`: `true` always moves it (an issue already in progress or done, or with no single in-progress status to move to, is left where it is), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it moves the issue, under the same rule, and saves nothing, so a script that passes `--jira` and must not change the issue's status needs `--no-start` or `jira.autoStart false`. Moving an issue needs the Transition Issues permission; the [branch command](/worktree/commands/branch/#moving-the-jira-issue-to-in-progress) and the [Jira guide](/worktree/guides/jira-integration/#moving-the-issue-to-in-progress) say which statuses move. To set it directly:
+
+```bash
+worktree config jira.autoStart true
+```
+
+- Branch prefix keys are optional. If neither your git config nor `.worktree.yml` sets one, `worktree` uses no prefix.
+- `jira.host` can come from `.worktree.yml`; a file's host receives the credentials of everyone who uses it, so see [Project Configuration](/worktree/project-configuration/#jirahost-receives-everyones-credentials).
+- The prefix a Jira issue gets comes from its issue type, unless `.worktree.yml` has a `jira.branchType` list or a shared top-level `branchType` list. The built-in mapping applies only when no rules are set; see [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+- Issue IDs are case-insensitive (both `dev-123` and `DEV-123` work).
+
+## Linear Integration Notes
+
+- `worktree branch --linear <issue-id>` reads issues from the Linear workspace your key belongs to.
+- `linear.apiKey` is required by `--linear` and by [`linear-listen`](/worktree/commands/linear-listen/). [`cleanup`](/worktree/commands/cleanup/#canceled-linear-issues) and [`list --issues`](/worktree/commands/list/#showing-linear-issues) also read it, to learn whether a linked issue is canceled; they do not require it, and make no Linear request without one.
+- `linear.autoStart` is optional and decides whether `--linear` also moves the issue to a started state once the worktree exists. It has three states, like `jira.autoAssign`: `true` always starts (an issue that is already started, or is in triage, completed, canceled or duplicate, is left where it is), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it starts and saves nothing. Moving an issue needs a key with the Write permission and access to the issue's team. See [Moving the issue to started](/worktree/commands/branch/#moving-the-issue-to-started) for the order the decision is made in. To set it directly:
+
+```bash
+worktree config linear.autoStart true
+```
+
+- Linear has no issue type, so the branch prefix comes from the issue's labels: `bug` uses `branchPrefix.bugfix`,
+  `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`. A `linear.branchType`
+  list, or a shared top-level `branchType` list, in `.worktree.yml` replaces this mapping; see [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+- Issue identifiers are case-insensitive (both `eng-123` and `ENG-123` work).
+
+## ClickUp Integration Notes
+
+- `worktree branch --clickup <task-id>` reads tasks from the ClickUp Workspace your token belongs to.
+- `clickup.apiToken` is required. `clickup.workspaceId` is optional and is needed only when you pass a custom task id
+  such as `DEV-123`; a short id such as `9hx` never needs it. An empty answer to its prompt skips it.
+- `clickup.autoStart` is optional and decides whether `--clickup` also moves the task to in progress once the worktree exists. It has three states, like `linear.autoStart`: `true` always moves it (a task already in progress, or done, closed or in any other status type, is left where it is, as it is when the List has no in-progress status), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it moves the task, under the same rule, and saves nothing. Moving a task needs edit access to it; the [branch command](/worktree/commands/branch/#moving-the-clickup-task-to-in-progress) and the [ClickUp guide](/worktree/guides/clickup-integration/#moving-the-task-to-in-progress) say which statuses move. To set it directly:
+
+```bash
+worktree config clickup.autoStart true
+```
+
+- The branch prefix comes from the task's tags: `bug` uses `branchPrefix.bugfix`,
+  `chore` or `maintenance` uses `branchPrefix.chore`, anything else uses `branchPrefix.feature`. A `clickup.branchType`
+  list, or a shared top-level `branchType` list, in `.worktree.yml` replaces this mapping; see [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+- A short id is case-sensitive and typed without `CU-` (`9hx`); the branch name gains `CU-`. A custom id is
+  sent to ClickUp as typed and upper-cased in the branch name (`dev-123` gives `DEV-123` in the name).
+
+## Recommended Team Baseline
+
+Put the settings a team shares in a committed `.worktree.yml` instead of asking everyone to run the same
+`worktree config` commands: the source branch, the branch prefixes, the Jira workspace URL and the ClickUp
+workspace id. See [Project Configuration](/worktree/project-configuration/). `worktree config --project` writes
+the first version from your own git config.
+
+Some things stay personal, so agree on them in conversation rather than in the file: the editor command, and
+which labels (Linear) or tags (ClickUp) mean bug and chore work, since the label or tag decides the prefix,
+unless the file's `linear.branchType`, `clickup.branchType` or shared `branchType` rules say so for the whole team.

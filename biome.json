@@ -1,6 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.11/schema.json",
   "plugins": ["./node_modules/@northguild/gmt-biome/plugins/all.grit"],
+  "css": { "parser": { "tailwindDirectives": true } },
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -20,7 +21,8 @@
       "!node_modules/**/*",
       "!_*/**/*",
       "!*.tsbuildinfo",
-      "!pnpm-lock.yaml"
+      "!pnpm-lock.yaml",
+      "!docs/src/styles/northguild/**/*"
     ]
   },
   "formatter": {

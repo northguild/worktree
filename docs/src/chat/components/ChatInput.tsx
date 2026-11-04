@@ -157,7 +157,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
           <span
             id={countId}
             role="status"
-            className="[grid-area:2/1/3/2] px-4 text-right text-xs text-gray-500 dark:text-gray-400"
+            className="[grid-area:2/1/3/2] px-4 text-right text-xs text-chat-muted"
           >
             {/* The bottom padding rides the text rather than the region, so an
                 empty region is still a zero-height row: horizontal padding

@@ -1,0 +1,65 @@
+---
+/**
+ * The chat launcher: a static button on every page, no framework JS. The first activation (click, or
+ * Alt+Shift+C, Option+Shift+C on macOS) imports the chat and opens it (D6); until then the page carries only this markup and the
+ * few lines of script below. `.chat-launcher` is styled in globals.css, shared with the loaded chat's trigger.
+ * The icon is heroicons' outline chat-bubble-bottom-center, as in the loaded chat.
+ */
+import { CHAT_SHORTCUT_ARIA } from "../chat/shortcut";
+---
+
+<div data-chat-launcher-root>
+  <button
+    type="button"
+    class="chat-launcher"
+    aria-label="Open chat"
+    aria-keyshortcuts={CHAT_SHORTCUT_ARIA}
+    data-chat-launcher
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke-width="1.5"
+      stroke="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"
+      ></path>
+    </svg>
+  </button>
+  <div role="alert" class="chat-launcher-status" data-chat-launcher-status></div>
+</div>
+
+<script>
+  import { initChatLauncher } from "../chat/launcher";
+
+  const root = document.querySelector<HTMLElement>("[data-chat-launcher-root]");
+  if (root) {
+    // A dynamic import: the chat (React, Base UI, the stream client) is a separate chunk nothing references until now.
+    initChatLauncher(root, () => import("../chat/components/Chat"));
+  }
+</script>
+
+<style>
+  .chat-launcher-status {
+    position: fixed;
+    right: var(--gmt-space-6);
+    bottom: calc(var(--gmt-space-6) + 4.75rem);
+    z-index: 9999;
+    max-inline-size: min(20rem, calc(100vw - 3rem));
+    padding: var(--gmt-space-3) var(--gmt-space-4);
+    border: 1px solid var(--gmt-danger);
+    border-radius: var(--gmt-radius-md);
+    background: var(--gmt-surface);
+    color: var(--gmt-ice);
+    font-size: var(--sl-text-sm);
+  }
+  .chat-launcher-status:empty {
+    display: none;
+  }
+</style>

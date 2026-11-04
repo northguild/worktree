@@ -1,0 +1,216 @@
+---
+title: "worktree cleanup: remove stale git worktrees"
+description: "worktree cleanup removes stale git worktrees, such as those whose remote branch is gone after a merged PR, while keeping any with unpushed work."
+---
+
+Remove stale worktrees that are safe to delete.
+
+## Usage
+
+```bash
+worktree cleanup
+```
+
+Typical cleanup targets include:
+
+- worktrees whose remote branch no longer exists — the usual shape of a merged pull request
+  — as long as they carry no unmerged commits and hold no uncommitted changes
+- local worktrees with no tracked remote that carry no unmerged commits and hold no
+  uncommitted changes
+- worktrees whose [Linear](/worktree/guides/linear-integration/) issue is canceled and whose commits
+  are all on their remote, as long as they hold no uncommitted changes and no agent is working
+  in them — see [Canceled Linear issues](#canceled-linear-issues)
+
+## What holds a worktree back
+
+**Uncommitted changes** disqualify a worktree whatever its remote looks like. The count
+comes from `git status -s`, so untracked files hold a worktree back too.
+
+**Unpushed commits** disqualify it too. A worktree whose directory still exists is only
+removed when its commit count was actually taken and came back zero — a count that could not
+be taken is never read as "no work". This matters most for a branch you never pushed: it has no upstream to compare
+against, so the comparison base is `origin/HEAD`, falling back to
+[`defaultSourceBranch`](/worktree/configuration/). If neither resolves the count cannot be taken,
+and the worktree is held back rather than swept.
+
+That second rule is newer than the first, and the ordering is deliberate: committing work
+must never move a worktree from protected to disposable.
+
+**Commits that were merged do not count as unpushed**, however many of them there are. A
+squash merge lands a branch as one new commit and a rebase rewrites every commit it touches,
+so after either one the branch's own commits are nowhere in the base *by identity* while
+every line they changed is there *by content*. Counting alone would report such a worktree as
+carrying work for as long as it existed — on a repository that squash-merges its pull
+requests, that is every merged branch, and `cleanup` would find nothing to do ever again.
+
+So a worktree that is ahead of its base is asked a second question before anything is decided
+about it: is the change it carries, taken as a whole, already applied in that base? Where it
+is, the worktree is stale and says which base it landed in. Where it is not — including a
+branch that was merged and has picked up a commit since — the commits are real work and hold
+it back exactly as before.
+
+**An agent session that is working** holds one back as well — see below. One that is only idle does not.
+
+## What it prints
+
+Every worktree `cleanup` offers to remove says why it qualified, so a line can never mean
+"no reason found":
+
+```text
+Found 5 worktree branches that are marked safe to remove.
+- feature/api-retries (Remote removed, no unpushed commits)
+- feature/bulk-actions (Remote removed, merged into origin/main)
+- feature/spike (No tracked remote, no unpushed commits)
+- feature/moved (Path does not exist)
+- feature/eng-123-dark-mode (Linear issue ENG-123 canceled, no unpushed commits)
+```
+
+Those five are the whole vocabulary. `merged into <base>` is the one that names a count rather
+than denying one: that worktree *is* ahead of `origin/main`, and every commit in it is already
+applied there. `Path does not exist` answers none of the checks above: a worktree whose
+directory is already gone is removed before its commits are considered, because there is no
+directory to count them in.
+
+`cleanup` also reports what it held back, under four headings:
+
+```text
+Skipped 1 worktree branch that has uncommitted changes:
+- feature/wip (Remote removed, 3 uncommitted changes)
+Skipped 1 worktree branch whose unpushed commits could not be counted:
+- feature/orphan (Unpushed commits unknown: no comparison base; set defaultSourceBranch or run git remote set-head origin --auto)
+Skipped 1 worktree branch with a live agent session:
+- feature/api (Remote removed, Agent: feature-api-1f)
+Skipped 1 worktree branch whose Linear issue is canceled but whose commits are not confirmed on its remote:
+- feature/eng-124-export (Ahead: 2, Linear ENG-124: canceled)
+```
+
+The second heading is the one that makes `No stale worktree branches found.` trustworthy in
+the way this matters: that line can no longer be produced by a worktree whose commits could
+not be counted. Such a worktree is always named.
+
+**Those four headings are the whole of what `cleanup` reports.** A worktree carrying
+unmerged commits that it *could* count is not stale, so it is neither removed nor listed —
+it simply does not come up, and neither does a worktree tracking a live remote branch whose
+Linear issue is not canceled. A branch whose issue is canceled is the exception: with
+unmerged commits it is listed under the fourth heading, whether it tracks a live remote, has no
+remote, or lost its remote. Use [`list`](/worktree/commands/list/) to see every worktree and what each one is carrying;
+`cleanup` only ever discusses the ones it would sweep and the ones it stopped short of.
+
+## Canceled Linear issues
+
+A branch made with [`branch --linear`](/worktree/commands/branch/) carries a record of its issue in git
+config, `branch.<name>.worktreeIssue = linear:ENG-123`. It follows the branch through a rename and
+goes when `cleanup` deletes the branch. Branches made before the record existed, and branches made
+any other way, have none and are decided as they always were.
+
+Normally a worktree tracking a remote branch that still exists is never swept. A canceled issue is
+the one thing that changes that, and it changes only that: the worktree is removed when the issue's
+state type is `canceled` and all of these hold.
+
+- it holds no uncommitted changes
+- no live agent session is working in it
+- it has nothing unpushed: it is level with, or behind, its tracking ref
+- the remote confirms the tip. `cleanup` asks each such remote with `git ls-remote --heads`, once
+  per remote, because `git fetch --prune` refreshes only one remote and a tracking ref on another
+  can still show commits the remote no longer has. A remote that cannot be reached, a branch it
+  does not have, or a different tip all leave the worktree held back
+
+A canceled branch that fails either of the last two is reported under the fourth heading above,
+which is where the signal informs without deciding. One that holds uncommitted changes or a live
+session, with its commits confirmed, is reported under those headings, as it would be for any other
+reason. Only `canceled` counts: `completed`, `duplicate` and every other state leave the verdict
+alone, because a finished issue's branch is a question for a person, not a sweep. Commits that exist
+only on the remote do not matter, since removing the local checkout loses nothing of them.
+
+`cleanup` asks Linear for these states on every run, in one request per 50 linked branches, when at
+least one branch has a record and [`linear.apiKey`](/worktree/configuration/) is set. With no key, or
+no record, it makes no request and says nothing. If Linear cannot be reached or answers with an
+error, `cleanup` prints one warning, says canceled issues were not considered, and carries on with
+the verdict it would have reached without the signal. A failed `ls-remote` is one warning too: it
+says a remote did not answer and that canceled branches on it were kept, while canceled branches on
+a remote that did answer are still judged. Neither stops the run.
+
+The branch has to track its remote. A branch pushed without `-u` has no upstream, is counted
+against the comparison base instead, and reads as unpushed, so its canceled issue never helps. Run
+`git push -u origin <branch>` once to set it.
+
+Because `cleanup --force` skips the prompt, a script that runs it will start removing these
+worktrees once a key is set and records exist.
+
+## Flags
+
+| Flag | Description |
+| --- | --- |
+| `-f`, `--force` | Skip the confirmation prompt. A [non-interactive run](/worktree/commands/branch/#non-interactive-runs) requires it: without it `cleanup` exits `2` with `worktree: no default for confirmation to delete the stale worktrees; pass --force` |
+| `--ignore-agents` | Remove worktrees even when an agent session is living in them |
+
+## Agent sessions
+
+A worktree that an agent session is working in is never removed. `cleanup` asks the same two
+sources as [`list --agents`](/worktree/commands/list/) — `herdr agent list` when `herdr` is installed, and the
+runtime in [`agent.command`](/worktree/configuration/#agent-command) (or the `herdr.agent` kind when that is
+unset) — which sessions are running and where, and holds back any worktree one of them is working in. Where that worktree is one it
+would otherwise have swept, it is reported under this heading, naming both the worktree and
+the session sitting in it:
+
+```
+Skipped 1 worktree branch with a live agent session:
+- feature/api-retries (Remote removed, Agent: feature-api-retries-1f)
+```
+
+This covers your own terminal and an agent Herdr started, as well as an agent this tool dispatched with
+[`branch --agent`](/worktree/commands/branch/). Both count as somebody working in the directory,
+and deleting it out from under either is the failure this check exists to prevent. Use
+[`list --agents`](/worktree/commands/list/) to see which worktrees those are before running
+`cleanup`, rather than discovering them from the report.
+
+A session that has finished does not hold anything back — the worktree goes back to being
+ordinary stale work. A session the runtime calls finished but Herdr still shows in a pane is judged by
+what Herdr says about it, and one whose process is still running is judged as any live session is, by
+its status below. The runtime has been seen to report a session finished while its process was still
+working in the worktree.
+
+Nor does a session that is only idle, such as an agent pane left open at its prompt in a merged
+worktree. The runtime's `idle` and Herdr's `idle` both count, and so does Herdr's `done`, a finished
+turn in a pane nobody has looked at since. When the runtime and Herdr both describe one session, every
+status they give has to say idle or done. A session that is working, one that is blocked on a prompt,
+one whose status is not recognised, and one that reports no status at all still hold the worktree back.
+Where a worktree holds several sessions, one that is working holds it back whatever the rest are doing.
+An idle session does not excuse anything else: uncommitted changes and unpushed commits hold the
+worktree back as before. With [`opener`](/worktree/configuration/) set to `herdr`, the idle pane closes
+with the worktree's space.
+
+`--force` does **not** override this. It answers the confirmation prompt, not the safety
+verdict. To sweep a worktree anyway, pass `--ignore-agents`. It still looks up the sessions, but
+decides exactly as `cleanup` did before agents existed, so a worktree with uncommitted changes is
+still held back whatever is running in it. What it sweeps past, it names, under its own heading, in
+the confirming run before the prompt and under `--force` as well:
+
+```
+Removing 1 worktree branch despite a live agent session:
+- feature/api-retries (Remote removed, Agent: feature-api-retries-1f)
+```
+
+It has no short alias on purpose: overruling this one is worth spelling out.
+
+`--ignore-agents` costs more than it used to. With [`opener`](/worktree/configuration/) set to
+`herdr`, a worktree removed this way also has its Herdr space closed — which takes down the
+panes the agent is working in, not just the directory underneath it. Before spaces were
+closed, an overruled agent at least kept its output on screen.
+
+If neither source is available — `herdr` is not installed and no runtime is configured, or the
+runtime cannot be reached — no session data is gathered and `cleanup` behaves exactly as it always has. With `--ignore-agents` that means no heading above either.
+
+## Herdr spaces
+
+With [`opener`](/worktree/configuration/) set to `herdr`, every worktree `cleanup` removes also has its
+Herdr space closed.
+
+Only the ones it actually removed. A worktree held back — for uncommitted changes, a live agent,
+unpushed commits it could not count, or a canceled issue's commits it could not confirm on the
+remote — keeps its space, because its checkout is still there — `cleanup` closes what it deleted, never what
+it merely looked at. Each space is closed independently, so one failure does not stop the rest, and
+a failed close is a warning that leaves the exit code at `0`.
+
+With `opener` unset or set to `editor`, no Herdr process is started. See
+[Herdr Spaces](/worktree/guides/herdr-spaces/#when-the-worktree-goes).

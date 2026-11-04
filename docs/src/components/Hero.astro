@@ -1,0 +1,128 @@
+---
+/**
+ * Starlight's Hero, except on the landing (D17), where the title, tagline and actions sit beside the leaf-particle
+ * art (HeroLeaves, D18) instead of the single image slot Starlight offers. Every other splash page (the 404) keeps Starlight's
+ * own Hero untouched.
+ *
+ * gmt's landing does the same: its Hero override skips Starlight's own markup on the home route and renders the copy
+ * beside the graphic (gmt `apps/dox` Hero.astro and HeroGlobe.astro at 6efa06e4). The copy's markup follows
+ * Starlight's: one `h1#_top` carrying `data-page-title`, a tagline, and its LinkButtons.
+ */
+import { LinkButton } from "@astrojs/starlight/components";
+import Default from "@astrojs/starlight/components/Hero.astro";
+import HeroLeaves from "./HeroLeaves.astro";
+
+const { entry, id } = Astro.locals.starlightRoute;
+// The route id of `index.mdx` is the empty string (Starlight normalises a trailing `index`), as in gmt's Hero.
+const isLanding = id === "";
+const {
+  title = entry.data.title,
+  tagline,
+  actions = [],
+} = entry.data.hero ?? {};
+---
+
+{
+  isLanding ? (
+    <div class="landing">
+      <div class="copy">
+        <h1 id="_top" data-page-title set:html={title} />
+        {tagline && <p class="tagline" set:html={tagline} />}
+        {
+          actions.length > 0 && (
+            <div class="actions">
+              {actions.map(({ link: href, text, variant, icon }) => (
+                <LinkButton {href} {variant} icon={icon?.name}>
+                  {text}
+                </LinkButton>
+              ))}
+            </div>
+          )
+        }
+      </div>
+      <HeroLeaves />
+    </div>
+  ) : (
+    <Default />
+  )
+}
+
+<style>
+  .landing {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 2rem;
+    padding-block: 1rem 2rem;
+  }
+  .copy {
+    /* Above the hero's full-viewport canvas (HeroLeaves, z-index 0): leaves cross behind the copy, never over it. */
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    align-items: flex-start;
+  }
+  h1 {
+    margin: 0;
+    /* The display face is wide: a smaller top size than Starlight's hero keeps a long title to three lines. */
+    font-size: clamp(var(--sl-text-3xl), 1.1rem + 3.2vw, var(--sl-text-5xl));
+    line-height: var(--sl-line-height-headings);
+    color: var(--sl-color-white);
+  }
+  .tagline {
+    max-inline-size: 36ch;
+    margin: 0;
+    font-size: clamp(var(--sl-text-base), 0.9rem + 0.5vw, var(--sl-text-xl));
+    color: var(--sl-color-gray-2);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+  }
+  /* The copy fades in and rises a little, title, tagline, then the action a beat later, starting just after the first
+     paint (the user, 2026-11-04: the button "a bit later, and the whole content slightly later also"). CSS only, so it
+     never waits for the hero loader or WebGL (the copy is the page's content; the canvas is decoration). `backwards`
+     fill makes the base style the finished state: where animations do not run the text is simply there. Reduced
+     motion: none. */
+  @media (prefers-reduced-motion: no-preference) {
+    h1,
+    .tagline,
+    .actions {
+      animation: hero-copy-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    }
+    h1 {
+      animation-delay: 0.3s;
+    }
+    .tagline {
+      animation-delay: 0.45s;
+    }
+    .actions {
+      animation-delay: 0.85s;
+    }
+  }
+  @keyframes hero-copy-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.75rem);
+    }
+  }
+
+  @media (min-width: 50rem) {
+    /* Centred in the space below the header (the user, 2026-11-04: it "seems to be slightly drifted to the top").
+       Starlight's splash page puts the panel's 1.5rem above the landing and, below it, 1.5rem before the (empty)
+       content, the panel's 1.5rem and main's 3vh. The margins take all of that back, so the landing spans exactly
+       from the header to the viewport's foot and its row is centred there; content taller than that (a short window)
+       grows the landing and scrolls by its own overflow only. A phone stacks the copy over the art, taller than this. */
+    .landing {
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+      align-content: center;
+      gap: 3rem;
+      min-block-size: calc(100vh - var(--sl-nav-height));
+      margin-block: -1.5rem calc(-3rem - 3vh);
+      padding-block: clamp(1rem, 4vmin, 3rem);
+    }
+  }
+</style>

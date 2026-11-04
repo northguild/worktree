@@ -4,7 +4,7 @@ interface LoadingDotsProps {
 }
 
 export function LoadingDots({
-  className = "text-gray-500",
+  className = "text-chat-muted",
   size = 16,
 }: LoadingDotsProps) {
   const gap = 6;
