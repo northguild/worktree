@@ -111,9 +111,17 @@ const {
   }
 
   @media (min-width: 50rem) {
+    /* Centred in the space below the header (the user, 2026-11-04: it "seems to be slightly drifted to the top").
+       Starlight's splash page puts the panel's 1.5rem above the landing and, below it, 1.5rem before the (empty)
+       content, the panel's 1.5rem and main's 3vh. The margins take all of that back, so the landing spans exactly
+       from the header to the viewport's foot and its row is centred there; content taller than that (a short window)
+       grows the landing and scrolls by its own overflow only. A phone stacks the copy over the art, taller than this. */
     .landing {
       grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+      align-content: center;
       gap: 3rem;
+      min-block-size: calc(100vh - var(--sl-nav-height));
+      margin-block: -1.5rem calc(-3rem - 3vh);
       padding-block: clamp(1rem, 4vmin, 3rem);
     }
   }
