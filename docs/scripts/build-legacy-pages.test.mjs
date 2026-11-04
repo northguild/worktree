@@ -66,15 +66,15 @@ describe("legacy Pages bundle", () => {
     it(`stubs ${route} -> ${target}`, async () => {
       const html = await read(`${route.slice(1)}/index.html`);
       expect(html).toContain(`<link rel="canonical" href="${target}">`);
+      // The script keeps the old link's #fragment. The one refresh is inside <noscript>, so with scripting on there is
+      // no refresh to race the script's navigation and drop the fragment.
       expect(html).toContain(
-        `<meta http-equiv="refresh" content="0; url=${target}">`,
+        `<script>location.replace(${JSON.stringify(target)} + location.hash)</script>`,
       );
-      // The script keeps the old link's #fragment, and runs before the meta refresh can.
-      const script = `<script>location.replace(${JSON.stringify(target)} + location.hash)</script>`;
-      expect(html).toContain(script);
-      expect(html.indexOf(script)).toBeLessThan(
-        html.indexOf('<meta http-equiv="refresh"'),
+      expect(html).toContain(
+        `<noscript><meta http-equiv="refresh" content="0; url=${target}"></noscript>`,
       );
+      expect(html.match(/http-equiv="refresh"/g)).toHaveLength(1);
       expect(html).toContain(`<a href="${target}">`);
       // Nothing but the D3 target is a URL in the stub.
       expect(new Set(html.match(/https?:\/\/[^\s"'<>]+/g))).toEqual(
@@ -87,7 +87,7 @@ describe("legacy Pages bundle", () => {
     const html = await read("index.html");
     expect(html).toContain(`<link rel="canonical" href="${NEW_ROOT}">`);
     expect(html).toContain(
-      `<meta http-equiv="refresh" content="0; url=${NEW_ROOT}">`,
+      `<noscript><meta http-equiv="refresh" content="0; url=${NEW_ROOT}"></noscript>`,
     );
   });
 

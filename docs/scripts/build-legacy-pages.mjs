@@ -6,7 +6,7 @@
  *   - schema/v1.json, byte-identical to docs/public/schema/v1.json, so every released CLI's `$schema`
  *     comment and every npm README link keeps resolving;
  *   - one stub per old route, each carrying a canonical link, a script that redirects with the link's
- *     #fragment kept, a meta refresh for a visitor without scripts (which drops it), and a visible link to
+ *     #fragment kept, a meta refresh inside <noscript> for a visitor without scripts (which drops it), and a visible link to
  *     the new URL (D3: https://northguild.dev/worktree/<path>/);
  *   - a root stub and a 404.html.
  *
@@ -78,8 +78,10 @@ const scriptString = (value) =>
 
 /**
  * A meta refresh cannot carry the old link's #fragment, so `/docs/commands/branch#usage` would land at the top of the
- * new page (review of #240). The script runs first, while the head is parsed, and keeps it; the meta refresh is the
- * fallback for a visitor without scripts.
+ * new page (review of #240). The script keeps it. The refresh sits inside <noscript>, so it exists only where the script
+ * cannot run: `location.replace()` only starts a navigation and parsing goes on, so a bare zero-second refresh below it
+ * could fire while that navigation is pending and replace it with the hashless one (review of #240). With scripting on,
+ * the parser reads <noscript> as text and creates no <meta>.
  */
 export function renderStub(target, heading = "This page has moved") {
   const href = escapeAttr(target);
@@ -90,7 +92,7 @@ export function renderStub(target, heading = "This page has moved") {
 <title>${heading} | Worktree</title>
 <link rel="canonical" href="${href}">
 <script>location.replace(${scriptString(target)} + location.hash)</script>
-<meta http-equiv="refresh" content="0; url=${href}">
+<noscript><meta http-equiv="refresh" content="0; url=${href}"></noscript>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
