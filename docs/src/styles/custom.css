@@ -40,7 +40,13 @@ starlight-tabs .tab > [role="tab"] {
   --g-branch: 0.25rem; /* a branch's centre line, from the left edge of the group's entries */
   --g-branch-gutter: 1.375rem; /* room left of a branch's entries */
   --g-curve: 0.5rem; /* the radius where a fork leaves the trunk and where it joins its branch */
-  --g-color: var(--gmt-border-strong);
+  /* Opaque: the strong border tone (spring at 35% over transparent) mixed into the sidebar's own ground, so where two
+     lines cross (the trunk under a fork's curve) they do not stack into a stronger green (the user, 2026-11-04). */
+  --g-color: color-mix(
+    in srgb,
+    var(--gmt-spring) 35%,
+    var(--sl-color-bg-sidebar)
+  );
   --g-ink: var(--gmt-spring-ink);
   position: relative;
   padding-inline-start: var(--g-gutter);
