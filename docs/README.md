@@ -181,7 +181,7 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
   their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only),
   and so is the wide header's grid: the search box keeps to the right, beside the GitHub link, on every page, where Starlight
   would start it at the main column's edge (which moves with the sidebar and the table of contents).
-- **Sidebar as a git graph, and the leaf list markers (a hollow leaf for a nested item), and the growing link underline.** All in `src/styles/custom.css`, as
+- **Sidebar as a git graph, and the leaf list markers (a smaller, paler leaf for a nested item), and the growing link underline.** All in `src/styles/custom.css`, as
   CSS on Starlight's own markup: pseudo-elements with empty content, so nothing is added to the page, nothing decorative can take
   focus and nothing is announced. The graph's lengths are variables at the top of its rule (`--g-dot`, `--g-trunk`, ...), and the
   dots, lines and the two curves of each fork are derived from them, so change a length there and not in each rule. Every transition is switched off

@@ -350,6 +350,12 @@ export const PAIRS = [
     "var(--gmt-spring-ink)",
     PAGE,
   ),
+  // custom.css, "Leaves": a nested item's leaf, the parent's tint made translucent.
+  shape(
+    "nested list leaf on the page",
+    "color-mix(in srgb, var(--gmt-spring-ink) 65%, transparent)",
+    PAGE,
+  ),
 ];
 
 function surface(layers, properties) {
