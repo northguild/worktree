@@ -2,7 +2,7 @@ name: Release note
 
 # A change to the published package owes a release note: a `.changeset/*.md` file written with
 # `pnpm changeset:add`. This job fails when it is missing. The path filter below is the set of paths that
-# can owe one; docs/** deploys on its own, and context/** and .github/** are not the package.
+# can owe one; docs/** deploys with the next release, and context/** and .github/** are not the package.
 on:
   pull_request:
     branches: [main]
