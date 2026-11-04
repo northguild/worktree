@@ -59,7 +59,10 @@ const NEAR_COUNT = Math.round(COUNT * 0.05); // ambient leaves close to the view
 const HOLD = { leaf: 2.0, graph: 4.5, word: 4.0 };
 const POINTER = { sigma: 42, push: 950, swirl: 0.45, spring: 30, damping: 7.5 };
 // The copy's quiet zone: ambient and flying leaves fade to this inside it, over a soft edge round the copy block.
-const QUIET = { pad: 16, fade: 56, floor: 0.06 };
+// Off since round 3's review: at 0.06 it read as a dark, empty box round the copy ("the content area seems to have a
+// dark background, so there are no particles there initially"). Leaves now cross behind the copy at full strength in
+// flight; the text paints over the canvas, and no leaf lands or rests there.
+const QUIET = { pad: 16, fade: 56, floor: 1 };
 // A full-viewport canvas at DPR 2 is 4× the pixels of DPR 1; 1.5 keeps the leaves crisp (see NOTES.md).
 // `?dpr=2` overrides it, to compare.
 const DPR_CAP = Number(new URLSearchParams(location.search).get("dpr")) || 1.5;
