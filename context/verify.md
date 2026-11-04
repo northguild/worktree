@@ -98,8 +98,8 @@ unique meta description of at most 155 characters, one canonical link in the for
 `https://northguild.dev/worktree/<path>/`, Open Graph and Twitter tags, JSON-LD of the right types, no chat
 script loaded up front, a "Last updated" date equal to `git log --follow -1` for the page's source file (as a UTC
 date), and an "Edit this page" link that is the repository URL + `/edit/main/docs/src/content/docs/<source>` for a
-source file that exists — except the landing, which has no footer and so must carry no date, no edit link and no
-project line (licence, version, maintainers), which every other page must carry; no page may show the northguild
+source file that exists — except the landing, which has no footer and so must carry no date and no edit link; no page
+may carry the project line the footer once had (licence, CLI version, maintainers); no page may show the northguild
 organisation's GitHub avatar (`github.com/northguild.png`), the second logo the footer once had, and no id may appear
 twice on a page; across the site, a sitemap and an `llms.txt` (llmstxt.org format) each listing exactly those 24
 URLs, a `404.html` (with the site's search, a link to Getting Started at `/worktree/getting-started/`, and no canonical link or JSON-LD), a landing at the root (a heading and a "Get started" link to `/worktree/getting-started/`, no second action and no section below the hero; the root alone may carry the site default description), and no `shuding/nextra` string. The date rule is only meaningful on
@@ -135,7 +135,7 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-11-04 that is 2756 and 364 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-11-04 that is 2756 and 362 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 

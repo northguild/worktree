@@ -1,76 +1,20 @@
 ---
 /**
- * Starlight's Footer with the project line added: licence, CLI version and maintainers.
- * Starlight's own footer (edit link, last updated, pagination) is rendered unchanged by `Default`.
+ * Starlight's Footer, unchanged (edit link, last updated, pagination), rendered through `Default`. The licence line, CLI
+ * version and maintainers this file once added are gone (the user, 2026-11-04: "lose this content that is on every
+ * damn page"); the CLI version is in the header.
  *
- * The landing has no footer (phase 15): it is the hero alone, so neither part is rendered there. The chat launcher
- * is not part of the footer, only rendered from here because Starlight has no slot of its own for it, so it stays on
+ * The landing has no footer (phase 15): it is the hero alone, so `Default` is not rendered there. The chat launcher is
+ * not part of the footer, only rendered from here because Starlight has no slot of its own for it, so it stays on
  * every page, the landing included.
- *
- * The owner's logo is the header's NorthGuild mark (phase 15: one logo), not the organisation's GitHub avatar.
  */
 import Default from "@astrojs/starlight/components/Footer.astro";
-import { getToday } from "@northguild/gmt";
-import {
-  cliVersion,
-  maintainers,
-  projectOwnerName,
-  projectOwnerProfileUrl,
-} from "../lib/site-meta";
 import ChatLauncher from "./ChatLauncher.astro";
-import MaintainersList from "./MaintainersList.astro";
-import NorthGuildMark from "./NorthGuildMark.astro";
 
 // The route id of `index.mdx` is the empty string (Starlight normalises a trailing `index`), as in Hero.astro.
 const isLanding = Astro.locals.starlightRoute.id === "";
-const year = getToday().split("-")[0];
 ---
 
-{
-  !isLanding && (
-    <>
-      <Default><slot /></Default>
-
-      <div class="project-footer">
-        <div class="owner">
-          <NorthGuildMark id="ng-mark-footer" size="1.5rem" />
-          <span>
-            MIT {year} ©{" "}
-            <a href={projectOwnerProfileUrl} target="_blank" rel="noopener noreferrer">
-              {projectOwnerName}
-            </a>
-          </span>
-        </div>
-        <div>CLI Version: v{cliVersion}</div>
-        <div class="maintainers-block">
-          <div>Maintainers:</div>
-          <MaintainersList maintainers={maintainers} label="Maintainers" />
-        </div>
-      </div>
-    </>
-  )
-}
+{!isLanding && <Default><slot /></Default>}
 
 <ChatLauncher />
-
-<style>
-  .project-footer {
-    display: grid;
-    gap: 0.5rem;
-    margin-top: 1.5rem;
-    font-size: var(--sl-text-sm);
-    color: var(--sl-color-gray-3);
-  }
-  .owner {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.625rem;
-  }
-  .owner a {
-    color: inherit;
-  }
-  .maintainers-block {
-    display: grid;
-    gap: 0.5rem;
-  }
-</style>

@@ -200,15 +200,11 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 ## Footer
 
 `src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (edit link, last
-updated, pagination) through `Default`, then the licence line, the CLI version and the maintainers, all read from
-`src/lib/site-meta.ts`. The landing renders neither part: it is the hero alone. The chat launcher is rendered from the
-same file on every page, the landing included, because Starlight has no slot of its own for it. The licence line
-carries the header's NorthGuild mark (`NorthGuildMark.astro`, shared with `SiteTitle.astro`; each instance takes its
-own `id` for its gradients), not the organisation's GitHub avatar. `MaintainersList.astro` draws the maintainers'
-avatar links. Its test renders it through
-`astro/container` in the node environment (`// @vitest-environment node`, because Astro refuses to render a
-component under jsdom); `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the
-built footer is checked in `dist/` instead.
+updated, pagination) through `Default` and nothing else; the licence line, the CLI version and the maintainers it once
+added are gone (the CLI version is in the header). The landing renders no footer at all: it is the hero alone. The chat
+launcher is rendered from the same file on every page, the landing included, because Starlight has no slot of its own
+for it. `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
+checked in `dist/` instead (`pnpm docs:audit-dist`).
 
 ## The landing hero
 

@@ -120,11 +120,14 @@ const header = (parts = {}) =>
   `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
 const HEADER = header();
 
-// Phase 15 (the user, 2026-11-04): the landing is the hero alone, with no footer, so it carries no edit link, no
-// date and no project line; every other page keeps all three. The project line is the footer's licence, version and
-// maintainers block.
+// Phase 15 (the user, 2026-11-04): the landing is the hero alone, with no footer, so it carries no edit link and no
+// date; every other page keeps both. And no page carries the project line, the footer's licence, version and
+// maintainers block (the user, 2026-11-04: "lose this content that is on every damn page ... is there any need for an
+// MIT license there? No need for namecalling on every page either").
 const PROJECT_FOOTER =
   '<div class="project-footer"><span>MIT 2026 © northguild</span></div>';
+const MAINTAINERS =
+  '<div><div>Maintainers:</div><ul aria-label="Maintainers"><li><a href="https://github.com/baldurpan">Baldur</a></li></ul></div>';
 
 // Phase 16 (D18, the leaf-particle hero): the landing alone loads the hero loader and carries the art box, whose still
 // SVG and canvas are aria-hidden. The loader reaches the effect only through a dynamic import().
@@ -164,7 +167,7 @@ function page(path, overrides = {}) {
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
     '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
     path === "" ? (overrides.heroScript ?? HERO_SCRIPT) : "",
-    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? (path === "" ? "" : `<a href="${editHref}" class="sl-flex">Edit page</a>`)}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? (path === "" ? "" : PROJECT_FOOTER)}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
+    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? (path === "" ? "" : `<a href="${editHref}" class="sl-flex">Edit page</a>`)}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -668,11 +671,29 @@ describe("auditDist", () => {
     expect(failures[0]).toMatch(/^\/ \(root\).*footer/i);
   });
 
-  it("fails a page that has lost its project footer", async () => {
-    await write(dist, htmlPath("faq"), page("faq", { footer: "" }));
+  it("fails a page that carries the project footer", async () => {
+    await write(dist, htmlPath("faq"), page("faq", { footer: PROJECT_FOOTER }));
     const failures = await audit();
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatch(/faq.*footer/i);
+    expect(failures[0]).toMatch(/faq.*project footer/i);
+  });
+
+  it("fails a page that lists the maintainers, whatever the block is called", async () => {
+    await write(dist, htmlPath("faq"), page("faq", { footer: MAINTAINERS }));
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/faq.*project footer/i);
+  });
+
+  it("fails a page with the footer's CLI version line", async () => {
+    await write(
+      dist,
+      htmlPath("faq"),
+      page("faq", { footer: "<div>CLI Version: v2.1.2</div>" }),
+    );
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/faq.*project footer/i);
   });
 
   // Phase 15 (the user, 2026-11-04): "skip the install button, install and where to next parts in the front page. Just
@@ -734,7 +755,7 @@ describe("auditDist", () => {
       dist,
       htmlPath("faq"),
       page("faq", {
-        footer: `<div class="project-footer"><img src="https://github.com/northguild.png?size=64" alt="northguild"></div>`,
+        footer: `<div><img src="https://github.com/northguild.png?size=64" alt="northguild"></div>`,
       }),
     );
     const failures = await audit();
@@ -747,7 +768,7 @@ describe("auditDist", () => {
       dist,
       htmlPath("faq"),
       page("faq", {
-        footer: `<div class="project-footer"><img src="https://github.com/baldurpan.png?size=64" alt=""></div>`,
+        body: `<p><img src="https://github.com/baldurpan.png?size=64" alt="Baldur"></p>`,
       }),
     );
     expect(await audit()).toEqual([]);

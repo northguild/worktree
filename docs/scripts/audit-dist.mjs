@@ -12,8 +12,8 @@
  * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11), and the
  * "Edit this page" link is the repository's `edit/main/docs/src/content/docs/<source>` URL for a source file that
  * exists. These apply to the 24 pages only; `404.html` is not one of them and has neither. Phase 15 turns both around on
- * the landing, which has no footer: the root must carry no date, no edit link and no project line, while every other page
- * keeps its project line (licence, version, maintainers); and no page shows the northguild organisation's GitHub avatar,
+ * the landing, which has no footer: the root must carry no date and no edit link; no page carries the project line the
+ * footer once had (licence, CLI version, maintainers); and no page shows the northguild organisation's GitHub avatar,
  * the second logo the footer once carried beside the header's mark; no id appears twice on a page; and the landing has one
  * action ("Get started") and no section below the hero. Per site: `llms.txt`
  * (D13) is a llmstxt.org file listing the same 24 URLs, each with a title and the page's own description.
@@ -918,24 +918,29 @@ async function auditPage(path, dist, descriptions, options) {
     if (ORG_AVATAR.test(img.src ?? ""))
       fail(`shows ${img.src}, a second logo beside the header's mark`);
 
+  // No page carries the project footer, the licence, CLI version and maintainers block the footer once had (the user,
+  // 2026-11-04: "lose this content that is on every damn page"). Found by what it said, not only by its class name.
+  if (
+    /class="[^"]*\bproject-footer\b/.test(html) ||
+    /aria-label="Maintainers"/.test(html) ||
+    /CLI Version:/.test(html)
+  )
+    fail(
+      "carries the project footer (licence, version or maintainers); no page has one",
+    );
+
   const times = tagsOf(html, "time");
   const edits = tagsOf(html, "a").filter((a) => a.href?.includes("/edit/"));
-  const projectFooter = /class="[^"]*\bproject-footer\b/.test(html);
 
-  // The landing has no footer (phase 15): no date, no edit link, no project line. The chat launcher is checked with
-  // the other controls above, so it is still required there.
+  // The landing has no footer (phase 15): no date, no edit link. The chat launcher is checked with the other controls
+  // above, so it is still required there.
   if (path === "") {
     if (times.length > 0)
       fail("the landing carries a last updated date; it has no footer");
     if (edits.length > 0)
       fail("the landing carries an edit link; it has no footer");
-    if (projectFooter)
-      fail("the landing carries the project footer; it has no footer");
     return failures;
   }
-
-  if (!projectFooter)
-    fail("no project footer (licence, version and maintainers)");
 
   // Last updated (D11): the rendered <time> must be the independently computed date.
   const expectedDate = options.expectedDate(path);

@@ -303,3 +303,10 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   Started text", D3 "Getting Started is the root" — bring the plan into line at `/feature-close`.
 - Light-theme branch strokes on the hero: 3.30:1 on the page, 2.89:1 at the wash centre — decorative and
   `aria-hidden`, not required by 1.4.11; labels pass at ≥7.5:1 in both themes.
+
+## After phase 15's footer follow-up (the project line removed, 2026-11-04)
+
+- The footer's licence line, CLI version and maintainers are gone from every page (the user); the "From phase 4's
+  review" entries about `.project-footer`, the footer's `CLI Version: v…` and `MaintainersList` are obsolete.
+- `docs/src/lib/site-meta.ts` still exports `maintainers` and `projectOwnerAvatarUrl` with no reader, on purpose: the
+  user will decide later whether the docs name people at all. Not dead code to strip from the sync-version generator.
