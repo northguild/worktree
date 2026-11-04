@@ -25,6 +25,9 @@ permissions:
 jobs:
   site:
     runs-on: ubuntu-latest
+    # A manual run from any other branch deploys nothing (#243); legacy-pages needs this job, so it skips too.
+    # The same guard publish.yml's `guard` job uses. A call from another workflow sees the caller's ref.
+    if: github.ref == 'refs/heads/main'
     # An in-flight deploy is never cancelled mid-publish.
     concurrency:
       group: docs-site
