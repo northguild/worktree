@@ -565,6 +565,15 @@ export function showVisibly(text: string) {
   });
 }
 
+/**
+ * `showVisibly` for text that legitimately spans lines, such as git's stderr
+ * behind an error: each line is escaped and the line breaks are kept, so
+ * nothing but a `\n` survives raw. A line break cannot redraw the terminal.
+ */
+export function showLinesVisibly(text: string) {
+  return text.split("\n").map(showVisibly).join("\n");
+}
+
 function formatKeyPath(keyPath: readonly PropertyKey[]) {
   return keyPath.reduce<string>((text, segment) => {
     if (typeof segment === "number") {
