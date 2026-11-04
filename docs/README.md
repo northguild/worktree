@@ -325,7 +325,7 @@ The Cloudflare Worker deploys automatically on pushes to `main` that touch
 `docs/worker/**` (see `.github/workflows/worker-deploy.yml`).
 
 To deploy outside a release (a docs fix that cannot wait), use "Run workflow" on `docs-deploy.yml`, from `main`:
-the `github-pages` environment accepts only that branch. It builds `main`'s head at that moment.
+a run from any other branch skips both jobs and deploys nothing. It builds `main`'s head at that moment.
 
 To recover a failed `docs` job, use "Re-run failed jobs" on that Publish run (`gh run rerun <run-id> --failed`),
 within 30 days of it. Only what failed runs again, with the run's own commit and ref: it rebuilds the release
