@@ -9,9 +9,12 @@ import type { WizardContext } from "./context.js";
 // agent.command question (empty is accepted), then, only when `opener` is
 // `herdr` and a command exists, a yes/no that sets herdr.agent to the
 // command's first word only if it is empty (yes), keeps a set one (yes), or
-// writes empty (no).
+// writes empty (no). With no command and a stored herdr.agent, the yes/no
+// asks to keep that kind instead (review of #251): without a brief it alone
+// decides, so "no agent" would otherwise still start it in every space.
 const CONFIRM_MESSAGE =
   "Start it in every new Herdr space, even without `--agent`?";
+const KEEP_MESSAGE = "Keep starting `claude` in every new Herdr space?";
 
 function context(overrides: Partial<WizardContext> = {}): WizardContext {
   return {
@@ -211,6 +214,74 @@ describe("the Coding agent item", () => {
 
     expect(writes()).toEqual([["agent.command", ""]]);
     expect(askConfirm).not.toHaveBeenCalled();
+  });
+
+  it("asks to keep a stored herdr.agent when the command is cleared, and clears it on no", async () => {
+    stored.opener = "herdr";
+    stored["agent.command"] = "claude --bg";
+    stored["herdr.agent"] = "claude";
+    askInput.mockResolvedValue("");
+    askConfirm.mockResolvedValue(false);
+
+    await configureAgent(context());
+
+    expect(askConfirm).toHaveBeenCalledTimes(1);
+    expect(askConfirm.mock.calls[0]?.[0]).toEqual({
+      message: KEEP_MESSAGE,
+      default: true,
+    });
+    expect(askConfirm.mock.calls[0]?.[1]).toMatchObject({ fallback: true });
+    expect(writes()).toEqual([
+      ["agent.command", ""],
+      ["herdr.agent", ""],
+    ]);
+  });
+
+  it("keeps a stored herdr.agent on yes when the command is cleared", async () => {
+    stored.opener = "herdr";
+    stored["agent.command"] = "claude --bg";
+    stored["herdr.agent"] = "claude";
+    askInput.mockResolvedValue("");
+
+    await configureAgent(context());
+
+    expect(askConfirm.mock.calls[0]?.[0].message).toBe(KEEP_MESSAGE);
+    expect(writes()).toEqual([["agent.command", ""]]);
+  });
+
+  it("asks to keep a herdr.agent set without any command, and writes nothing on yes", async () => {
+    stored.opener = "herdr";
+    stored["herdr.agent"] = "claude";
+    askInput.mockResolvedValue("");
+
+    await configureAgent(context());
+
+    expect(askConfirm.mock.calls[0]?.[0].message).toBe(KEEP_MESSAGE);
+    expect(writes()).toEqual([]);
+  });
+
+  it("does not ask about a stored herdr.agent when opener is not herdr", async () => {
+    stored.opener = "editor";
+    stored["agent.command"] = "claude --bg";
+    stored["herdr.agent"] = "claude";
+    askInput.mockResolvedValue("");
+
+    await configureAgent(context());
+
+    expect(askConfirm).not.toHaveBeenCalled();
+    expect(writes()).toEqual([["agent.command", ""]]);
+  });
+
+  it("escapes a hand-edited herdr.agent before naming it in the question", async () => {
+    stored.opener = "herdr";
+    stored["herdr.agent"] = "cla\u001b[2Jude";
+    askInput.mockResolvedValue("");
+
+    await configureAgent(context());
+
+    const message = askConfirm.mock.calls[0]?.[0].message as string;
+    expect(message).toContain("cla\\x1b[2Jude");
+    expect(message).not.toContain("\u001b");
   });
 
   it("accepts an empty answer but still validates a non-empty one", async () => {

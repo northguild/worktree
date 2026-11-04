@@ -1,4 +1,5 @@
 import { gitGetConfigValue } from "../config.js";
+import { showVisibly } from "../project-config.js";
 import { askConfirm } from "../prompt.js";
 import { splitCommandValue } from "../utils.js";
 import { isValidAgentKind, isValidCommandLine } from "../validators.js";
@@ -28,9 +29,10 @@ export async function configureAgentCommand(ctx: WizardContext): Promise<void> {
 /**
  * The bare run's "Coding agent" item (plan #236, D4): one question for
  * `agent.command`, prefilled, where empty means no agent; then, only when
- * `opener` is `herdr` and a command exists, one yes/no that decides
- * `herdr.agent`. Run after "How worktrees open", so a stored `opener` is the
- * one chosen in this run.
+ * `opener` is `herdr`, one yes/no that decides `herdr.agent` — whether to
+ * start the command's agent in every new space, or, with no command and a
+ * stored kind, whether to keep starting that kind. Run after "How worktrees
+ * open", so a stored `opener` is the one chosen in this run.
  */
 export async function configureAgent(ctx: WizardContext): Promise<void> {
   let command = await gitGetConfigValue("agent.command");
@@ -56,15 +58,36 @@ export async function configureAgent(ctx: WizardContext): Promise<void> {
   // is not in use; `opener` being `herdr` is the opt-in, as in configureOpening.
   const herdrAgentAsked =
     shouldPrompt(ctx, "herdr.agent") || ctx.hiddenNames.has("herdr.agent");
-  if (
-    command === "" ||
-    !herdrAgentAsked ||
-    (await getStoredOpener()) !== "herdr"
-  ) {
+  if (!herdrAgentAsked || (await getStoredOpener()) !== "herdr") {
     return;
   }
 
   const stored = (await gitGetConfigValue("herdr.agent")).trim();
+  if (command === "") {
+    // Without a brief `herdr.agent` alone decides (readHerdrAgentKind in
+    // base-command.ts), so a stored kind still starts in every new space after
+    // "no agent". Nothing stored is nothing to ask about. Yes keeps it, as D9's
+    // default does where a kind is already chosen; the question names it.
+    if (stored === "") {
+      return;
+    }
+    const keep = await askConfirm(
+      {
+        message: `Keep starting \`${showVisibly(stored)}\` in every new Herdr space?`,
+        default: true,
+      },
+      {
+        value: "herdr.agent",
+        flag: "worktree config herdr.agent <kind>",
+        fallback: true,
+      },
+    );
+    if (!keep) {
+      await saveConfigValue("herdr.agent", "");
+    }
+    return;
+  }
+
   // The first word, as the session listing takes it (src/lib/agent.ts). It is
   // stored only if it is a valid kind, as `worktree config herdr.agent` holds it.
   const derived = splitCommandValue(command)[0] ?? "";
