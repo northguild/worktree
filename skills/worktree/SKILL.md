@@ -421,7 +421,7 @@ and exits non-zero. A `missing_value` error also carries
 | `failed` | anything else | `1` |
 
 Exit codes follow the same rule without `--json`: `0` success, `1` failure,
-`2` a usage or value problem. A human's Ctrl-C at a prompt stays silent and
+`2` a usage or value problem. A human's Ctrl-C at a prompt, or Esc answered Yes to "Quit now?", stays silent and
 exits `0`.
 
 A brief that no configured agent would take (no `herdr.agent` or

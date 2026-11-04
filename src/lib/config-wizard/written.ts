@@ -24,19 +24,27 @@ export async function saveConfigValue(name: ConfigName, value: string) {
 /**
  * Runs `work` and returns the keys whose stored value ended up different, in
  * the order they were first written. Names only: no value leaves this module.
+ * If `work` throws, `onThrow` sees the keys written so far, and the error, before it
+ * goes on.
  */
 export async function recordWrittenKeys(
   work: () => Promise<void>,
+  onThrow?: (written: ConfigName[], error: unknown) => void,
 ): Promise<ConfigName[]> {
   const previous = changes;
   const current = new Map<ConfigName, Change>();
   changes = current;
+  const writtenKeys = () =>
+    [...current]
+      .filter(([, change]) => change.before !== change.after)
+      .map(([name]) => name);
   try {
     await work();
+  } catch (error) {
+    onThrow?.(writtenKeys(), error);
+    throw error;
   } finally {
     changes = previous;
   }
-  return [...current]
-    .filter(([, change]) => change.before !== change.after)
-    .map(([name]) => name);
+  return writtenKeys();
 }

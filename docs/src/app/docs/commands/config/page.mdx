@@ -39,7 +39,7 @@ exits `0`.
 ## The Setup Checklist
 
 A bare interactive `worktree config` opens with one question, "What do you want to set up?", a checklist you
-move through with the arrow keys, tick or untick with space, and confirm with enter. The items, in order, are
+move through with the arrow keys, tick or untick with space, and confirm with enter (Esc asks whether to quit, see [Quitting](#quitting)). The items, in order, are
 GitHub, Jira, Linear, ClickUp, how worktrees open, the coding agent for `--agent`, branch prefixes and the
 command to run after creating a worktree. A ticked item shows a filled circle and an unticked one an empty circle, so the
 state does not depend on colour. An item that is already set up starts ticked, so a second run walks you through
@@ -58,6 +58,16 @@ run ends with one line naming the keys it saved, for example "Configuration comp
 or "Configuration complete! Nothing changed." when it stored nothing new. The line lists key names only, never a
 value, so a token never reaches your screen or a pasted bug report. A key whose answer matches what was already
 stored is not listed. Both read as words, without colour.
+
+## Quitting
+
+Esc in any question of an interactive run asks "Quit now?", with No as the default. Yes, or Ctrl-C at a question,
+stops the command quietly and exits `0`; No, enter, or Esc again takes you back to the question you were on, which
+starts over from its default, so half-typed text is lost. Only a lone Esc counts: arrow keys and Alt combinations do
+not, and a lone Esc takes about half a second to register while the terminal rules out a longer key sequence. When
+`worktree config` is stopped this way it prints one line naming the keys it had already saved, by name and never by
+value, such as `Stopped. Saved: opener, codeEditor` or `Stopped. Nothing changed.` What was saved stays saved, and the
+offer to set up a project file is not made.
 
 ## Project File
 

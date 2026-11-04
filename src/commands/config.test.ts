@@ -4411,6 +4411,20 @@ postCreate:
         expect(projectConfig.offerProjectConfig).toHaveBeenCalledTimes(1);
       });
 
+      it("makes no offer after the user quits the wizard, and the quit propagates", async () => {
+        // Brief item 8: Esc then Yes or Ctrl+C ends the run; nothing follows.
+        const quit = new Error("User force closed the prompt");
+        quit.name = "ExitPromptError";
+        mockCheckbox.mockRejectedValue(quit);
+        parsed({}, { missing: false });
+
+        await expect(config.run()).rejects.toMatchObject({
+          name: "ExitPromptError",
+        });
+
+        expect(projectConfig.offerProjectConfig).not.toHaveBeenCalled();
+      });
+
       it("hides --skip-offers, which only the delegating commands pass", () => {
         expect(Config.flags["skip-offers"]?.hidden).toBe(true);
       });

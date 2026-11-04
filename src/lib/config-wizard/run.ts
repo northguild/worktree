@@ -45,12 +45,27 @@ const CONFIGURE: Record<ChecklistId, (ctx: WizardContext) => Promise<void>> = {
  * checklist order. Un-ticking only means "do not ask now": nothing is cleared.
  */
 export async function runWizard(ctx: WizardContext): Promise<void> {
-  const written = await recordWrittenKeys(() => askQuestions(ctx));
-  // Names only, never a value: a token must not reach a screen share or a
-  // pasted bug report. A key put back to what it held is not "written".
-  const summary =
-    written.length > 0 ? `Saved: ${written.join(", ")}` : "Nothing changed.";
-  ctx.log(`${chalk.green("✔")} Configuration complete! ${summary}${EOL}`);
+  const written = await recordWrittenKeys(
+    () => askQuestions(ctx),
+    (writtenSoFar, error) => {
+      // A quit is Ctrl+C, or Esc then Yes; BaseCommand.catch ends the run
+      // quietly on the same name. Any other error is a failure, not reported here.
+      if (error instanceof Error && error.name === "ExitPromptError") {
+        ctx.log(`Stopped. ${summarize(writtenSoFar)}`);
+      }
+    },
+  );
+  ctx.log(
+    `${chalk.green("✔")} Configuration complete! ${summarize(written)}${EOL}`,
+  );
+}
+
+// Names only, never a value: a token must not reach a screen share or a
+// pasted bug report. A key put back to what it held is not "written".
+function summarize(written: readonly string[]) {
+  return written.length > 0
+    ? `Saved: ${written.join(", ")}`
+    : "Nothing changed.";
 }
 
 async function askQuestions(ctx: WizardContext): Promise<void> {

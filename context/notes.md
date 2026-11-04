@@ -69,3 +69,12 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 
 - `pageSize` counts rendered lines, not items (`@inquirer/core` `usePagination`), so in a terminal narrower than about 67 columns the longest label (Jira's) wraps and the checklist pages again — finitely, since `loop` is off. A larger `pageSize` would cover it.
 - A terminal shorter than about 11 rows clips the top of the prompt; nothing in `@inquirer/core` clamps a page to the terminal's height.
+
+## Ad-hoc — Esc asks "Quit now?" (walk-through, #236; uncommitted at review)
+
+- `src/lib/prompt.ts` treats any rejection after an Esc as the Esc cancel without checking it is a `CancelPromptError`; no reachable race found, but checking the name would make it immune.
+- `QuitError` borrows the name `ExitPromptError` so `BaseCommand.catch` and the wizard treat it as Ctrl+C; importing inquirer's own class would need a direct `@inquirer/core` dependency.
+- `prompt.escape.test.ts`'s "fails" cleanup step throws before the listener is attached, so it would pass without the `finally`; nothing pins that `recordWrittenKeys` restores its state after a throw.
+- No test pins the real stdin wiring (inquirer's readline making `process.stdin` emit `keypress`); a pseudo-terminal run during review confirmed it.
+- A cancelled prompt's partial line stays on screen above "Quit now?" (inquirer's `done()` does not clear it); an Esc typed just before a prompt appears can open the confirm, harmless since it defaults to No.
+- This rides #236's branch, so the feature's release note at `/feature-close` should mention Esc → "Quit now?" and the "Stopped." line.
