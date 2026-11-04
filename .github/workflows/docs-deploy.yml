@@ -1,23 +1,14 @@
 name: Deploy Docs
 
-# Two deploys from one push (#235):
+# Two deploys, once per stable release (#241):
 #   site          - the Astro build, as a Worker with static assets on northguild.dev/worktree* (docs/wrangler.jsonc)
 #   legacy-pages  - the generated bundle on https://northguild.github.io/worktree/: the schema file plus a
 #                   redirect stub per old route
-# The workflow can also be called from another workflow (workflow_call), which passes the two Cloudflare secrets.
+# publish.yml calls this workflow (workflow_call) after it publishes a stable version, passing the two Cloudflare
+# secrets; the deploy builds the release commit. Nothing else triggers it except workflow_dispatch, the manual
+# route for a docs fix that cannot wait. Run it from main: the github-pages environment accepts only that branch,
+# so legacy-pages fails from any other ref.
 on:
-  push:
-    branches:
-      - main
-    # Everything that changes the built site: the docs workspace (content, config, scripts, the Worker config),
-    # the version it shows (package.json, synced by scripts/sync-docs-version.mjs), the install, this file.
-    paths:
-      - "docs/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "scripts/sync-docs-version.mjs"
-      - ".github/workflows/docs-deploy.yml"
   workflow_call:
     secrets:
       CLOUDFLARE_API_TOKEN:

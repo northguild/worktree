@@ -308,8 +308,9 @@ API key itself never leaves Cloudflare.
 
 ## Deployment
 
-The docs site deploys automatically on every push to `main` that touches
-`docs/**` (see `.github/workflows/docs-deploy.yml`), as two jobs:
+The docs site deploys once per stable release, as the last job of `publish.yml` (a prerelease does not deploy
+it), by calling `.github/workflows/docs-deploy.yml`. It builds the release commit, so a docs change merged
+after the release waits for the next one. Two jobs:
 
 - **`site`** builds `docs/dist`, audits it, copies it to `docs/.deploy/worktree/` and runs `wrangler deploy` with
   `docs/wrangler.jsonc`: a Worker with static assets and no script, on the Route `northguild.dev/worktree*`.
@@ -323,11 +324,18 @@ The Worker config is not the chat Worker's: that one is `docs/worker/wrangler.to
 The Cloudflare Worker deploys automatically on pushes to `main` that touch
 `docs/worker/**` (see `.github/workflows/worker-deploy.yml`).
 
+To deploy outside a release (a docs fix that cannot wait), use "Run workflow" on `docs-deploy.yml`, from `main`:
+the `github-pages` environment accepts only that branch. It builds `main`'s head at that moment.
+
+To recover a failed `docs` job, use "Run workflow" on Publish, from `main`. The guard is forced open and every
+publish step skips itself, but `pnpm test` and `pnpm build` run again, the docs deploy builds `main`'s head at that
+moment, and `notify` posts to Discord again. A failed `docs` job leaves the Publish run red although the package shipped.
+
 The docs site's version label comes from `docs/src/lib/site-meta.ts`, which `pnpm sync-version` writes
 from the root `package.json`. A release runs it as part of `pnpm changeset:prepare-release`, so the new
 version arrives in the release pull request; `pnpm docs:dev` runs its docs half (`pnpm docs:sync-version`) first locally. Changesets ignores the
 `docs` package (it is private and has no npm release), so docs changes need no release note and the site
-deploys on its own, not on a version.
+deploys with the next stable release.
 
 For manual deployment steps, including first-time Cloudflare setup, see
 [docs/worker/README.md](worker/README.md).

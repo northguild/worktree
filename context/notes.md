@@ -14,3 +14,15 @@ deletes it.
 - The header line "Two deploys from one push (#235)" reads off once the workflow is callable.
 - `publish.yml`'s workflow-level `concurrency: publish` does not clash with the called jobs' own groups
   (`docs-site`, `pages`), and nothing in `docs-deploy.yml` reads `github.event_name`/`github.workflow`.
+
+## Phase 2 (Gate 2: FAIL, then PASS WITH NOTES after one loopback)
+
+- Filed as bug #243: a `workflow_dispatch` of `docs-deploy.yml` from a non-main branch deploys `site` to
+  production before `legacy-pages` fails on the environment policy. Predates this feature.
+- `docs/README.md` *Deployment*: "Re-run failed jobs" on the same Publish run is a quieter recovery (the release
+  commit, no Discord post); the README names only the Publish dispatch and the `docs-deploy.yml` dispatch.
+- `docs/README.md`: "the last job of `publish.yml`": `docs` runs alongside `notify`, both after `publish`.
+- `context/release.md`: the *Hold the first release* paragraph was kept as "the hold is lifted" rather than
+  deleted; a few lines there and in `docs/README.md` run past the usual wrap width.
+- `context/stack.md:71` says `worker-deploy.yml` "has never succeeded", against `release.md`'s "has succeeded
+  once". Predates this feature.
