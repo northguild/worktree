@@ -567,11 +567,16 @@ export function showVisibly(text: string) {
 
 /**
  * `showVisibly` for text that legitimately spans lines, such as git's stderr
- * behind an error: each line is escaped and the line breaks are kept, so
- * nothing but a `\n` survives raw. A line break cannot redraw the terminal.
+ * behind an error: each line is escaped and the line breaks and tabs are kept
+ * (git indents the paths it lists with a tab), so nothing but a `\n` or a
+ * `\t` survives raw. Neither can redraw the terminal. A `\r` before a `\n`
+ * is a CRLF line end and is dropped; a lone `\r` is still escaped.
  */
 export function showLinesVisibly(text: string) {
-  return text.split("\n").map(showVisibly).join("\n");
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.split("\t").map(showVisibly).join("\t"))
+    .join("\n");
 }
 
 function formatKeyPath(keyPath: readonly PropertyKey[]) {
