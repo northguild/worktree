@@ -18,7 +18,38 @@ export default defineConfig({
       // Placeholder until the pages are ported.
       sidebar: [{ label: "Getting Started", link: "/" }],
       // Tailwind here serves the chat's utility classes only; preflight is left out of globals.css.
-      customCss: ["./src/styles/globals.css"],
+      customCss: [
+        "./src/styles/northguild/tokens.css",
+        "./src/styles/northguild/tokens-light.css",
+        "./src/styles/northguild/primitives.css",
+        "./src/styles/theme.css",
+        "./src/styles/globals.css",
+      ],
+      components: { SiteTitle: "./src/components/SiteTitle.astro" },
+      // Preload the display face so the title and headings do not reflow out of the mono fallback.
+      // The href carries `base`: Starlight does not prefix `head` entries.
+      head: [
+        {
+          tag: "link",
+          attrs: {
+            rel: "preload",
+            href: "/worktree/fonts/michroma-latin-400-normal.woff2",
+            as: "font",
+            type: "font/woff2",
+            crossorigin: "",
+          },
+        },
+      ],
+      // Frame colours come from the --sl-* variables (the default), so the code blocks follow the theme picker.
+      expressiveCode: {
+        useStarlightUiThemeColors: true,
+        styleOverrides: {
+          borderRadius: "var(--gmt-radius-md)",
+          borderColor: "var(--gmt-hairline)",
+          codeFontFamily: "var(--gmt-font-mono)",
+          uiFontFamily: "var(--gmt-font-mono)",
+        },
+      },
     }),
     react(),
   ],

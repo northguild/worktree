@@ -29,3 +29,29 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   runs it through `pnpm docs:build` as a no-op; the bullet could name that exception (re-review of phase 1).
 - `astro` is a caret range though `tooling/dependencies.md` suggests exact pins for build tools; the repo's
   convention has been carets (Next was `^16.4.3`).
+
+## From phase 2's review (NorthGuild theme)
+
+- The font's provenance is recorded nowhere: a woff2 carries no header, yet `docs/README.md` and
+  `context/stack.md` say it was "taken at the commit each file's header names". Name its path and sha
+  (`packages/theme/fonts/michroma-latin-400-normal.woff2`, `ade22a5`) in the README or in `theme.css`'s
+  `@font-face` comment.
+- The `--gmt-*` coverage and 4.5:1 contrast checks live in a scratch script that dies with the session; the
+  README's refresh steps then ask a person to check by reading. A docs Vitest test parsing `src/styles`,
+  order-aware and covering inverted pairs (text-invert on text-accent) and translucent surfaces, would pin it.
+- The mobile "On this page" bar uses `--sl-color-bg-nav` (82% void, no blur), so body text shows through at
+  18%; `option` backgrounds in Starlight's `Select` are translucent too. Look in the browser pass.
+- `docs/README.md` calls `SiteTitle.astro` "copied the same way" — it is an adaptation naming its source, not
+  a never-edit copy, and the refresh steps do not cover the mark. The README documents the Vite warning for
+  the `./fonts/` path only; the coder reported one for `/worktree/fonts/` too.
+- `/worktree` is hard-coded in `astro.config.mjs` (`base`, the preload href) and `theme.css`'s `@font-face`;
+  gmt uses `withBase(...)`.
+- `docs/src/assets/logo.svg` is on phase 2's Files line, referenced by nothing, and left in place.
+- `theme.css`'s comments overstate two things: the header is "as on northguild.dev" (the apex uses
+  `.gmt-glass`, 4px blur, teal tint — this is lighter, after it), and "every `--sl-*` points at a `--gmt-*`
+  token that tokens-light.css re-tints" (not true of `--gmt-hairline`, `--gmt-font-mono` or the literals).
+- The light code-block background is Starlight's unmapped `--sl-color-gray-7`; syntax colours are Expressive
+  Code defaults.
+- `context/stack.md` says Biome owns formatting and linting; it could mention `docs/src/styles/northguild/` is
+  excluded (`biome.json`), for the byte-for-byte rule.
+- No browser pass or LCP/CLS measurement yet (R12); Michroma title truncation at phone width unseen.

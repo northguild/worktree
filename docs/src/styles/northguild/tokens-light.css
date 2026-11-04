@@ -1,0 +1,152 @@
+/*
+ * Vendored from northguild/northguild.dev, packages/theme/tokens-light.css, commit ade22a5d30f274d02d50a33eb6ccdd705c2f5cbd.
+ * Copied unedited: everything below this comment is that commit's file, byte for byte.
+ * To refresh, re-copy it at a newer commit and update this header (see docs/README.md).
+ */
+/*
+ * Source: apps/dox/src/styles/gmt-tokens.css lines 467-608 (gmt commit e043391c229709559cd443f86d6134cfa30ba9d6).
+ * The [data-theme="light"] block; dark-only consumers leave this file out.
+ */
+
+/* ---- Light mode overrides ---- */
+[data-theme="light"] {
+  /* ---- Color palette (inverted for light background) ---- */
+  --gmt-void: #ffffff;
+  --gmt-surface: #f5f5f5;
+  --gmt-surface-2: #ececec;
+  --gmt-cyan: #0891b2;
+  --gmt-teal: #22d3ee;
+  --gmt-cyan-bright: #0e7490;
+  --gmt-spring: #16a34a;
+  --gmt-ice: #1a1a1a;
+  /* Muted text, light theme. 7.02:1 or more on every surface it sits on (the
+     lowest is the tinted widget card behind the interval rows, `#d2ebf1`), and
+     8.0:1 on `--gmt-surface`. 22.6 lightness points (CIE L*) above `--gmt-ice`. */
+  --gmt-ice-dim: #4b4b4b;
+  --gmt-ice-dim-fill: #666666; /* pre-INT-58 muted value, non-text only */
+  --gmt-signal: #ea580c;
+  --gmt-dst-gold: #d97706;
+  --gmt-dst-purple: #a78bfa;
+  --gmt-accent-wash: rgba(
+    8,
+    145,
+    178,
+    0.06
+  ); /* sidebar-active / row-hover tint */
+  --gmt-selection: rgba(8, 145, 178, 0.3); /* ::selection background */
+
+  /* Bright #22d3ee teal here — a little more alpha to match dark's read. */
+  --gmt-glass-tint: color(from var(--gmt-teal) srgb r g b / 0.16);
+  --gmt-glass-tint-subtle: color(from var(--gmt-teal) srgb r g b / 0.045);
+  --gmt-glass-scrim: color(from var(--gmt-teal) srgb r g b / 0.1);
+
+  /* The darkening `brightness` is a dark-mode contrast device (glass over the
+     near-black void). Over a white light-mode page it only muddies the glass, so
+     back it almost all the way off — the tint + saturate still read as glass. */
+  --gmt-brightness: 0.97;
+
+  /* Re-tinting the palette above is enough for the --sl-* mapping too — every
+     --sl-* points at a --gmt-* token (see gmt-theme.css), so it re-resolves on
+     its own. Only the non-derived literals get a light override, in gmt-theme.css. */
+
+  /* ---- Theme-role tokens (light values) ---- */
+  --gmt-code-surface: var(--gmt-fill-subtle);
+  --gmt-code-bg: var(--gmt-fill-subtle);
+  --gmt-code-border: var(--gmt-border);
+  --gmt-sidebar-link: var(--gmt-ice);
+  --gmt-pagination-title: var(--gmt-ice);
+
+  /* ---- Syntax highlight (light values) ---- */
+  /* --gmt-syntax-fn and --gmt-syntax-str measured 5.96:1 and
+     5.95:1 against white — below the 7:1 code-frame floor. Darkened, same
+     hue, to 7.71:1 and 7.84:1 (WCAG relative-luminance formula). Dark theme
+     already clears 7:1 and is untouched. --gmt-syntax-num was #aa0982, 6.56:1
+     against white; it now takes the same hue family as its dark value
+     (orange) through --gmt-signal-ink, 8.16:1 against white. */
+  --gmt-syntax-fn: #315192;
+  --gmt-syntax-str: #7d403f;
+  --gmt-syntax-num: var(--gmt-signal-ink);
+
+  --gmt-widget-card-bg: color(from var(--gmt-void) srgb r g b / 0.5);
+
+  /* DOX-C0 (#171): a darker, more saturated red reads correctly against the
+     light background — the dark-mode value is tuned for a near-black one. */
+  --gmt-danger: #dc2626;
+
+  /* INT-58 fix loop: "ink" text variants — same hue, darkened past the base
+     re-tint until white/near-white text or fill combinations clear 7:1.
+     Each measured against #ffffff and #f5f5f5 (WCAG relative-luminance
+     formula):
+       cyan-ink   #045268  8.71:1 / 7.99:1  (base cyan   #0891b2 was 3.68:1;
+                                              base cyan-bright #0e7490 was ~5:1
+                                              and reuses this same value — see
+                                              the :root comment)
+       spring-ink #0a5626  8.85:1 / 8.12:1  (base spring #16a34a was 3.30:1)
+       purple-ink #4a1de6  8.05:1 / 7.38:1  (base purple #a78bfa was 2.72:1)
+       signal-ink #8a3407  8.16:1 / 7.48:1  (base signal #ea580c was 3.56:1)
+     `--gmt-cyan-ink` also measures 7.37:1 against `#ececec`, the darkest
+     light-theme surface it's used against.
+
+     `--gmt-spring-ink` is measured against `#ececec` too, and was retuned from
+     #0b5c29 to reach it: the globe tooltip renders the UTC offset in this token
+     on a `.gmt-popover`, whose background *is* `--gmt-surface-2`, and the
+     original value only made 6.90:1 there — it had been tuned against #ffffff
+     and #f5f5f5 alone, neither of which it now sits on. 7.49:1 against
+     `#ececec` at the new value. */
+  --gmt-cyan-ink: #045268;
+  --gmt-spring-ink: #0a5626;
+  --gmt-purple-ink: #4a1de6;
+  --gmt-signal-ink: #8a3407;
+
+  /* `--gmt-severity-high-ink`'s dark value (above, in :root) is also broken
+     (3.75:1) — not an alias, its own value in both themes. Light: teal's own
+     hue/saturation, darkened until white text clears 7:1 (7.52:1, verified).
+     `-critical-ink` needs no light override: it aliases `--gmt-cyan-ink`,
+     which already re-tints itself above. */
+  --gmt-severity-high-ink: #0b5c73;
+
+  /* `--gmt-dst-gold-ink`: dark stays `--gmt-dst-gold` (8.56:1 live, fine).
+     Light is gold's own hue/saturation, darkened until text clears 7:1
+     against the badge's *real* composited background (its own translucent
+     wash over the DST table's cyan tint over the page — 6.54:1 live at the
+     previous value, retuned to 7.42:1). */
+  --gmt-dst-gold-ink: #6e3c03;
+
+  /* `--gmt-dst-purple-ink`: dark is its own value, not an alias — see the
+     `:root` comment for why `--gmt-purple-ink` doesn't serve this badge.
+     Light: purple's own hue/saturation, darkened until text clears 7:1
+     against the same real composited background (6.79:1 live at the
+     previous `--gmt-purple-ink` value, retuned to 7.41:1). */
+  --gmt-dst-purple-ink: #4418db;
+
+  /* ---- Globe (light values) ---- */
+  --gmt-globe-ocean-alpha: 0.2;
+  --gmt-globe-land-alpha: 0.32;
+  /* A deep navy, darkened further from an earlier `#123a5c` — at the shared
+     0.5 alpha, that blended with the pale day-side base into a flat,
+     unattractive grey-blue instead of reading as night (0.5 of a mid-navy
+     over a near-white base averages to a *mid-tone*, not a dark one).
+     Darkening the color alone still wasn't enough headroom, so
+     --gmt-globe-night-alpha below is also raised for this theme — the two
+     together are what actually reads as a dark sky now. */
+  --gmt-globe-night: #08182b;
+  --gmt-globe-night-alpha: 0.8;
+  /* Day already reads bright against the light theme's pale page — a small
+     top-up, not the dark-theme fix this token exists for. */
+  --gmt-globe-day-alpha: 0.12;
+  --gmt-globe-atmosphere-alpha: 0.36;
+  --gmt-globe-haze-alpha: 0.24;
+  /* Dark theme's 0.18 all but disappears against this theme's much more
+     opaque night wash (0.8 alpha navy, above) and barely registers on the
+     pale day side either — raised well past the dark-theme value so the
+     grid actually reads on both hemispheres. */
+  --gmt-globe-grid-alpha: 0.45;
+  /* No Earth imagery in this theme. The Blue Marble is a dark photograph:
+     floating on this pale page it read as a hole punched in it, its glow as a
+     smudge, and labels near the limb carried dark halos out onto white. A
+     dark panel boxed round the globe was tried and rejected. The flat globe
+     above is this theme's own. The one exception is the landing hero, a
+     full-width dark band that keeps the dark theme (`.gmt-theme-dark`), where
+     the imagery shows as it does in dark mode. */
+  --gmt-globe-imagery-alpha: 0;
+}

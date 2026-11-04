@@ -20,7 +20,8 @@
       "!node_modules/**/*",
       "!_*/**/*",
       "!*.tsbuildinfo",
-      "!pnpm-lock.yaml"
+      "!pnpm-lock.yaml",
+      "!docs/src/styles/northguild/**/*"
     ]
   },
   "formatter": {

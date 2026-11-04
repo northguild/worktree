@@ -1,0 +1,111 @@
+/*
+ * This site's own theme: the NorthGuild `--gmt-*` tokens (vendored unedited under ./northguild/)
+ * mapped onto Starlight's `--sl-*` variables, plus the few rules Starlight has no variable for.
+ *
+ * The mapping follows the one gmt's docs use (gmt `apps/dox/src/styles/gmt-theme.css`, gmt commit
+ * 6efa06e4a86beb164fcb37c354b94546ef13a3ff), with these differences, because northguild.dev's own look
+ * wins where the two differ (plan §9 Q13): chrome is lightly frosted rather than washed in teal,
+ * display type is limited to h1 and h2 as on northguild.dev, and the muted greys are the muted text
+ * token rather than hard-coded literals, so they keep 4.5:1 in both themes.
+ *
+ * Every `--sl-*` below points at a `--gmt-*` token that `northguild/tokens-light.css` re-tints for
+ * `[data-theme="light"]`, so the mapping re-resolves in the light theme on its own. Starlight's theme
+ * picker sets `data-theme` on <html>, defaulting to the visitor's system preference.
+ * Glass goes on chrome only (the header), never behind body text.
+ */
+
+:root {
+  --sl-color-white: var(--gmt-ice);
+  --sl-color-gray-1: var(--gmt-ice);
+  --sl-color-gray-2: var(--gmt-ice-dim);
+  /* Starlight sets text in gray-3 (footer, edit link, "On this page"); the muted token keeps it readable. */
+  --sl-color-gray-3: var(--gmt-ice-dim);
+  --sl-color-gray-4: #3d5560;
+  --sl-color-gray-5: var(--gmt-surface-2);
+  --sl-color-gray-6: var(--gmt-surface);
+  --sl-color-black: var(--gmt-void);
+
+  --sl-color-accent: var(--gmt-cyan);
+  --sl-color-accent-high: var(--gmt-cyan-bright);
+  --sl-color-accent-low: var(--gmt-teal);
+
+  --sl-color-text: var(--gmt-ice);
+  /* Links, the current sidebar entry, the site title: the "ink" tier, which is darkened in light mode. */
+  --sl-color-text-accent: var(--gmt-cyan-ink);
+  /* Text on an accent fill (the current sidebar entry, the skip link): the page background colour. */
+  --sl-color-text-invert: var(--gmt-void);
+  --sl-color-bg: var(--gmt-void);
+  /* Mostly opaque so scrolled text stays out of the header; the blur below does the rest. */
+  --sl-color-bg-nav: color-mix(in srgb, var(--gmt-void) 82%, transparent);
+  --sl-color-bg-sidebar: var(--gmt-surface);
+  --sl-color-bg-inline-code: var(--gmt-code-bg);
+  --sl-color-hairline: var(--gmt-hairline);
+  --sl-color-hairline-shade: rgb(34 211 238 / 8%);
+
+  --sl-font: var(--gmt-font-mono);
+  --sl-font-mono: var(--gmt-font-mono);
+
+  /* Starlight's default badge pairs white text with `--sl-color-accent-low`, which is bright cyan in light
+     mode. This darker teal gives white 7.44:1 in both themes (measured by gmt, commit above). */
+  --sl-badge-default-bg: #0b5d73;
+
+  /* tokens.css (unlayered) sets `color-scheme: light dark`, which would beat Starlight's layered per-theme
+     value and make scrollbars and native controls follow the OS instead of the picker. */
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --sl-color-gray-4: #cccccc;
+  --sl-color-hairline-shade: rgb(8 145 178 / 8%);
+}
+
+/* The vendored tokens.css points the font at ./fonts/..., which is not beside this site's CSS (the font lives in
+   public/ so its URL is stable and can be preloaded). A face declared later with the same descriptors wins,
+   so this one repoints it; the vendored file stays unedited. Keep the path in step with `base` and the
+   preload in astro.config.mjs. */
+@font-face {
+  font-family: "Michroma";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/worktree/fonts/michroma-latin-400-normal.woff2") format("woff2");
+}
+
+::selection {
+  background: var(--gmt-selection);
+}
+
+/* The frosted header, as on northguild.dev: a light blur, a hairline underneath, no panel border. */
+header.header {
+  -webkit-backdrop-filter: blur(8px) saturate(var(--gmt-saturate));
+  backdrop-filter: blur(8px) saturate(var(--gmt-saturate));
+}
+
+/* Display type on the page title and section headings only, as on northguild.dev. */
+main h1,
+main h2 {
+  font-family: var(--gmt-font-display);
+  font-weight: 400;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+main h1 {
+  font-size: clamp(1.5rem, 1.2rem + 1.4vw, 2rem);
+}
+
+main h2 {
+  font-size: var(--sl-text-h3);
+}
+
+.sl-markdown-content code:not(:where(.not-content *)) {
+  color: var(--sl-color-text);
+  border: 1px solid var(--gmt-code-border);
+  border-radius: var(--gmt-radius-sm);
+}
+
+/* Anything the visitor can move the pointer to shows the same cyan ring. */
+:focus-visible {
+  outline-color: var(--gmt-cyan);
+}

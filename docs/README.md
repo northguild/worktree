@@ -137,6 +137,24 @@ needs to be maintained by hand.
 
 ---
 
+## Theme
+
+The site wears the NorthGuild theme. `src/styles/northguild/{tokens,tokens-light,primitives}.css` and
+`public/fonts/michroma-latin-400-normal.woff2` are copies of `packages/theme/` in `northguild/northguild.dev`
+(private, never published), taken at the commit each file's header names. Below that header each file is
+that commit's bytes, so **never edit them in place**. `src/styles/theme.css` is this site's own: it maps the
+`--gmt-*` tokens onto Starlight's `--sl-*` variables, repoints the `@font-face` at `/worktree/fonts/`
+(the vendored one looks for `./fonts/`) and sets the few rules Starlight has no variable for. Light or dark
+follows the visitor's system through Starlight's theme picker, which sets `data-theme` on `<html>`.
+The header's NorthGuild mark is `src/components/SiteTitle.astro`, copied the same way.
+
+To refresh: `git -C <northguild.dev clone> show origin/main:packages/theme/<file>` into the same path, put a
+new header above it naming the new commit, copy the font the same way, then check that every
+`var(--gmt-*)` in `theme.css` and `SiteTitle.astro` is still defined and that body text, muted text,
+links and inline code still reach 4.5:1 on their surfaces in both themes, and run `pnpm docs:build`.
+`astro build` warns that `./fonts/michroma-latin-400-normal.woff2` did not resolve: that is the vendored
+`@font-face`, overridden by the one in `theme.css`; the warning is expected.
+
 ## Scripts reference
 
 All commands are run from the repo root with `pnpm --filter docs run <command>`,

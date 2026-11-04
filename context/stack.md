@@ -32,6 +32,7 @@ skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written,
 docs/                 Astro 7 + Starlight docs site, React 19 islands, Base UI; own package.json, `astro.config.mjs`
 docs/src/content/docs/ Starlight pages (a one-page stub while the rewrite is in progress; the existing pages are still under `docs/src/app/docs/`, which Astro does not build)
 docs/src/             chat client, site metadata, styles
+docs/src/styles/northguild/ the NorthGuild theme, vendored unedited from `northguild/northguild.dev` `packages/theme/` (each file's header names the commit); `docs/src/styles/theme.css` is this site's own `--gmt-*` → `--sl-*` mapping. To refresh, see `docs/README.md` (Theme)
 docs/worker/          Cloudflare Worker proxying Gemini for the docs chat
 context/              planning-workflow artifacts (this directory)
 context7.json         what Context7 (context7.com) may index from this repo: the user docs, the usage skill and the README — see Documentation below
