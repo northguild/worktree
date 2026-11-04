@@ -140,6 +140,13 @@ or no bump.
   It cannot be run twice over the same notes, and since `publish.yml` watches the version, it is the button
   that ships. v2.1.1 was a release pull request of its own (#101); v2.1.2's bump and `CHANGELOG.md`
   section rode the fix pull request itself (#103), which `publish.yml` handled the same way.
+
+  **Hold the first release after #240 until a `docs-deploy.yml` run's `site` job has passed on `main`.** That
+  release carries `.changeset/swift-owls-point.md`: its CLI writes `https://northguild.dev/worktree/schema/v1.json`
+  into every new `.worktree.yml`, and its npm `homepage` and README links point at the same host. Released before
+  the first Route deploy's smoke test is green, every one of them points at a 404 (the old schema URL keeps working,
+  so files already written are unaffected). Seeing that run green is step 1 of #239; once it has been seen, this
+  paragraph goes, together with *Never yet run in this shape* under *Deploy (docs)*.
 - **Tag, release, publish** — one workflow, `publish.yml`, on a push to `main` that touches `package.json`
   and moves its version (a `guard` job reads the previous version from `github.event.before`), or on a
   manual dispatch, which forces the guard open. The `publish` job, in the `release` environment with OIDC,
