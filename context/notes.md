@@ -56,3 +56,11 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - Files touched outside the Files line: `written.ts`, `checklist.ts` (`title`), and the five section modules (`gitSetConfigValue` → `saveConfigValue`).
 - Writing `""` to an unset key is not listed in the summary (unset reads as `""`); clearing a stored value is.
 - During this phase's Gate 1, `src/commands/linear-listen.test.ts` failed intermittently with write ECONNRESET under full-suite load (pre-existing on main since #238; filed as #242).
+
+## Phase 6 — Reconcile the documentation sweep (#236)
+
+- `commands/config` page: the heading-then-nothing case needs `--missing` and the opener acting together (the opener may be one chosen earlier in the same run); the sentence's "or" makes either sound sufficient.
+- The `run.ts` comment "A listed item has a key left to ask (checklist.ts)" is contradicted by the (correct) config page sentence about a heading followed by nothing.
+- `configuration` page "`opener` itself is always shown" and `skills/worktree/SKILL.md` "opener itself is always offered" are loose under `--missing`; acceptable in their hiding-rule context.
+- `guides/herdr-spaces` "neither lists nor prompts for any of the keys below" leaves out the stored-value and `opener=herdr` exceptions; its `--missing --names opener  # prompts for it regardless` means "regardless of Herdr" and is false once `opener` is set (predates this feature, also on main).
+- #235 merged to main as `c0cc821` (#240) during this run and moved every docs page this feature edited from `docs/src/app/docs/**/page.mdx` to `docs/src/content/docs/**.mdx`; Git sees them as 87–97% renames. Plan §9 Q9: whichever lands second carries the new text — this branch.

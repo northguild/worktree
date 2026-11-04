@@ -46,13 +46,14 @@ state does not depend on colour. An item that is already set up starts ticked, s
 what you have. Unticking an item only means "do not ask now": it clears nothing, and a stored token stays in
 git config.
 
-Next comes `defaultSourceBranch`, which is always asked, and then the questions of each ticked item, in the order
-above. Nothing is asked behind a yes/no, so ticking nothing costs two questions. An item is listed only while it has
+Next comes `defaultSourceBranch`, which is not on the checklist and is asked unless `--missing` or a project file has taken it out, and then the questions of each ticked item, in the order
+above. No item sits behind a gate question, so ticking nothing costs two questions at most: the checklist and `defaultSourceBranch`. An item is listed only while it has
 a key left to ask: `--missing` and the keys a [project file](#project-file) supplies take keys out before the
 checklist is built, and with no item left the checklist is not shown.
 
 Each ticked item opens with a one-line heading, such as "Setting up Jira", so you can see which part you are in; an
-item with nothing to ask prints none, and a `--names` run prints no headings because it has no checklist. The
+item can print its heading and then ask nothing, when `--missing` or a stored `opener` has already settled its
+keys, and a `--names` run prints no headings because it has no checklist. The
 run ends with one line naming the keys it saved, for example "Configuration complete! Saved: opener, codeEditor",
 or "Configuration complete! Nothing changed." when it stored nothing new. The line lists key names only, never a
 value, so a token never reaches your screen or a pasted bug report. A key whose answer matches what was already
@@ -151,7 +152,7 @@ the opener's choices, only when the `herdr` CLI is on your `PATH`, or when one o
 `opener` is `herdr`). Without those, the wizard offers `editor` and `none` only. Once `herdr` is offered,
 choosing it asks `herdr.focus` (and, with a coding agent, the Herdr yes/no below) even if the CLI has since gone missing. `--names` and a direct
 `worktree config <key> <value>` always work regardless, so a machine can be configured before Herdr is
-installed: `--names opener` offers all three choices, and each named key is asked on its own. With `--missing` and `opener` already set, the stored opener decides the follow-ups: a `codeEditor` is only missing under `editor`, and the Herdr keys only under `herdr`.
+installed: `--names opener` offers all three choices, and each named key is asked on its own. With `--missing` and `opener` already set, the stored opener decides the follow-ups: a `codeEditor` is only asked under `editor`, and the Herdr keys only under `herdr`.
 
 ## GitHub Integration Keys
 
@@ -183,7 +184,7 @@ time". The last leaves the key unset, clearing any stored answer, which is the "
 `jira.apiToken`, `linear.apiKey` or `clickup.apiToken` prompt empty, or answering with only spaces, keeps any token you already have,
 rather than clearing it. A pasted value is stored without surrounding whitespace.
 `clickup.workspaceId` is optional and only matters for custom task ids such as `DEV-123`: an empty answer skips it and writes nothing, a non-interactive run skips it rather than failing, and under `--missing` pressing Enter skips its prompt too.
-The ClickUp group asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/docs/configuration#clickup-integration-notes).
+ClickUp asks three things, in this order: the token, the workspace id and the `clickup.autoStart` select. That select has the same three choices as `linear.autoStart`: "Yes, always", "No, never" and "Ask me each time". The last leaves the key unset, so `--missing` goes on offering the prompt until you settle it. A direct `worktree config clickup.autoStart` accepts only `true` or `false`; see [Configuration](/docs/configuration#clickup-integration-notes).
 A direct `worktree config github.token "   "` (likewise `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret` and `clickup.apiToken`) with a value that is only
 whitespace is refused with exit `2`, and nothing is stored.
 
