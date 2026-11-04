@@ -13,7 +13,7 @@ const SCHEMA_SOURCE = fileURLToPath(
 );
 
 // Expected values, written by hand. Old routes: the 24 in
-// `git show 2633f3a:docs/src/chat/docs-routes.generated.ts`. Targets: plan D17 (revising D3's root) — `/docs`
+// `git show 2633f3a:docs/src/chat/docs-routes.generated.ts`, plus the two `git show 5c741ee:docs/src/chat/docs-routes.generated.ts` added. Targets: plan D17 (revising D3's root) — `/docs`
 // -> the landing at the root, `/docs/<p>` (Getting Started included) -> `/<p>/`, under https://northguild.dev/worktree.
 const EXPECTED = {
   "/docs": NEW_ROOT,
@@ -23,6 +23,7 @@ const EXPECTED = {
   "/docs/commands/checkout": `${NEW_ROOT}commands/checkout/`,
   "/docs/commands/cleanup": `${NEW_ROOT}commands/cleanup/`,
   "/docs/commands/config": `${NEW_ROOT}commands/config/`,
+  "/docs/commands/linear-listen": `${NEW_ROOT}commands/linear-listen/`,
   "/docs/commands/list": `${NEW_ROOT}commands/list/`,
   "/docs/commands/open": `${NEW_ROOT}commands/open/`,
   "/docs/commands/remove": `${NEW_ROOT}commands/remove/`,
@@ -37,6 +38,7 @@ const EXPECTED = {
   "/docs/guides/github-issue-integration": `${NEW_ROOT}guides/github-issue-integration/`,
   "/docs/guides/herdr-spaces": `${NEW_ROOT}guides/herdr-spaces/`,
   "/docs/guides/jira-integration": `${NEW_ROOT}guides/jira-integration/`,
+  "/docs/guides/linear-agent-delegation": `${NEW_ROOT}guides/linear-agent-delegation/`,
   "/docs/guides/linear-integration": `${NEW_ROOT}guides/linear-integration/`,
   "/docs/guides/team-conventions": `${NEW_ROOT}guides/team-conventions/`,
   "/docs/project-configuration": `${NEW_ROOT}project-configuration/`,
@@ -56,8 +58,8 @@ afterAll(async () => {
 const read = (path) => readFile(join(outDir, path), "utf8");
 
 describe("legacy Pages bundle", () => {
-  it("covers exactly the 24 routes at 2633f3a", () => {
-    expect(Object.keys(EXPECTED)).toHaveLength(24);
+  it("covers exactly the 26 routes at 5c741ee", () => {
+    expect(Object.keys(EXPECTED)).toHaveLength(26);
   });
 
   for (const [route, target] of Object.entries(EXPECTED)) {

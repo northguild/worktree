@@ -215,7 +215,7 @@ live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) 
 (`feature/CU-9hx-fix-login`); a custom id is upper-cased in the name only, and sent to ClickUp as typed
 (`fix/DEV-123-fix-login`).
 
-**Issue content is used for the branch name and nothing else, with one exception: the Linear menu.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
+**Issue content is used for the branch name and nothing else, with two exceptions: the Linear menu and the opt-in Linear listener context.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
 `--jira`, `--linear` and `--clickup` read the issue's number or key (`--github`, `--jira` and `--linear` also accept a pasted issue URL, refused with exit `2` if it names another repository, GitHub host, Jira site (its base: the host and any context path) or Linear workspace), its title (Jira:
 summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
 workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--jira` with a start also reads the issue's status and the transitions Jira offers from it (never the description or comments); `--github` also reads whether the
@@ -226,8 +226,14 @@ becomes part of the branch name, and the type only selects one of the
 configured `branchPrefix.*` values, or none. The issue body and comments are
 never printed, never written to the `--json` document (whose `issue` field
 carries only the provider, number or key, and URL) and never passed to an
-agent. A brief given with `--agent`, `--agent-file` or `--agent-stdin` is
-exactly the text you supply.
+agent by `worktree` itself. A brief given with `--agent`, `--agent-file` or `--agent-stdin` is
+exactly the text you supply. The second exception is `worktree linear-listen`: only with
+`linear.agentContext` set to `true` (unset or `false` means off, and only the owner of the
+machine can set it, never a `.worktree.yml`) does it add the delegated issue's `promptContext` text to the brief it
+supplies, inside a fence labelled as untrusted issue content, cut at 32 KiB and never written to the
+`--json` document, a Linear activity or a log line. An issue's text and comments are writable by everyone with
+access to the issue, so with the key on, anyone who can edit or comment on a delegated issue can steer the agent;
+leave it off for a shared workspace.
 
 ### Hand a new worktree to a coding agent
 
@@ -519,6 +525,32 @@ and the command still exits `0` — by then the worktree is already gone. With
 Note that `--ignore-agents` now closes a live agent's space too, taking down the
 panes it is working in along with the directory.
 
+### Start worktrees from Linear agent delegations (`linear-listen`)
+
+```bash
+# Run inside the repository to serve; stays in the foreground until Ctrl-C
+worktree linear-listen
+worktree linear-listen --port 9100 --path /hooks/linear --team ENG
+```
+
+Needs `linear.agentToken`, `linear.webhookSecret` and `linear.apiKey`, and a public HTTPS address that reaches the
+listener: it binds `127.0.0.1` only (default port `8733`, not `8787`), so a tunnel or reverse proxy is the user's
+step, not shipped. An unset key exits `2` with `missing_value` before it listens; a token Linear rejects, or a port
+in use, exits `1`.
+
+- Each delivery is checked in order: `POST` only (`405`), path (`404`), 1 MiB cap (`413`), the `Linear-Signature`
+  HMAC-SHA256 of the raw body (`401`), JSON (`400`); a signed body that is not an agent session event it acts on
+  gets `200` and is ignored; then the body's signed `webhookTimestamp` within a minute (`401`). Then `200` goes
+  out before any work.
+- Only the owner of `linear.apiKey` may start an agent, unless `linear.agentAllow` lists user ids. `--team <KEY>`
+  ignores sessions of other teams.
+- For an accepted session it writes a `thought` to the Linear session, runs
+  `worktree branch --linear <KEY> --agent-stdin --json --yes`, and writes a `response` or an `error`. The brief
+  names only the issue identifier, unless `linear.agentContext` is `true` (see "Issue content" above).
+- Sessions run one at a time, so two `worktree branch` children never share the repository. A follow-up message is
+  answered only on a session whose agent this listener prompted.
+- `kill -TERM <pid>` waits for the session in flight; sessions still waiting their turn are not started. A terminal `Ctrl-C` also interrupts the running `worktree branch`, which may leave a half-made worktree. A second signal exits `130` at once.
+
 ## Configuration Reference
 
 All keys are stored via `worktree config <key> <value>` in git config
@@ -532,9 +564,9 @@ file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
 that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
 `herdr.*`, `agent.command`, `jira.email`, `*.autoAssign`,
-`linear.autoStart`, `clickup.autoStart`, `jira.autoStart`) in the file is ignored
+`linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoStart`, `jira.autoStart`) in the file is ignored
 with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
-`clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
+`linear.agentToken`, `linear.webhookSecret`, `clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
 `2` (`invalid_value`) before anything is created. An unknown key only warns. A
 file's `jira.host` receives every teammate's Jira credentials, so treat a change
 to it like code.
@@ -579,8 +611,12 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `jira.apiToken` | `ATATT...` | `--jira` flag |
 | `jira.autoAssign` | `true` or `false` | whether `--jira` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `jira.autoStart` | `true` or `false` | whether `--jira` moves the issue to its in-progress status once the worktree exists; unset means ask (move when non-interactive); moving needs the Transition Issues permission |
-| `linear.apiKey` | `lin_api_...` | `--linear` flag; also read by `cleanup` and `list --issues` for canceled issues |
+| `linear.apiKey` | `lin_api_...` | `--linear` flag, and `linear-listen` requires it; also read by `cleanup` and `list --issues` for canceled issues |
 | `linear.autoStart` | `true` or `false` | whether `--linear` moves the issue to a started state once the worktree exists; unset means ask (start when non-interactive); moving needs a key with the Write permission |
+| `linear.agentToken` | `<oauth-token>` | the Linear agent app's OAuth token; secret (listed as `***`); read by `linear-listen`; `worktree config` never asks for it, and `.worktree.yml` cannot set it |
+| `linear.webhookSecret` | `<signing-secret>` | the Linear agent app's webhook signing secret; secret (listed as `***`); read by `linear-listen`; `worktree config` never asks for it, and `.worktree.yml` cannot set it |
+| `linear.agentAllow` | `user-id-1,user-id-2` | the Linear user ids allowed to delegate an issue to the agent; read by `linear-listen`, where unset means only the owner of `linear.apiKey`; `worktree config` never asks for it, and `.worktree.yml` cannot set it (a `linear.agentAllow` there is ignored with a warning) |
+| `linear.agentContext` | `true` | whether `linear-listen` adds the delegated issue's text to the agent's brief, fenced as untrusted and capped at 32 KiB; only `true` or `false` is accepted, unset means `false`; `worktree config` never asks for it, and `.worktree.yml` cannot set it (a `linear.agentContext` there is ignored with a warning) |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
 | `clickup.autoStart` | `true` or `false` | whether `--clickup` moves the task to in progress once the worktree exists; unset means ask (move when non-interactive); moving needs edit access to the task |

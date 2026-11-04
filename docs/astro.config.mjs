@@ -43,6 +43,7 @@ export default defineConfig({
             { label: "open", slug: "commands/open" },
             { label: "remove", slug: "commands/remove" },
             { label: "cleanup", slug: "commands/cleanup" },
+            { label: "linear-listen", slug: "commands/linear-listen" },
           ],
         },
         { label: "Configuration", slug: "configuration" },
@@ -62,6 +63,10 @@ export default defineConfig({
             {
               label: "Linear Issue Integration",
               slug: "guides/linear-integration",
+            },
+            {
+              label: "Linear Agent Delegation",
+              slug: "guides/linear-agent-delegation",
             },
             {
               label: "ClickUp Task Integration",

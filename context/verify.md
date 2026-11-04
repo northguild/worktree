@@ -93,7 +93,7 @@ pnpm docs:audit-dist
 ```
 
 Runs after `pnpm docs:build` (Build above), because it reads `docs/dist/`; with no build it exits 1 saying it
-cannot audit the directory (ENOENT). It asserts the SEO requirements of #235 over the built site: on each of the 24 pages a
+cannot audit the directory (ENOENT). It asserts the SEO requirements of #235 over the built site: on each of the 26 pages a
 unique meta description of at most 155 characters, one canonical link in the form
 `https://northguild.dev/worktree/<path>/`, Open Graph and Twitter tags, JSON-LD of the right types, no chat
 script loaded up front, a "Last updated" date equal to `git log --follow -1` for the page's source file (as a UTC
@@ -101,7 +101,7 @@ date), and an "Edit this page" link that is the repository URL + `/edit/main/doc
 source file that exists — except the landing, which has no footer and so must carry no date and no edit link; no page
 may carry the project line the footer once had (licence, CLI version, maintainers); no page may show the northguild
 organisation's GitHub avatar (`github.com/northguild.png`), the second logo the footer once had, and no id may appear
-twice on a page; across the site, a sitemap and an `llms.txt` (llmstxt.org format) each listing exactly those 24
+twice on a page; across the site, a sitemap and an `llms.txt` (llmstxt.org format) each listing exactly those 26
 URLs, a `404.html` (with the site's search, a link to Getting Started at `/worktree/getting-started/`, and no canonical link or JSON-LD), a landing at the root (a heading and a "Get started" link to `/worktree/getting-started/`, no second action and no section below the hero; the root alone may carry the site default description), and no `shuding/nextra` string. The date rule is only meaningful on
 full git history (CI uses `fetch-depth: 0`): on a shallow clone Starlight and the oracle both read the same truncated log. A page whose source file has no commit yet (a new or just-renamed one) fails the date rule with "no git history", so run the audit after committing it. It prints every failed rule, one line each, and
 exits 1 on any. To run it by hand: `pnpm docs:build && pnpm docs:audit-dist`, or point it at another build with

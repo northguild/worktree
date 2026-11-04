@@ -72,8 +72,8 @@ not offer to run `worktree config` for a key the file supplies.
 | Kind of key | Keys | In the file |
 |---|---|---|
 | Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host` | Read; your git config overrides them |
-| Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`, `clickup.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
-| Secret keys | `jira.apiToken`, `linear.apiKey`, `clickup.apiToken`, `github.token` | Refused; the run stops |
+| Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
+| Secret keys | `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret`, `clickup.apiToken`, `github.token` | Refused; the run stops |
 
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, `jira.deployment` is `deployment` under `jira` (`cloud` or `datacenter`, default `cloud`), and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.

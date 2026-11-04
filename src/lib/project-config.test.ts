@@ -347,6 +347,8 @@ describe("readProjectConfig: secret keys are refused (D3, D4)", () => {
     ["linear.apiKey", "linear:\n  apiKey: abc123secret\n"],
     ["clickup.apiToken", "clickup:\n  apiToken: abc123secret\n"],
     ["github.token", "github:\n  token: abc123secret\n"],
+    ["linear.agentToken", "linear:\n  agentToken: abc123secret\n"],
+    ["linear.webhookSecret", "linear:\n  webhookSecret: abc123secret\n"],
   ])("refuses %s, naming the key and the rotation", async (key, yaml) => {
     const error = await failure(`copy: [a]\n${yaml}`);
 
@@ -356,6 +358,41 @@ describe("readProjectConfig: secret keys are refused (D3, D4)", () => {
     expect(error.message).toContain("origin/main");
     // The value is the secret: it must not be copied into the message.
     expect(error.message).not.toContain("abc123secret");
+  });
+
+  // #115 D8/D9: whether issue text reaches an agent is a decision for one
+  // machine, never a committed team value.
+  it("drops linear.agentContext from the file with a warning naming it", async () => {
+    fromOriginMain("copy: [a]\nlinear:\n  agentContext: true\n");
+
+    const result = await readProjectConfig({});
+
+    expect(result.status).toBe("loaded");
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("linear.agentContext");
+    expect(result.warnings[0]).toContain("is a personal setting");
+    expect(result.warnings[0]).toContain("worktree config linear.agentContext");
+    if (result.status === "loaded") {
+      expect(result.config).toEqual({ copy: ["a"] });
+    }
+  });
+
+  // #115 D9: an allowlist of who may delegate is a decision for one machine,
+  // never a committed team value; the file drops it and says which key.
+  it("drops linear.agentAllow from the file with a warning naming it", async () => {
+    fromOriginMain("copy: [a]\nlinear:\n  agentAllow: u1\n");
+
+    const result = await readProjectConfig({});
+
+    expect(result.status).toBe("loaded");
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("linear.agentAllow");
+    expect(result.warnings[0]).toContain("is a personal setting");
+    expect(result.warnings[0]).toContain("worktree config linear.agentAllow");
+    expect(result.warnings[0]).not.toContain("unknown key");
+    if (result.status === "loaded") {
+      expect(result.config).toEqual({ copy: ["a"] });
+    }
   });
 
   it("exits 2 as invalid_value", async () => {
@@ -1487,6 +1524,8 @@ const SECRET_VALUES: Record<string, string> = {
   "linear.apiKey": "linear-secret-value-2",
   "clickup.apiToken": "clickup-secret-value-3",
   "github.token": "github-secret-value-4",
+  "linear.agentToken": "linear-agent-secret-value-5",
+  "linear.webhookSecret": "linear-webhook-secret-value-6",
 };
 // Personal keys per D3, each with a value no team key shares.
 const PERSONAL_VALUES: Record<string, string> = {

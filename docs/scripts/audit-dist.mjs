@@ -6,17 +6,17 @@
  *
  * Per page: a unique `<meta name="description">` of at most 155 characters; one `<link rel="canonical">` in the D3
  * form; Open Graph and Twitter tags; JSON-LD of the right types (`BreadcrumbList` only on a nested page, D10); and
- * no script that loads the chat before it is activated. Per site: a sitemap listing exactly the 24 URLs, a
+ * no script that loads the chat before it is activated. Per site: a sitemap listing exactly the 26 URLs, a
  * `404.html`, a landing at the root (a heading and a "Get started" link to /getting-started/), and no `shuding/nextra` string anywhere.
  *
  * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11), and the
  * "Edit this page" link is the repository's `edit/main/docs/src/content/docs/<source>` URL for a source file that
- * exists. These apply to the 24 pages only; `404.html` is not one of them and has neither. Phase 15 turns both around on
+ * exists. These apply to the 26 pages only; `404.html` is not one of them and has neither. Phase 15 turns both around on
  * the landing, which has no footer: the root must carry no date and no edit link; no page carries the project line the
  * footer once had (licence, CLI version, maintainers); and no page shows the northguild organisation's GitHub avatar,
  * the second logo the footer once carried beside the header's mark; no id appears twice on a page; and the landing has one
  * action ("Get started") and no section below the hero. Per site: `llms.txt`
- * (D13) is a llmstxt.org file listing the same 24 URLs, each with a title and the page's own description.
+ * (D13) is a llmstxt.org file listing the same 26 URLs, each with a title and the page's own description.
  *
  * Also (phase 9, accessibility): every button has an accessible name (an icon-only one needs an `aria-label`, an
  * `aria-labelledby` or a `title`), and a name that stands beside visible text contains it (WCAG 2.5.3); every
@@ -219,7 +219,7 @@ const defaultExpectedDate = (path) => {
 export const SITE_DEFAULT_DESCRIPTION =
   "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.";
 
-// The 24 pages: the 24 old routes at 2633f3a under D17 (2026-11-04): /docs becomes the landing at the root,
+// The 26 pages: the 24 old routes at 2633f3a and the two #238 added (5c741ee) under D17 (2026-11-04): /docs becomes the landing at the root,
 // /docs/getting-started becomes /getting-started/, and every other /docs/<p> becomes /<p>/. Written out, not
 // derived from the content collection, so a page added or lost by accident fails here.
 export const PAGE_PATHS = Object.freeze([
@@ -230,6 +230,7 @@ export const PAGE_PATHS = Object.freeze([
   "commands/checkout",
   "commands/cleanup",
   "commands/config",
+  "commands/linear-listen",
   "commands/list",
   "commands/open",
   "commands/remove",
@@ -244,6 +245,7 @@ export const PAGE_PATHS = Object.freeze([
   "guides/github-issue-integration",
   "guides/herdr-spaces",
   "guides/jira-integration",
+  "guides/linear-agent-delegation",
   "guides/linear-integration",
   "guides/team-conventions",
   "project-configuration",

@@ -9,7 +9,7 @@
  *     new URL (D3: https://northguild.dev/worktree/<path>/);
  *   - a root stub and a 404.html.
  *
- * The route list is the 24 routes committed at 2633f3a, not derived from the new code (D4), and the
+ * The route list is the 24 routes committed at 2633f3a and the two #238 added (5c741ee), not derived from the new code (D4), and the
  * bundle does not read the CLI's schema-URL constant (D5).
  *
  * Usage: node docs/scripts/build-legacy-pages.mjs [outDir]
@@ -25,7 +25,7 @@ const DEFAULT_OUT_DIR = join(here, "../legacy");
 const NEW_ORIGIN = "https://northguild.dev";
 const NEW_BASE = "/worktree/";
 
-// `docs/src/chat/docs-routes.generated.ts` at 2633f3a.
+// `docs/src/chat/docs-routes.generated.ts` at 2633f3a, plus the two routes 5c741ee added.
 export const OLD_ROUTES = Object.freeze([
   "/docs",
   "/docs/changelog",
@@ -34,6 +34,7 @@ export const OLD_ROUTES = Object.freeze([
   "/docs/commands/checkout",
   "/docs/commands/cleanup",
   "/docs/commands/config",
+  "/docs/commands/linear-listen",
   "/docs/commands/list",
   "/docs/commands/open",
   "/docs/commands/remove",
@@ -48,6 +49,7 @@ export const OLD_ROUTES = Object.freeze([
   "/docs/guides/github-issue-integration",
   "/docs/guides/herdr-spaces",
   "/docs/guides/jira-integration",
+  "/docs/guides/linear-agent-delegation",
   "/docs/guides/linear-integration",
   "/docs/guides/team-conventions",
   "/docs/project-configuration",
