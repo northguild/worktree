@@ -1,7 +1,13 @@
-import type { CONFIG_NAMES, OPENER_KINDS } from "./constants.js";
+import type {
+  CONFIG_NAMES,
+  JIRA_DEPLOYMENTS,
+  OPENER_KINDS,
+} from "./constants.js";
 import type { InstallResult } from "./install.js";
 
 export type ConfigName = (typeof CONFIG_NAMES)[number];
+
+export type JiraDeployment = (typeof JIRA_DEPLOYMENTS)[number];
 
 export type OpenerKind = (typeof OPENER_KINDS)[number];
 

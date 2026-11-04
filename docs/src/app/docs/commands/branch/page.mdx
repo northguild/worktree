@@ -207,7 +207,7 @@ Fields with a value (2), each with a line to paste into jira.branchType:
   that provider's own, so the dry run names `<provider>.branchType` beside it as the list to paste its lines into: a
   shared rule naming it never matches the other providers and does not warn on a real run. A provider's own list
   replaces the shared one for that provider, so copy across any shared rules you still want there.
-- **Jira field names** come from `?expand=names` on the issue request, which a dry run always asks for. The
+- **Jira field names** come from `?expand=names` on the issue request (`?expand=names,schema` on Jira Data Center), which a dry run always asks for. The
   paste-ready lines name ids, except that `Type` and `Labels` are by name when the shared `branchType` list decided, because an id belongs to one provider.
 
 With `--json` a dry run prints one document, not the [`branch` document](#json-output):
@@ -272,9 +272,10 @@ anything is opened or any agent is started, so neither lands in a tree without t
 Use the `--jira` flag to create a suggested branch name from an issue in your Jira workspace.
 
 - The issue ID can be passed in any case (`dev-123`, `DEV-123`, etc.), or as the issue's URL,
-  `https://<host>/browse/DEV-123`. A trailing slash, query string and fragment are ignored. The URL's host must be
-  your `jira.host`, compared ignoring case; otherwise the run exits `2` with `invalid_value` naming both hosts, and
-  the URL's host is never contacted, so your credentials are only ever sent to `jira.host`. Pass the key, or check that
+  `https://<host>/browse/DEV-123`. A trailing slash, query string and fragment are ignored. The URL's base, everything
+  before `/browse/` (a context path such as `/jira` included), must be your `jira.host`, compared ignoring case;
+  otherwise the run exits `2` with `invalid_value` naming both, and the URL's site is never contacted, so your
+  credentials are only ever sent to `jira.host`. A key may contain `_` on Jira Data Center. Pass the key, or check that
   the URL is from your Jira site. Any other URL is refused the same way.
 - The generated name is pre-filled in the prompt and still editable.
 - If issue types are configured in the repository, these optional prefixes are applied:
@@ -287,11 +288,13 @@ Use the `--jira` flag to create a suggested branch name from an issue in your Ji
 
 If no prefix is configured, `worktree` falls back to an empty prefix and still generates a valid branch name.
 
-Jira authentication requires three configuration keys:
+Jira authentication requires three configuration keys on Jira Cloud, and two on Jira Data Center:
 
 1. `northguild.worktree.jira.host` (or `jira.host` in `.worktree.yml`, see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials)) - Your Jira workspace URL (e.g., `https://company.atlassian.net`)
-2. `northguild.worktree.jira.email` - Your Jira email address
-3. `northguild.worktree.jira.apiToken` - Your Jira API token
+2. `northguild.worktree.jira.email` - Your Jira email address (Cloud only; not asked and not read on Data Center)
+3. `northguild.worktree.jira.apiToken` - Your Jira API token, or on Data Center a personal access token sent as a Bearer token
+
+Set `jira.deployment` to `datacenter` for Jira Data Center or Server; see [Jira Data Center](/docs/guides/jira-integration#jira-data-center).
 
 ## Linear Issue Branching
 

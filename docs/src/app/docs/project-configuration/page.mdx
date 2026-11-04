@@ -72,11 +72,11 @@ not offer to run `worktree config` for a key the file supplies.
 
 | Kind of key | Keys | In the file |
 |---|---|---|
-| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `clickup.workspaceId`, `github.repository`, `github.host` | Read; your git config overrides them |
+| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host` | Read; your git config overrides them |
 | Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
 | Secret keys | `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret`, `clickup.apiToken`, `github.token` | Refused; the run stops |
 
-Keys mirror `worktree config`: `jira.host` is `host` under `jira`, and `branchPrefix.bugfix` is `bugfix`
+Keys mirror `worktree config`: `jira.host` is `host` under `jira`, `jira.deployment` is `deployment` under `jira` (`cloud` or `datacenter`, default `cloud`), and `branchPrefix.bugfix` is `bugfix`
 under `branchPrefix`.
 
 `github.repository` is the `owner/repo` that `--github` reads and assigns in. It is only needed when that is not the
@@ -181,7 +181,7 @@ that has the thing, which is what lets one shared list work everywhere.
 
 | Provider | Fields | Ids |
 |---|---|---|
-| Jira | every field on the issue, plus `Type` (the issue type, the same value as `issuetype`) and `Labels` (the same value as `labels`) | yes |
+| Jira | every field on the issue, plus `Type` (the issue type, the same value as `issuetype`) and `Labels` (the same value as `labels`). On Jira Cloud rich text arrives as a document and matches nothing; on Jira Data Center the `description` and multi-line (textarea) custom fields are dropped, and `environment` still offers its text | yes |
 | GitHub | `Type` (the issue type) and `Labels` | yes, for both |
 | Linear | `Labels` (no `Type`: Linear has no issue type) | yes |
 | ClickUp | `Tags`, and `Labels` (the same tags) | no: a ClickUp tag has no id, so match it by name |
@@ -263,7 +263,7 @@ field shows up. A field that exists but is empty is not a mistake: it just
 matches nothing.
 
 With rules set (a Jira list or the shared one), or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
-request it was already making. Otherwise the request is unchanged.
+request it was already making; on Jira Data Center that is `?expand=names,schema`, because the schema is how rich text is told from plain text. Otherwise the request is unchanged.
 
 ## Branch name template
 
@@ -358,7 +358,7 @@ Steps from a file run commands on your machine that someone else wrote, so each 
 ## Starting a file from your git config
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree
-from the team keys in your git config: the source branch, the branch prefixes, the Jira host, the ClickUp
+from the team keys in your git config: the source branch, the branch prefixes, the Jira host and deployment, the ClickUp
 workspace id, the GitHub repository, the GitHub host and `postCreate`, which becomes a one-step list. It never writes a personal or secret key. The
 file is left uncommitted and the command refuses to overwrite one that is there, so review it, commit it and
 merge it to the default branch. The result loads exactly as written.
@@ -394,12 +394,12 @@ for a newer `worktree` still works for a teammate on an older one.
 
 ## `jira.host` receives everyone's credentials
 
-`worktree` sends your Jira email and API token to `https://<jira.host>` with every Jira request. When the
+`worktree` sends your Jira email and API token to `https://<jira.host>` with every Jira request (on Jira Data Center, with `jira.deployment: datacenter`, the personal access token alone, as a Bearer token). When the
 host comes from `.worktree.yml`, a merged change to that line redirects every teammate's next Jira request,
 credentials included, to the new host. There is no prompt: the file is read only from the default branch,
 so it has been through your review process, and it is trusted the way any merged code is.
 
-Review a change to `jira.host` as carefully as you would a change to a build script. A personal
+Review a change to `jira.host` as carefully as you would a change to a build script. A change to `jira.deployment` in the file is reviewed the same way: it never changes where the token goes, but it changes how every teammate's token is sent. A personal
 `jira.host` in your git config overrides the file's, which is also how to stop a bad value reaching you
 before it is reverted:
 

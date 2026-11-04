@@ -5,7 +5,7 @@ import { LineCounter, parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import { run } from "./cli.js";
 import { gitGetConfigValue } from "./config.js";
-import { SECRET_CONFIG_NAMES } from "./constants.js";
+import { JIRA_DEPLOYMENTS, SECRET_CONFIG_NAMES } from "./constants.js";
 import {
   gitGetTopLevelPath,
   gitHasOriginRemote,
@@ -136,7 +136,18 @@ export const projectConfigSchema = z
         chore: z.string().optional(),
       })
       .optional(),
-    jira: branchType.extend({ host: z.string().min(1).optional() }).optional(),
+    jira: branchType
+      .extend({
+        host: z.string().min(1).optional(),
+        deployment: z
+          .enum(JIRA_DEPLOYMENTS)
+          .meta({
+            description:
+              "Which Jira the host is: cloud (Jira Cloud) or datacenter (Jira Data Center, or Server). Unset means cloud.",
+          })
+          .optional(),
+      })
+      .optional(),
     github: branchType
       .extend({
         // The pattern is for the published schema, so an editor flags a bad
@@ -216,7 +227,7 @@ export function projectConfigJsonSchema() {
 // Sections that hold team keys, and which children they may hold.
 const TEAM_SECTIONS: Record<string, readonly string[]> = {
   branchPrefix: ["feature", "bugfix", "chore"],
-  jira: ["host", "branchType"],
+  jira: ["host", "deployment", "branchType"],
   github: ["repository", "host", "branchType"],
   linear: ["branchType"],
   clickup: ["workspaceId", "branchType"],
@@ -405,6 +416,7 @@ const TEAM_CONFIG_KEYS = [
   "branchPrefix.bugfix",
   "branchPrefix.chore",
   "jira.host",
+  "jira.deployment",
   "clickup.workspaceId",
   "github.repository",
   "github.host",
@@ -430,6 +442,8 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
       return config.branchPrefix?.chore;
     case "jira.host":
       return config.jira?.host;
+    case "jira.deployment":
+      return config.jira?.deployment;
     case "github.repository":
       return config.github?.repository;
     case "github.host":
@@ -967,6 +981,7 @@ export function renderProjectFile(
   section("branchPrefix", "bugfix", values["branchPrefix.bugfix"]);
   section("branchPrefix", "chore", values["branchPrefix.chore"]);
   section("jira", "host", values["jira.host"]);
+  section("jira", "deployment", values["jira.deployment"]);
   section("github", "repository", values["github.repository"]);
   section("github", "host", values["github.host"]);
   section("clickup", "workspaceId", values["clickup.workspaceId"]);

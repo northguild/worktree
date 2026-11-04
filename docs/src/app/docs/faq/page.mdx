@@ -21,6 +21,12 @@ Yes. Any repository you can clone and operate with Git locally can be managed.
 Yes. Set the host with `worktree config github.host <host>`, keep a remote of the clone on that host, and sign in
 with `gh auth login --hostname <host>`. See [GitHub Enterprise](/docs/guides/github-issue-integration#github-enterprise).
 
+## Does `--jira` work with Jira Data Center?
+
+Yes. Run `worktree config jira.deployment datacenter`, set `jira.host`, and store a personal access token in
+`jira.apiToken`; no email is needed. A private certificate authority is trusted through Node's `NODE_EXTRA_CA_CERTS`.
+See [Jira Data Center](/docs/guides/jira-integration#jira-data-center).
+
 ## Is there a required branch naming scheme?
 
 No hard requirement, but a team naming convention (for example `feature/*`, `fix/*`, `chore/*`) makes list and cleanup flows easier.

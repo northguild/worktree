@@ -653,6 +653,27 @@ describe("isValidConfigValue github.host", () => {
   });
 });
 
+// Expected values come from plan D2: exactly `cloud` and `datacenter`,
+// lower-case; "server" and "data-center" are rejected aliases.
+describe("isValidConfigValue jira.deployment", () => {
+  it.each(["cloud", "datacenter"])("accepts %j", async (value) => {
+    expect(await isValidConfigValue("jira.deployment", value)).toBe(true);
+  });
+
+  it.each([
+    ["a capitalised value", "Cloud"],
+    ["an upper-case value", "DATACENTER"],
+    ["the server alias", "server"],
+    ["a hyphenated spelling", "data-center"],
+    ["an empty value", ""],
+    ["a padded value", " cloud"],
+  ])("refuses %s", async (_label, value) => {
+    expect(await isValidConfigValue("jira.deployment", value)).toBe(
+      "Jira deployment must be cloud or datacenter",
+    );
+  });
+});
+
 describe("validateConfigValue", () => {
   it("names InvalidConfigValueError as itself, and exits 2 as an invalid value", () => {
     const error = new InvalidConfigValueError("Invalid email address");

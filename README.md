@@ -96,7 +96,7 @@ The setup flow can configure:
 - `linear.agentToken`, `linear.webhookSecret`, `linear.agentAllow` and `linear.agentContext` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`), the Linear user ids allowed to delegate an issue to it, and `true` to also hand the issue's text to the agent (off by default). `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
-`jira.host`, `clickup.workspaceId`, `github.repository` and `github.host`, read from the default branch; your own git config overrides it. The
+`jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository` and `github.host`, read from the default branch; your own git config overrides it. The
 wizard skips what the file answers, `worktree config --list` marks each value `(.worktree.yml)` or
 `(overrides .worktree.yml: <file value>)`, and `worktree config --project` writes a `.worktree.yml` from the
 team keys in your git config (never a personal or secret one), uncommitted. See
@@ -262,7 +262,7 @@ worktree help branch
 ## Configuration
 
 Configuration is stored in Git config under the `northguild.worktree.*` namespace. A committed
-`.worktree.yml` can supply the team keys (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`,
+`.worktree.yml` can supply the team keys (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`, `jira.deployment`,
 `clickup.workspaceId`, `github.repository`, `github.host`); your git config wins over it, and it wins over the built-in default. A file's
 `jira.host` receives every teammate's Jira credentials, so review a change to it like code. See
 [Project Configuration](https://northguild.github.io/worktree/docs/project-configuration).

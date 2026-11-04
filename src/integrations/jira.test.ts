@@ -14,6 +14,7 @@ import {
   getJiraIssueFields,
   normalizeJiraHost,
   parseJiraIssueReference,
+  resolveJiraDeployment,
   startJiraIssue,
   validateJiraCredentials,
 } from "./jira.js";
@@ -65,6 +66,70 @@ function stubNoProjectFile() {
   vi.spyOn(projectConfig, "getBranchTypeRules").mockResolvedValue(undefined);
 }
 
+// #126 D1, D2: the deployment is configured, never detected; unset is cloud,
+// git config beats the project file, and a hand-edited bad value fails.
+describe("resolveJiraDeployment", () => {
+  function gitConfigAnswers(value: string) {
+    return vi.spyOn(cli, "run").mockImplementation(async (_file, args) => {
+      if (args?.at(-1) === "northguild.worktree.jira.deployment") {
+        return value;
+      }
+      throw new Error(`unexpected call: ${args?.join(" ")}`);
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProjectConfigCache();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // cli.run is the global mock of test-setup.ts, so a restore keeps the
+    // implementation set above and it would answer the suites that follow.
+    vi.mocked(cli.run).mockReset();
+  });
+
+  it("gives cloud when neither git config nor the file sets it", async () => {
+    gitConfigAnswers("");
+    stubNoProjectFile();
+
+    expect(await resolveJiraDeployment()).toBe("cloud");
+  });
+
+  it("gives the file's value when git config has none", async () => {
+    gitConfigAnswers("");
+    stubProjectFile("jira:\n  deployment: datacenter\n");
+
+    expect(await resolveJiraDeployment()).toBe("datacenter");
+  });
+
+  it("gives the git config value over the file's", async () => {
+    gitConfigAnswers("cloud");
+    stubProjectFile("jira:\n  deployment: datacenter\n");
+
+    expect(await resolveJiraDeployment()).toBe("cloud");
+  });
+
+  it.each([
+    "Cloud",
+    "server",
+    "data-center",
+  ])("throws InvalidValueError on a hand-edited %j, naming the key", async (value) => {
+    gitConfigAnswers(value);
+    stubNoProjectFile();
+
+    const refusal = resolveJiraDeployment();
+
+    await expect(refusal).rejects.toBeInstanceOf(InvalidValueError);
+    await expect(refusal).rejects.toThrow("jira.deployment");
+    await expect(refusal).rejects.toMatchObject({
+      code: "invalid_value",
+      oclif: { exit: 2 },
+    });
+  });
+});
+
 describe("Jira integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -89,6 +154,7 @@ describe("Jira integration", () => {
 
   it("fetches issue info using jira.host, jira.email and jira.apiToken", async () => {
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
@@ -96,6 +162,8 @@ describe("Jira integration", () => {
 
     const runSpy = vi.spyOn(cli, "run");
     runSpy
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("https://example.atlassian.net/")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -585,12 +653,15 @@ jira:
 
   it("throws a helpful error when jira.host is missing", async () => {
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
     );
 
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -602,12 +673,15 @@ jira:
 
   it("throws when jira authentication fails", async () => {
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
     );
 
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("example.atlassian.net")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -631,6 +705,7 @@ jira:
   it("builds branch names from Jira issue type and configured prefix", async () => {
     stubNoProjectFile();
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
@@ -638,6 +713,8 @@ jira:
     );
 
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("example.atlassian.net")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token")
@@ -670,12 +747,15 @@ jira:
   it("cuts a long summary to a whole-word slug of at most 48 characters", async () => {
     stubNoProjectFile();
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
       "git config northguild.worktree.branchPrefix.bugfix",
     );
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("example.atlassian.net")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token")
@@ -707,12 +787,15 @@ jira:
   it('falls back to "issue" when the summary leaves no slug', async () => {
     stubNoProjectFile();
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
       "git config northguild.worktree.branchPrefix.bugfix",
     );
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("example.atlassian.net")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token")
@@ -740,12 +823,15 @@ jira:
 
   it("validates Jira credentials against jira.host", async () => {
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
     );
 
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("example.atlassian.net")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -766,11 +852,14 @@ jira:
   // stalls past 15s rejects response.json() with the signal's TimeoutError.
   it("reports a body that stalls past the timeout as a timeout", async () => {
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
     );
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("https://example.atlassian.net/")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -791,11 +880,14 @@ jira:
 
   it("leaves a body that fails to parse as a parse failure, not a timeout", async () => {
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
     );
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("https://example.atlassian.net/")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -815,11 +907,14 @@ jira:
 
   it("reports an error body that stalls past the timeout as a timeout", async () => {
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
     );
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("https://example.atlassian.net/")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -842,11 +937,14 @@ jira:
 
   it("rejects a Jira request that never answers, naming the call and not the token", async () => {
     expectCommands(
+      "git config northguild.worktree.jira.deployment",
       "git config northguild.worktree.jira.host",
       "git config northguild.worktree.jira.email",
       "git config northguild.worktree.jira.apiToken",
     );
     vi.spyOn(cli, "run")
+      // jira.deployment is read first; non-empty, so no project file is read.
+      .mockResolvedValueOnce("cloud")
       .mockResolvedValueOnce("https://example.atlassian.net/")
       .mockResolvedValueOnce("test@example.com")
       .mockResolvedValueOnce("api-token");
@@ -896,11 +994,14 @@ jira:
       issueStatus?: number;
     }) {
       expectCommands(
+        "git config northguild.worktree.jira.deployment",
         "git config northguild.worktree.jira.host",
         "git config northguild.worktree.jira.email",
         "git config northguild.worktree.jira.apiToken",
       );
       vi.spyOn(cli, "run")
+        // jira.deployment is read first; non-empty, so no project file is read.
+        .mockResolvedValueOnce("cloud")
         .mockResolvedValueOnce("https://example.atlassian.net/")
         .mockResolvedValueOnce("test@example.com")
         .mockResolvedValueOnce("api-token");
@@ -1143,11 +1244,14 @@ jira:
 
     it("times out a PUT that never answers, naming the path and not the token", async () => {
       expectCommands(
+        "git config northguild.worktree.jira.deployment",
         "git config northguild.worktree.jira.host",
         "git config northguild.worktree.jira.email",
         "git config northguild.worktree.jira.apiToken",
       );
       vi.spyOn(cli, "run")
+        // jira.deployment is read first; non-empty, so no project file is read.
+        .mockResolvedValueOnce("cloud")
         .mockResolvedValueOnce("https://example.atlassian.net/")
         .mockResolvedValueOnce("test@example.com")
         .mockResolvedValueOnce("api-token");
@@ -1178,11 +1282,14 @@ jira:
 
     it("reports an assignee read whose body stalls past the timeout as a timeout", async () => {
       expectCommands(
+        "git config northguild.worktree.jira.deployment",
         "git config northguild.worktree.jira.host",
         "git config northguild.worktree.jira.email",
         "git config northguild.worktree.jira.apiToken",
       );
       vi.spyOn(cli, "run")
+        // jira.deployment is read first; non-empty, so no project file is read.
+        .mockResolvedValueOnce("cloud")
         .mockResolvedValueOnce("https://example.atlassian.net/")
         .mockResolvedValueOnce("test@example.com")
         .mockResolvedValueOnce("api-token");
@@ -1207,11 +1314,14 @@ jira:
 
     it("reports a refused PUT whose error body stalls past the timeout as a timeout", async () => {
       expectCommands(
+        "git config northguild.worktree.jira.deployment",
         "git config northguild.worktree.jira.host",
         "git config northguild.worktree.jira.email",
         "git config northguild.worktree.jira.apiToken",
       );
       vi.spyOn(cli, "run")
+        // jira.deployment is read first; non-empty, so no project file is read.
+        .mockResolvedValueOnce("cloud")
         .mockResolvedValueOnce("https://example.atlassian.net/")
         .mockResolvedValueOnce("test@example.com")
         .mockResolvedValueOnce("api-token");
@@ -1311,11 +1421,14 @@ jira:
       postBody?: string;
     } = {}) {
       expectCommands(
+        "git config northguild.worktree.jira.deployment",
         "git config northguild.worktree.jira.host",
         "git config northguild.worktree.jira.email",
         "git config northguild.worktree.jira.apiToken",
       );
       vi.spyOn(cli, "run")
+        // jira.deployment is read first; non-empty, so no project file is read.
+        .mockResolvedValueOnce("cloud")
         .mockResolvedValueOnce("https://example.atlassian.net/")
         .mockResolvedValueOnce("test@example.com")
         .mockResolvedValueOnce("api-token");
@@ -1672,11 +1785,14 @@ jira:
 
     it("times out a POST that never answers, naming the path and not the token", async () => {
       expectCommands(
+        "git config northguild.worktree.jira.deployment",
         "git config northguild.worktree.jira.host",
         "git config northguild.worktree.jira.email",
         "git config northguild.worktree.jira.apiToken",
       );
       vi.spyOn(cli, "run")
+        // jira.deployment is read first; non-empty, so no project file is read.
+        .mockResolvedValueOnce("cloud")
         .mockResolvedValueOnce("https://example.atlassian.net/")
         .mockResolvedValueOnce("test@example.com")
         .mockResolvedValueOnce("api-token");
@@ -2092,13 +2208,13 @@ describe("parseJiraIssueReference", () => {
   it("reads the key and host from a browse URL", () => {
     expect(
       parseJiraIssueReference("https://acme.atlassian.net/browse/DEV-1"),
-    ).toEqual({ key: "DEV-1", host: "acme.atlassian.net" });
+    ).toEqual({ key: "DEV-1", base: "acme.atlassian.net" });
   });
 
   it("keeps the host of a self-hosted site and the case of the key", () => {
     expect(
       parseJiraIssueReference("http://jira.example.com:8080/browse/dev-12"),
-    ).toEqual({ key: "dev-12", host: "jira.example.com:8080" });
+    ).toEqual({ key: "dev-12", base: "jira.example.com:8080" });
   });
 
   // RFC 3986: query and fragment are not part of the path.
@@ -2110,7 +2226,7 @@ describe("parseJiraIssueReference", () => {
   ])("ignores the slash, query and fragment of %s", (url) => {
     expect(parseJiraIssueReference(url)).toEqual({
       key: "DEV-1",
-      host: "acme.atlassian.net",
+      base: "acme.atlassian.net",
     });
   });
 
@@ -2123,8 +2239,24 @@ describe("parseJiraIssueReference", () => {
   ])("reads %j despite the surrounding whitespace", (url) => {
     expect(parseJiraIssueReference(url)).toEqual({
       key: "DEV-1",
-      host: "acme.atlassian.net",
+      base: "acme.atlassian.net",
     });
+  });
+
+  // #126 D6: the base is everything before /browse/, so a context path stays.
+  it("reads a context path as part of the base", () => {
+    expect(
+      parseJiraIssueReference("https://example.com/jira/browse/DEV-1"),
+    ).toEqual({ key: "DEV-1", base: "example.com/jira" });
+  });
+
+  // #126 D5: the parser lets `_` through for both deployments; getIssueKey decides.
+  it("reads a key with an underscore", () => {
+    expect(
+      parseJiraIssueReference(
+        "https://example.com/browse/MY_EXAMPLE_PROJECT-15",
+      ),
+    ).toEqual({ key: "MY_EXAMPLE_PROJECT-15", base: "example.com" });
   });
 
   it.each([
@@ -2163,5 +2295,734 @@ describe("parseJiraIssueReference", () => {
     expect(message).toContain("https://<host>/browse/<KEY-number>");
     expect(message).toContain(`"${quoted}"`);
     expect(message).not.toMatch(/s3cret|token|selectedIssue|frag|user:/);
+  });
+});
+
+// #126 Phase 2. Expected values come from the plan's §8 table: DC paths from
+// the DC REST reference (api/2), the Bearer header from Atlassian's "Using
+// Personal Access Tokens", keys from "Changing the project key format", and the
+// error texts from D9 and D10 (never read back from the implementation).
+describe("Jira Data Center", () => {
+  const PAT = "pat-token";
+  let settings: Record<string, string>;
+
+  function useSite(values: Record<string, string>) {
+    settings = { "jira.apiToken": PAT, ...values };
+    stubProjectFile("jira:\n  host: unused.example.com\n");
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation((name: string) =>
+      Promise.resolve(settings[name] ?? ""),
+    );
+  }
+
+  const dc = {
+    "jira.host": "jira.example.com",
+    "jira.deployment": "datacenter",
+  };
+  async function failureOf(attempt: Promise<unknown>): Promise<Error> {
+    try {
+      await attempt;
+    } catch (error) {
+      return error as Error;
+    }
+    throw new Error("expected the call to fail");
+  }
+  const reply = (status: number, body: unknown = {}) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: `status ${status}`,
+    json: async () => body,
+    text: async () => (typeof body === "string" ? body : ""),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetProjectConfigCache();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe("reads", () => {
+    it("requests /rest/api/2 with a Bearer token, no Basic and no email", async () => {
+      useSite(dc);
+      const fetchSpy = vi.fn().mockResolvedValue(reply(200, makeJiraIssue()));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await fetchJiraIssue("dev-123");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://jira.example.com/rest/api/2/issue/DEV-123",
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${PAT}`,
+            Accept: "application/json",
+          },
+          signal: expect.any(AbortSignal),
+        },
+      );
+    });
+
+    // #126 D4: "On DC, jira.email is neither required nor read."
+    it("never reads jira.email on Data Center", async () => {
+      useSite({ ...dc, "jira.email": "leftover@example.com" });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(reply(200, makeJiraIssue())),
+      );
+
+      await fetchJiraIssue("DEV-123");
+
+      expect(config.gitGetConfigValue).not.toHaveBeenCalledWith("jira.email");
+      expect(config.gitGetConfigValue).toHaveBeenCalledWith("jira.apiToken");
+    });
+
+    it("keeps a context path in the host", async () => {
+      useSite({ ...dc, "jira.host": "https://example.com/jira/" });
+      const fetchSpy = vi.fn().mockResolvedValue(reply(200, makeJiraIssue()));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await fetchJiraIssue("DEV-123");
+
+      expect(fetchSpy.mock.calls[0][0]).toBe(
+        "https://example.com/jira/rest/api/2/issue/DEV-123",
+      );
+    });
+
+    // D7: a Bearer token over http is a credential in clear.
+    it("requests over https even when jira.host says http", async () => {
+      useSite({ ...dc, "jira.host": "http://jira.example.com" });
+      const fetchSpy = vi.fn().mockResolvedValue(reply(200, makeJiraIssue()));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await fetchJiraIssue("DEV-123");
+
+      expect(fetchSpy.mock.calls[0][0]).toMatch(
+        /^https:\/\/jira\.example\.com\//,
+      );
+    });
+
+    // #126 D11, Phase 4: DC asks for `schema` beside `names`, to recognise rich
+    // text. `names` and `schema` are both `expand` options of the DC issue read
+    // (DC REST reference, Get issue).
+    it("asks for field names and the schema the v2 way", async () => {
+      useSite(dc);
+      const fetchSpy = vi.fn().mockResolvedValue(reply(200, makeJiraIssue()));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await fetchJiraIssue("DEV-123", { names: true });
+
+      expect(fetchSpy.mock.calls[0][0]).toBe(
+        "https://jira.example.com/rest/api/2/issue/DEV-123?expand=names,schema",
+      );
+    });
+
+    it("asks for no expansion when names are not wanted", async () => {
+      useSite(dc);
+      const fetchSpy = vi.fn().mockResolvedValue(reply(200, makeJiraIssue()));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await fetchJiraIssue("DEV-123");
+
+      expect(fetchSpy.mock.calls[0][0]).toBe(
+        "https://jira.example.com/rest/api/2/issue/DEV-123",
+      );
+    });
+
+    // Schema shapes: `{type, system}` for a system field (DC REST reference,
+    // api/2/field, `"schema":{"type":"string","system":"description"}`);
+    // `{type, custom, customId}` for a custom one, where the multi-line text
+    // type is `...customfieldtypes:textarea` (Atlassian KB "REST API essential
+    // parameters for custom field creation"). A `description` string
+    // comes from the DC REST reference, Get issue.
+    describe("field values", () => {
+      const TEXTAREA =
+        "com.atlassian.jira.plugin.system.customfieldtypes:textarea";
+      const TEXTFIELD =
+        "com.atlassian.jira.plugin.system.customfieldtypes:textfield";
+      const issue = {
+        id: "10001",
+        key: "DEV-7",
+        names: {
+          description: "Description",
+          environment: "Environment",
+          customfield_10100: "Notes",
+          customfield_10101: "Ticket ref",
+          assignee: "Assignee",
+        },
+        schema: {
+          description: { type: "string", system: "description" },
+          environment: { type: "string", system: "environment" },
+          customfield_10100: {
+            type: "string",
+            custom: TEXTAREA,
+            customId: 10100,
+          },
+          customfield_10101: {
+            type: "string",
+            custom: TEXTFIELD,
+            customId: 10101,
+          },
+          assignee: { type: "user", system: "assignee" },
+        },
+        fields: {
+          summary: "Fix login bug",
+          issuetype: { id: "10008", name: "Bug" },
+          description: "line one\nline two",
+          environment: "staging",
+          customfield_10100: "multi\nline",
+          customfield_10101: "ABC-1",
+          assignee: {
+            key: "JIRAUSER10100",
+            name: "fred",
+            displayName: "Fred Bloggs",
+          },
+        },
+      };
+
+      async function dryRunFields() {
+        useSite(dc);
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(200, issue)));
+        return (await getJiraBranchNaming("dev-7", { dryRun: true })).fields;
+      }
+
+      it("gives the system description no values", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "description",
+          name: "Description",
+          values: [],
+        });
+      });
+
+      it("gives a textarea custom field no values", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "customfield_10100",
+          name: "Notes",
+          values: [],
+        });
+      });
+
+      it("keeps the string of a single-line text custom field", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "customfield_10101",
+          name: "Ticket ref",
+          values: [{ name: "ABC-1" }],
+        });
+      });
+
+      it("takes a user's key as the id and the display name as the name", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "assignee",
+          name: "Assignee",
+          values: [{ id: "JIRAUSER10100", name: "Fred Bloggs" }],
+        });
+      });
+
+      it("keeps a project's id over its key", () => {
+        const fields = getJiraIssueFields(
+          {
+            id: "1",
+            key: "DEV-7",
+            fields: {
+              summary: "s",
+              issuetype: { id: "10008", name: "Bug" },
+              project: { id: "10000", key: "DEV", name: "Dev" },
+            },
+          },
+          "datacenter",
+        );
+
+        expect(fields).toContainEqual({
+          id: "project",
+          name: "project",
+          values: [{ id: "10000", name: "Dev" }],
+        });
+      });
+
+      it("does not take a key as an id on Cloud", () => {
+        const fields = getJiraIssueFields({
+          id: "1",
+          key: "DEV-7",
+          fields: {
+            summary: "s",
+            issuetype: { id: "10008", name: "Bug" },
+            reporter: { key: "JIRAUSER1", displayName: "Fred" },
+          },
+        });
+
+        expect(fields).toContainEqual({
+          id: "reporter",
+          name: "reporter",
+          values: [{ name: "Fred" }],
+        });
+      });
+    });
+
+    it("validates the credentials against /rest/api/2/myself", async () => {
+      useSite(dc);
+      const fetchSpy = vi.fn().mockResolvedValue(reply(200));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      expect(await validateJiraCredentials()).toBe(true);
+      expect(fetchSpy.mock.calls[0][0]).toBe(
+        "https://jira.example.com/rest/api/2/myself",
+      );
+    });
+
+    it("still needs jira.apiToken, and names only the host and the token", async () => {
+      useSite({ ...dc, "jira.apiToken": "" });
+      vi.stubGlobal("fetch", vi.fn());
+
+      const refusal = fetchJiraIssue("DEV-123");
+
+      await expect(refusal).rejects.toThrow(
+        'Jira: Missing config value "jira.apiToken".',
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("start", () => {
+    it("reads status and transitions on v2 and takes a 204 as started", async () => {
+      useSite(dc);
+      const category = (key: string) => ({ key });
+      const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+        if (init.method === "POST") {
+          return reply(204, "");
+        }
+        if (url.endsWith("/transitions")) {
+          return reply(200, {
+            transitions: [
+              {
+                id: "21",
+                name: "Start progress",
+                to: {
+                  id: "3",
+                  name: "In Progress",
+                  statusCategory: category("indeterminate"),
+                },
+              },
+            ],
+          });
+        }
+        return reply(200, {
+          fields: {
+            status: { id: "1", name: "Open", statusCategory: category("new") },
+          },
+        });
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await startJiraIssue("dev-123");
+
+      expect(result).toEqual({
+        outcome: "started",
+        from: "Open",
+        to: "In Progress",
+      });
+      expect(
+        fetchSpy.mock.calls.map(([url, init]) => [init.method, url]),
+      ).toEqual([
+        [
+          "GET",
+          "https://jira.example.com/rest/api/2/issue/DEV-123?fields=status",
+        ],
+        [
+          "GET",
+          "https://jira.example.com/rest/api/2/issue/DEV-123/transitions",
+        ],
+        [
+          "POST",
+          "https://jira.example.com/rest/api/2/issue/DEV-123/transitions",
+        ],
+      ]);
+      expect(
+        (fetchSpy.mock.calls[2][1].headers as Record<string, string>)
+          .Authorization,
+      ).toBe(`Bearer ${PAT}`);
+    });
+  });
+
+  // Expected values: Jira DC REST reference 9.12.0, api/2/myself (key
+  // JIRAUSER10100, name fred) and PUT api/2/issue/{key}/assignee (body
+  // {"name": ...}, 204 on success, 401 for no permission to assign); D8, D9.
+  describe("assign", () => {
+    const me = { key: "JIRAUSER10100", name: "fred", displayName: "Fred F" };
+
+    function stub({
+      assignee = null,
+      myself = me,
+      putStatus = 204,
+    }: {
+      assignee?: Record<string, string> | null;
+      myself?: Record<string, string>;
+      putStatus?: number;
+    }) {
+      useSite(dc);
+      const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+        if (init.method === "PUT") {
+          return reply(putStatus, "");
+        }
+        if (url.endsWith("/rest/api/2/myself")) {
+          return reply(200, myself);
+        }
+        return reply(200, { fields: { assignee } });
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+      return fetchSpy;
+    }
+
+    const putCalls = (fetchSpy: ReturnType<typeof stub>) =>
+      fetchSpy.mock.calls.filter(([, init]) => init.method === "PUT");
+
+    it("reads myself and the assignee on v2 and assigns a free issue by name", async () => {
+      const fetchSpy = stub({});
+
+      const result = await assignJiraIssue("dev-123");
+
+      expect(result).toEqual({ outcome: "assigned", displayName: "Fred F" });
+      expect(fetchSpy.mock.calls.map(([url]) => url).sort()).toEqual([
+        "https://jira.example.com/rest/api/2/issue/DEV-123/assignee",
+        "https://jira.example.com/rest/api/2/issue/DEV-123?fields=assignee",
+        "https://jira.example.com/rest/api/2/myself",
+      ]);
+      const [[putUrl, putInit]] = putCalls(fetchSpy);
+      expect(putUrl).toBe(
+        "https://jira.example.com/rest/api/2/issue/DEV-123/assignee",
+      );
+      expect(putInit.body).toBe('{"name":"fred"}');
+      expect((putInit.headers as Record<string, string>).Authorization).toBe(
+        `Bearer ${PAT}`,
+      );
+    });
+
+    it("is already yours when the key matches, though the name differs", async () => {
+      const fetchSpy = stub({
+        assignee: { key: "JIRAUSER10100", name: "fred.renamed" },
+      });
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "already-yours",
+        displayName: "Fred F",
+      });
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("is held by another when the key differs, even with the same name", async () => {
+      const fetchSpy = stub({
+        assignee: { key: "JIRAUSER20200", name: "fred", displayName: "Other" },
+      });
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "held-by-other",
+        displayName: "Fred F",
+        heldBy: "Other",
+      });
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("falls back to the name when the assignee carries no key", async () => {
+      const fetchSpy = stub({ assignee: { name: "fred" } });
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result.outcome).toBe("already-yours");
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("throws a message naming the token, not the email, when myself has no key or name", async () => {
+      const fetchSpy = stub({ myself: { displayName: "Fred F" } });
+
+      const failure = await failureOf(assignJiraIssue("DEV-123"));
+
+      expect(failure.message).toContain("jira.apiToken");
+      expect(failure.message).not.toContain("jira.email");
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("names the Assign Issues permission on a 401 at the write", async () => {
+      stub({ putStatus: 401 });
+
+      const failure = await failureOf(assignJiraIssue("DEV-123"));
+
+      expect(failure.message).toContain("Assign Issues");
+      expect(failure.message).toContain("DEV-123");
+      expect(failure.message).not.toContain("jira.email");
+    });
+
+    it("still reports a 401 on the caller read as a bad token", async () => {
+      useSite(dc);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(401)));
+
+      const failure = await failureOf(assignJiraIssue("DEV-123"));
+
+      expect(failure.message).toContain("Please verify jira.apiToken");
+    });
+  });
+
+  // Atlassian, "Changing the project key format": letter first, then letters,
+  // digits or `_`. PRODUCT_2013, R2D2 and MY_EXAMPLE_PROJECT are its valid
+  // examples; 2013PROJECT and PRODUCT-2012 its invalid ones.
+  describe("issue keys", () => {
+    it.each([
+      "PRODUCT_2013-1",
+      "R2D2-7",
+      "MY_EXAMPLE_PROJECT-15",
+    ])("accepts %s", async (key) => {
+      useSite(dc);
+      const fetchSpy = vi.fn().mockResolvedValue(reply(200, makeJiraIssue()));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await fetchJiraIssue(key);
+
+      expect(fetchSpy.mock.calls[0][0]).toBe(
+        `https://jira.example.com/rest/api/2/issue/${key}`,
+      );
+    });
+
+    it.each([
+      "2013PROJECT-1",
+      "PRODUCT-2012-1",
+    ])("refuses %s before any request", async (key) => {
+      useSite(dc);
+      vi.stubGlobal("fetch", vi.fn());
+
+      await expect(fetchJiraIssue(key)).rejects.toBeInstanceOf(
+        InvalidValueError,
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("refuses an underscore key on Cloud before any request", async () => {
+      useSite({ "jira.host": "acme.atlassian.net", "jira.email": "a@b.c" });
+      vi.stubGlobal("fetch", vi.fn());
+
+      const refusal = fetchJiraIssue("MY_EXAMPLE_PROJECT-15");
+
+      await expect(refusal).rejects.toThrow(
+        'Jira: Invalid issue id "MY_EXAMPLE_PROJECT-15".',
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  // D9. The Cloud text is the one the suite above already pins.
+  describe("authentication failures", () => {
+    const CLOUD_TEXT =
+      "Jira: Authentication failed. Please verify jira.email and jira.apiToken in your config.";
+
+    async function failWith401(values: Record<string, string>) {
+      useSite(values);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(401)));
+      return (await failureOf(fetchJiraIssue("DEV-123"))).message;
+    }
+
+    it("adds the Data Center hint to a Cloud 401 on a host outside atlassian.net", async () => {
+      const message = await failWith401({
+        "jira.host": "jira.example.com",
+        "jira.email": "a@b.c",
+      });
+
+      expect(message).toBe(
+        `${CLOUD_TEXT} If this is Jira Data Center or Server, run \`worktree config jira.deployment datacenter\`.`,
+      );
+    });
+
+    it("leaves a Cloud 401 on atlassian.net exactly as it was", async () => {
+      const message = await failWith401({
+        "jira.host": "acme.atlassian.net",
+        "jira.email": "a@b.c",
+      });
+
+      expect(message).toBe(CLOUD_TEXT);
+    });
+
+    it("names the personal access token on Data Center, and never the email", async () => {
+      const message = await failWith401(dc);
+
+      expect(message).toBe(
+        "Jira: Authentication failed. Please verify jira.apiToken (a Jira Data Center personal access token) in your config.",
+      );
+      expect(message).not.toContain("jira.email");
+    });
+
+    it("says Jira Cloud uses cloud when Data Center is set on atlassian.net", async () => {
+      const message = await failWith401({
+        ...dc,
+        "jira.host": "acme.atlassian.net",
+      });
+
+      expect(message).toContain(
+        "jira.apiToken (a Jira Data Center personal access token)",
+      );
+      expect(message).toContain("worktree config jira.deployment cloud");
+      expect(message).not.toContain("jira.email");
+    });
+
+    it("names the token on a Data Center start", async () => {
+      useSite(dc);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(401)));
+
+      const refusal = startJiraIssue("DEV-123");
+
+      await expect(refusal).rejects.toThrow(
+        "jira.apiToken (a Jira Data Center",
+      );
+      await expect(refusal).rejects.not.toThrow("jira.email");
+    });
+  });
+
+  // D10, on both deployments.
+  describe.each([
+    ["cloud", { "jira.host": "jira.example.com", "jira.email": "a@b.c" }],
+    ["datacenter", dc],
+  ])("an unreachable %s site", (deployment, values) => {
+    function rejectWith(error: unknown) {
+      useSite(values);
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(error));
+      return failureOf(fetchJiraIssue("DEV-123"));
+    }
+
+    it("is named by host and code", async () => {
+      const caught = await rejectWith(
+        new TypeError("fetch failed", { cause: { code: "ENOTFOUND" } }),
+      );
+
+      expect(caught.message).toBe(
+        "Jira: could not reach jira.example.com (ENOTFOUND).",
+      );
+    });
+
+    // security/secrets.md: a credential is never printed. A scheme-less
+    // `user:pw@host` is not caught by redactSecrets' URL rule, so the message
+    // drops everything up to the `@`.
+    it("never carries user info from jira.host", async () => {
+      useSite({ ...values, "jira.host": "u:secretpw@jira.invalid" });
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockRejectedValue(
+            new TypeError("fetch failed", { cause: { code: "ENOTFOUND" } }),
+          ),
+      );
+
+      const caught = await failureOf(fetchJiraIssue("DEV-123"));
+
+      expect(caught.message).toBe(
+        "Jira: could not reach jira.invalid (ENOTFOUND).",
+      );
+      expect(caught.message).not.toContain("secretpw");
+    });
+
+    it("never carries a header the error quoted", async () => {
+      const caught = await rejectWith(
+        new TypeError("fetch failed: Authorization: Bearer secret-token", {
+          cause: { code: "ECONNREFUSED", message: "Bearer secret-token" },
+        }),
+      );
+
+      expect(caught.message).toBe(
+        "Jira: could not reach jira.example.com (ECONNREFUSED).",
+      );
+      expect(caught.message).not.toContain("secret-token");
+      expect(caught.cause).toBeUndefined();
+    });
+
+    // fetch refuses some requests before connecting. Those are the config's
+    // fault, so they must not send the user to DNS or a VPN.
+    describe("a request fetch refused before connecting", () => {
+      const keys =
+        deployment === "datacenter"
+          ? "jira.host and jira.apiToken"
+          : "jira.host";
+
+      it("is not called unreachable, and is named by the error's name", async () => {
+        // What fetch throws for `user:pw@host`: no cause, and the URL in the text.
+        const caught = await rejectWith(
+          new TypeError(
+            "Request cannot be constructed from a URL that includes credentials: https://u:secretpw@jira.example.com/rest",
+          ),
+        );
+
+        expect(caught.message).toBe(
+          `Jira: the request to jira.example.com could not be made (TypeError). Check ${keys} in your config.`,
+        );
+        expect(caught.message).not.toContain("secretpw");
+      });
+
+      it("names an unparseable URL by its code, though it has one", async () => {
+        const caught = await rejectWith(
+          new TypeError("Failed to parse URL from https://jira example.com", {
+            cause: { code: "ERR_INVALID_URL" },
+          }),
+        );
+
+        expect(caught.message).toBe(
+          `Jira: the request to jira.example.com could not be made (ERR_INVALID_URL). Check ${keys} in your config.`,
+        );
+      });
+
+      it("treats a cause without a code as one, as for a blocked port", async () => {
+        const caught = await rejectWith(
+          new TypeError("fetch failed", { cause: new Error("bad port") }),
+        );
+
+        expect(caught.message).toBe(
+          `Jira: the request to jira.example.com could not be made (TypeError). Check ${keys} in your config.`,
+        );
+      });
+
+      it("shows no code or name that is not one", async () => {
+        const odd = await rejectWith(
+          new TypeError("fetch failed", {
+            cause: { code: "Bearer secret-token" },
+          }),
+        );
+        const named = await rejectWith(
+          Object.assign(new Error("Bearer secret-token"), {
+            name: "Bearer secret-token",
+          }),
+        );
+        const thrown = await rejectWith("Bearer secret-token");
+
+        expect(odd.message).toBe(
+          `Jira: the request to jira.example.com could not be made (TypeError). Check ${keys} in your config.`,
+        );
+        for (const caught of [named, thrown]) {
+          expect(caught.message).toBe(
+            `Jira: the request to jira.example.com could not be made (unknown error). Check ${keys} in your config.`,
+          );
+        }
+      });
+    });
+
+    it("points a TLS code at NODE_EXTRA_CA_CERTS", async () => {
+      const caught = await rejectWith(
+        new TypeError("fetch failed", {
+          cause: { code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE" },
+        }),
+      );
+
+      expect(caught.message).toContain(
+        "Jira: could not reach jira.example.com (UNABLE_TO_VERIFY_LEAF_SIGNATURE).",
+      );
+      expect(caught.message).toContain("private certificate authority");
+      expect(caught.message).toContain("NODE_EXTRA_CA_CERTS");
+    });
+
+    it("does not mention it for a code that is not a TLS one", async () => {
+      const caught = await rejectWith(
+        new TypeError("fetch failed", { cause: { code: "ENOTFOUND" } }),
+      );
+
+      expect(caught.message).not.toContain("NODE_EXTRA_CA_CERTS");
+    });
   });
 });
