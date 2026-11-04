@@ -1,0 +1,251 @@
+/*
+ * The search dialog (Starlight's <site-search>, which hosts the Pagefind UI) in the site's own colours, after gmt's
+ * search modal (gmt apps/dox/src/styles/gmt-content.css, "Search modal", read at gmt e6481fb):
+ *
+ * - one frosted panel over a frosted page, and nothing inside it filled, so tint never stacks on tint;
+ * - a result drawn as a commit and its branch: the page is a hollow dot and its sections fork off it on a line,
+ *   the same graph the sidebar draws (custom.css);
+ * - Michroma on a page's title only, as on h1 and h2 (theme.css); everything else stays in the mono body face.
+ *
+ * Corners stay Starlight's and Pagefind's own: gmt's bevelled corners and radius scale are not this site's (the user,
+ * 2026-11-04). Unlike gmt's, the panel is mostly opaque: results are read, and the landing's hero sits right behind
+ * the dialog. The scrollbar is the site-wide one (theme.css). Every colour is a token theme.css maps, so the light
+ * theme re-resolves on its own; the pairs are measured by scripts/theme-contrast.mjs ("search: ...").
+ * Starlight's rules are in `@layer starlight.core` and these are unlayered, so these win without raising specificity.
+ */
+
+site-search {
+  /* The panel: the surface at 85% over the page, which the backdrop below has already blurred and darkened.
+     scripts/theme-contrast.mjs spells this out as its SEARCH layers; change both together. */
+  --search-panel: color-mix(in srgb, var(--gmt-surface) 85%, transparent);
+  /* The graph's lines and its dots, as in the sidebar: the strong border tone and the ink tier. */
+  --search-line: var(--gmt-border-strong);
+  --search-ink: var(--gmt-spring-ink);
+  --search-dot: 0.6rem;
+  --search-stroke: 2px;
+}
+
+/* The page behind: northguild.dev's clear glass (primitives.css .gmt-glass-clear), a faint wash and a blur,
+   darkened as the header's glass is so the panel's text keeps its floor. */
+site-search dialog::backdrop {
+  background: var(--gmt-glass-scrim);
+  -webkit-backdrop-filter: blur(var(--gmt-blur))
+    brightness(var(--gmt-brightness));
+  backdrop-filter: blur(var(--gmt-blur)) brightness(var(--gmt-brightness));
+}
+
+site-search dialog {
+  background: var(--search-panel);
+  border-color: var(--gmt-border);
+  box-shadow: var(--gmt-shadow-md);
+  -webkit-backdrop-filter: blur(var(--gmt-blur)) saturate(var(--gmt-saturate));
+  backdrop-filter: blur(var(--gmt-blur)) saturate(var(--gmt-saturate));
+}
+
+/* Starlight holds the dialog at 15rem before anything is typed, which leaves an empty box under the field. It hugs
+   the field instead and grows with the results, up to Starlight's own max-height. */
+@media (min-width: 50rem) {
+  site-search dialog {
+    min-height: 0;
+  }
+}
+
+/* ---- The field ---- */
+
+/* At rest the field's edge is the muted text colour, 3:1 on the panel, as the chat's message field is (globals.css):
+   a field the visitor has to find gets a boundary they can see, not a hairline. */
+#starlight__search .pagefind-ui__search-input {
+  background: var(--gmt-glass-tint-subtle);
+  border-color: var(--gmt-ice-dim);
+  color: var(--gmt-ice);
+  caret-color: var(--gmt-caret);
+}
+
+#starlight__search .pagefind-ui__search-input::placeholder {
+  color: var(--gmt-ice-dim);
+  opacity: 1;
+}
+
+/* One ring, not two: Starlight turns the border to the accent on focus and the site's :focus-visible outline then
+   lands outside it. The border takes the ink tier and a second pixel is drawn inside it, the still state of gmt's
+   focus sonar; the ping races out from it once as the dialog opens (the field takes focus then). */
+#starlight__search .pagefind-ui__search-input:focus {
+  border-color: var(--search-ink);
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--search-ink);
+  animation: search-sonar var(--gmt-motion-sonar-duration)
+    var(--gmt-enter-easing) 1;
+}
+
+@keyframes search-sonar {
+  from {
+    box-shadow:
+      inset 0 0 0 1px var(--search-ink),
+      0 0 0 0 color-mix(in srgb, var(--gmt-spring) 55%, transparent);
+  }
+  to {
+    box-shadow:
+      inset 0 0 0 1px var(--search-ink),
+      0 0 0 14px color-mix(in srgb, var(--gmt-spring) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #starlight__search .pagefind-ui__search-input:focus {
+    animation: none;
+  }
+}
+
+#starlight__search .pagefind-ui__form::before {
+  --pagefind-ui-text: var(--gmt-ice-dim);
+}
+
+#starlight__search .pagefind-ui__search-clear::before {
+  background-color: var(--gmt-ice-dim);
+}
+
+#starlight__search .pagefind-ui__search-clear:hover::before {
+  background-color: var(--gmt-ice);
+}
+
+/* "24 results for branch": a quiet line, not a heading. */
+#starlight__search .pagefind-ui__message {
+  color: var(--gmt-ice-dim);
+  font-size: var(--gmt-text-sm);
+  font-weight: 400;
+}
+
+/* ---- Results ---- */
+
+/* No cards: every row is transparent over the panel, and the graph and a hairline between pages carry the structure. */
+#starlight__search
+  .pagefind-ui__result-title:not(:where(.pagefind-ui__result-nested *)),
+#starlight__search .pagefind-ui__result-nested,
+#starlight__search .pagefind-ui__result-tags {
+  background-color: transparent;
+}
+
+#starlight__search .pagefind-ui__result-inner {
+  /* Starlight leaves a 1px gap between rows to show its card colour through; here it would break the graph's line. */
+  gap: 0;
+}
+
+#starlight__search .pagefind-ui__results > * + * {
+  padding-top: var(--sl-search-result-spacing);
+  margin-top: 0;
+  border-top: 1px solid var(--gmt-hairline);
+}
+
+/* Pointer: a wash of the accent. Keyboard: the wash Starlight measures for its hit text, and the ring. The ring is
+   the row's, so the link inside it (which covers the row) does not draw a second one round its own text. */
+#starlight__search
+  .pagefind-ui__result-title:not(:where(.pagefind-ui__result-nested *)):hover,
+#starlight__search .pagefind-ui__result-nested:hover {
+  outline: none;
+  background-color: var(--gmt-accent-wash);
+}
+
+#starlight__search
+  .pagefind-ui__result-title:not(
+    :where(.pagefind-ui__result-nested *)
+  ):focus-within,
+#starlight__search .pagefind-ui__result-nested:focus-within {
+  outline: 1px solid var(--search-ink);
+  outline-offset: -1px;
+  background-color: var(--sl-color-accent-low);
+}
+
+#starlight__search .pagefind-ui__result-link:focus-visible {
+  outline: none;
+}
+
+/* Titles set tight: Starlight's body line-height (1.75) opens a wrapped title into separate-looking lines. */
+#starlight__search .pagefind-ui__result-title {
+  line-height: 1.4;
+}
+
+/* A page: its title in the display face, as the page's own h1 is. Its size is set on the row, not the link, so the
+   commit dot below can find the first line in `em`. */
+#starlight__search .pagefind-ui__result-inner > .pagefind-ui__result-title {
+  font-size: var(--gmt-text-md);
+}
+
+#starlight__search
+  .pagefind-ui__result-inner
+  > .pagefind-ui__result-title
+  .pagefind-ui__result-link {
+  font-family: var(--gmt-font-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+/* A section of it. Its padding puts the first line of its title on the arm of Starlight's tree diagram, which is
+   drawn at three quarters of the diagram's height (12 of its 16 units), whatever the title's line-height. */
+#starlight__search .pagefind-ui__result-nested {
+  padding-block-start: calc(
+    var(--sl-search-tree-diagram-size) *
+    0.75 -
+    0.7 *
+    var(--gmt-text-md)
+  );
+}
+
+#starlight__search .pagefind-ui__result-nested .pagefind-ui__result-title {
+  font-size: var(--gmt-text-md);
+}
+
+#starlight__search .pagefind-ui__result-nested .pagefind-ui__result-link {
+  font-weight: 600;
+}
+
+#starlight__search .pagefind-ui__result-excerpt {
+  color: var(--gmt-ice-dim);
+  font-size: var(--gmt-text-base);
+  line-height: 1.6;
+}
+
+/* A hit: the ink tier, the colour a link has on the page. */
+#starlight__search mark {
+  color: var(--sl-color-text-accent);
+  background-color: transparent;
+  font-weight: 600;
+}
+
+/* The page's marker: a commit, a hollow dot on the graph, where Starlight draws a document icon. It sits on the
+   title's first line, as a commit's dot sits on its subject in `git log --graph`: the row's top padding plus half a
+   line (line-height 1.4, so 0.7em). When the page has sections, the line leaves the dot downwards and runs on through
+   Starlight's tree diagram below it. */
+#starlight__search .pagefind-ui__result-inner > .pagefind-ui__result-title {
+  --search-dot-y: calc(var(--sl-search-result-pad-block) + 0.7em);
+  --search-ring: radial-gradient(
+      circle at 50% var(--search-dot-y),
+      transparent calc(var(--search-dot) / 2 - var(--search-stroke) - 0.5px),
+      var(--search-ink) calc(var(--search-dot) / 2 - var(--search-stroke)),
+      var(--search-ink) calc(var(--search-dot) / 2),
+      transparent calc(var(--search-dot) / 2 + 0.5px)
+    )
+    no-repeat;
+}
+
+#starlight__search
+  .pagefind-ui__result-inner
+  > .pagefind-ui__result-title::before {
+  -webkit-mask: none;
+  mask: none;
+  background: var(--search-ring);
+}
+
+#starlight__search
+  .pagefind-ui__result-inner:has(> .pagefind-ui__result-nested)
+  > .pagefind-ui__result-title::before {
+  background:
+    var(--search-ring),
+    linear-gradient(var(--search-line), var(--search-line)) 50% 100% /
+    var(--search-stroke)
+    calc(100% - var(--search-dot-y) - var(--search-dot) / 2) no-repeat;
+}
+
+/* A section's branch: Starlight's tree diagram, in the graph's colour. */
+#starlight__search .pagefind-ui__result-nested::before {
+  background: var(--search-line);
+}

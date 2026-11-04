@@ -264,6 +264,17 @@ const SIDEBAR = ["var(--sl-color-bg-sidebar)"];
 const RAISED = ["var(--gmt-surface-2)"];
 const CHAT = ["var(--color-chat-bg)"];
 const CHAT_RAISED = ["var(--color-chat-raised)"];
+// The search dialog (search.css): the panel, the surface at 85%, over the page behind it, which the backdrop has washed
+// with the scrim and darkened by `brightness()`, as the header's glass does. search.css declares the panel as
+// `--search-panel` on <site-search>, which this script does not read, so it is spelled out here; change both together.
+const SEARCH = [
+  "color-mix(in srgb, var(--gmt-surface) 85%, transparent)",
+  "var(--gmt-glass-scrim)",
+  "brightness(var(--sl-color-bg), var(--gmt-brightness))",
+];
+const SEARCH_FIELD = ["var(--gmt-glass-tint-subtle)", ...SEARCH];
+const SEARCH_HOVER = ["var(--gmt-accent-wash)", ...SEARCH];
+const SEARCH_FOCUS = ["var(--sl-color-accent-low)"];
 
 const text = (name, fg, bg) => ({ name, fg, bg, min: TEXT_MIN, kind: "text" });
 const shape = (name, fg, bg) => ({
@@ -332,9 +343,52 @@ export const PAIRS = [
     "var(--gmt-spring)",
   ]),
   shape("chat: accent fill on the panel", "var(--color-chat-accent)", CHAT),
-  shape("search outline on its dialog", "var(--sl-color-accent)", [
-    "var(--sl-color-gray-6)",
-  ]),
+  text("search: typed text in the field", "var(--gmt-ice)", SEARCH_FIELD),
+  text("search: the field's placeholder", "var(--gmt-ice-dim)", SEARCH_FIELD),
+  text("search: a result's title", "var(--gmt-ice)", SEARCH),
+  text("search: a result's excerpt", "var(--gmt-ice-dim)", SEARCH),
+  text("search: a hit", "var(--sl-color-text-accent)", SEARCH),
+  text(
+    "search: an excerpt under the pointer",
+    "var(--gmt-ice-dim)",
+    SEARCH_HOVER,
+  ),
+  text(
+    "search: a hit under the pointer",
+    "var(--sl-color-text-accent)",
+    SEARCH_HOVER,
+  ),
+  text("search: a focused result's title", "var(--gmt-ice)", SEARCH_FOCUS),
+  text(
+    "search: a focused result's excerpt",
+    "var(--gmt-ice-dim)",
+    SEARCH_FOCUS,
+  ),
+  shape("search: the field's edge at rest", "var(--gmt-ice-dim)", SEARCH),
+  shape("search: the focused field's ring", "var(--gmt-spring-ink)", SEARCH),
+  shape(
+    "search: a focused result's ring",
+    "var(--gmt-spring-ink)",
+    SEARCH_FOCUS,
+  ),
+  shape("search: a result's commit dot", "var(--gmt-spring-ink)", SEARCH),
+  shape("scrollbar thumb on the page", "var(--site-scrollbar-thumb)", PAGE),
+  shape(
+    "scrollbar thumb on the sidebar",
+    "var(--site-scrollbar-thumb)",
+    SIDEBAR,
+  ),
+  shape(
+    "scrollbar thumb on a raised surface",
+    "var(--site-scrollbar-thumb)",
+    RAISED,
+  ),
+  shape(
+    "scrollbar thumb in the search dialog",
+    "var(--site-scrollbar-thumb)",
+    SEARCH,
+  ),
+  shape("scrollbar thumb in the chat", "var(--site-scrollbar-thumb)", CHAT),
   shape(
     "code block: active tab indicator on the frame",
     { dark: "var(--sl-color-accent-high)", light: "var(--sl-color-accent)" },

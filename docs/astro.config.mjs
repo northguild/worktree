@@ -90,6 +90,7 @@ export default defineConfig({
         "./src/styles/theme.css",
         "./src/styles/globals.css",
         "./src/styles/custom.css",
+        "./src/styles/search.css",
       ],
       components: {
         // The product header (D17): SiteTitle is "mark NorthGuild / worktree" (two links); SocialIcons is the GitHub and

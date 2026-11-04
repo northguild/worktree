@@ -186,6 +186,14 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
   focus and nothing is announced. The graph's lengths are variables at the top of its rule (`--g-dot`, `--g-trunk`, ...), and the
   dots, lines and the two curves of each fork are derived from them, so change a length there and not in each rule. Every transition is switched off
   under `prefers-reduced-motion: reduce`.
+- **The search dialog** (Starlight's `<site-search>` and the Pagefind UI) is styled in `src/styles/search.css`, after gmt's
+  search modal: one frosted panel over a blurred page, rows with no fill, a page's title in Michroma, hits in the accent, and
+  each result drawn as a commit and its branch, like the sidebar's graph. Corners stay Starlight's and Pagefind's own, not
+  gmt's bevels. The panel's colour is spelled out a second time as `SEARCH` in `scripts/theme-contrast.mjs`, which measures
+  the dialog's pairs; change both together. Search runs only on a build: `pnpm docs:build`, then
+  `pnpm --filter docs exec astro preview`.
+- **The scrollbar** is one rule in `theme.css` for the whole site: thin, with an accent thumb on a clear track, at the
+  faintest strength that keeps 3:1 (`--site-scrollbar-thumb`, a value per theme).
 - **The 404** (`src/content/docs/404.md`) is a splash page headed `fatal: no such branch`, with a broken-twig graphic
   (inline SVG, `aria-hidden`). `audit-dist.mjs` asserts the heading is a git error line and that every `<svg>` on every page is
   hidden or named.

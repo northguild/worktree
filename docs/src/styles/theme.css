@@ -114,6 +114,33 @@
   background: var(--gmt-selection);
 }
 
+/* One scrollbar everywhere (the user, 2026-11-04): thin, an accent thumb on a clear track, so the page, the sidebar,
+   code blocks, the chat and the search dialog all scroll alike. The thumb is the ink tier made translucent, as faint as
+   3:1 allows on the page, the sidebar and a raised surface: 48% in the dark theme, 63% in the light one, where the ink
+   is darker against a pale ground (docs/scripts/theme-contrast.mjs, "scrollbar thumb ..."). `scrollbar-color`
+   inherits and `scrollbar-width` does not, hence the universal selector for the width. Chrome lets these standard
+   properties replace Expressive Code's `::-webkit-scrollbar` rules; Safari, which lacks `scrollbar-color`, keeps them. */
+:root {
+  --site-scrollbar-thumb: color-mix(
+    in srgb,
+    var(--gmt-spring-ink) 48%,
+    transparent
+  );
+  scrollbar-color: var(--site-scrollbar-thumb) transparent;
+}
+
+[data-theme="light"] {
+  --site-scrollbar-thumb: color-mix(
+    in srgb,
+    var(--gmt-spring-ink) 63%,
+    transparent
+  );
+}
+
+* {
+  scrollbar-width: thin;
+}
+
 /* The frosted header, as on northguild.dev (its Header.astro sets --gmt-blur: 4px): a light blur, and a hairline
    under it only, no panel border. */
 header.header {
