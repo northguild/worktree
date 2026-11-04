@@ -12,6 +12,13 @@ import type { ConfigName } from "../types.js";
 export type WizardContext = {
   readonly configNames: readonly ConfigName[];
   readonly names?: string;
+  /**
+   * Whether `herdr` is among the opener's choices: the Herdr-key hiding rule
+   * would show a Herdr key (plan #236 D3). A `--names` run is always true.
+   */
+  readonly herdrOffered: boolean;
+  /** The Herdr keys that rule keeps out of `configNames`; empty for `--names`. */
+  readonly hiddenNames: ReadonlySet<ConfigName>;
   readonly log: (message: string) => void;
 };
 

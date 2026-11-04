@@ -20,3 +20,13 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file.
 - `config.test.ts:29` says the tick-all default "is the old 'answer every group yes' behaviour"; the old `confirm` mock had no default answer.
 - `trackers.ts` still has a comment saying "in the shape the Jira and Herdr groups use"; Herdr is no longer a group.
 - The `--yes` bullet in `commands/config/page.mdx` says a run without `--names` fails; a `--missing --yes` run that lists no item succeeds (true before this phase too).
+
+## Phase 3 — The opener decides its follow-ups (#236)
+
+- A bare `--missing` run with `opener` already set now lets the stored opener decide the follow-ups, so `--missing --list` can still list `codeEditor` for a `herdr` or `none` user while `--missing` asks nothing for it. Constraint 7 lets `--list` keep the hiding rule alone; constraint 1 says `--missing` keeps its meaning — the maintainer should accept the divergence explicitly.
+- §8 item 1, read literally, is crossed again: "asks the Herdr questions too when herdr is installed" passes `missing: true` (unnamed) and was edited, because under D3 `editor` no longer asks the Herdr keys. Forced, not weakening; no named, `list` or set-by-name test changed.
+- `guides/herdr-spaces/page.mdx` says that without the `herdr` CLI `opener` offers `editor` and `none` only, leaving out the stored-value and `opener=herdr` exceptions; `commands/config/page.mdx` states the full rule.
+- `opening.test.ts` "defaults to editor when the stored opener is not offered" sets a state the code says cannot happen, and its expected value comes from the code's own `?? "editor"`.
+- `opening.test.ts` "does not ask a Herdr key that --missing removed" runs with `hiddenNames` empty, so it tests only `shouldPrompt`; the rule it names is unreachable.
+- An `opening.test.ts` test asserts a constant against a literal.
+- After the loopback, `commands/config/page.mdx` Opener Keys says "a `codeEditor` is only missing under `editor`, and the Herdr keys only under `herdr`" — true of the wizard, but `--missing --list` still lists them as missing; "only asked" would be the exact word.

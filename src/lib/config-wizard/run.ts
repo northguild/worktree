@@ -15,6 +15,7 @@ import {
   configureCodeEditor,
   configureHerdr,
   configureOpener,
+  configureOpening,
 } from "./opening.js";
 import {
   configureClickUp,
@@ -30,11 +31,7 @@ const CONFIGURE: Record<ChecklistId, (ctx: WizardContext) => Promise<void>> = {
   jira: configureJira,
   linear: configureLinear,
   clickup: configureClickUp,
-  opening: async (ctx) => {
-    await configureOpener(ctx);
-    await configureCodeEditor(ctx);
-    await configureHerdr(ctx);
-  },
+  opening: configureOpening,
   agent: configureAgentCommand,
   branchPrefixes: configureBranchNames,
   postCreate: configurePostCreate,

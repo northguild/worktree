@@ -27,9 +27,13 @@ worktree config
 # ClickUp, how worktrees open, the --agent command, branch prefixes, the
 # post-create command), then asks defaultSourceBranch (e.g. origin/main) and
 # the questions of each ticked item. Items already set up start ticked; unticking
-# clears nothing. `--names <keys>` skips the checklist. The Herdr keys
-# herdr.focus and herdr.agent are offered only when `herdr` is on PATH; opener is
-# always offered. `worktree config <key>` prints one value, for scripts.
+# clears nothing. `--names <keys>` skips the checklist. A ticked "how worktrees
+# open" asks opener, and its answer decides what follows: editor asks codeEditor,
+# herdr asks herdr.focus and herdr.agent, none asks nothing. The Herdr keys, and
+# herdr as an opener answer, are offered only when `herdr` is on PATH (or opener
+# is already herdr, or a Herdr key holds a value); opener itself is always
+# offered, and `--names opener` offers all three answers.
+# `worktree config <key>` prints one value, for scripts.
 # It skips any key the project's .worktree.yml sets and says which.
 
 # Create your first worktree

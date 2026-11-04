@@ -211,8 +211,11 @@ worktree config branchPrefix.chore chore/
 - `herdr.focus` and `herdr.agent` are shown by `worktree config` only when the `herdr` CLI is on
   your `PATH`. Without it they are neither listed nor prompted for, so the feature stays out of the way.
   This gating never hides a key that already holds a value, and setting `opener` to `herdr` un-hides both
-  whether or not the CLI is found. `opener` itself is always shown. Naming a key with `--names`, or setting it directly, always
-  works.
+  whether or not the CLI is found. `opener` itself is always shown, but the wizard offers `herdr` as its
+  answer only where those keys would be shown; otherwise it offers `editor` and `none`. The opener's answer
+  decides the follow-ups: `editor` asks `codeEditor`, `herdr` asks `herdr.focus` and `herdr.agent`, `none`
+  asks nothing more. Naming a key with `--names`, or setting it directly, always works, and `--names opener`
+  offers all three answers.
 
 ## GitHub Integration Notes
 

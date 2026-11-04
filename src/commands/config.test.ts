@@ -1025,19 +1025,25 @@ describe("config command", () => {
     });
 
     // Plan §4: with Jira on Cloud and Herdr installed, ticking all eight asks
-    // Jira 5, GitHub 2, Linear 2, ClickUp 3, opener, codeEditor, herdr.focus
-    // and herdr.agent 4, agent.command 1, prefixes 3, postCreate 1 and
+    // Jira 5, GitHub 2, Linear 2, ClickUp 3, opener, herdr.focus and
+    // herdr.agent 3 (Herdr chosen), agent.command 1, prefixes 3, postCreate 1 and
     // defaultSourceBranch 1: the old per-group questions minus every confirm.
     it("asks every group's questions, and no confirm but herdr.focus, when all are ticked", async () => {
       mockCheckbox.mockResolvedValue(ALL_ITEMS as never);
       mockInput.mockResolvedValue("value");
-      mockSelect.mockResolvedValue("editor");
+      // Herdr chosen (plan §4's count): `editor` would ask codeEditor in place
+      // of herdr.focus and herdr.agent. Every other select takes "editor".
+      mockSelect.mockImplementation((async (o: { message: string }) =>
+        o.message === "Which opener should new worktrees use?"
+          ? "herdr"
+          : "editor") as never);
       mockConfirm.mockResolvedValue(true);
       bare();
 
       await config.run();
 
-      expect(mockInput).toHaveBeenCalledTimes(15);
+      // 15 inputs before phase 3, less codeEditor, which only `editor` asks.
+      expect(mockInput).toHaveBeenCalledTimes(14);
       expect(mockSelect).toHaveBeenCalledTimes(6);
       expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
         "Should opening a worktree focus its Herdr space?",
@@ -3641,7 +3647,8 @@ describe("config command", () => {
     it("asks the Herdr questions too when herdr is installed", async () => {
       vi.spyOn(cli, "commandExists").mockResolvedValue(true);
       mockCheckbox.mockResolvedValue(["opening"] as never);
-      mockSelect.mockResolvedValue("editor");
+      // Herdr is the opener's answer: only that choice asks the Herdr keys.
+      mockSelect.mockResolvedValue("herdr");
       mockConfirm.mockResolvedValue(true);
       mockInput.mockResolvedValue("code");
       (config as any).parse = vi.fn().mockResolvedValue({
@@ -3720,6 +3727,231 @@ describe("config command", () => {
 
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(setConfigValue).toHaveBeenCalledWith("opener", "herdr");
+    });
+  });
+
+  // Plan #236 D3: a ticked "How worktrees open" asks `opener`, and its answer
+  // decides the follow-ups. Expected values come from D3 and phase 3's
+  // Done-when, not from the code: editor -> codeEditor, herdr -> herdr.focus
+  // and herdr.agent (until phase 4), none -> nothing; `herdr` is a choice only
+  // where the hiding rule would show a Herdr key (binary on PATH, opener=herdr,
+  // or a Herdr key holding a value); `--names opener` offers all three.
+  describe("the opener decides its follow-ups (#236 D3)", () => {
+    const OPENER_MESSAGE = "Which opener should new worktrees use?";
+    const FOCUS_MESSAGE = "Should opening a worktree focus its Herdr space?";
+    const EDITOR_MESSAGE = "Command to open code editor?";
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const bare = (flags: Record<string, unknown> = {}) => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: false, missing: false, yes: false, ...flags },
+      });
+    };
+    const stored = (values: Record<string, string>) => {
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          return Promise.resolve(values[key] ?? "");
+        },
+      );
+    };
+    const answerOpener = (kind: string) => {
+      mockSelect.mockImplementation((async (o: { message: string }) =>
+        o.message === OPENER_MESSAGE ? kind : "") as never);
+    };
+    const openerChoices = () =>
+      (
+        mockSelect.mock.calls.find(([o]) => o.message === OPENER_MESSAGE)?.[0]
+          .choices as { value: string }[]
+      ).map((c) => c.value);
+    const inputMessages = () => mockInput.mock.calls.map(([o]) => o.message);
+    const herdrAgentAsked = () =>
+      inputMessages().some((m) => /Which agent kind should start/.test(m));
+
+    beforeEach(() => {
+      mockCheckbox.mockResolvedValue(["opening"] as never);
+      mockInput.mockResolvedValue("value");
+      mockConfirm.mockResolvedValue(true);
+    });
+
+    it("asks codeEditor and no Herdr key for editor", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      answerOpener("editor");
+      bare();
+
+      await config.run();
+
+      expect(inputMessages()).toContain(EDITOR_MESSAGE);
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(herdrAgentAsked()).toBe(false);
+    });
+
+    it("asks herdr.focus and herdr.agent, and not codeEditor, for herdr", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      answerOpener("herdr");
+      bare();
+
+      await config.run();
+
+      expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
+        FOCUS_MESSAGE,
+      ]);
+      expect(herdrAgentAsked()).toBe(true);
+      expect(inputMessages()).not.toContain(EDITOR_MESSAGE);
+    });
+
+    it("asks neither codeEditor nor a Herdr key for none", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      answerOpener("none");
+      bare();
+
+      await config.run();
+
+      expect(inputMessages()).not.toContain(EDITOR_MESSAGE);
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(herdrAgentAsked()).toBe(false);
+    });
+
+    it("offers all three choices where the herdr binary is on PATH", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      answerOpener("editor");
+      bare();
+
+      await config.run();
+
+      expect(openerChoices()).toEqual(["editor", "herdr", "none"]);
+    });
+
+    it("offers only editor and none with the binary absent and nothing stored", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      answerOpener("editor");
+      bare();
+
+      await config.run();
+
+      expect(openerChoices()).toEqual(["editor", "none"]);
+    });
+
+    it("offers herdr, and asks its follow-ups, with the binary absent and opener=herdr stored", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      stored({ opener: "herdr" });
+      answerOpener("herdr");
+      bare();
+
+      await config.run();
+
+      expect(openerChoices()).toEqual(["editor", "herdr", "none"]);
+      expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
+        FOCUS_MESSAGE,
+      ]);
+      expect(herdrAgentAsked()).toBe(true);
+    });
+
+    it("offers herdr when only a Herdr key holds a value, and then asks both Herdr keys", async () => {
+      // herdr.agent holds no value, so the hiding rule keeps it out of the
+      // prompt list; choosing herdr is the opt-in that asks it anyway.
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      stored({ "herdr.focus": "false" });
+      answerOpener("herdr");
+      bare();
+
+      await config.run();
+
+      expect(openerChoices()).toEqual(["editor", "herdr", "none"]);
+      expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
+        FOCUS_MESSAGE,
+      ]);
+      expect(herdrAgentAsked()).toBe(true);
+    });
+
+    it("asks no Herdr key when herdr was not offered and editor is chosen", async () => {
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      answerOpener("editor");
+      bare();
+
+      await config.run();
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(herdrAgentAsked()).toBe(false);
+    });
+
+    // §4: an item with nothing left to ask is not listed, and with no item the
+    // checklist is not shown. D3: opener decides which follow-ups exist, so
+    // with opener stored, a follow-up it would not ask is not left to ask.
+    describe("--missing with opener already set", () => {
+      const ALL_SET: Record<string, string> = {
+        defaultSourceBranch: "origin/main",
+        "github.token": "t",
+        "github.autoAssign": "true",
+        "jira.host": "h",
+        "jira.email": "e",
+        "jira.apiToken": "t",
+        "jira.autoAssign": "true",
+        "jira.autoStart": "true",
+        "linear.apiKey": "k",
+        "linear.autoStart": "true",
+        "clickup.apiToken": "t",
+        "clickup.workspaceId": "w",
+        "clickup.autoStart": "true",
+        "agent.command": "claude",
+        "branchPrefix.feature": "f/",
+        "branchPrefix.bugfix": "b/",
+        "branchPrefix.chore": "c/",
+        postCreate: "pnpm i",
+        codeEditor: "code",
+        "herdr.focus": "true",
+        "herdr.agent": "claude",
+      };
+      const run = async (values: Record<string, string>) => {
+        vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+        stored({ ...ALL_SET, ...values });
+        bare({ missing: true });
+        await config.run();
+      };
+
+      it("lists no item, and says nothing is missing, for opener=herdr with only codeEditor unset", async () => {
+        await run({ opener: "herdr", codeEditor: "" });
+
+        expect(mockCheckbox).not.toHaveBeenCalled();
+        expect(mockConsoleLog).toHaveBeenCalledWith("No missing config found.");
+      });
+
+      it("does the same for opener=none with codeEditor unset", async () => {
+        await run({ opener: "none", codeEditor: "" });
+
+        expect(mockCheckbox).not.toHaveBeenCalled();
+        expect(mockConsoleLog).toHaveBeenCalledWith("No missing config found.");
+      });
+
+      it("does the same for opener=editor with only herdr.focus unset", async () => {
+        await run({ opener: "editor", "herdr.focus": "" });
+
+        expect(mockCheckbox).not.toHaveBeenCalled();
+        expect(mockConsoleLog).toHaveBeenCalledWith("No missing config found.");
+      });
+
+      it("still asks codeEditor for opener=editor with codeEditor unset", async () => {
+        await run({ opener: "editor", codeEditor: "" });
+
+        expect(mockCheckbox).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("offers all three choices for --names opener, without probing for herdr", async () => {
+      const exists = vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      answerOpener("editor");
+      bare({ names: "opener" });
+
+      await config.run();
+
+      expect(openerChoices()).toEqual(["editor", "herdr", "none"]);
+      expect(exists).not.toHaveBeenCalled();
+      expect(mockCheckbox).not.toHaveBeenCalled();
+      expect(inputMessages()).toEqual([]);
     });
   });
 

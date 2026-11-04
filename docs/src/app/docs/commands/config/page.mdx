@@ -136,10 +136,14 @@ everyone in a `.worktree.yml` file, which your own value overrides; see
 - `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
 - `herdr.agent` the agent kind that starts in every newly opened Herdr space, with or without a brief. Unset means no agent, unless `branch` or `checkout` is given a brief (`--agent`), in which case the program `agent.command` names is used.
 
-`opener` and `codeEditor` are always listed, and the wizard asks for them when you tick how worktrees open. `herdr.focus` and `herdr.agent` are listed and
-prompted for only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
-`opener` is `herdr`). `--names` and a direct `worktree config <key> <value>` always work
-regardless, so a machine can be configured before Herdr is installed.
+`opener` and `codeEditor` are always listed. When you tick how worktrees open, the wizard asks `opener`
+first and its answer decides what follows: `editor` asks `codeEditor`, `herdr` asks `herdr.focus` and
+`herdr.agent`, and `none` asks nothing more. `herdr.focus` and `herdr.agent` are listed, and `herdr` is among
+the opener's choices, only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
+`opener` is `herdr`). Without those, the wizard offers `editor` and `none` only. Once `herdr` is offered,
+choosing it asks both Herdr questions even if the CLI has since gone missing. `--names` and a direct
+`worktree config <key> <value>` always work regardless, so a machine can be configured before Herdr is
+installed: `--names opener` offers all three choices, and each named key is asked on its own. With `--missing` and `opener` already set, the stored opener decides the follow-ups: a `codeEditor` is only missing under `editor`, and the Herdr keys only under `herdr`.
 
 ## GitHub Integration Keys
 

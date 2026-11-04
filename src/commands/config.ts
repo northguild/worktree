@@ -7,6 +7,7 @@ import {
   isJiraDataCenter,
   type WizardContext,
 } from "../lib/config-wizard/context.js";
+import { getStoredOpener } from "../lib/config-wizard/opening.js";
 import { runWizard } from "../lib/config-wizard/run.js";
 import {
   CONFIG_NAMES,
@@ -236,16 +237,14 @@ export default class Config extends BaseCommand {
   private async getPromptConfigNames(
     flags: { missing: boolean; names?: string },
     fileKeys: readonly ConfigName[],
+    hidden?: Set<ConfigName>,
   ): Promise<ConfigName[]> {
-    // Not computed for a --names run: that path returns before the filter, and
-    // `branch` delegates to exactly that form (base-command.ts), so probing
-    // there would put a `which herdr` behind a plain `worktree branch`.
+    // `hidden` is not computed for a --names run: that path returns before the
+    // filter, and `branch` delegates to exactly that form (base-command.ts), so
+    // probing there would put a `which herdr` behind a plain `worktree branch`.
     const applicableConfigNames = flags.names
       ? this.getApplicableConfigNames(flags.names)
-      : this.getApplicableConfigNames(
-          undefined,
-          await this.getHiddenConfigNames(),
-        );
+      : this.getApplicableConfigNames(undefined, hidden);
 
     // Naming a key with --names is asking for it, but a key the file supplies
     // is not missing, so --missing never asks for one (D19). A bare run never
@@ -291,7 +290,24 @@ export default class Config extends BaseCommand {
         `${PROJECT_CONFIG_FILE} sets ${fileKeys.join(", ")}, so the wizard does not ask for them. Change one for yourself with \`worktree config <key> <value>\`.`,
       );
     }
-    const configNames = await this.getPromptConfigNames(flags, fileKeys);
+    const hidden = flags.names ? undefined : await this.getHiddenConfigNames();
+    let configNames = await this.getPromptConfigNames(flags, fileKeys, hidden);
+
+    // A bare run that does not ask `opener` (`--missing` found it set) lets the
+    // stored one decide the follow-ups (D3), so a key it would not ask is not
+    // "left to ask": the item is not listed on its account, and a run with
+    // nothing else says so below.
+    if (!flags.names && !configNames.includes("opener")) {
+      const opener = await getStoredOpener();
+      configNames = configNames.filter(
+        (name) =>
+          !(
+            (name === "codeEditor" && opener !== "editor") ||
+            ((HERDR_CONFIG_NAMES as readonly string[]).includes(name) &&
+              opener !== "herdr")
+          ),
+      );
+    }
 
     // First check if there is anything to prompt
     if (configNames.length === 0) {
@@ -302,6 +318,11 @@ export default class Config extends BaseCommand {
     return {
       configNames,
       names: flags.names,
+      // Offered where the hiding rule would show a Herdr key (D3); the same
+      // test, not a second one. Naming `opener` is asking for every choice.
+      herdrOffered:
+        !hidden || HERDR_CONFIG_NAMES.some((name) => !hidden.has(name)),
+      hiddenNames: hidden ?? new Set(),
       log: (message) => this.log(message),
     };
   }
