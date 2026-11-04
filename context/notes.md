@@ -94,3 +94,28 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
 - `docs/src/app/docs/commands/_meta.ts`'s comment is stale until phase 4 deletes `docs/src/app/`.
 - Phase 3 is two commits by the user's choice (2026-11-04): the stub's deletion with eleven pure renames,
   then Getting Started's move onto `index.mdx` with every edit — so all 12 pages keep `git log --follow`.
+
+## From phase 4's review (guides, changelog, footer)
+
+- `scripts/engines.test.mjs:27` tells a developer to edit `docs/src/app/docs/getting-started/page.mdx` when the
+  engines range changes, and line 57 asserts that text; the range now lives in
+  `docs/src/content/docs/index.mdx` (≈131). Same kind: comments at `src/commands/branch.test.ts` ≈1422 and
+  ≈6867. Branch-local (phase 3 moved the page) — fix within this feature before close.
+- The licence/version/maintainers block renders as a plain `<div class="project-footer">` after Starlight's
+  `<footer>`, inside `<main>`; the old one sat in Nextra's footer. "Maintainers:" text plus
+  `aria-label="Maintainers"` say it twice (`aria-labelledby` is cleaner); a one-item `<ul aria-label="Owner">`
+  is heavy; new-tab links give no warning (as before). For phase 9's a11y pass.
+- Nothing asserts the footer's content any more (`CLI Version: v…`, `MIT <year> © northguild`, the owner
+  link), which the old `Footer.test.tsx` did. Render `Footer.astro` via `astro/container` with Starlight's
+  `Default` mocked, or check it in phase 7's dist audit.
+- `MaintainersList.test.ts:7` cites the old tests for "the avatar's alt is the name"; the empty-alt-when-named
+  case comes from `react/accessibility.md` (decorative images), not from them.
+- `docs/vitest.config.ts` now wraps `getViteConfig`, so every docs suite (the Worker's included) loads the
+  whole Astro config — slower setup, and a broken `astro.config.mjs` fails every suite.
+- `docs-routes.generated.ts` is `new Set([])` until phase 6: `MarkdownContent` fails closed (drops every
+  internal chat link). `docs/README.md` ≈76 and `docs/worker/README.md` ≈240 describe a scan that now finds
+  nothing — phase 6's, with `context7.json`.
+- `pnpm check` prints 8 Biome warnings: false "unused import" reports on `.astro` frontmatter (`Footer.astro`,
+  `MaintainersList.astro`). Applying the suggested fixes would delete used imports.
+- Phase 4 is split into a rename-only commit and an edits commit (user, 2026-11-04) so `guides/index.mdx`
+  (18 lines, below the 50% rename threshold after its edits) keeps its history.

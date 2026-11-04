@@ -67,8 +67,7 @@ The root `tsconfig.json` includes only `src/`, so the second command is what typ
 workspace, `docs/worker/` included. It first runs `worker:build-context`, which regenerates the gitignored
 `docs/worker/docs-context.ts` (the check cannot resolve `worker.ts`'s import of it otherwise) and rewrites the
 tracked `docs/src/chat/docs-routes.generated.ts` in place, then runs `astro check`, which type-checks the
-TypeScript, TSX and Astro files the docs `tsconfig.json` includes (`src/app/`, the not-yet-ported Nextra
-pages, is excluded). That rewrite changes
+TypeScript, TSX and Astro files the docs `tsconfig.json` includes. That rewrite changes
 nothing while the committed routes file is current. If a docs page was added without regenerating it, the
 file shows as modified after this section, as it would after `pnpm docs:build`, and the regenerated file
 belongs in the change. It needs no `PUBLIC_GEMINI_WORKER_URL`. CI runs both typecheck commands.

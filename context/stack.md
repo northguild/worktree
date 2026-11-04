@@ -30,7 +30,7 @@ scripts/              version-sync script, run by `pnpm sync-version`; `release-
 .changeset/           Changesets config and pending release notes (`.changeset/<name>.md`)
 skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`. Nothing on npm discovers it since TanStack Intent went (`skills add` reads GitHub); it stays in `files` so an `npm i -g` install has a copy matching its own version on disk
 docs/                 Astro 7 + Starlight docs site, React 19 islands, Base UI; own package.json, `astro.config.mjs`
-docs/src/content/docs/ Starlight pages (the top-level and command pages: `index.mdx` is Getting Started, plus `commands/` (7 command pages and an index), `configuration`, `project-configuration` and `faq`; only the guides, the changelog and the old index remain under `docs/src/app/docs/`, which Astro does not build, until they are ported)
+docs/src/content/docs/ Starlight pages (23 pages: `index.mdx` is Getting Started, plus `commands/` (7 command pages and an index), `guides/` (9 guides and an index), `configuration`, `project-configuration`, `faq` and `changelog`)
 docs/src/             chat client, site metadata, styles
 docs/src/styles/northguild/ the NorthGuild theme, vendored unedited from `northguild/northguild.dev` `packages/theme/` (each file's header names the commit); `docs/src/styles/theme.css` is this site's own `--gmt-*` → `--sl-*` mapping. To refresh, see `docs/README.md` (Theme)
 docs/worker/          Cloudflare Worker proxying Gemini for the docs chat
@@ -81,11 +81,11 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | Surface | Who reads it | What has to reach it |
 |---|---|---|
 | [`README.md`](../README.md) | someone deciding whether to install; npm renders it as the package page | the fast path — a new command, a renamed flag, a change to what the tool is for |
-| `docs/src/content/docs/` (guides still under `docs/src/app/docs/guides/` until ported) | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration.mdx`, `project-configuration.mdx`, `index.mdx` (Getting Started), `faq.mdx`, and `guides/` (9) |
+| `docs/src/content/docs/` | users looking something up, at https://northguild.github.io/worktree | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration.mdx`, `project-configuration.mdx`, `index.mdx` (Getting Started), `faq.mdx`, and `guides/` (9) |
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
 | `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |
-| `docs/src/app/docs/changelog/page.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
+| `docs/src/content/docs/changelog.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
 | [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/app/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
 
 **Every surface above is sourced from this repository.** The GitHub Pages site is built from `docs/` by

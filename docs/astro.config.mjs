@@ -15,7 +15,9 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Worktree",
-      // The Guides group and the Changelog join in the guides phase: a sidebar link to a page that does not exist is broken.
+      // The site-wide default description (D3): the old Documentation index row; pages with their own `description:` override it.
+      description:
+        "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.",
       sidebar: [
         { label: "Getting Started", link: "/" },
         {
@@ -33,7 +35,35 @@ export default defineConfig({
         },
         { label: "Configuration", slug: "configuration" },
         { label: "Project Configuration", slug: "project-configuration" },
+        {
+          label: "Guides",
+          items: [
+            { label: "Overview", slug: "guides" },
+            {
+              label: "GitHub Issue Integration",
+              slug: "guides/github-issue-integration",
+            },
+            {
+              label: "Jira Issue Integration",
+              slug: "guides/jira-integration",
+            },
+            {
+              label: "Linear Issue Integration",
+              slug: "guides/linear-integration",
+            },
+            {
+              label: "ClickUp Task Integration",
+              slug: "guides/clickup-integration",
+            },
+            { label: "Context Switching", slug: "guides/context-switching" },
+            { label: "Team Conventions", slug: "guides/team-conventions" },
+            { label: "Environment Files", slug: "guides/env-files" },
+            { label: "Editor Integration", slug: "guides/editor-integration" },
+            { label: "Herdr Spaces", slug: "guides/herdr-spaces" },
+          ],
+        },
         { label: "FAQ", slug: "faq" },
+        { label: "Changelog", slug: "changelog" },
       ],
       // Tailwind here serves the chat's utility classes only; preflight is left out of globals.css.
       customCss: [
@@ -43,7 +73,10 @@ export default defineConfig({
         "./src/styles/theme.css",
         "./src/styles/globals.css",
       ],
-      components: { SiteTitle: "./src/components/SiteTitle.astro" },
+      components: {
+        SiteTitle: "./src/components/SiteTitle.astro",
+        Footer: "./src/components/Footer.astro",
+      },
       // Preload the display face so the title and headings do not reflow out of the mono fallback.
       // The href carries `base`: Starlight does not prefix `head` entries.
       head: [

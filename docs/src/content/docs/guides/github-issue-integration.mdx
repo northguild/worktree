@@ -1,8 +1,7 @@
 ---
-title: GitHub Issue Integration
+title: "Create a git worktree from a GitHub issue"
+description: "Create a git worktree from a GitHub issue: worktree names the branch from the issue, assigns it to you, and works with forks and GitHub Enterprise."
 ---
-
-# GitHub Issue Integration
 
 `worktree` can derive branch names directly from GitHub issues, and assign the issue to you at the same time.
 The issue is read from your repository, or from the one it was forked from; see
@@ -18,7 +17,7 @@ worktree branch --github 42 --assign
 ```
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
-A [non-interactive run](/docs/commands/branch#non-interactive-runs) takes it without asking.
+A [non-interactive run](/worktree/commands/branch/#non-interactive-runs) takes it without asking.
 
 A pasted URL must be an issue (or pull request) URL of the repository chosen as described under [Forks](#forks),
 compared ignoring case. A URL for another repository exits `2` with `invalid_value`, naming both and
@@ -53,7 +52,7 @@ worktree config github.repository <owner/repo>
 ```
 
 `github.repository` is a team key: commit it under `github:` in
-[`.worktree.yml`](/docs/project-configuration) to say it once for everyone, and any teammate can override it
+[`.worktree.yml`](/worktree/project-configuration/) to say it once for everyone, and any teammate can override it
 from git config. Only `owner/repo` is accepted; a URL, a path or a trailing `.git` is refused. `worktree
 config` never asks for it, since most people have no fork, so set it by name.
 
@@ -73,7 +72,7 @@ worktree config github.host ghe.example.com
 ```
 
 That sets it for this repository, in git config. To say it once for everyone, commit it under `github:` in
-[`.worktree.yml`](/docs/project-configuration), where a teammate can still override it from git config:
+[`.worktree.yml`](/worktree/project-configuration/), where a teammate can still override it from git config:
 
 ```yaml
 github:
@@ -144,7 +143,7 @@ Both are read when Node starts, so set them in the shell before the command. See
 1. Read issue number and title from the GitHub API.
 2. Sanitize the title into a branch-safe slug: lowercase letters, digits and dashes only, so a title can never add a `/` or `..` to the name.
 3. Cut the slug to at most 48 characters at the last dash, so it ends on a whole word. A single word longer than 48 characters is cut at 48.
-4. Optionally prepend a configured prefix based on issue type, giving `<prefix><number>-<slug>` by default; a `branchName` template in `.worktree.yml` changes the shape (see [Branch name template](/docs/project-configuration#branch-name-template)).
+4. Optionally prepend a configured prefix based on issue type, giving `<prefix><number>-<slug>` by default; a `branchName` template in `.worktree.yml` changes the shape (see [Branch name template](/worktree/project-configuration/#branch-name-template)).
 
 For example, an issue 42 titled "Add a dark mode toggle to the settings page so that users can switch themes at runtime" becomes `42-add-a-dark-mode-toggle-to-the-settings-page-so`. The name is the same whether or not you are prompted.
 
@@ -176,8 +175,8 @@ github:
 To write the rules once for every provider you use, put the same list at the top level instead (`branchType:` rather
 than `github:` and `branchType:`). A `github.branchType` list still wins over it for GitHub issues, and either way
 the built-in mapping above is not used. See
-[Branch-type rules](/docs/project-configuration#branch-type-rules) for how rules match, and
-[Branch name template](/docs/project-configuration#branch-name-template) to change the shape of the name.
+[Branch-type rules](/worktree/project-configuration/#branch-type-rules) for how rules match, and
+[Branch name template](/worktree/project-configuration/#branch-name-template) to change the shape of the name.
 
 ## Authentication Resolution
 

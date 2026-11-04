@@ -1,8 +1,7 @@
 ---
-title: Linear Issue Integration
+title: "Create a git worktree from a Linear issue"
+description: "Create a git worktree from a Linear issue: worktree names the branch from its labels, links it, and can move the issue to started."
 ---
-
-# Linear Issue Integration
 
 `worktree` can derive branch names directly from Linear issues in your Linear workspace.
 
@@ -62,8 +61,8 @@ If a prefix key is not configured, no prefix is applied.
 That mapping applies only when no `linear.branchType` rules (or shared top-level `branchType` rules) are set. A
 `linear.branchType` list, or the shared list, in `.worktree.yml` replaces it: the rules can match the issue's `Labels` by name or by `{ id: ... }`, and an issue
 no rule matches gets no prefix unless the list ends with `- otherwise: <kind>`. See
-[Branch-type rules](/docs/project-configuration#branch-type-rules) and
-[Branch name template](/docs/project-configuration#branch-name-template).
+[Branch-type rules](/worktree/project-configuration/#branch-type-rules) and
+[Branch name template](/worktree/project-configuration/#branch-name-template).
 
 ## What Is Read From the Issue
 
@@ -83,7 +82,7 @@ When the issue is moved to started (below), `worktree` also reads the issue's cu
 and type) and its team's started states (id, name and position). That is workflow metadata: still no description,
 no comments, and nothing from it reaches an agent. The state names are printed.
 
-[`cleanup`](/docs/commands/cleanup#canceled-linear-issues) and [`list --issues`](/docs/commands/list#showing-linear-issues)
+[`cleanup`](/worktree/commands/cleanup/#canceled-linear-issues) and [`list --issues`](/worktree/commands/list/#showing-linear-issues)
 read one more thing: the **type** of the state of each issue a worktree is linked to (`canceled`, `started` and so on),
 by identifier, in one request per 50 issues. They never read the state's name, title, labels, description or
 comments, and nothing from that request reaches an agent or a `--json` document beyond the type itself.
@@ -96,12 +95,12 @@ Requests to Linear are cut off after 15 seconds.
 worktree exists. The record follows the branch through a rename and goes when `cleanup` deletes the branch;
 worktrees made before it existed, or any other way, have none.
 
-[`cleanup`](/docs/commands/cleanup#canceled-linear-issues) reads the record on every run, and asks Linear when a record exists and
+[`cleanup`](/worktree/commands/cleanup/#canceled-linear-issues) reads the record on every run, and asks Linear when a record exists and
 `linear.apiKey` is set. A worktree whose issue is `canceled` is removed even though its remote branch still exists,
 provided it holds no uncommitted changes, no live agent works in it, and the remote confirms every commit is there
 (`cleanup` runs `git ls-remote --heads` for this). Any other state leaves the verdict alone, and so does any
 failure: a failed lookup is one warning and `cleanup` decides as it did before. `cleanup --force` skips the prompt,
-so a script that uses it starts removing these worktrees. [`list --issues`](/docs/commands/list#showing-linear-issues)
+so a script that uses it starts removing these worktrees. [`list --issues`](/worktree/commands/list/#showing-linear-issues)
 shows the same states without removing anything.
 
 ## Moving the issue to started
@@ -115,7 +114,7 @@ worktree branch --linear ENG-123 --no-start    # leave it, this run only
 worktree config linear.autoStart true          # always move it, stop asking
 ```
 
-Without a flag, [`linear.autoStart`](/docs/configuration#linear-integration-notes) decides: `true` moves, `false`
+Without a flag, [`linear.autoStart`](/worktree/configuration/#linear-integration-notes) decides: `true` moves, `false`
 never does, and unset means you are asked once ("Move this issue to started?") and the answer is saved to the key.
 **A non-interactive run, including `--json` and an agent's run, moves the issue by default**, without saving
 anything; pass `--no-start` or set `linear.autoStart false` to keep it read-only.
@@ -129,7 +128,7 @@ anything; pass `--no-start` or set `linear.autoStart false` to keep it read-only
 - **It needs a key with the Write permission** and access to the issue's team. A read-only key, or one limited to
   other teams, is refused by Linear, and the warning says so.
 - **Nothing happens on a dry run** or when an existing worktree is reopened. See
-  [`branch`](/docs/commands/branch#moving-the-issue-to-started) for the order of the run.
+  [`branch`](/worktree/commands/branch/#moving-the-issue-to-started) for the order of the run.
 
 ## Authentication Resolution
 

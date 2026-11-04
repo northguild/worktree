@@ -1,0 +1,63 @@
+---
+/**
+ * A row of GitHub profile links: avatar, and the name beside it when `showName` is set.
+ * Replaces the Next-era ProfileAvatarLink and MaintainersList. Every link opens in a new tab.
+ */
+interface Profile {
+  name: string;
+  profileUrl: string;
+  avatarUrl: string;
+}
+
+interface Props {
+  maintainers: readonly Profile[];
+  showName?: boolean;
+  label: string;
+}
+
+const { maintainers, showName = true, label } = Astro.props;
+---
+
+<ul class="maintainers" aria-label={label}>
+  {
+    maintainers.map((maintainer) => (
+      <li>
+        <a href={maintainer.profileUrl} target="_blank" rel="noopener noreferrer">
+          {/* The name beside the avatar already names the link, so the image is decorative then. */}
+          <img
+            src={maintainer.avatarUrl}
+            alt={showName ? "" : maintainer.name}
+            width="32"
+            height="32"
+            loading="lazy"
+          />
+          {showName ? <span>{maintainer.name}</span> : null}
+        </a>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .maintainers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gmt-space-4, 1rem);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: inherit;
+    text-decoration: none;
+  }
+  a:hover span {
+    text-decoration: underline;
+  }
+  img {
+    border-radius: 999px;
+  }
+</style>

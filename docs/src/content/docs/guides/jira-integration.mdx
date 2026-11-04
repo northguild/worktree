@@ -1,8 +1,7 @@
 ---
-title: Jira Issue Integration
+title: "Create a git worktree from a Jira issue"
+description: "Create a git worktree from a Jira issue key or URL: worktree builds the branch name, assigns the issue and can move it to In Progress."
 ---
-
-# Jira Issue Integration
 
 `worktree` can derive branch names directly from Jira issues in your Jira workspace, on Jira Cloud or on Jira Data Center (see
 [Jira Data Center](#jira-data-center)).
@@ -43,7 +42,7 @@ If a prefix key is not configured, no prefix is applied.
 This built-in mapping applies **only when no rules are set**. If `.worktree.yml` has a `jira.branchType`
 list (or a shared top-level `branchType` list, which `jira.branchType` wins over), the rules decide the kind instead and the mapping above is not consulted: an issue no rule matches
 gets no prefix unless the list ends with `- otherwise: <kind>`. See
-[Branch-type rules](/docs/project-configuration#branch-type-rules) for the syntax, and for why to name
+[Branch-type rules](/worktree/project-configuration/#branch-type-rules) for the syntax, and for why to name
 fields and options by id. A shared list can name the issue type as `Type`, which Jira answers beside `issuetype`.
 
 ## Assigning the issue
@@ -73,11 +72,11 @@ worktree config jira.autoAssign true
 ## Moving the issue to in progress
 
 `--start` moves the Jira issue to its in-progress status once the worktree exists, and `--no-start` skips it for
-that one run. Without either, [`jira.autoStart`](/docs/configuration#jira-integration-notes) decides: `true` moves,
+that one run. Without either, [`jira.autoStart`](/worktree/configuration/#jira-integration-notes) decides: `true` moves,
 `false` never does, and unset asks once in a terminal and saves the answer under that key. **A non-interactive run
 with the key unset moves the issue** and saves nothing, so pass `--no-start` or set the key to `false` if a script
 that passes `--jira` must not change an issue's status. The full order and where it sits in a run are in the
-[branch command](/docs/commands/branch#moving-the-jira-issue-to-in-progress).
+[branch command](/worktree/commands/branch/#moving-the-jira-issue-to-in-progress).
 
 ```bash
 worktree branch --jira DEV-123 --start
@@ -114,7 +113,7 @@ transition itself.
 
 Authentication is resolved in this order:
 
-1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in git config, with `jira.deployment` (default `cloud`) deciding which are needed: on `datacenter`, `jira.email` is neither required nor read and `jira.apiToken` holds a personal access token. `jira.host` is read from git config, else from the team's `.worktree.yml`, with no prompt; a file's host receives everyone's credentials, see [Project Configuration](/docs/project-configuration#jirahost-receives-everyones-credentials).
+1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in git config, with `jira.deployment` (default `cloud`) deciding which are needed: on `datacenter`, `jira.email` is neither required nor read and `jira.apiToken` holds a personal access token. `jira.host` is read from git config, else from the team's `.worktree.yml`, with no prompt; a file's host receives everyone's credentials, see [Project Configuration](/worktree/project-configuration/#jirahost-receives-everyones-credentials).
 2. Interactive prompts for missing values, then save to local git config.
 
 ## Suggested Setup

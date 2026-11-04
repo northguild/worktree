@@ -1,8 +1,7 @@
 ---
-title: ClickUp Task Integration
+title: "Create a git worktree from a ClickUp task"
+description: "Create a git worktree from a ClickUp task: worktree builds the branch name from the task and its tags and can set it to in progress."
 ---
-
-# ClickUp Task Integration
 
 `worktree` can derive branch names directly from ClickUp tasks in your ClickUp Workspace.
 
@@ -58,8 +57,8 @@ If a prefix key is not configured, no prefix is applied.
 That mapping applies only when no `clickup.branchType` rules (or shared top-level `branchType` rules) are set. A
 `clickup.branchType` list, or the shared list, in `.worktree.yml` replaces it: the rules can match the task's `Tags`, or `Labels`, which is the same tags under the portable name a shared list uses, by name (a ClickUp tag has no id), and a task
 no rule matches gets no prefix unless the list ends with `- otherwise: <kind>`. See
-[Branch-type rules](/docs/project-configuration#branch-type-rules) and
-[Branch name template](/docs/project-configuration#branch-name-template).
+[Branch-type rules](/worktree/project-configuration/#branch-type-rules) and
+[Branch name template](/worktree/project-configuration/#branch-name-template).
 
 ## What Is Read From the Task
 
@@ -82,10 +81,10 @@ Requests to ClickUp are cut off after 15 seconds.
 ## Moving the Task to In Progress
 
 `--start` moves the task once the worktree exists, and `--no-start` skips it for that one run. Without either,
-[`clickup.autoStart`](/docs/configuration#clickup-integration-notes) decides: `true` moves, `false` never does, and
+[`clickup.autoStart`](/worktree/configuration/#clickup-integration-notes) decides: `true` moves, `false` never does, and
 unset asks once in a terminal and saves the answer under that key. **A non-interactive run with the key unset moves
 the task** and saves nothing, so pass `--no-start` or set the key to `false` if a script must not write to ClickUp.
-The full order and where it sits in a run are in the [branch command](/docs/commands/branch#moving-the-clickup-task-to-in-progress).
+The full order and where it sits in a run are in the [branch command](/worktree/commands/branch/#moving-the-clickup-task-to-in-progress).
 
 ```bash
 worktree branch --clickup 9hx --start

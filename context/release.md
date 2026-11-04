@@ -76,7 +76,7 @@ One or two sentences written for someone installing the package.
 
 The frontmatter value is `patch`, `minor` or `major`; the body becomes the changelog entry and the GitHub
 release text. **Filenames are random on purpose**, so two branches adding notes never conflict on merge.
-`docs/src/app/docs/changelog/page.mdx` is a hand-written page stating the single-latest-docs policy and
+`docs/src/content/docs/changelog.mdx` is a hand-written page stating the single-latest-docs policy and
 pointing at `CHANGELOG.md`; it is not the changelog, and it stays in [`stack.md`](stack.md)'s Documentation
 index.
 

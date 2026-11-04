@@ -155,6 +155,15 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 `astro build` warns that `./fonts/michroma-latin-400-normal.woff2` did not resolve: that is the vendored
 `@font-face`, overridden by the one in `theme.css`; the warning is expected.
 
+## Footer
+
+`src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (edit link, last
+updated, pagination) through `Default`, then the licence line, the CLI version and the maintainers, all read from
+`src/lib/site-meta.ts`. `MaintainersList.astro` draws the avatar links. Its test renders it through
+`astro/container` in the node environment (`// @vitest-environment node`, because Astro refuses to render a
+component under jsdom); `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the
+built footer is checked in `dist/` instead.
+
 ## Scripts reference
 
 All commands are run from the repo root with `pnpm --filter docs run <command>`,

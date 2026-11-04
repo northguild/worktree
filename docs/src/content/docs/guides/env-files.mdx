@@ -1,8 +1,7 @@
 ---
-title: Environment Files
+title: "Copy .env files into a new git worktree"
+description: "How worktree copies gitignored .env, .dev.vars and .envrc files into each new git worktree, how to check the list, and how to add others."
 ---
-
-# Environment Files
 
 `worktree branch` and `worktree checkout` copy your local environment files into a new worktree so it is
 usable without a round of manual setup.
@@ -35,7 +34,7 @@ and that applies to `copy` patterns too. A file inside one has to be copied by h
 ### Other files, from `.worktree.yml`
 
 Not every secret is env-shaped. A repository can list more files under `copy` in its
-[project configuration](/docs/project-configuration#copy-files):
+[project configuration](/worktree/project-configuration/#copy-files):
 
 ```yaml
 copy:

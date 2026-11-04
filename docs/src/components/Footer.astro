@@ -1,0 +1,56 @@
+---
+/**
+ * Starlight's Footer with the project line added: licence, CLI version and maintainers.
+ * Starlight's own footer (edit link, last updated, pagination) is rendered unchanged by `Default`.
+ */
+import Default from "@astrojs/starlight/components/Footer.astro";
+import { getToday } from "@northguild/gmt";
+import {
+  cliVersion,
+  maintainers,
+  projectOwnerAvatarUrl,
+  projectOwnerName,
+  projectOwnerProfileUrl,
+} from "../lib/site-meta";
+import MaintainersList from "./MaintainersList.astro";
+
+const year = getToday().split("-")[0];
+const owner = {
+  name: projectOwnerName,
+  profileUrl: projectOwnerProfileUrl,
+  avatarUrl: projectOwnerAvatarUrl,
+};
+---
+
+<Default><slot /></Default>
+
+<div class="project-footer">
+  <div class="owner">
+    <MaintainersList maintainers={[owner]} showName={false} label="Owner" />
+    <span>{`MIT ${year} © ${projectOwnerName}`}</span>
+  </div>
+  <div>CLI Version: v{cliVersion}</div>
+  <div class="maintainers-block">
+    <div>Maintainers:</div>
+    <MaintainersList maintainers={maintainers} label="Maintainers" />
+  </div>
+</div>
+
+<style>
+  .project-footer {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+  .owner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .maintainers-block {
+    display: grid;
+    gap: 0.5rem;
+  }
+</style>
