@@ -13,8 +13,8 @@ const SCHEMA_SOURCE = fileURLToPath(
 );
 
 // Expected values, written by hand. Old routes: the 24 in
-// `git show 2633f3a:docs/src/chat/docs-routes.generated.ts`. Targets: plan D3 — `/docs` and
-// `/docs/getting-started` -> the root, `/docs/<p>` -> `/<p>/`, under https://northguild.dev/worktree.
+// `git show 2633f3a:docs/src/chat/docs-routes.generated.ts`. Targets: plan D17 (revising D3's root) — `/docs`
+// -> the landing at the root, `/docs/<p>` (Getting Started included) -> `/<p>/`, under https://northguild.dev/worktree.
 const EXPECTED = {
   "/docs": NEW_ROOT,
   "/docs/changelog": `${NEW_ROOT}changelog/`,
@@ -28,7 +28,7 @@ const EXPECTED = {
   "/docs/commands/remove": `${NEW_ROOT}commands/remove/`,
   "/docs/configuration": `${NEW_ROOT}configuration/`,
   "/docs/faq": `${NEW_ROOT}faq/`,
-  "/docs/getting-started": NEW_ROOT,
+  "/docs/getting-started": `${NEW_ROOT}getting-started/`,
   "/docs/guides": `${NEW_ROOT}guides/`,
   "/docs/guides/clickup-integration": `${NEW_ROOT}guides/clickup-integration/`,
   "/docs/guides/context-switching": `${NEW_ROOT}guides/context-switching/`,

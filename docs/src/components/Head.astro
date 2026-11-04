@@ -30,7 +30,7 @@ const tags = head
       : tag,
   );
 
-// Path relative to the site root: "" for Getting Started, "commands/branch" for a nested page.
+// Path relative to the site root: "" for the landing, "getting-started" or "commands/branch" for a nested page.
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const path = Astro.url.pathname.slice(base.length).replace(/^\/|\/$/g, "");
 const structuredData = JSON.stringify(

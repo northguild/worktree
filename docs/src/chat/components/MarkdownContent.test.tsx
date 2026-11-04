@@ -80,4 +80,13 @@ describe("MarkdownContent links", () => {
       "/worktree/faq/",
     );
   });
+
+  // D17: Getting Started is /getting-started/; the root is the landing, so a bold "Getting Started" must not go there.
+  it("links a bold Getting Started to /getting-started/, not to the landing", () => {
+    render(<MarkdownContent content="Read **Getting Started** first." />);
+
+    expect(
+      screen.getByRole("link", { name: "Getting Started" }),
+    ).toHaveAttribute("href", "/worktree/getting-started/");
+  });
 });

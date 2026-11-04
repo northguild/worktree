@@ -1,0 +1,411 @@
+---
+/**
+ * The landing's graphic (D17): a tree whose trunk is `main` and whose branches are worktrees. The trunk rises through
+ * commits; each branch forks off at a commit, carries a few of its own and ends in a crown of leaves. It is the
+ * sidebar's git graph (custom.css) grown into a tree.
+ *
+ * Static SVG and CSS only: no script ships with it (D6). Everything below runs at build time; the page gets markup.
+ *  - It grows in on load: each stroke is drawn with a dash offset, staggered down the trunk; commits and leaves pop in
+ *    behind their stroke.
+ *  - The crowns sway faintly once grown.
+ *  - Under `prefers-reduced-motion: reduce` nothing moves: the animations are removed and the base styles are the
+ *    finished tree, so the same markup is the static one.
+ *  - Decorative: `aria-hidden`, nothing focusable. The page's heading and links carry the meaning.
+ *  - Colours are theme tokens only (spring family, ice, void), so it follows the theme in both modes. It sits on the
+ *    page rather than on a dark island: spring is tuned for both grounds (--gmt-spring is 3:1 or more on each page
+ *    colour), and the page's own accent already reads on both.
+ *  - It has intrinsic dimensions (width/height attributes plus the viewBox), so it reserves its box before it paints.
+ */
+type Point = [number, number];
+
+const WIDTH = 480;
+const HEIGHT = 560;
+
+/** A point on a cubic Bezier curve at `t`. */
+function at([p0, p1, p2, p3]: Point[], t: number): Point {
+  const u = 1 - t;
+  const mix = (i: 0 | 1) =>
+    u ** 3 * p0[i] +
+    3 * u * u * t * p1[i] +
+    3 * u * t * t * p2[i] +
+    t ** 3 * p3[i];
+  return [mix(0), mix(1)];
+}
+
+const n = (value: number) => Math.round(value * 10) / 10;
+const path = ([p0, p1, p2, p3]: Point[]) =>
+  `M${n(p0[0])} ${n(p0[1])}C${n(p1[0])} ${n(p1[1])} ${n(p2[0])} ${n(p2[1])} ${n(p3[0])} ${n(p3[1])}`;
+
+// Seconds. The trunk is drawn first; a branch starts when the trunk reaches its fork.
+const TRUNK_SECONDS = 1.7;
+const BRANCH_SECONDS = 1.1;
+
+const trunk: Point[] = [
+  [240, 540],
+  [228, 420],
+  [254, 260],
+  [240, 120],
+];
+
+// Commits on the trunk. A fork is a commit a branch leaves from; the others are plain commits.
+const trunkCommits = [0.1, 0.28, 0.44, 0.6, 0.75];
+
+// dx and dy are how far the branch reaches sideways and upward from its fork; `commits` are positions along it.
+const branchSpecs = [
+  {
+    t: 0.2,
+    dir: 1,
+    dx: 150,
+    dy: 150,
+    commits: [0.18, 0.38, 0.56],
+    label: "feat/204-export",
+  },
+  {
+    t: 0.36,
+    dir: -1,
+    dx: 160,
+    dy: 170,
+    commits: [0.18, 0.38, 0.56],
+    label: "fix/118-login",
+  },
+  {
+    t: 0.52,
+    dir: 1,
+    dx: 120,
+    dy: 150,
+    commits: [0.25, 0.5],
+    label: "review/pr-87",
+  },
+  {
+    t: 0.68,
+    dir: -1,
+    dx: 110,
+    dy: 130,
+    commits: [0.25, 0.5],
+    label: "chore/docs",
+  },
+  { t: 0.82, dir: 1, dx: 85, dy: 110, commits: [0.3], label: "" },
+];
+
+const trunkSeconds = (t: number) => n(TRUNK_SECONDS * t);
+
+const branches = branchSpecs.map((spec, index) => {
+  const [x, y] = at(trunk, spec.t);
+  const tip: Point = [x + spec.dir * spec.dx, y - spec.dy];
+  const curve: Point[] = [
+    [x, y],
+    [x + spec.dir * spec.dx * 0.5, y - spec.dy * 0.05],
+    [tip[0], tip[1] + spec.dy * 0.5],
+    tip,
+  ];
+  const start = trunkSeconds(spec.t);
+  const labelAt = at(curve, 0.2);
+  return {
+    index,
+    d: path(curve),
+    start,
+    tip,
+    fork: [x, y] as Point,
+    commits: spec.commits.map((t) => ({
+      at: at(curve, t),
+      delay: n(start + BRANCH_SECONDS * t),
+    })),
+    label: spec.label,
+    labelAt: [labelAt[0] + spec.dir * 6, labelAt[1] + 18] as Point,
+    anchor: spec.dir === 1 ? "start" : "end",
+    grown: n(start + BRANCH_SECONDS),
+    leaves: foliage(curve, [0.68, 0.77, 0.86, 0.94], 0.9, [-30, 0, 30]),
+  };
+});
+
+/** The direction of the curve at `t`, in degrees clockwise from straight up (the leaf shape points up). */
+function heading([p0, p1, p2, p3]: Point[], t: number): number {
+  const u = 1 - t;
+  const d = (i: 0 | 1) =>
+    3 *
+    (u * u * (p1[i] - p0[i]) +
+      2 * u * t * (p2[i] - p1[i]) +
+      t * t * (p3[i] - p2[i]));
+  return (Math.atan2(d(0), -d(1)) * 180) / Math.PI;
+}
+
+interface Leaf {
+  x: number;
+  y: number;
+  angle: number;
+  scale: number;
+}
+
+/**
+ * Foliage along the last stretch of a curve, relative to its tip: pairs of leaves either side at each position in
+ * `along`, angled out from the curve, and a small fan at the tip. Leaves shrink toward the tip.
+ */
+function foliage(
+  curve: Point[],
+  along: number[],
+  size: number,
+  tipFan: number[],
+): Leaf[] {
+  const tip = at(curve, 1);
+  const leaf = (t: number, offset: number, scale: number): Leaf => {
+    const [x, y] = at(curve, t);
+    return {
+      x: n(x - tip[0]),
+      y: n(y - tip[1]),
+      angle: Math.round(heading(curve, t) + offset),
+      scale: Math.round(scale * 100) / 100,
+    };
+  };
+  return [
+    ...along.flatMap((t, i) => {
+      const scale = size * (1.1 - (0.3 * i) / along.length);
+      return [leaf(t, -52, scale), leaf(t, 52, scale)];
+    }),
+    ...tipFan.map((offset) =>
+      leaf(1, offset, size * (1.25 - Math.abs(offset) / 120)),
+    ),
+  ];
+}
+
+const top = at(trunk, 1);
+const mainCrown = foliage(trunk, [0.9, 0.96], 1.15, [-40, -15, 15, 40, 0]);
+const mainGrown = n(TRUNK_SECONDS - 0.2);
+const base = at(trunk, 0);
+const forks = branches.map(({ fork, start }) => ({ at: fork, delay: start }));
+---
+
+<svg
+  class="hero-branches"
+  viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+  width={WIDTH}
+  height={HEIGHT}
+  aria-hidden="true"
+  focusable="false"
+>
+  <defs>
+    <path id="hb-leaf" d="M0 0C11-3 12-17 0-28C-12-17-11-3 0 0Z"></path>
+  </defs>
+
+  <!-- The ground: the repository the worktrees share. -->
+  <path class="ground" d={`M${base[0] - 90} ${base[1] + 8}Q${base[0]} ${base[1] + 18} ${base[0] + 90} ${base[1] + 8}`}></path>
+
+  <!-- Branches first, so the trunk and the commits are drawn over their roots. -->
+  {
+    branches.map((b) => (
+      <path
+        class="branch grow"
+        d={b.d}
+        pathLength="1"
+        style={`--d:${b.start}s;--dur:${BRANCH_SECONDS}s`}
+      ></path>
+    ))
+  }
+  <path class="trunk grow" d={path(trunk)} pathLength="1" style={`--d:0s;--dur:${TRUNK_SECONDS}s`}></path>
+
+  <!-- Commits on the trunk, then the forks (filled), then each branch's own. -->
+  {
+    trunkCommits.map((t) => {
+      const [x, y] = at(trunk, t);
+      return <circle class="commit" cx={n(x)} cy={n(y)} r="4.5" style={`--d:${trunkSeconds(t)}s`}></circle>;
+    })
+  }
+  {
+    forks.map(({ at: [x, y], delay }) => (
+      <circle class="fork" cx={n(x)} cy={n(y)} r="6.5" style={`--d:${delay}s`}></circle>
+    ))
+  }
+  {
+    branches.map((b) =>
+      b.commits.map(({ at: [x, y], delay }) => (
+        <circle class="commit" cx={n(x)} cy={n(y)} r="4" style={`--d:${delay}s`}></circle>
+      )),
+    )
+  }
+  <circle class="fork" cx={n(base[0])} cy={n(base[1])} r="6.5" style="--d:0s"></circle>
+
+  <!-- Labels: decorative, so they are hidden on a phone where they would be too small to read. -->
+  <text class="label" x={n(base[0] + 14)} y={n(base[1] + 4)} style="--d:0.3s">main</text>
+  {
+    branches.map(
+      (b) =>
+        b.label && (
+          <text class="label" x={n(b.labelAt[0])} y={n(b.labelAt[1])} text-anchor={b.anchor} style={`--d:${b.start}s`}>
+            {b.label}
+          </text>
+        ),
+    )
+  }
+
+  <!-- Foliage along the end of each branch and the trunk. Each crown pops in when its branch is drawn, then sways about the tip. -->
+  {
+    branches.map((b) => (
+      <g transform={`translate(${n(b.tip[0])} ${n(b.tip[1])})`}>
+        <g class="crown" style={`--i:${b.index};--d:${b.grown}s`}>
+          {b.leaves.map((leaf) => (
+            <use href="#hb-leaf" transform={`translate(${leaf.x} ${leaf.y}) rotate(${leaf.angle}) scale(${leaf.scale})`}></use>
+          ))}
+        </g>
+      </g>
+    ))
+  }
+  <g transform={`translate(${n(top[0])} ${n(top[1])})`}>
+    <g class="crown" style={`--i:5;--d:${mainGrown}s`}>
+      {
+        mainCrown.map((leaf) => (
+          <use href="#hb-leaf" transform={`translate(${leaf.x} ${leaf.y}) rotate(${leaf.angle}) scale(${leaf.scale})`}></use>
+        ))
+      }
+    </g>
+  </g>
+</svg>
+
+<style>
+  .hero-branches {
+    display: block;
+    inline-size: 100%;
+    max-inline-size: 30rem;
+    block-size: auto;
+    margin-inline: auto;
+    overflow: visible;
+    --hb-ease: cubic-bezier(0.3, 0.7, 0.2, 1);
+  }
+
+  .ground,
+  .trunk,
+  .branch {
+    fill: none;
+    stroke-linecap: round;
+  }
+  .ground {
+    stroke: var(--gmt-ice-dim);
+    stroke-width: 1.5;
+    opacity: 0.6;
+  }
+  .trunk {
+    stroke: var(--gmt-ice);
+    stroke-width: 6;
+  }
+  .branch {
+    stroke: var(--gmt-spring);
+    stroke-width: 3.5;
+  }
+
+  /* Drawn by dash offset: the path is normalised to length 1 (pathLength), the dash is the whole path and the gap is
+     longer than it, so offset 1 shows nothing, not even a cap. The base state (offset 0) is the finished stroke. */
+  .grow {
+    stroke-dasharray: 1 2;
+    animation: hb-draw var(--dur) var(--hb-ease) var(--d) backwards;
+  }
+
+  .commit {
+    fill: var(--gmt-void);
+    stroke: var(--gmt-spring);
+    stroke-width: 2.5;
+  }
+  .fork {
+    fill: var(--gmt-spring);
+    stroke: var(--gmt-void);
+    stroke-width: 2;
+  }
+  .commit,
+  .fork {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: hb-pop 0.45s var(--hb-ease) var(--d) backwards;
+  }
+
+  .crown {
+    /* The group's origin is the tip (its parent translates there), so rotating and scaling are about the tip. `scale`
+       is its own property, so the pop-in and the sway do not replace each other. */
+    animation:
+      hb-grow 0.8s var(--hb-ease) var(--d) backwards,
+      hb-sway calc(5s + var(--i) * 0.9s) ease-in-out calc(var(--i) * -1.7s) infinite alternate;
+  }
+  .crown use {
+    fill: color-mix(in srgb, var(--gmt-spring) 28%, transparent);
+    stroke: var(--gmt-spring);
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+  }
+
+  .label {
+    fill: var(--gmt-ice-dim);
+    font-family: var(--gmt-font-mono);
+    font-size: 11px;
+    animation: hb-fade 0.6s ease var(--d) backwards;
+  }
+  @media (max-width: 40rem) {
+    .label {
+      display: none;
+    }
+  }
+
+  @keyframes hb-draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+  }
+  @keyframes hb-pop {
+    from {
+      transform: scale(0);
+      opacity: 0;
+    }
+  }
+  @keyframes hb-grow {
+    from {
+      scale: 0;
+      opacity: 0;
+    }
+  }
+  @keyframes hb-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes hb-sway {
+    from {
+      transform: rotate(-1.4deg);
+    }
+    to {
+      transform: rotate(1.4deg);
+    }
+  }
+
+  /* Static: the base styles above are the finished tree. */
+  @media (prefers-reduced-motion: reduce) {
+    .grow,
+    .commit,
+    .fork,
+    .crown,
+    .label {
+      animation: none;
+    }
+  }
+
+  /* System colours: keep the structure, drop the washes. */
+  @media (forced-colors: active) {
+    .hero-branches {
+      forced-color-adjust: none;
+    }
+    .trunk,
+    .branch,
+    .ground,
+    .crown use,
+    .commit,
+    .fork {
+      stroke: CanvasText;
+    }
+    .crown use {
+      fill: none;
+    }
+    .fork {
+      fill: CanvasText;
+    }
+    .commit {
+      fill: Canvas;
+    }
+    .label {
+      fill: CanvasText;
+    }
+  }
+</style>

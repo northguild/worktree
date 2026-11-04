@@ -22,11 +22,11 @@ export default defineConfig({
       // "Last updated" from git (D11). Needs full history: `fetch-depth: 0` in CI. Pages where git is wrong carry a
       // `lastUpdated:` frontmatter date.
       lastUpdated: true,
-      // The site-wide default description (D3): the old Documentation index row; pages with their own `description:` override it.
+      // The site-wide default description: §4.3's index row (also the landing's own, D17); pages with their own `description:` override it.
       description:
         "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.",
       sidebar: [
-        { label: "Getting Started", link: "/" },
+        { label: "Getting Started", slug: "getting-started" },
         {
           label: "Commands",
           items: [
@@ -89,6 +89,8 @@ export default defineConfig({
         SocialIcons: "./src/components/SocialIcons.astro",
         Footer: "./src/components/Footer.astro",
         Head: "./src/components/Head.astro",
+        // The landing (D17) sets its copy beside the branching tree; every other splash page (the 404) keeps Starlight's Hero.
+        Hero: "./src/components/Hero.astro",
       },
       // Preload the display face so the title and headings do not reflow out of the mono fallback.
       // The href carries `base`: Starlight does not prefix `head` entries.

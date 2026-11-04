@@ -15,7 +15,7 @@ It wraps the most common worktree tasks into a small workflow-oriented tool:
 
 This README focuses on the fast path. The documentation website will cover deeper examples, advanced workflows, integrations, and troubleshooting.
 
-Docs: https://northguild.dev/worktree/
+Docs: https://northguild.dev/worktree/ (start with [Getting Started](https://northguild.dev/worktree/getting-started/))
 
 ## Why This Exists
 

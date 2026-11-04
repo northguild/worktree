@@ -73,7 +73,7 @@ build time into a single system prompt string (`docs/worker/docs-context.ts`):
 #### 1. MDX documentation pages
 
 `docs/worker/build-context.mjs` scans every `*.mdx` file under
-`docs/src/content/docs/`, turns each page's frontmatter into a heading, strips JSX/imports (keeping the content of Starlight tabs), and concatenates the plain-text
+`docs/src/content/docs/`, turns each page's frontmatter into a heading, strips imports and Starlight `<Tabs>`/`<TabItem>` tags (keeping their content); other component tags, such as the landing page's `<CardGrid>`/`<LinkCard>`, pass through as written, and concatenates the plain-text
 content with section labels. This is the authoritative reference the AI uses
 to answer questions.
 

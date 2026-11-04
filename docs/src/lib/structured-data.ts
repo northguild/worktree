@@ -67,7 +67,7 @@ function softwareApplication(cliVersion: string): Node {
   };
 }
 
-/** The root, each ancestor section index, then the page itself. */
+/** The root, each ancestor section index, then the page itself. Getting Started (`getting-started`) is nested like the rest (D17). */
 function breadcrumbs({ path, title }: PageInput): BreadcrumbList {
   const segments = path.split("/");
   const sections = segments.slice(0, -1).map((segment, index) => ({

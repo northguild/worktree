@@ -102,6 +102,25 @@ describe("buildStructuredData", () => {
     expect(graph[0]).toEqual(SOFTWARE_APPLICATION);
   });
 
+  // D17: Getting Started is a nested page like any other (`/getting-started/`), so it carries a BreadcrumbList.
+  it("puts a BreadcrumbList on Getting Started, which is no longer the root", () => {
+    const { "@graph": graph } = buildStructuredData(
+      { path: "getting-started", title: "Getting Started" },
+      VERSION,
+    );
+    expect(types(graph)).toEqual(["SoftwareApplication", "BreadcrumbList"]);
+    expect(graph[1]).toMatchObject({
+      itemListElement: [
+        { position: 1, item: "https://northguild.dev/worktree/" },
+        {
+          position: 2,
+          name: "Getting Started",
+          item: "https://northguild.dev/worktree/getting-started/",
+        },
+      ],
+    });
+  });
+
   // Google's breadcrumb documentation: ListItem entries with a 1-based position, a name and an item URL.
   it("lists the root, then the page, for a top-level page", () => {
     const { "@graph": graph } = buildStructuredData(

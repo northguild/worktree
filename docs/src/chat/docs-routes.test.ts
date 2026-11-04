@@ -1,7 +1,8 @@
 import { VALID_DOC_ROUTES } from "./docs-routes.generated";
 
 // Derived by hand from issue #235 §4.2 (the 24 old routes) and D3's rule:
-// `/docs` and `/docs/getting-started` both become `/`, every other `/docs/<p>` becomes `/<p>/`.
+// D17 (2026-11-04, revising D3's root): `/docs` becomes the landing `/`, `/docs/getting-started` becomes
+// `/getting-started/`, and every other `/docs/<p>` becomes `/<p>/`: 24 routes, one per old route.
 // Routes are stored without the `/worktree` base (MarkdownContent strips it before the check)
 // and with a trailing slash (`trailingSlash: "always"`).
 const OLD_ROUTES = [
@@ -32,16 +33,16 @@ const OLD_ROUTES = [
 ];
 
 function toNewRoute(old: string): string {
-  if (old === "/docs" || old === "/docs/getting-started") return "/";
+  if (old === "/docs") return "/";
   return `${old.slice("/docs".length)}/`;
 }
 
 describe("VALID_DOC_ROUTES", () => {
-  it("holds the 23 routes D3 maps the 24 old ones to", () => {
+  it("holds the 24 routes D17 maps the 24 old ones to", () => {
     const expected = [...new Set(OLD_ROUTES.map(toNewRoute))].sort();
 
     expect(OLD_ROUTES).toHaveLength(24);
-    expect(expected).toHaveLength(23);
+    expect(expected).toHaveLength(24);
     expect([...VALID_DOC_ROUTES].sort()).toEqual(expected);
   });
 });

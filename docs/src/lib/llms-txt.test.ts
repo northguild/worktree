@@ -46,7 +46,7 @@ function expectedPages() {
 }
 
 // `getCollection` returns nothing under Vitest (no content store), so the renderer is tested on the source files'
-// own frontmatter; the audit checks the built file, collection and all, against the same 23 URLs.
+// own frontmatter; the audit checks the built file, collection and all, against the same 24 URLs.
 const body = () => ({ text: renderLlmsTxt(expectedPages()) });
 
 describe("llms.txt", () => {
@@ -58,9 +58,9 @@ describe("llms.txt", () => {
     expect(quote).toMatch(/^> \S/);
   });
 
-  it("lists each of the 23 pages once, as a link with its title and description", async () => {
+  it("lists each of the 24 pages once, as a link with its title and description", async () => {
     const pages = expectedPages();
-    expect(pages).toHaveLength(23);
+    expect(pages).toHaveLength(24);
     const { text } = body();
     const items = text.split("\n").filter((line) => line.startsWith("- "));
     expect([...items].sort()).toEqual(

@@ -14,6 +14,7 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/commands/remove/",
   "/configuration/",
   "/faq/",
+  "/getting-started/",
   "/guides/",
   "/guides/clickup-integration/",
   "/guides/context-switching/",

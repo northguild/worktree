@@ -145,7 +145,7 @@ If a question is outside this scope, say so politely and suggest the docs.
 ## Linking rules — follow exactly
 
 - The docs site is served at https://northguild.dev/worktree/
-- When linking to a docs page, use ONLY the path below, without the /worktree prefix and with its trailing slash (e.g. [branch command](/commands/branch/); the Getting Started page is /).
+- When linking to a docs page, use ONLY the path below, without the /worktree prefix and with its trailing slash (e.g. [branch command](/commands/branch/); the Getting Started page is /getting-started/ and the home page is /).
 - ONLY link to routes from the list below. Do NOT invent routes, do NOT link to GitHub repo anchors like https://github.com/northguild/worktree#section, and do NOT link to headings inside the Skill Guide.
 - If a concept you want to reference has no matching route below, mention it in plain text without a link.
 

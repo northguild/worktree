@@ -93,14 +93,14 @@ pnpm docs:audit-dist
 ```
 
 Runs after `pnpm docs:build` (Build above), because it reads `docs/dist/`; with no build it exits 1 saying it
-cannot audit the directory (ENOENT). It asserts the SEO requirements of #235 over the built site: on each of the 23 pages a
+cannot audit the directory (ENOENT). It asserts the SEO requirements of #235 over the built site: on each of the 24 pages a
 unique meta description of at most 155 characters, one canonical link in the form
 `https://northguild.dev/worktree/<path>/`, Open Graph and Twitter tags, JSON-LD of the right types, no chat
 script loaded up front, a "Last updated" date equal to `git log --follow -1` for the page's source file (as a UTC
 date), and an "Edit this page" link that is the repository URL + `/edit/main/docs/src/content/docs/<source>` for a
-source file that exists; across the site, a sitemap and an `llms.txt` (llmstxt.org format) each listing exactly those 23
-URLs, a `404.html` (with the site's search, a link to Getting Started, and no canonical link or JSON-LD), Getting Started text in the root page's HTML, and no `shuding/nextra` string. The date rule is only meaningful on
-full git history (CI uses `fetch-depth: 0`): on a shallow clone Starlight and the oracle both read the same truncated log. It prints every failed rule, one line each, and
+source file that exists; across the site, a sitemap and an `llms.txt` (llmstxt.org format) each listing exactly those 24
+URLs, a `404.html` (with the site's search, a link to Getting Started at `/worktree/getting-started/`, and no canonical link or JSON-LD), a landing at the root (a heading and a "Get started" link to `/worktree/getting-started/`; the root alone may carry the site default description), and no `shuding/nextra` string. The date rule is only meaningful on
+full git history (CI uses `fetch-depth: 0`): on a shallow clone Starlight and the oracle both read the same truncated log. A page whose source file has no commit yet (a new or just-renamed one) fails the date rule with "no git history", so run the audit after committing it. It prints every failed rule, one line each, and
 exits 1 on any. To run it by hand: `pnpm docs:build && pnpm docs:audit-dist`, or point it at another build with
 `node docs/scripts/audit-dist.mjs <dir>`. It also checks accessible names on every page and the 404 (each button named, a name beside visible text containing it, each `<select>` labelled, the search button, and the chat launcher's `aria-keyshortcuts="Alt+Shift+C"`) and that the built CSS gives `[role=tab]` a minimum height of at least 44px; the search *input* is made in the browser and is checked there.
 Phase 13 added: on every page and the 404, the header's two NorthGuild links (`https://northguild.dev/` reading "NorthGuild", `/worktree/` reading
@@ -128,7 +128,7 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-11-04 that is 2756 and 167 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-11-04 that is 2756 and 312 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 

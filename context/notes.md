@@ -284,3 +284,22 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
 - `docs/README.md` ≈190-193's refresh steps name only `theme.css` and `SiteTitle.astro` for `--gmt-*` tokens;
   `custom.css`, `SocialIcons.astro` and `globals.css` read them too.
 - At 320px "worktree" wraps under "NorthGuild /"; fits from 375px.
+
+## From phase 14's review (landing page and the tree hero)
+
+- `build-context.mjs`'s `stripMdx` leaves the landing's `<CardGrid>`/`<LinkCard … />` tags verbatim in the chat's
+  system prompt (first page with JSX other than Tabs). A rule turning `<LinkCard title="X" href="Y" />` into
+  `- [X](Y)` and dropping `CardGrid` would clean it; `docs/README.md` now says what it does today.
+- Unpinned by a committed test: the hero's reduced-motion stasis and that it holds no `<script>` (only the
+  scratch browser pass checks them) — `audit-dist.mjs` could assert both from the built CSS/HTML, as it does for
+  the tab min-height. Phase 13's reduced-motion rules are likewise browser-only.
+- The landing h1 rule (`audit-dist.mjs` ≈959) accepts an h1 holding only tags; no test for an empty h1.
+- `Hero.astro` re-renders actions without each action's `attrs`, raw `icon.html` or `DraftContentNotice` —
+  `attrs` added to the landing's frontmatter later would be silently dropped.
+- The ±1.4° sway runs forever with no on-page stop (only the OS reduced-motion setting); arguably WCAG 2.2.2.
+- `HeroBranches.astro` ≈108/114 use `as Point` (a type annotation would do); `structured-data.test.ts` ≈60/72/80
+  still pass `title: "Getting Started"` for `path: ""`.
+- The plan's text is stale after D17: §4.2 "the sitemap lists 23 URLs", §4.8 "`/worktree/` contains Getting
+  Started text", D3 "Getting Started is the root" — bring the plan into line at `/feature-close`.
+- Light-theme branch strokes on the hero: 3.30:1 on the page, 2.89:1 at the wash centre — decorative and
+  `aria-hidden`, not required by 1.4.11; labels pass at ≥7.5:1 in both themes.

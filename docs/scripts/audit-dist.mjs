@@ -6,13 +6,13 @@
  *
  * Per page: a unique `<meta name="description">` of at most 155 characters; one `<link rel="canonical">` in the D3
  * form; Open Graph and Twitter tags; JSON-LD of the right types (`BreadcrumbList` only on a nested page, D10); and
- * no script that loads the chat before it is activated. Per site: a sitemap listing exactly the 23 URLs, a
- * `404.html`, Getting Started text in the root page's HTML, and no `shuding/nextra` string anywhere.
+ * no script that loads the chat before it is activated. Per site: a sitemap listing exactly the 24 URLs, a
+ * `404.html`, a landing at the root (a heading and a "Get started" link to /getting-started/), and no `shuding/nextra` string anywhere.
  *
  * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11), and the
  * "Edit this page" link is the repository's `edit/main/docs/src/content/docs/<source>` URL for a source file that
- * exists. These apply to the 23 pages only; `404.html` is not one of them and has neither. Per site: `llms.txt`
- * (D13) is a llmstxt.org file listing the same 23 URLs, each with a title and the page's own description.
+ * exists. These apply to the 24 pages only; `404.html` is not one of them and has neither. Per site: `llms.txt`
+ * (D13) is a llmstxt.org file listing the same 24 URLs, each with a title and the page's own description.
  *
  * Also (phase 9, accessibility): every button has an accessible name (an icon-only one needs an `aria-label`, an
  * `aria-labelledby` or a `title`), and a name that stands beside visible text contains it (WCAG 2.5.3); every
@@ -94,14 +94,15 @@ const defaultExpectedDate = (path) => {
   return followDate(REPO_ROOT, `docs/src/content/docs/${source}`);
 };
 
-// The site-wide default description (D3: the old Documentation index row of §4.3). Starlight falls back to it
-// when a page has no `description:` frontmatter, so a page carrying it has lost its own (D9).
+// The site-wide default description (§4.3's index row). Starlight falls back to it when a page has no `description:`
+// frontmatter, so a page carrying it has lost its own (D9). The landing (D17) is the one page it belongs to: the
+// index row is its own description, written out in its frontmatter, so the root alone may carry it.
 export const SITE_DEFAULT_DESCRIPTION =
   "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.";
 
-// The 23 pages: the 24 old routes at 2633f3a with the Documentation index dropped and /docs/getting-started
-// folded into the root (D3). Written out, not derived from the content collection, so a page added or lost by
-// accident fails here.
+// The 24 pages: the 24 old routes at 2633f3a under D17 (2026-11-04): /docs becomes the landing at the root,
+// /docs/getting-started becomes /getting-started/, and every other /docs/<p> becomes /<p>/. Written out, not
+// derived from the content collection, so a page added or lost by accident fails here.
 export const PAGE_PATHS = Object.freeze([
   "",
   "changelog",
@@ -115,6 +116,7 @@ export const PAGE_PATHS = Object.freeze([
   "commands/remove",
   "configuration",
   "faq",
+  "getting-started",
   "guides",
   "guides/clickup-integration",
   "guides/context-switching",
@@ -716,7 +718,7 @@ async function auditPage(path, dist, descriptions, options) {
   if (description === undefined || description === "") {
     fail("no meta description");
   } else {
-    if (description === SITE_DEFAULT_DESCRIPTION)
+    if (path !== "" && description === SITE_DEFAULT_DESCRIPTION)
       fail(
         "meta description is the site default: the page has no description of its own",
       );
@@ -875,7 +877,7 @@ async function auditLlms(dist, descriptions) {
   return failures;
 }
 
-/** The 404: the site's search, a link to Getting Started, and nothing that names a URL the site does not have. */
+/** The 404: the site's search, a link to Getting Started (/getting-started/), and nothing that names a URL the site does not have. */
 function auditNotFound(html) {
   const failures = [
     ...auditControls(html, "404.html"),
@@ -897,10 +899,11 @@ function auditNotFound(html) {
     ...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g),
   ].some(
     ([, attrs, inner]) =>
-      attributes(attrs).href === "/worktree/" &&
+      attributes(attrs).href === "/worktree/getting-started/" &&
       /getting started/i.test(textOf(inner)),
   );
-  if (!toGettingStarted) fail('no link to Getting Started (href="/worktree/")');
+  if (!toGettingStarted)
+    fail('no link to Getting Started (href="/worktree/getting-started/")');
   return failures;
 }
 
@@ -950,9 +953,17 @@ async function auditSite(dist) {
 
   try {
     const root = await readFile(join(dist, "index.html"), "utf8");
-    if (!/<h1[^>]*>[^<]*Getting Started/.test(root))
+    // D17: the root is a landing, a real page (finding 1: not a redirect) with a heading and the call to action.
+    if (!/<h1\b[^>]*>[\s\S]*?\S[\s\S]*?<\/h1>/.test(root))
+      failures.push("/ (root): the landing has no heading");
+    const getStarted = [...root.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].some(
+      ([, attrs, inner]) =>
+        attributes(attrs).href === "/worktree/getting-started/" &&
+        /^get started$/i.test(textOf(inner)),
+    );
+    if (!getStarted)
       failures.push(
-        "/ (root): the HTML does not contain Getting Started text in its heading",
+        '/ (root): the landing has no "Get started" link to /worktree/getting-started/',
       );
   } catch {
     // auditPage already reports the missing root.

@@ -16,8 +16,9 @@ import {
 
 // The audit is tested against a small compliant site built here, then broken one rule at a time. Expected
 // values come from plan §4.8 (what the audit asserts), D3 (URL form: https://northguild.dev/worktree/<path>/)
-// and D10 (which JSON-LD types go where) — never from the audit's own constants. The 23 paths are the 24 old
-// routes at 2633f3a, with the Documentation index dropped and /docs/getting-started becoming the root.
+// and D10 (which JSON-LD types go where) — never from the audit's own constants. The 24 paths are the 24 old
+// routes at 2633f3a under D17 (2026-11-04): /docs becomes the landing at the root, /docs/getting-started becomes
+// /getting-started/, every other /docs/<p> becomes /<p>/.
 const ORIGIN = "https://northguild.dev/worktree/";
 const PATHS = [
   "",
@@ -32,6 +33,7 @@ const PATHS = [
   "commands/remove",
   "configuration",
   "faq",
+  "getting-started",
   "guides",
   "guides/clickup-integration",
   "guides/context-switching",
@@ -122,7 +124,17 @@ function page(path, overrides = {}) {
   const time = overrides.time ?? `${DATE}T10:00:00.000Z`;
   const canonical = overrides.canonical ?? url(path);
   const heading =
-    path === "" ? "Getting Started with @northguild/worktree" : path;
+    path === ""
+      ? "A git worktree for every branch"
+      : path === "getting-started"
+        ? "Getting Started with @northguild/worktree"
+        : path;
+  // D17: the root is a landing whose call to action is "Get started", linking to Getting Started.
+  const landing =
+    path === ""
+      ? (overrides.landing ??
+        '<a href="/worktree/getting-started/" class="action">Get started</a>')
+      : "";
   return [
     "<!doctype html><html><head>",
     `<title>${titleOf(path)} | @northguild/worktree</title>`,
@@ -136,7 +148,7 @@ function page(path, overrides = {}) {
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
     '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
-    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? `<a href="${editHref}" class="sl-flex">Edit page</a>`}${overrides.updated ?? `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`}${overrides.controls ?? CONTROLS}${overrides.body ?? ""}</body></html>`,
+    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? `<a href="${editHref}" class="sl-flex">Edit page</a>`}${overrides.updated ?? `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`}${overrides.controls ?? CONTROLS}${landing}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -150,7 +162,8 @@ function notFoundPage(overrides = {}) {
     overrides.header ?? HEADER,
     overrides.controls ?? CONTROLS,
     overrides.heading ?? "<h1>fatal: no such branch</h1>",
-    overrides.link ?? '<a href="/worktree/">Getting Started</a>',
+    overrides.link ??
+      '<a href="/worktree/getting-started/">Getting Started</a>',
     "</body></html>",
   ].join("\n");
 }
@@ -249,6 +262,25 @@ describe("auditDist", () => {
       llmsTxt(PATHS, { faq: `${"a".repeat(150)}&` }),
     );
     expect(await audit()).toEqual([]);
+  });
+
+  // D17: the landing's description is the §4.3 index row, which is also the site default; the landing carries it
+  // on purpose, so the root alone may. Everything else still fails (the test above and below).
+  it("accepts the site default as the landing's own description", async () => {
+    const siteDefault =
+      "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.";
+    await describe_("", siteDefault);
+    expect(await audit()).toEqual([]);
+  });
+
+  it("fails a second page that repeats the landing's description", async () => {
+    const siteDefault =
+      "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.";
+    await describe_("", siteDefault);
+    await describe_("faq", siteDefault);
+    expect(
+      (await audit()).some((f) => /faq.*(site default|unique)/.test(f)),
+    ).toBe(true);
   });
 
   it("fails a page whose description is the site default (its own description: is missing)", async () => {
@@ -398,6 +430,19 @@ describe("auditDist", () => {
     ).toBe(true);
   });
 
+  it("fails a sitemap that lacks /getting-started/ (24 URLs are expected, not 23)", async () => {
+    await write(
+      dist,
+      "sitemap-0.xml",
+      sitemap(PATHS.filter((p) => p !== "getting-started")),
+    );
+    expect(
+      (await audit()).some(
+        (f) => /sitemap/i.test(f) && f.includes(url("getting-started")),
+      ),
+    ).toBe(true);
+  });
+
   it("fails a sitemap with an extra URL", async () => {
     await write(dist, "sitemap-0.xml", sitemap([...PATHS, "extra"]));
     expect(
@@ -412,9 +457,52 @@ describe("auditDist", () => {
     expect((await audit()).some((f) => /404/.test(f))).toBe(true);
   });
 
-  it("fails a root that does not carry Getting Started in its HTML", async () => {
-    await rewrite("", (html) => html.replace("Getting Started", "Redirecting"));
-    expect((await audit()).some((f) => /Getting Started/.test(f))).toBe(true);
+  // D17 replaces the old "root carries Getting Started text" rule (finding 1: the root must be a real page, not a
+  // redirect): the landing must be a real page with a heading and a "Get started" link to /getting-started/.
+  it("fails a landing with no Get started link", async () => {
+    await rewrite("", (html) =>
+      html.replace(/<a [^>]*class="action">Get started<\/a>/, ""),
+    );
+    expect((await audit()).some((f) => /landing.*Get started/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails a landing whose Get started link goes elsewhere", async () => {
+    await rewrite("", (html) =>
+      html.replace("/worktree/getting-started/", "/worktree/faq/"),
+    );
+    expect((await audit()).some((f) => /landing.*Get started/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails a landing with no heading", async () => {
+    await rewrite("", (html) => html.replace(/<h1>[^<]*<\/h1>/, ""));
+    expect((await audit()).some((f) => /landing.*heading/.test(f))).toBe(true);
+  });
+
+  it("fails a Getting Started page with no BreadcrumbList (it is nested now)", async () => {
+    await write(
+      dist,
+      htmlPath("getting-started"),
+      page("getting-started", {
+        jsonLd: JSON.stringify({
+          "@context": "https://schema.org",
+          "@graph": ["SoftwareApplication", "WebSite", "Organization"].map(
+            (type) => ({ "@type": type }),
+          ),
+        }),
+      }),
+    );
+    expect(
+      (await audit()).some((f) => /getting-started.*JSON-LD/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a build whose old root no longer answers at /getting-started/", async () => {
+    await rm(join(dist, "getting-started"), { recursive: true });
+    expect((await audit()).some((f) => /getting-started/.test(f))).toBe(true);
   });
 
   it("fails when shuding/nextra appears in any file", async () => {
@@ -427,7 +515,7 @@ describe("auditDist", () => {
     expect((await audit()).some((f) => /faq/.test(f))).toBe(true);
   });
 
-  // llms.txt (D13, plan §4.8): the same 23 URLs as the sitemap, each with a title and the page's description.
+  // llms.txt (D13, plan §4.8): the same 24 URLs as the sitemap, each with a title and the page's description.
   it("fails when llms.txt is missing", async () => {
     await rm(join(dist, "llms.txt"));
     expect((await audit()).some((f) => /llms\.txt/.test(f))).toBe(true);
@@ -522,7 +610,7 @@ describe("auditDist", () => {
     expect((await audit()).some((f) => /faq.*edit/i.test(f))).toBe(true);
   });
 
-  it("does not require a date or an edit link on 404.html (it is not one of the 23 pages)", async () => {
+  it("does not require a date or an edit link on 404.html (it is not one of the 24 pages)", async () => {
     // beforeEach's 404.html has neither, and the compliant site passes.
     expect(await audit()).toEqual([]);
   });

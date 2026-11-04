@@ -1,0 +1,100 @@
+---
+/**
+ * Starlight's Hero, except on the landing (D17), where the title, tagline and actions sit beside the branching tree
+ * (HeroBranches) instead of the single image slot Starlight offers. Every other splash page (the 404) keeps Starlight's
+ * own Hero untouched.
+ *
+ * gmt's landing does the same: its Hero override skips Starlight's own markup on the home route and renders the copy
+ * beside the graphic (gmt `apps/dox` Hero.astro and HeroGlobe.astro at 6efa06e4). The copy's markup follows
+ * Starlight's: one `h1#_top` carrying `data-page-title`, a tagline, and its LinkButtons.
+ */
+import { LinkButton } from "@astrojs/starlight/components";
+import Default from "@astrojs/starlight/components/Hero.astro";
+import HeroBranches from "./HeroBranches.astro";
+
+const { entry, id } = Astro.locals.starlightRoute;
+// The route id of `index.mdx` is the empty string (Starlight normalises a trailing `index`), as in gmt's Hero.
+const isLanding = id === "";
+const {
+  title = entry.data.title,
+  tagline,
+  actions = [],
+} = entry.data.hero ?? {};
+---
+
+{
+  isLanding ? (
+    <div class="landing">
+      <div class="copy">
+        <h1 id="_top" data-page-title set:html={title} />
+        {tagline && <p class="tagline" set:html={tagline} />}
+        {
+          actions.length > 0 && (
+            <div class="actions">
+              {actions.map(({ link: href, text, variant, icon }) => (
+                <LinkButton {href} {variant} icon={icon?.name}>
+                  {text}
+                </LinkButton>
+              ))}
+            </div>
+          )
+        }
+      </div>
+      <div class="art">
+        <HeroBranches />
+      </div>
+    </div>
+  ) : (
+    <Default />
+  )
+}
+
+<style>
+  .landing {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 2rem;
+    padding-block: 1rem 2rem;
+  }
+  .copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    align-items: flex-start;
+  }
+  h1 {
+    margin: 0;
+    /* The display face is wide: a smaller top size than Starlight's hero keeps a long title to three lines. */
+    font-size: clamp(var(--sl-text-3xl), 1.1rem + 3.2vw, var(--sl-text-5xl));
+    line-height: var(--sl-line-height-headings);
+    color: var(--sl-color-white);
+  }
+  .tagline {
+    max-inline-size: 36ch;
+    margin: 0;
+    font-size: clamp(var(--sl-text-base), 0.9rem + 0.5vw, var(--sl-text-xl));
+    color: var(--sl-color-gray-2);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+  }
+  .art {
+    /* A soft wash of the accent behind the canopy. */
+    background: radial-gradient(
+      closest-side,
+      color-mix(in srgb, var(--gmt-spring) 12%, transparent),
+      transparent
+    );
+  }
+
+  @media (min-width: 50rem) {
+    .landing {
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+      gap: 3rem;
+      padding-block: clamp(1rem, 4vmin, 3rem);
+    }
+  }
+</style>

@@ -91,7 +91,7 @@ function resolveHref(
  */
 const DOCS_ROUTE_MAP: Record<string, string> = {
   // Top-level sections
-  "getting started": "/",
+  "getting started": "/getting-started/",
   commands: "/commands/",
   configuration: "/configuration/",
   guides: "/guides/",

@@ -30,8 +30,8 @@ scripts/              version-sync script, run by `pnpm sync-version`; `release-
 .changeset/           Changesets config and pending release notes (`.changeset/<name>.md`)
 skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`. Nothing on npm discovers it since TanStack Intent went (`skills add` reads GitHub); it stays in `files` so an `npm i -g` install has a copy matching its own version on disk
 docs/                 Astro 7 + Starlight docs site, React 19 islands, Base UI; own package.json, `astro.config.mjs`
-docs/src/content/docs/ Starlight pages (23 pages: `index.mdx` is Getting Started, plus `commands/` (7 command pages and an index), `guides/` (9 guides and an index), `configuration`, `project-configuration`, `faq` and `changelog`)
-docs/src/             chat client, site metadata, styles
+docs/src/content/docs/ Starlight pages (24 pages: `index.mdx` is the landing at `/worktree/`, `getting-started.mdx` is Getting Started at `/worktree/getting-started/`, plus `commands/` (7 command pages and an index), `guides/` (9 guides and an index), `configuration`, `project-configuration`, `faq` and `changelog`)
+docs/src/             chat client, site metadata, styles; `components/Hero.astro` puts the landing's copy beside `HeroBranches.astro` (the tree graphic: inline SVG and CSS, no script)
 docs/src/styles/northguild/ the NorthGuild theme, vendored unedited from `northguild/northguild.dev` `packages/theme/` (each file's header names the commit); `docs/src/styles/theme.css` is this site's own `--gmt-*` → `--sl-*` mapping. To refresh, see `docs/README.md` (Theme)
 docs/wrangler.jsonc   the docs site's Worker config (assets from `docs/.deploy`, the build staged under `worktree/` by `stage:deploy`); `docs/scripts/` holds `audit-dist.mjs`, `theme-contrast.mjs` (measures the theme's contrast pairs), `build-legacy-pages.mjs` (writes the gitignored `docs/legacy/`) and `deploy-smoke.mjs`
 docs/worker/          Cloudflare Worker proxying Gemini for the docs chat (its own `wrangler.toml`)
@@ -82,7 +82,7 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | Surface | Who reads it | What has to reach it |
 |---|---|---|
 | [`README.md`](../README.md) | someone deciding whether to install; npm renders it as the package page | the fast path — a new command, a renamed flag, a change to what the tool is for |
-| `docs/src/content/docs/` | users looking something up, at https://northguild.dev/worktree/ | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration.mdx`, `project-configuration.mdx`, `index.mdx` (Getting Started), `faq.mdx`, and `guides/` (9) |
+| `docs/src/content/docs/` | users looking something up, at https://northguild.dev/worktree/ | any user-visible CLI behaviour. One page per command under `commands/` (7), plus `configuration.mdx`, `project-configuration.mdx`, `index.mdx` (the landing), `getting-started.mdx`, `faq.mdx`, and `guides/` (9) |
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
 | `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |

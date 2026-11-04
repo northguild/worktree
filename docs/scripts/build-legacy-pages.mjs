@@ -55,9 +55,9 @@ export const OLD_ROUTES = Object.freeze([
 
 const ROOT_URL = new URL(NEW_BASE, NEW_ORIGIN).href;
 
-/** D3: `/docs` and `/docs/getting-started` -> the root; `/docs/<p>` -> `/<p>/`. */
+/** D17 (revising D3's root): `/docs` -> the landing at the root; `/docs/<p>`, Getting Started included, -> `/<p>/`. */
 export function targetFor(route) {
-  if (route === "/docs" || route === "/docs/getting-started") return ROOT_URL;
+  if (route === "/docs") return ROOT_URL;
   const page = route.replace(/^\/docs\//, "");
   return new URL(`${page}/`, ROOT_URL).href;
 }
