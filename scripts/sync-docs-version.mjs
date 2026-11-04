@@ -23,20 +23,16 @@ const normalizeGithubUrl = (value) => {
     .replace(/\.git$/, "");
 };
 
+// `repository` outranks `homepage`: homepage is the docs site, not GitHub.
 const getRepositoryUrl = (pkg) => {
-  const homepage = normalizeGithubUrl(pkg.homepage);
-  if (homepage) return homepage;
-
   const repository = pkg.repository;
-  if (typeof repository === "string") {
-    return normalizeGithubUrl(repository);
-  }
+  const fromRepository =
+    typeof repository === "string"
+      ? normalizeGithubUrl(repository)
+      : normalizeGithubUrl(repository?.url);
+  if (fromRepository) return fromRepository;
 
-  if (repository && typeof repository === "object") {
-    return normalizeGithubUrl(repository.url);
-  }
-
-  return null;
+  return normalizeGithubUrl(pkg.homepage);
 };
 
 const getRepositoryInfo = (repositoryUrl) => {

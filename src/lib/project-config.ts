@@ -28,7 +28,7 @@ import {
 
 export const PROJECT_CONFIG_FILE = ".worktree.yml";
 export const PROJECT_CONFIG_SCHEMA_URL =
-  "https://northguild.github.io/worktree/schema/v1.json";
+  "https://northguild.dev/worktree/schema/v1.json";
 /** Reads this file instead of the ref, to test an edit before it merges (D1). */
 const OVERRIDE_ENV = "WORKTREE_PROJECT_CONFIG";
 

@@ -55,7 +55,7 @@
       "url": "https://github.com/craig-o-curtis"
     }
   ],
-  "homepage": "https://github.com/northguild/worktree",
+  "homepage": "https://northguild.dev/worktree/",
   "license": "MIT",
   "packageManager": "pnpm@12.15.0",
   "engines": {

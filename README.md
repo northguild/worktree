@@ -15,7 +15,7 @@ It wraps the most common worktree tasks into a small workflow-oriented tool:
 
 This README focuses on the fast path. The documentation website will cover deeper examples, advanced workflows, integrations, and troubleshooting.
 
-Docs: https://northguild.github.io/worktree
+Docs: https://northguild.dev/worktree/
 
 ## Why This Exists
 
@@ -99,7 +99,7 @@ A repository can also commit a `.worktree.yml` that supplies the team's `default
 wizard skips what the file answers, `worktree config --list` marks each value `(.worktree.yml)` or
 `(overrides .worktree.yml: <file value>)`, and `worktree config --project` writes a `.worktree.yml` from the
 team keys in your git config (never a personal or secret one), uncommitted. See
-[Project Configuration](https://northguild.github.io/worktree/docs/project-configuration).
+[Project Configuration](https://northguild.dev/worktree/project-configuration/).
 
 Then create your first worktree:
 
@@ -252,7 +252,7 @@ Configuration is stored in Git config under the `northguild.worktree.*` namespac
 `.worktree.yml` can supply the team keys (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`, `jira.deployment`,
 `clickup.workspaceId`, `github.repository`, `github.host`); your git config wins over it, and it wins over the built-in default. A file's
 `jira.host` receives every teammate's Jira credentials, so review a change to it like code. See
-[Project Configuration](https://northguild.github.io/worktree/docs/project-configuration).
+[Project Configuration](https://northguild.dev/worktree/project-configuration/).
 
 Examples:
 
@@ -272,7 +272,7 @@ worktree config --project
 value prints the stored value. Set `opener` to `herdr` to open worktrees as
 [Herdr](https://herdr.dev) spaces instead of editor windows — and to close those spaces again when
 `remove` or `cleanup` deletes the worktree; `herdr.focus` and `herdr.agent` tune that. See the
-[configuration docs](https://northguild.github.io/worktree/docs/configuration).
+[configuration docs](https://northguild.dev/worktree/configuration/).
 
 ## Agent mode
 
@@ -443,10 +443,10 @@ Claude sessions. A message sent to it by that name was answered within seconds: 
 held for approval, with the worker in the default permission mode and the coordinator in auto mode. `worktree remove msg-check -f --json` (exit `0`, 11.2 s) then removed the tree, the branch, the space and the
 session.
 
-The per-command pages have the detail: [`branch`](https://northguild.github.io/worktree/docs/commands/branch),
-[`list`](https://northguild.github.io/worktree/docs/commands/list),
-[`remove`](https://northguild.github.io/worktree/docs/commands/remove) and
-[Herdr spaces](https://northguild.github.io/worktree/docs/guides/herdr-spaces).
+The per-command pages have the detail: [`branch`](https://northguild.dev/worktree/commands/branch/),
+[`list`](https://northguild.dev/worktree/commands/list/),
+[`remove`](https://northguild.dev/worktree/commands/remove/) and
+[Herdr spaces](https://northguild.dev/worktree/guides/herdr-spaces/).
 
 ## What The README Covers
 

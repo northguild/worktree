@@ -475,5 +475,5 @@
   },
   "title": ".worktree.yml",
   "description": "Team configuration for @northguild/worktree, read from the repository's default branch.",
-  "$id": "https://northguild.github.io/worktree/schema/v1.json"
+  "$id": "https://northguild.dev/worktree/schema/v1.json"
 }

@@ -142,3 +142,22 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   it. Raised with the user. Screen-reader and OS bindings for Alt+Shift+C are unverified (§8 browser pass with
   NVDA and VoiceOver). `aria-keyshortcuts="Alt+Shift+C"` on both launcher buttons would announce it (phase 9).
   Where `color-mix` is unsupported, `bg-chat-danger-wash` falls back to a solid `--gmt-danger` fill.
+
+## From phase 12's review (CLI schema URL, links, homepage)
+
+- Phase 12's Done-when grep is not literally met: `docs/README.md:130` still names `northguild.github.io`. The
+  line is true — it documents `GH_PAGES_ORIGIN` in `MarkdownContent.tsx`, which phase 6 keeps as the legacy
+  strip — so rewording it would make the docs false. A plan defect: the grep should exclude that table, and
+  the table's new-origin row belongs to phase 6 (which changes `MarkdownContent`), not phases 1 and 11 as §7
+  says.
+- `src/lib/project-config.test.ts` ≈1563 is titled "holds the schema line from #181 verbatim" and the comment
+  at ≈59-60 says "verbatim" from #181; the value now comes from #235 §8 / D5.
+- `scripts/sync-docs-version.test.mjs` ≈20-30 makes a `mkdtempSync` tree per case and never removes it.
+- The `getRepositoryUrl` reorder: a non-GitHub `repository` with a github.com `homepage` now falls back to
+  `https://github.com` (was the homepage). Not this repo; unpinned.
+- Until phase 11 deploys, README's links point at a host that answers 404 at `/worktree` — the feature has to
+  merge and deploy together; confirm at `/feature-close`.
+- Release note drafted for `/feature-close` (proposed patch): "`.worktree.yml` files that `worktree config
+  --project` generates now start with `# yaml-language-server: $schema=https://northguild.dev/worktree/schema/v1.json`,
+  and the package `homepage` points to the new docs site at https://northguild.dev/worktree/. Existing files
+  keep working, because the old schema URL continues to serve the same schema."

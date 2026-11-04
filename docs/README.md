@@ -1,7 +1,7 @@
 # Worktree Docs Site
 
-Astro / Starlight documentation site for the Worktree CLI, deployed to GitHub Pages at
-`https://northguild.github.io/worktree`.
+Astro / Starlight documentation site for the Worktree CLI, served at
+`https://northguild.dev/worktree/`.
 
 ## Quick start
 
