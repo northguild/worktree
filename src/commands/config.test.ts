@@ -2491,7 +2491,7 @@ describe("config command", () => {
       expect(logged()).toContain("Personal access tokens");
       expect(logged()).toContain("Create token");
       expect(logged()).not.toContain("id.atlassian.com");
-      expect(logged()).not.toContain("Classic API token");
+      expect(logged()).not.toContain("Create API token");
     });
 
     it("keeps a stored token on an empty answer and offers none as a default", async () => {
@@ -2544,7 +2544,7 @@ describe("config command", () => {
       expect(logged()).toContain(
         "https://id.atlassian.com/manage-profile/security/api-tokens",
       );
-      expect(logged()).toContain("Click 'Create Classic API token'");
+      expect(logged()).toContain("Click 'Create API token'");
     });
 
     it("falls back to the Cloud prompts for a hand-edited deployment, which the Jira calls refuse", async () => {
