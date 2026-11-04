@@ -22,6 +22,11 @@
   --gmt-font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --gmt-font-display: "Michroma", var(--gmt-font-mono);
   --gmt-hairline: color-mix(in srgb, var(--gmt-spring) 18%, transparent); /* theme.css's re-derivation */
+  /* The header's glass (round 3), as theme.css builds it: teal is green-700 here, the tint and filters are the vendored tokens'. */
+  --gmt-teal: #15803d;
+  --gmt-glass-tint: color(from var(--gmt-teal) srgb r g b / 0.1);
+  --gmt-saturate: 1.4;
+  --gmt-brightness: 0.72;
 
   /* ---- Starlight sizes ---- */
   --sl-text-sm: 0.875rem;
@@ -61,6 +66,9 @@
   --gmt-spring-ink: #0a5626;
   --gmt-ice: #1a1a1a;
   --gmt-ice-dim: #4b4b4b;
+  --gmt-teal: #4ade80;
+  --gmt-glass-tint: color(from var(--gmt-teal) srgb r g b / 0.16);
+  --gmt-brightness: 0.97;
 
   /* Light ground: the same family, a tier darker, so the leaves read on white. INVENTED except leaf-1. */
   --leaf-1: var(--gmt-spring); /* #16a34a, borrowed */

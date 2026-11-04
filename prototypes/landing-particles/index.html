@@ -41,8 +41,26 @@
         -webkit-font-smoothing: antialiased;
       }
 
-      /* A stand-in for the product header, so the hero is judged in its frame. INVENTED layout, borrowed type. */
+      /* Round 3: one canvas for the whole page, behind everything; the header and the copy paint over it. */
+      .field {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        inline-size: 100%;
+        block-size: 100%;
+        pointer-events: none;
+      }
+
+      /* A stand-in for the product header, so the hero is judged in its frame. INVENTED layout, borrowed type.
+         The glass is the site's (theme.css: the .gmt-glass tint, blur 4px, saturate, brightness), so leaves show
+         through it, blurred, as page text does on the real site. */
       .bar {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 2;
+        background: var(--gmt-glass-tint);
+        -webkit-backdrop-filter: blur(4px) saturate(var(--gmt-saturate)) brightness(var(--gmt-brightness));
+        backdrop-filter: blur(4px) saturate(var(--gmt-saturate)) brightness(var(--gmt-brightness));
         display: flex;
         align-items: center;
         gap: 0.6rem;
@@ -61,6 +79,8 @@
       }
 
       main {
+        position: relative;
+        z-index: 1;
         /* INVENTED: Starlight's splash width is close to this; the real page inherits its own. */
         max-inline-size: 76rem;
         margin-inline: auto;
@@ -120,7 +140,7 @@
         block-size: 1.25em;
       }
 
-      /* The art box: the canvas fills it and fades out at the edges, so the field has no hard frame. */
+      /* The art box: now only a place in the layout. particles.js measures it and anchors the shapes there. */
       .art {
         position: relative;
         /* INVENTED: the SVG reserved 480×560; the canvas keeps a similar box so the layout does not shift. */
@@ -128,15 +148,6 @@
         inline-size: 100%;
         max-inline-size: 34rem;
         margin-inline: auto;
-      }
-      .art canvas {
-        position: absolute;
-        inset: 0;
-        inline-size: 100%;
-        block-size: 100%;
-        /* INVENTED: the fade at the edges. */
-        -webkit-mask-image: radial-gradient(closest-side, #000 84%, transparent);
-        mask-image: radial-gradient(closest-side, #000 84%, transparent);
       }
       .art .fallback {
         position: absolute;
@@ -167,6 +178,7 @@
       /* ---- Mockup controls, not part of the design (INVENTED) ---- */
       .proto {
         position: fixed;
+        z-index: 3;
         inset-block-end: 0.75rem;
         inset-inline-end: 0.75rem;
         display: flex;
@@ -195,6 +207,7 @@
     </style>
   </head>
   <body>
+    <canvas id="leaves" class="field" aria-hidden="true"></canvas>
     <header class="bar"><span>NorthGuild</span><span class="slash">/</span><span class="product">worktree</span></header>
 
     <main>
@@ -211,7 +224,6 @@
           </a>
         </div>
         <div class="art">
-          <canvas id="leaves" aria-hidden="true"></canvas>
           <p class="fallback" id="leaves-fallback" hidden aria-hidden="true">WebGL is unavailable: the real page shows a still image here.</p>
         </div>
       </div>

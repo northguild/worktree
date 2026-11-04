@@ -1,23 +1,29 @@
 /*
- * Leaf particles for the landing hero: a prototype, not the implementation. Round 2.
+ * Leaf particles for the landing hero: a prototype, not the implementation. Round 3.
  *
- * Several thousand leaf-shaped point sprites in a range of greens. On load they drift in and form one large leaf,
- * which then becomes the git graph: its midrib straightens into `main`, its right-hand veins into the branches, its
- * left-hand veins and its blade into the commits and the ambient drift. The graph then writes itself into the
- * "worktree" wordmark. "Settle" rests there; "Loop" goes back to the leaf and repeats. The pointer pushes leaves
- * away; they spring back.
+ * One canvas covers the whole page, behind the header and the copy, for the entrance: on load gusts of small leaves
+ * sweep in from every edge of the viewport (and from behind the header), tumbling as they fly, and gather into one
+ * large leaf in the art box: the midrib and veins first, then the blade, the margin last. After that everything lives
+ * in the art box exactly as in round 2: the leaf becomes the git graph (its midrib straightens into `main`, its
+ * right-hand veins into the branches, its left-hand veins and blade into the commits and the ambient field round the
+ * shape), and the graph writes itself into the "worktree" wordmark. "Settle" rests there; "Loop" goes back to the
+ * leaf and repeats. The pointer pushes leaves away over the art box; they spring back. In flight, leaves crossing
+ * the copy are kept faint, and nothing lands on it.
  *
  * Rendering is OGL 1.0.11 (Renderer, Program, Geometry, Mesh only), with the simulation on the CPU: two
  * Float32Arrays are uploaded per frame. GLSL ES 1.00 so it runs on WebGL 1 as well as 2.
  *
- * Coordinates: shapes are designed in a 380×470 box with y down (like a 2D canvas), then scaled into the art box
- * in CSS pixels with the origin at its centre and y up.
+ * Coordinates: shapes are designed in a 380×470 box with y down (like a 2D canvas), then scaled into the art box as
+ * round 2 did. Everything is drawn in CSS pixels with the origin at the centre of the viewport and y up; a shape's
+ * targets are kept relative to the art box's centre (the anchor), re-measured on scroll and resize.
  */
 
 const OGL = "https://cdn.jsdelivr.net/npm/ogl@1.0.11/src/core/";
 
 const canvas = document.getElementById("leaves");
-const art = canvas.parentElement;
+const art = document.querySelector(".art");
+const copy = document.querySelector(".copy");
+const header = document.querySelector(".bar");
 const fallback = document.getElementById("leaves-fallback");
 const stageOut = document.getElementById("proto-stage");
 const fpsOut = document.getElementById("proto-fps");
@@ -28,8 +34,17 @@ const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
 const TAU = Math.PI * 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const smooth = (a, b, v) => {
+  const t = clamp01((v - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
 const easeInOutCubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2);
-const easeOutCubic = (p) => 1 - (1 - p) ** 3;
+// Decelerates into place and overshoots by about 2% of the path, then settles back.
+const easeOutBack = (p) => {
+  const c1 = 0.8;
+  const c3 = c1 + 1;
+  return 1 + c3 * (p - 1) ** 3 + c1 * (p - 1) ** 2;
+};
 
 // Timings of start-up, for finding a glitch: window.__particles.events.
 const events = [];
@@ -38,11 +53,16 @@ const mark = (name) => events.push(`${Math.round(performance.now())}ms ${name}`)
 // ---- Tuning (every number here is a proposal) ----
 const PHONE = innerWidth < 760;
 const SHAPE_COUNT = PHONE ? 2400 : 6400; // the leaves that form the graph and the wordmark
-const AMBIENT_COUNT = PHONE ? 1100 : 2800; // drift; most of them fill the big leaf's blade
+const AMBIENT_COUNT = PHONE ? 1100 : 2800; // the drift round the shape (round 2's); most fill the big leaf's blade first
 const COUNT = SHAPE_COUNT + AMBIENT_COUNT;
 const NEAR_COUNT = Math.round(COUNT * 0.05); // ambient leaves close to the viewer: large, soft, faint
 const HOLD = { leaf: 2.0, graph: 4.5, word: 4.0 };
 const POINTER = { sigma: 42, push: 950, swirl: 0.45, spring: 30, damping: 7.5 };
+// The copy's quiet zone: ambient and flying leaves fade to this inside it, over a soft edge round the copy block.
+const QUIET = { pad: 16, fade: 56, floor: 0.06 };
+// A full-viewport canvas at DPR 2 is 4× the pixels of DPR 1; 1.5 keeps the leaves crisp (see NOTES.md).
+// `?dpr=2` overrides it, to compare.
+const DPR_CAP = Number(new URLSearchParams(location.search).get("dpr")) || 1.5;
 
 // ---- Shapes, in design units (380×470, y down) ----
 const L = [-112, -37, 38, 113]; // lanes: main, then three branch lanes
@@ -147,9 +167,9 @@ const RIGHT_VEINS = VEIN_U.map((u) => vein(u, 1));
 const LEFT_VEINS = VEIN_U.map((u) => vein(u + 0.045, -1));
 
 const vertex = /* glsl */ `
-  attribute vec3 position; // x, y (CSS px, centred, y up), alpha
-  attribute vec2 aDyn;     // shade (-1 deep .. 0 own tone .. 1 vein-bright), size multiplier
-  attribute vec4 aRand;    // rotation phase, spin, flutter phase, brightness
+  attribute vec3 position; // x, y (CSS px, viewport-centred, y up), alpha
+  attribute vec4 aDyn;     // shade (-1 deep .. 0 own tone .. 1 vein-bright), size multiplier, angle, width (flip)
+  attribute vec4 aRand;    // unused phase, unused, flutter phase, brightness
   attribute float aSize;   // CSS px
   attribute float aDepth;  // -1 far .. 1 near
   attribute float aTone;   // palette index 0..5
@@ -167,6 +187,7 @@ const vertex = /* glsl */ `
   varying vec3 vColor;
   varying float vAlpha;
   varying float vAngle;
+  varying float vWidth;
   varying float vPx;
   varying float vBlur;
 
@@ -182,9 +203,8 @@ const vertex = /* glsl */ `
     vColor = aDyn.x >= 0.0 ? mix(own, uVein, aDyn.x * 0.85) : mix(own, uDeep, -aDyn.x);
     vAlpha = position.z * uFade * mix(1.0, 0.4, near);
     vBlur = 1.0 + near * 6.0;
-
-    float spin = (aRand.y - 0.5) * 1.1;
-    vAngle = aRand.x * 6.2831853 + uTime * spin + sin(uTime * 1.6 + aRand.z * 6.2831853) * 0.4;
+    vWidth = aDyn.w;
+    vAngle = aDyn.z + sin(uTime * 1.6 + aRand.z * 6.2831853) * 0.4;
   }
 `;
 
@@ -196,6 +216,7 @@ const fragment = /* glsl */ `
   varying vec3 vColor;
   varying float vAlpha;
   varying float vAngle;
+  varying float vWidth;
   varying float vPx;
   varying float vBlur;
 
@@ -205,6 +226,8 @@ const fragment = /* glsl */ `
     float c = cos(vAngle);
     float s = sin(vAngle);
     p = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+    // A leaf tumbling in flight turns edge-on: it narrows about its midrib.
+    p.x /= max(vWidth, 0.12);
 
     // A leaf along +y: pointed at both ends, widest a little below the middle.
     float t = (p.y + 0.92) / 1.84;
@@ -212,7 +235,7 @@ const fragment = /* glsl */ `
     float halfWidth = 0.46 * sin(3.14159265 * pow(t, 0.72));
     float d = abs(p.x) - halfWidth;
 
-    float aa = 2.0 / vPx * vBlur; // one device pixel in sprite units, widened for out-of-focus leaves
+    float aa = 2.0 / vPx * vBlur / max(vWidth, 0.12); // one device pixel in sprite units, widened when out of focus
     float a = smoothstep(aa, -aa, d);
     if (a < 0.004) discard;
 
@@ -250,7 +273,7 @@ async function main() {
   }
   mark("ogl imported");
 
-  const dpr = Math.min(2, devicePixelRatio || 1);
+  const dpr = Math.min(DPR_CAP, devicePixelRatio || 1);
   const renderer = new Renderer({
     canvas,
     dpr,
@@ -267,8 +290,7 @@ async function main() {
   }
   mark("webgl context");
 
-  // The wordmark's face. The leaf and the graph do not need it, so nothing waits for it: the wordmark is sampled
-  // when its stage begins, seconds later.
+  // The wordmark's face. Nothing waits for it: the wordmark is sampled when its stage begins, seconds later.
   let wordFont = "monospace";
   document.fonts
     .load('400 100px "Michroma"')
@@ -303,13 +325,17 @@ async function main() {
   specs.sort((a, b) => a.depth - b.depth);
 
   const position = new Float32Array(COUNT * 3);
-  const dyn = new Float32Array(COUNT * 2);
+  const dyn = new Float32Array(COUNT * 4);
   const aRand = new Float32Array(COUNT * 4);
   const aSize = new Float32Array(COUNT);
   const aDepth = new Float32Array(COUNT);
   const aTone = new Float32Array(COUNT);
   const isShape = new Uint8Array(COUNT);
   const pushScale = new Float32Array(COUNT); // each leaf yields to the pointer a little differently: a soft edge
+  const angle = new Float32Array(COUNT); // rotation, integrated on the CPU so a leaf can tumble fast in flight
+  const spin = new Float32Array(COUNT);
+  const flip = new Float32Array(COUNT); // the phase of its turning edge-on, in flight
+  const flipRate = new Float32Array(COUNT);
   for (let i = 0; i < COUNT; i++) {
     const s = specs[i];
     aRand.set([Math.random(), Math.random(), Math.random(), Math.random()], i * 4);
@@ -318,31 +344,40 @@ async function main() {
     aTone[i] = s.tone;
     isShape[i] = s.shape ? 1 : 0;
     pushScale[i] = 0.4 + Math.random() * 1.2;
+    angle[i] = Math.random() * TAU;
+    spin[i] = (Math.random() - 0.5) * 1.1;
+    flip[i] = Math.random() * TAU;
+    flipRate[i] = 4 + Math.random() * 6;
   }
   const shapeIndex = Int32Array.from({ length: COUNT }, (_, i) => i).filter((i) => isShape[i]);
-  // Ambient leaves that join the big leaf's blade: not the near, out-of-focus ones, and not the deepest.
+  // Ambient leaves that join the big leaf's blade: not the near, out-of-focus ones, and not the deepest. The rest
+  // fly straight to the ambient field: the leaves the gust leaves behind.
   const joinsLeaf = new Uint8Array(COUNT);
   for (let i = 0; i < COUNT; i++) {
-    if (!isShape[i] && Math.abs(aDepth[i]) < 0.8 && Math.random() < 0.95) joinsLeaf[i] = 1;
+    if (!isShape[i] && Math.abs(aDepth[i]) < 0.8 && Math.random() < 0.85) joinsLeaf[i] = 1;
   }
 
   // ---- Per-particle simulation state ----
-  const px = new Float32Array(COUNT); // base position (no pointer offset)
+  const px = new Float32Array(COUNT); // base position (no pointer offset), viewport coordinates
   const py = new Float32Array(COUNT);
   const pa = new Float32Array(COUNT); // alpha, shade, size multiplier as last drawn
   const ps = new Float32Array(COUNT);
   const pz = new Float32Array(COUNT).fill(1);
-  const sx = new Float32Array(COUNT); // where the current transition started
+  const sx = new Float32Array(COUNT); // where the current transition started (viewport)
   const sy = new Float32Array(COUNT);
   const sa = new Float32Array(COUNT);
   const ss = new Float32Array(COUNT);
   const sz = new Float32Array(COUNT);
-  const gx = new Float32Array(COUNT); // where it is going (unless it drifts)
+  const gx = new Float32Array(COUNT); // where it is going, relative to the anchor (unless it drifts)
   const gy = new Float32Array(COUNT);
   const ga = new Float32Array(COUNT);
   const gs = new Float32Array(COUNT);
   const gz = new Float32Array(COUNT);
-  const drifts = new Uint8Array(COUNT); // 1: the goal is the ambient drift, which moves
+  const cx = new Float32Array(COUNT); // the gust's control point (viewport), for the fly-in's curved path
+  const cy = new Float32Array(COUNT);
+  const drifts = new Uint8Array(COUNT); // 1: the goal is the ambient field, which moves
+  const gust = new Uint8Array(COUNT); // 1: this move is the fly-in (curved path, tumbling, overshoot)
+  const dips = new Uint8Array(COUNT); // 1: fade a little mid-move (the blade dissolving into the graph)
   const delay = new Float32Array(COUNT);
   const dur = new Float32Array(COUNT);
   const swirl = new Float32Array(COUNT);
@@ -350,34 +385,71 @@ async function main() {
   const oy = new Float32Array(COUNT);
   const vx = new Float32Array(COUNT);
   const vy = new Float32Array(COUNT);
-  // Per-stage targets, in CSS px (y up), filled by buildTargets().
+  // Per-stage targets, in CSS px relative to the anchor (y up), filled by buildTargets().
   const leafX = new Float32Array(COUNT);
   const leafY = new Float32Array(COUNT);
-  const leafKind = new Uint8Array(COUNT); // 0 none (keeps drifting), 1 midrib or vein, 2 blade
+  const leafKind = new Uint8Array(COUNT); // 0 none (ambient), 1 midrib or vein, 2 blade, 3 the blade's margin
   const graphX = new Float32Array(COUNT);
   const graphY = new Float32Array(COUNT);
-  const wordX = new Float32Array(COUNT);
-  const wordY = new Float32Array(COUNT);
-  // The ambient drift: a slow, calm field, no spiral.
+  // The ambient field (round 2's): a slow, calm annulus round the shape, clear in the middle so the shapes stand out.
   const dr = new Float32Array(COUNT);
   const da = new Float32Array(COUNT);
   const dph = new Float32Array(COUNT);
   for (let i = 0; i < COUNT; i++) {
-    dr[i] = 0.45 + 0.55 * Math.sqrt(Math.random()); // clear in the middle, so the shapes stand out
+    dr[i] = 0.45 + 0.55 * Math.sqrt(Math.random());
     da[i] = Math.random() * TAU;
     dph[i] = Math.random() * TAU;
   }
 
-  let W = 1;
+  // Layout, in viewport coordinates (centre origin, y up), re-measured on scroll and resize.
+  let W = 1; // the viewport
   let H = 1;
+  let AW = 1; // the art box, whose centre is the anchor
+  let AH = 1;
+  let ax = 0;
+  let ay = 0;
+  const quiet = { x: 0, y: 0, hw: 0, hh: 0 }; // the copy block
+  let headerH = 56;
   let scale = 1;
   let driftR = 1;
   let ambientAlpha = 0.5;
-  const driftX = (i, t) => Math.cos(da[i] + t * 0.025) * driftR * dr[i] + Math.sin(t * 0.31 + dph[i] * 2) * 9;
-  const driftY = (i, t) => Math.sin(da[i] + t * 0.025) * driftR * dr[i] * 0.9 + Math.cos(t * 0.23 + dph[i] * 3) * 9;
-  const ambientAlphaOf = (i) => ambientAlpha * (0.55 + 0.45 * (1 - Math.abs(aDepth[i])));
 
-  // Design units (y down) to CSS px (y up, centred).
+  const driftX = (i, t) => ax + Math.cos(da[i] + t * 0.025) * driftR * dr[i] + Math.sin(t * 0.31 + dph[i] * 2) * 9;
+  const driftY = (i, t) => ay + Math.sin(da[i] + t * 0.025) * driftR * dr[i] * 0.9 + Math.cos(t * 0.23 + dph[i] * 3) * 9;
+  const ambientAlphaOf = (i) => ambientAlpha * (0.55 + 0.45 * (1 - Math.abs(aDepth[i])));
+  /** In flight: how much a leaf at (x, y) may show. Faint round the copy, so nothing crosses the text but briefly and faintly. */
+  function quietness(x, y) {
+    const dx = Math.max(Math.abs(x - quiet.x) - quiet.hw - QUIET.pad, 0);
+    const dy = Math.max(Math.abs(y - quiet.y) - quiet.hh - QUIET.pad, 0);
+    return QUIET.floor + (1 - QUIET.floor) * smooth(0, QUIET.fade, Math.hypot(dx, dy));
+  }
+  /**
+   * Once landed: round 2's soft edge round the art box (it was a CSS mask on the box's own canvas, radial-gradient
+   * closest-side, opaque to 84%, clear at the edge), so after the entrance the page looks exactly as round 2 did.
+   */
+  function artMask(x, y) {
+    const e = Math.hypot((x - ax) / (AW * 0.5), (y - ay) / (AH * 0.5));
+    return 1 - clamp01((e - 0.84) / 0.16);
+  }
+
+  function measureLayout() {
+    const r = art.getBoundingClientRect();
+    const c = copy.getBoundingClientRect();
+    // The viewport, not the canvas: OGL writes the canvas's CSS size itself, so the canvas cannot be the measure.
+    W = root.clientWidth;
+    H = root.clientHeight;
+    AW = r.width;
+    AH = r.height;
+    ax = r.left + r.width / 2 - W / 2;
+    ay = H / 2 - (r.top + r.height / 2);
+    quiet.x = c.left + c.width / 2 - W / 2;
+    quiet.y = H / 2 - (c.top + c.height / 2);
+    quiet.hw = c.width / 2;
+    quiet.hh = c.height / 2;
+    headerH = header.getBoundingClientRect().height;
+  }
+
+  // Design units (y down) to CSS px relative to the anchor (y up).
   const toX = (x) => x * scale;
   const toY = (y) => -y * scale;
 
@@ -403,10 +475,10 @@ async function main() {
     const headRing = Math.PI * (HEAD.outer ** 2 - HEAD.inner ** 2);
     const total = ringArea * RINGS.length + headDisc + headRing;
     const out = [];
-    const annulus = ([cx, cy], ri, ro) => {
+    const annulus = ([x0, y0], ri, ro) => {
       const r = Math.sqrt(Math.random() * (ro * ro - ri * ri) + ri * ri);
       const a = Math.random() * TAU;
-      out.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+      out.push({ x: x0 + Math.cos(a) * r, y: y0 + Math.sin(a) * r });
     };
     for (let k = 0; k < n; k++) {
       let pick = Math.random() * total;
@@ -426,22 +498,22 @@ async function main() {
     return leafPoint(u, (Math.random() - 0.5) * band);
   }
   const veinPoint = (path, t) => jitter(path, t, 5 * (1 - 0.55 * t));
+  /** A point of the blade: [x, y, onMargin]. The margin is a little denser, so the silhouette is crisp. */
   function bladePoint() {
     if (Math.random() < 0.2) {
-      // The margin, a little denser, so the silhouette is crisp.
       const u = 0.03 + Math.random() * 0.94;
       const side = Math.random() < 0.5 ? -1 : 1;
-      return leafPoint(u, side * halfWidth(u, side) * (0.9 + 0.1 * Math.random()));
+      return [...leafPoint(u, side * halfWidth(u, side) * (0.9 + 0.1 * Math.random())), true];
     }
     for (;;) {
       const u = Math.random();
       const v = (Math.random() * 2 - 1) * LEAF.width * 1.06;
-      if (Math.abs(v) < halfWidth(u, Math.sign(v))) return leafPoint(u, v);
+      if (Math.abs(v) < halfWidth(u, Math.sign(v))) return [...leafPoint(u, v), false];
     }
   }
 
   /**
-   * The leaf and the graph, paired particle by particle:
+   * The leaf and the graph, paired particle by particle (round 2):
    *  - main's leaves sit on the stem and midrib at the same fraction of the way up;
    *  - each branch's leaves sit on one right-hand vein, at the same fraction of the way out;
    *  - the commits' leaves sit on the left-hand veins and the blade, paired bottom to top;
@@ -449,8 +521,8 @@ async function main() {
    */
   function buildTargets() {
     const t0 = performance.now();
-    scale = Math.min(W / 380, H / 470) * 0.86;
-    driftR = Math.min(W, H) * 0.5;
+    scale = Math.min(AW / 380, AH / 470) * 0.86;
+    driftR = Math.min(AW, AH) * 0.5;
     const strands = [TRUNK, ...BRANCHES];
     const areas = strands.map((p) => p.length * LINE_WIDTH);
     const ringsArea =
@@ -493,7 +565,11 @@ async function main() {
     const ringsFromVeins = Math.min(leftPoints.length, Math.round(ringCount * 0.45));
     const commitSources = [];
     for (let k = 0; k < ringCount; k++) {
-      commitSources.push(k < ringsFromVeins ? { p: leftPoints[k], kind: 1 } : { p: bladePoint(), kind: 2 });
+      if (k < ringsFromVeins) commitSources.push({ p: leftPoints[k], kind: 1 });
+      else {
+        const b = bladePoint();
+        commitSources.push({ p: b, kind: b[2] ? 3 : 2 });
+      }
     }
     const commits = ringPoints(ringCount).sort((a, b) => b.y - a.y);
     commitSources.sort((a, b) => b.p[1] - a.p[1]);
@@ -512,19 +588,25 @@ async function main() {
         leafKind[i] = 0;
         continue;
       }
-      const vein = left < leftPoints.length;
-      const [lx, ly] = vein ? leftPoints[left++] : bladePoint();
-      leafX[i] = toX(lx);
-      leafY[i] = toY(ly);
-      leafKind[i] = vein ? 1 : 2;
+      if (left < leftPoints.length) {
+        const [lx, ly] = leftPoints[left++];
+        leafX[i] = toX(lx);
+        leafY[i] = toY(ly);
+        leafKind[i] = 1;
+      } else {
+        const [lx, ly, margin] = bladePoint();
+        leafX[i] = toX(lx);
+        leafY[i] = toY(ly);
+        leafKind[i] = margin ? 3 : 2;
+      }
     }
     mark(`targets built in ${Math.round(performance.now() - t0)}ms`);
   }
 
-  // The wordmark: drawn to an offscreen canvas at the box's size, sampled pixel by pixel, when its stage begins.
+  // The wordmark: drawn to an offscreen canvas at the art box's size, sampled pixel by pixel, when its stage begins.
   function sampleWord(n) {
-    const w = Math.max(1, Math.ceil(W));
-    const h = Math.max(1, Math.ceil(H));
+    const w = Math.max(1, Math.ceil(AW));
+    const h = Math.max(1, Math.ceil(AH));
     const off = document.createElement("canvas");
     off.width = w;
     off.height = h;
@@ -565,7 +647,7 @@ async function main() {
   // ---- GL ----
   const geometry = new Geometry(gl, {
     position: { size: 3, data: position, usage: gl.DYNAMIC_DRAW },
-    aDyn: { size: 2, data: dyn, usage: gl.DYNAMIC_DRAW },
+    aDyn: { size: 4, data: dyn, usage: gl.DYNAMIC_DRAW },
     aRand: { size: 4, data: aRand },
     aSize: { size: 1, data: aSize },
     aDepth: { size: 1, data: aDepth },
@@ -580,8 +662,8 @@ async function main() {
     uniforms: {
       uRes: { value: [1, 1] },
       uDpr: { value: dpr },
-      // Round 2: no leaf smaller than this many device pixels, so the smallest stay leaves on a 1× screen.
-      uMinPx: { value: dpr >= 1.5 ? 5 : 4.5 },
+      // No leaf smaller than this many device pixels, so the smallest stay leaves on a 1× screen.
+      uMinPx: { value: dpr >= 1.25 ? 5 : 4.5 },
       uTime: { value: 0 },
       uFade: { value: 1 },
       uParallax: { value: [0, 0] },
@@ -614,13 +696,12 @@ async function main() {
   // ---- The timeline ----
   let mode = "settle"; // settle: leaf → graph → wordmark, then rest; loop: … → wordmark → leaf, repeating
   const nextStage = { leaf: "graph", graph: "word", word: "leaf" };
-  let T = 0; // our own clock: it stops while the canvas is off screen or the tab is hidden
+  let T = 0; // our own clock: it stops while the tab is hidden
   let stage = "leaf";
   let stageStart = 0;
   let stageLength = Infinity;
-  let intro = true;
 
-  const ALONG_Y = (values, idx) => {
+  const alongOf = (values, idx) => {
     let lo = Infinity;
     let hi = -Infinity;
     for (const i of idx) {
@@ -632,19 +713,56 @@ async function main() {
   const all = Int32Array.from({ length: COUNT }, (_, i) => i);
 
   /**
-   * Begin a stage: every leaf starts from where it is now and heads for that stage's goal. `quick` re-fits after a
-   * resize (no stagger); `fromNothing` is the intro, where the leaves drift in from just above their places.
+   * The gusts: a dozen sources round the edges of the viewport (and two behind the header), each launching its leaves
+   * as one ribbon, a little apart in time and each bent its own way, so the opening reads as several gusts carrying
+   * leaves in rather than a uniform implosion. A source is a point on the perimeter, chosen by the edges' lengths.
    */
-  function enter(name, { quick = false, fromNothing = false } = {}) {
+  const GUSTS = 12;
+  let gusts = [];
+  function makeGusts() {
+    const onEdge = (k) => {
+      const m = 40;
+      if (k < W) return [k - W / 2, H / 2 + m, 1, 0]; // top: [x, y, along-edge x, along-edge y]
+      k -= W;
+      if (k < W) return [k - W / 2, -H / 2 - m, 1, 0]; // bottom
+      k -= W;
+      if (k < H) return [-W / 2 - m, k - H / 2, 0, 1]; // left
+      return [W / 2 + m, k - H - H / 2, 0, 1]; // right
+    };
+    const per = 2 * (W + H);
+    gusts = Array.from({ length: GUSTS }, (_, g) => {
+      const [x, y, ex, ey] = onEdge(((g + Math.random() * 0.8) / GUSTS) * per);
+      return { x, y, ex, ey, spread: 60 + Math.random() * 120, offset: Math.random() * 0.35, curl: (g % 3 === 2 ? -1 : 1) * (0.2 + Math.random() * 0.3) };
+    });
+    // Two from behind the header: the leaves appear from under the glass.
+    for (let h = 0; h < 2; h++) {
+      gusts.push({ x: (Math.random() - 0.5) * W * 0.8, y: H / 2 - headerH * 0.5, ex: 1, ey: 0, spread: 160, offset: 0.1 + Math.random() * 0.2, curl: 0.25, header: true });
+    }
+  }
+  function spawnFrom(g) {
+    const s = (Math.random() + Math.random() - 1) * g.spread;
+    const out = g.header ? 0 : Math.random() * 50;
+    // Outward from the edge: away from the viewport's centre.
+    const ox = g.ex ? 0 : Math.sign(g.x) * out;
+    const oy = g.ey ? 0 : Math.sign(g.y) * out;
+    return [g.x + g.ex * s + ox, g.y + g.ey * s + oy];
+  }
+
+  /**
+   * Begin a stage: every leaf starts from where it is now and heads for that stage's goal. `quick` re-fits after a
+   * resize (no stagger); `gustIn` is the opening, where the leaves sweep in from every edge of the page.
+   */
+  function enter(name, { quick = false, gustIn = false } = {}) {
     stage = name;
     stageStart = T;
-    intro = fromNothing;
     for (let i = 0; i < COUNT; i++) {
       sx[i] = px[i];
       sy[i] = py[i];
       sa[i] = pa[i];
       ss[i] = ps[i];
       sz[i] = pz[i];
+      gust[i] = 0;
+      dips[i] = 0;
     }
     let longest = 0;
     const set = (i, d, du, sw) => {
@@ -655,44 +773,67 @@ async function main() {
     };
 
     if (name === "leaf") {
-      const along = ALONG_Y(leafY, all.filter((i) => leafKind[i]));
+      const along = alongOf(leafY, all.filter((i) => leafKind[i]));
       for (let i = 0; i < COUNT; i++) {
         const k = leafKind[i];
         drifts[i] = k ? 0 : 1;
         gx[i] = leafX[i];
         gy[i] = leafY[i];
-        ga[i] = k === 2 ? 0.92 : k === 1 ? 1 : ambientAlphaOf(i);
-        gs[i] = k === 1 ? 1 : k === 2 ? -0.18 : 0;
-        gz[i] = k === 1 ? 1.15 : k === 2 ? 2.3 : 1;
-        if (fromNothing) {
-          // Drift in from a little above and to the side, invisible at first.
-          const a = Math.random() * TAU;
-          const dist = (40 + Math.random() * 90) * Math.max(0.7, scale);
-          sx[i] = (k ? gx[i] : driftX(i, T)) + Math.cos(a) * dist;
-          sy[i] = (k ? gy[i] : driftY(i, T)) + Math.abs(Math.sin(a)) * dist * 0.6 + 30;
+        ga[i] = k === 1 ? 1 : k ? 0.92 : ambientAlphaOf(i);
+        gs[i] = k === 1 ? 1 : k ? -0.18 : 0;
+        gz[i] = k === 1 ? 1.15 : k ? 2.3 : 1;
+        if (gustIn) {
+          // The gust: from every edge on a curved path, the structure first, then the blade, the margin last.
+          const g = gusts[Math.floor(Math.random() * gusts.length)];
+          const [x0, y0] = spawnFrom(g);
+          sx[i] = x0;
+          sy[i] = y0;
           sa[i] = 0;
-          ss[i] = gs[i];
-          sz[i] = gz[i];
-          set(i, (k ? along(i) * 0.35 : 0.2) + Math.random() * 0.2, 0.7 + Math.random() * 0.35, (Math.random() - 0.5) * 0.15);
+          ss[i] = 0; // in flight a leaf is its own green; it lights up as a vein, or deepens as blade, as it lands
+          sz[i] = 1;
+          gust[i] = 1;
+          const tx = k ? ax + gx[i] : driftX(i, T);
+          const ty = k ? ay + gy[i] : driftY(i, T);
+          const dx = tx - x0;
+          const dy = ty - y0;
+          // A gust's leaves bend the same way, give or take a little.
+          const curl = g.curl + (Math.random() - 0.5) * 0.12;
+          cx[i] = x0 + dx * 0.5 - dy * curl;
+          cy[i] = y0 + dy * 0.5 + dx * curl;
+          const a = k ? along(i) : 0;
+          // Each gust sets off at its own moment, the top left a little before the rest of the page.
+          const wave = g.offset * 0.6 + 0.12 * clamp01((x0 / W + 0.5) * 0.5 + (0.5 - y0 / H) * 0.5);
+          const d =
+            wave +
+            (k === 1
+              ? a * 0.5 + Math.random() * 0.2 // the midrib and veins draw the structure first, stem to tip
+              : k === 2
+                ? 0.5 + a * 0.35 + Math.random() * 0.35 // then the blade fills in
+                : k === 3
+                  ? 0.8 + Math.random() * 0.3 // the margin last
+                  : Math.random() * 1.2); // the ambient leaves come in throughout
+          set(i, d, (k === 1 ? 1.2 : k ? 1.0 : 1.5) + Math.random() * 0.3, 0);
         } else {
           set(i, (k ? along(i) * 0.9 : 0) + Math.random() * 0.3, 1.2 + Math.random() * 0.6, (Math.random() - 0.5) * 0.3);
         }
       }
     } else if (name === "graph") {
-      const along = ALONG_Y(graphY, shapeIndex);
-      const alongLeaf = ALONG_Y(leafY, all.filter((i) => leafKind[i]));
+      const along = alongOf(graphY, shapeIndex);
+      const alongLeaf = alongOf(leafY, all.filter((i) => leafKind[i]));
       for (let i = 0; i < COUNT; i++) {
         if (isShape[i]) {
           drifts[i] = 0;
           gx[i] = graphX[i];
           gy[i] = graphY[i];
           ga[i] = 1;
-          // The veins fade to their own tone as they straighten; vein leaves barely swirl, so the straightening reads.
-          set(i, along(i) * 1.1 + Math.random() * 0.25, 1.15 + Math.random() * 0.6, (Math.random() - 0.5) * (leafKind[i] === 1 ? 0.1 : 0.3));
+          // Round 3: a shorter stagger, so the top of the graph settles sooner; the blade's leaves fade a little
+          // mid-move, so the dissolving upper leaf is a haze rather than a cloud.
+          dips[i] = leafKind[i] >= 2 ? 1 : 0;
+          set(i, along(i) * 0.8 + Math.random() * 0.2, 1.0 + Math.random() * 0.5, (Math.random() - 0.5) * (leafKind[i] === 1 ? 0.1 : 0.3));
         } else {
           drifts[i] = 1;
           ga[i] = ambientAlphaOf(i);
-          set(i, (leafKind[i] ? alongLeaf(i) * 0.7 : 0) + Math.random() * 0.4, 1.5 + Math.random() * 0.8, (Math.random() - 0.5) * 0.4);
+          set(i, (leafKind[i] ? alongLeaf(i) * 0.6 : 0) + Math.random() * 0.4, 1.6 + Math.random() * 0.9, (Math.random() - 0.5) * 0.4);
         }
         gs[i] = 0;
         gz[i] = 1;
@@ -711,15 +852,13 @@ async function main() {
       for (let k = 0; k < bySource.length; k++) {
         const i = bySource[k];
         const j = byTarget[k];
-        wordX[i] = target[j * 2];
-        wordY[i] = target[j * 2 + 1];
         drifts[i] = 0;
-        gx[i] = wordX[i];
-        gy[i] = wordY[i];
+        gx[i] = target[j * 2];
+        gy[i] = target[j * 2 + 1];
         ga[i] = 1;
         gs[i] = 0;
         gz[i] = 1;
-        set(i, ((wordX[i] - lo) / (hi - lo || 1)) * 1.0 + Math.random() * 0.3, 1.2 + Math.random() * 0.7, (Math.random() - 0.5) * 0.5);
+        set(i, ((gx[i] - lo) / (hi - lo || 1)) * 1.0 + Math.random() * 0.3, 1.2 + Math.random() * 0.7, (Math.random() - 0.5) * 0.5);
       }
       for (let i = 0; i < COUNT; i++) {
         if (isShape[i]) continue;
@@ -735,18 +874,17 @@ async function main() {
     stageOut.value = rests ? "word (resting)" : name;
   }
 
-  // ---- Pointer ----
+  // ---- Pointer: round 2's, over the art box and a 40 px margin round it ----
   const pointer = { x: 0, y: 0, active: false, nx: 0, ny: 0 };
   const parallax = [0, 0];
   addEventListener(
     "pointermove",
     (event) => {
-      const rect = canvas.getBoundingClientRect();
-      pointer.x = event.clientX - rect.left - rect.width / 2;
-      pointer.y = rect.height / 2 - (event.clientY - rect.top);
-      pointer.active = Math.abs(pointer.x) < rect.width / 2 + 40 && Math.abs(pointer.y) < rect.height / 2 + 40;
-      pointer.nx = Math.max(-1, Math.min(1, pointer.x / (rect.width / 2)));
-      pointer.ny = Math.max(-1, Math.min(1, pointer.y / (rect.height / 2)));
+      pointer.x = event.clientX - W / 2;
+      pointer.y = H / 2 - event.clientY;
+      pointer.active = Math.abs(pointer.x - ax) < AW / 2 + 40 && Math.abs(pointer.y - ay) < AH / 2 + 40;
+      pointer.nx = Math.max(-1, Math.min(1, (pointer.x - ax) / (AW / 2)));
+      pointer.ny = Math.max(-1, Math.min(1, (pointer.y - ay) / (AH / 2)));
     },
     { passive: true },
   );
@@ -758,27 +896,67 @@ async function main() {
   function step(dt) {
     if (T - stageStart > stageLength) enter(nextStage[stage]);
     const local = T - stageStart;
-    const ease = intro ? easeOutCubic : easeInOutCubic;
     const reach = (3 * POINTER.sigma) ** 2;
     const inv2s2 = 1 / (2 * POINTER.sigma * POINTER.sigma);
 
     for (let i = 0; i < COUNT; i++) {
-      const e = ease(clamp01((local - delay[i]) / dur[i]));
-      const goalX = drifts[i] ? driftX(i, T) : gx[i];
-      const goalY = drifts[i] ? driftY(i, T) : gy[i];
-      const dx = goalX - sx[i];
-      const dy = goalY - sy[i];
-      const arc = Math.sin(Math.PI * e) * swirl[i];
-      const flutter = 0.6 + 1.6 * Math.sin(Math.PI * e);
-      const x = sx[i] + dx * e - dy * arc + Math.sin(T * 1.3 + dph[i] * 5) * flutter;
-      const y = sy[i] + dy * e + dx * arc + Math.cos(T * 1.1 + dph[i] * 7) * flutter;
+      const p = clamp01((local - delay[i]) / dur[i]);
+      const goalX = drifts[i] ? driftX(i, T) : ax + gx[i];
+      const goalY = drifts[i] ? driftY(i, T) : ay + gy[i];
+      let x;
+      let y;
+      let flight;
+      if (gust[i]) {
+        // A quadratic path from the edge, bent by the gust: picking up speed, then decelerating into place with a
+        // slight overshoot, so the sweep across the page is seen rather than over in a blink.
+        const e = easeOutBack(p ** 1.5);
+        const q = Math.min(e, 1);
+        const u = 1 - q;
+        x = u * u * sx[i] + 2 * u * q * cx[i] + q * q * goalX;
+        y = u * u * sy[i] + 2 * u * q * cy[i] + q * q * goalY;
+        if (e > 1) {
+          const tx = goalX - cx[i];
+          const ty = goalY - cy[i];
+          const tl = Math.hypot(tx, ty) || 1;
+          x += (tx / tl) * (e - 1) * tl;
+          y += (ty / tl) * (e - 1) * tl;
+        }
+        // The wind: a slow, coherent wobble, strongest mid-flight, shared by leaves that set off near each other.
+        const w = Math.sin(Math.PI * q) * 26;
+        x += Math.sin(sx[i] * 0.005 + T * 1.4 + dph[i] * 0.5) * w;
+        y += Math.cos(sy[i] * 0.005 + T * 1.1 + dph[i] * 0.5) * w;
+        flight = 1 - q;
+      } else {
+        const e = easeInOutCubic(p);
+        const dx = goalX - sx[i];
+        const dy = goalY - sy[i];
+        const arc = Math.sin(Math.PI * e) * swirl[i];
+        x = sx[i] + dx * e - dy * arc;
+        y = sy[i] + dy * e + dx * arc;
+        flight = Math.sin(Math.PI * e) * 0.35;
+      }
+      const flutter = 0.6 + 1.6 * flight;
+      x += Math.sin(T * 1.3 + dph[i] * 5) * flutter;
+      y += Math.cos(T * 1.1 + dph[i] * 7) * flutter;
       px[i] = x;
       py[i] = y;
-      // Colour, size and opacity change in the first half of each move, so a dissolving blade thins out early.
-      const early = clamp01((local - delay[i]) / (dur[i] * 0.55));
+      // Colour, size and opacity change early in each move (in the first quarter of the fly-in), so a leaf arriving
+      // is visible at once and a dissolving blade thins out early.
+      const early = clamp01((local - delay[i]) / (dur[i] * (gust[i] ? 0.25 : 0.55)));
       pa[i] = sa[i] + (ga[i] - sa[i]) * early;
-      ps[i] = ss[i] + (gs[i] - ss[i]) * early;
-      pz[i] = sz[i] + (gz[i] - sz[i]) * early;
+      let shown = pa[i];
+      if (dips[i]) shown *= 1 - 0.45 * Math.sin(Math.PI * p);
+      // How far down a fly-in leaf is: in flight it is quiet over the copy; landed, it is inside the art box's edge.
+      const down = gust[i] ? smooth(0.85, 1, p) : 1;
+      if (down < 1) shown *= down + (1 - down) * quietness(x, y);
+      // In the fly-in, colour and size follow the landing, not the clock: a vein lights up as its leaves arrive.
+      const look = gust[i] ? clamp01((p - 0.55) / 0.45) : early;
+      ps[i] = ss[i] + (gs[i] - ss[i]) * look;
+      pz[i] = sz[i] + (gz[i] - sz[i]) * look;
+      // Tumbling: fast spin and turning edge-on in flight, slowing as the leaf lands.
+      angle[i] += spin[i] * (1 + 9 * flight) * dt;
+      flip[i] += flipRate[i] * flight * dt;
+      const width = 1 - 0.85 * flight * Math.abs(Math.sin(flip[i]));
 
       // The pointer pushes with a Gaussian falloff, so the hollow it makes has a soft edge; a spring brings each leaf home.
       if (pointer.active) {
@@ -798,11 +976,15 @@ async function main() {
       ox[i] += vx[i] * dt;
       oy[i] += vy[i] * dt;
 
-      position[i * 3] = x + ox[i];
-      position[i * 3 + 1] = y + oy[i];
-      position[i * 3 + 2] = pa[i];
-      dyn[i * 2] = ps[i];
-      dyn[i * 2 + 1] = pz[i];
+      const fx = x + ox[i];
+      const fy = y + oy[i];
+      position[i * 3] = fx;
+      position[i * 3 + 1] = fy;
+      position[i * 3 + 2] = shown * (1 - down + down * artMask(fx, fy));
+      dyn[i * 4] = ps[i];
+      dyn[i * 4 + 1] = pz[i];
+      dyn[i * 4 + 2] = angle[i];
+      dyn[i * 4 + 3] = width;
     }
 
     // Depth parallax follows the pointer, and sways slowly without one.
@@ -820,15 +1002,19 @@ async function main() {
     renderer.render({ scene: mesh });
   }
 
-  // Reduced motion: the formed graph, drawn once, still.
+  // Reduced motion: the formed graph, drawn once, still; the ambient leaves where they rest, quiet round the copy.
   function drawStill() {
     for (let i = 0; i < COUNT; i++) {
       const shape = isShape[i];
-      position[i * 3] = shape ? graphX[i] : driftX(i, 0);
-      position[i * 3 + 1] = shape ? graphY[i] : driftY(i, 0);
-      position[i * 3 + 2] = shape ? 1 : ambientAlphaOf(i);
-      dyn[i * 2] = 0;
-      dyn[i * 2 + 1] = 1;
+      const x = shape ? ax + graphX[i] : driftX(i, 0);
+      const y = shape ? ay + graphY[i] : driftY(i, 0);
+      position[i * 3] = x;
+      position[i * 3 + 1] = y;
+      position[i * 3 + 2] = (shape ? 1 : ambientAlphaOf(i)) * artMask(x, y);
+      dyn[i * 4] = 0;
+      dyn[i * 4 + 1] = 1;
+      dyn[i * 4 + 2] = angle[i];
+      dyn[i * 4 + 3] = 1;
     }
     parallax[0] = 0;
     parallax[1] = 0;
@@ -838,30 +1024,26 @@ async function main() {
   }
 
   // ---- Size ----
-  // Round 1 re-ran this from the ResizeObserver's first callback, 120 ms in: setting the canvas size clears it, and
-  // from a timer that clear reached the screen before the next frame redrew it (a blink), then re-sampling stalled a
-  // frame. Now it runs only when the size really changed, and inside a frame, so the clear and the redraw land together.
+  // Round 2's fix, kept: a resize runs only when a size really changed, and inside a frame, so the clear and the
+  // redraw land together. A scroll only moves the anchor and the quiet zone; it never resizes the canvas.
   let pendingResize = false;
-  function measure() {
-    return [art.clientWidth, art.clientHeight];
-  }
   function applySize() {
-    [W, H] = measure();
+    measureLayout();
+    makeGusts();
     renderer.setSize(W, H);
     program.uniforms.uRes.value = [W, H];
     buildTargets();
   }
 
-  // ---- Loop control: off screen or hidden pauses it ----
+  // ---- Loop control: a hidden tab pauses it ----
   let raf = 0;
   let last = 0;
-  let onScreen = true;
   let frames = 0;
   let fpsSince = performance.now();
   let fps = 0;
   let logSince = performance.now();
   let firstFrame = true;
-  // Replay fades the current picture out before the leaf drifts in again, instead of snapping every leaf to its start.
+  // Replay fades the current picture out before the gust comes in again, instead of snapping every leaf to its start.
   let fadingOut = null;
 
   function frame(now) {
@@ -880,7 +1062,7 @@ async function main() {
       if (k >= 1) {
         fadingOut = null;
         program.uniforms.uFade.value = 1;
-        enter("leaf", { fromNothing: true });
+        enter("leaf", { gustIn: true });
       }
     }
     step(dt);
@@ -897,13 +1079,13 @@ async function main() {
       fpsOut.value = `${fps} fps · ${COUNT}`;
     }
     if (now - logSince >= 2000) {
-      console.log(`[particles] fps=${fps} count=${COUNT} stage=${stage} mode=${mode} dpr=${dpr} box=${Math.round(W)}x${Math.round(H)}`);
+      console.log(`[particles] fps=${fps} count=${COUNT} stage=${stage} mode=${mode} dpr=${dpr} viewport=${Math.round(W)}x${Math.round(H)}`);
       logSince = now;
     }
     schedule();
   }
   function schedule() {
-    if (raf || reducedMotion.matches || !onScreen || document.hidden) return;
+    if (raf || reducedMotion.matches || document.hidden) return;
     last = performance.now();
     raf = requestAnimationFrame(frame);
   }
@@ -915,23 +1097,32 @@ async function main() {
   // ---- Start: everything is measured and sampled before the first frame ----
   readTheme();
   applySize();
-  enter("leaf", { fromNothing: true });
+  enter("leaf", { gustIn: true });
 
   if (reducedMotion.matches) drawStill();
   schedule();
 
-  new ResizeObserver(() => {
-    const [w, h] = measure();
-    if (w === W && h === H) return; // the first notification on observe() is not a change
+  const sizes = () => [root.clientWidth, root.clientHeight, art.clientWidth, art.clientHeight].join("x");
+  let lastSizes = sizes();
+  const onResize = () => {
+    const now = sizes();
+    if (now === lastSizes) return; // the first notification on observe() is not a change
+    lastSizes = now;
     if (reducedMotion.matches) {
       applySize();
       drawStill();
     } else pendingResize = true;
-  }).observe(art);
-  new IntersectionObserver(([entry]) => {
-    onScreen = entry.isIntersecting;
-    onScreen ? schedule() : pause();
-  }).observe(canvas);
+  };
+  new ResizeObserver(onResize).observe(art);
+  addEventListener("resize", onResize);
+  addEventListener(
+    "scroll",
+    () => {
+      measureLayout();
+      if (reducedMotion.matches) drawStill();
+    },
+    { passive: true },
+  );
   document.addEventListener("visibilitychange", () => (document.hidden ? pause() : schedule()));
   reducedMotion.addEventListener("change", () => (reducedMotion.matches ? (pause(), drawStill()) : schedule()));
   new MutationObserver(() => {
@@ -965,7 +1156,11 @@ async function main() {
     get mode() {
       return mode;
     },
+    get T() {
+      return T;
+    },
     count: COUNT,
+    dpr,
     events,
     goto(name) {
       enter(name);
