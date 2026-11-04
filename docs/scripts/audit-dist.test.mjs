@@ -53,18 +53,13 @@ const PATHS = [
 ];
 const url = (path) => (path === "" ? ORIGIN : `${ORIGIN}${path}/`);
 
-// Plan §3 D11 / the Phase 8 scope: edit links are the repository URL (package.json `repository`) + /edit/main/docs/
-// + the page's real source path under src/content/docs/. The fixture's source files are fakes; sourcePathOf is
-// tested against a real directory below.
-const REPO = "https://github.com/northguild/worktree";
-const EDIT_BASE = `${REPO}/edit/main/docs/src/content/docs/`;
+// The fixture's dates are fixed; sourcePathOf, which the real date oracle reads, is tested against a real directory below.
+// No page carries an "Edit page" link (the user, 2026-11-04, replacing phase 8's edit links), so the fixture draws none;
+// EDIT_LINK is Starlight's, for the tests that put one back.
 const DATE = "2026-11-04";
-const sourceOf = (path) => (path === "" ? "index.mdx" : `${path}.mdx`);
-const FIXTURE = {
-  repoUrl: REPO,
-  sourcePath: sourceOf,
-  expectedDate: () => DATE,
-};
+const FIXTURE = { expectedDate: () => DATE };
+const EDIT_LINK =
+  '<a href="https://github.com/northguild/worktree/edit/main/docs/src/content/docs/faq.mdx" class="sl-flex">Edit page</a>';
 const descriptionOf = (path) => `A description of ${path || "the root"}.`;
 const titleOf = (path) => path || "Home";
 const llmsTxt = (paths, described = {}) =>
@@ -123,8 +118,8 @@ const header = (parts = {}) =>
   `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
 const HEADER = header();
 
-// Phase 15 (the user, 2026-11-04): the landing is the hero alone, with no footer, so it carries no edit link and no
-// date; every other page keeps both. And no page carries the project line, the footer's licence, version and
+// Phase 15 (the user, 2026-11-04): the landing is the hero alone, with no footer, so it carries no date; every other
+// page keeps one. And no page carries the project line, the footer's licence, version and
 // maintainers block (the user, 2026-11-04: "lose this content that is on every damn page ... is there any need for an
 // MIT license there? No need for namecalling on every page either").
 const PROJECT_FOOTER =
@@ -196,7 +191,6 @@ function png(width, height) {
 
 function page(path, overrides = {}) {
   const description = overrides.description ?? descriptionOf(path);
-  const editHref = overrides.editHref ?? `${EDIT_BASE}${sourceOf(path)}`;
   const time = overrides.time ?? `${DATE}T10:00:00.000Z`;
   const canonical = overrides.canonical ?? url(path);
   const heading =
@@ -227,7 +221,7 @@ function page(path, overrides = {}) {
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
     '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
     path === "" ? (overrides.heroScript ?? HERO_SCRIPT) : "",
-    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? (path === "" ? "" : `<a href="${editHref}" class="sl-flex">Edit page</a>`)}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
+    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -886,44 +880,34 @@ describe("auditDist", () => {
     expect(failures[0]).toMatch(/faq.*last updated/i);
   });
 
-  // Edit links: each begins with the repository URL and ends in the page's real source path.
-  it("fails an edit link that does not begin with the repository URL", async () => {
-    await write(
-      dist,
-      htmlPath("faq"),
-      page("faq", { editHref: "https://example.com/edit/main/faq.mdx" }),
-    );
+  // No "Edit page" link anywhere (the user, 2026-11-04: "What do we need a useless edit link for?").
+  it("fails a page that carries an edit link to GitHub", async () => {
+    await write(dist, htmlPath("faq"), page("faq", { edit: EDIT_LINK }));
     const failures = await audit();
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatch(/faq.*edit/i);
+    expect(failures[0]).toMatch(/faq.*edit link/i);
   });
 
-  it("fails an edit link to a file that is not the page's source", async () => {
+  it("fails a landing that carries an edit link to GitHub", async () => {
+    await write(dist, htmlPath(""), page("", { edit: EDIT_LINK }));
+    const failures = await audit();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/^\/ \(root\).*edit link/i);
+  });
+
+  it("does not take a link to a GitHub file for an edit link", async () => {
     await write(
       dist,
       htmlPath("faq"),
-      page("faq", { editHref: `${EDIT_BASE}missing.mdx` }),
+      page("faq", {
+        body: '<a href="https://github.com/northguild/worktree/blob/main/README.md">README</a>',
+      }),
     );
-    expect((await audit()).some((f) => /faq.*edit/i.test(f))).toBe(true);
-  });
-
-  it("fails a page with no edit link", async () => {
-    await write(dist, htmlPath("faq"), page("faq", { edit: "" }));
-    expect((await audit()).some((f) => /faq.*edit/i.test(f))).toBe(true);
+    expect(await audit()).toEqual([]);
   });
 
   // Phase 15 (the user, 2026-11-04): "ditch the footer" on the landing. The root is still one of the 26 pages, so
-  // the date and edit-link rules turn around there: the footer that carries them is gone.
-  it("fails a landing that carries an edit link", async () => {
-    await write(
-      dist,
-      htmlPath(""),
-      page("", { edit: `<a href="${EDIT_BASE}index.mdx">Edit page</a>` }),
-    );
-    const failures = await audit();
-    expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatch(/^\/ \(root\).*edit/i);
-  });
+  // the date rule turns around there: the footer that carried it is gone.
 
   it("fails a landing that carries a last-updated date", async () => {
     await write(
@@ -1048,8 +1032,8 @@ describe("auditDist", () => {
     expect(await audit()).toEqual([]);
   });
 
-  it("does not require a date or an edit link on 404.html (it is not one of the 26 pages)", async () => {
-    // beforeEach's 404.html has neither, and the compliant site passes.
+  it("does not require a date on 404.html (it is not one of the 26 pages)", async () => {
+    // beforeEach's 404.html has none, and the compliant site passes.
     expect(await audit()).toEqual([]);
   });
 

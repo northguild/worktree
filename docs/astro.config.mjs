@@ -20,10 +20,8 @@ export default defineConfig({
       // The delimiter in `<title>`: `<page> · @northguild/worktree`, the middle dot GMT's pages use (`Core Rules · GMT`; the
       // user, 2026-11-04, replacing D9's ` | `). Head.astro builds the title itself and passes the same character.
       titleDelimiter: "·",
-      // "Edit this page" links: baseUrl + the page's path from the docs root (D11's sibling; `docs/` is the Astro root).
-      editLink: {
-        baseUrl: "https://github.com/northguild/worktree/edit/main/docs/",
-      },
+      // No `editLink`: no page carries an "Edit page" link (the user, 2026-11-04: "What do we need a useless edit link
+      // for?"), as gmt's docs carry none. scripts/audit-dist.mjs fails a page that has one.
       // "Last updated" from git (D11). Needs full history: `fetch-depth: 0` in CI. Pages where git is wrong carry a
       // `lastUpdated:` frontmatter date.
       lastUpdated: true,

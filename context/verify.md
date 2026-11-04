@@ -96,9 +96,9 @@ Runs after `pnpm docs:build` (Build above), because it reads `docs/dist/`; with 
 cannot audit the directory (ENOENT). It asserts the SEO requirements of #235 over the built site: on each of the 26 pages a
 unique meta description of at most 155 characters, one canonical link in the form
 `https://northguild.dev/worktree/<path>/`, Open Graph and Twitter tags, JSON-LD of the right types, no chat
-script loaded up front, a "Last updated" date equal to `git log --follow -1` for the page's source file (as a UTC
-date), and an "Edit this page" link that is the repository URL + `/edit/main/docs/src/content/docs/<source>` for a
-source file that exists — except the landing, which has no footer and so must carry no date and no edit link; no page
+script loaded up front, and a "Last updated" date equal to `git log --follow -1` for the page's source file (as a UTC
+date) — except the landing, which has no footer and so must carry no date; no page may carry an "Edit page" link into
+GitHub's editor (removed 2026-11-04; gmt's docs have none); no page
 may carry the project line the footer once had (licence, CLI version, maintainers); no page may show the northguild
 organisation's GitHub avatar (`github.com/northguild.png`), the second logo the footer once had, and no id may appear
 twice on a page; across the site, a sitemap and an `llms.txt` (llmstxt.org format) each listing exactly those 26

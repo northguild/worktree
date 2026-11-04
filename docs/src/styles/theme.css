@@ -22,7 +22,7 @@
   --sl-color-white: var(--gmt-ice);
   --sl-color-gray-1: var(--gmt-ice);
   --sl-color-gray-2: var(--gmt-ice-dim);
-  /* Starlight sets text in gray-3 (footer, edit link, "On this page"); the muted token keeps it readable. */
+  /* Starlight sets text in gray-3 (footer, "On this page"); the muted token keeps it readable. */
   --sl-color-gray-3: var(--gmt-ice-dim);
   --sl-color-gray-4: #3d5560;
   --sl-color-gray-5: var(--gmt-surface-2);

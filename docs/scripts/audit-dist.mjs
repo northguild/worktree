@@ -9,10 +9,10 @@
  * no script that loads the chat before it is activated. Per site: a sitemap listing exactly the 26 URLs, a
  * `404.html`, a landing at the root (a heading and a "Get started" link to /getting-started/), and no `shuding/nextra` string anywhere.
  *
- * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11), and the
- * "Edit this page" link is the repository's `edit/main/docs/src/content/docs/<source>` URL for a source file that
- * exists. These apply to the 26 pages only; `404.html` is not one of them and has neither. Phase 15 turns both around on
- * the landing, which has no footer: the root must carry no date and no edit link; no page carries the project line the
+ * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11). It
+ * applies to the 26 pages only; `404.html` is not one of them and has none. Phase 15 turns it around on the landing,
+ * which has no footer: the root must carry no date. No page carries an "Edit page" link to GitHub (the user,
+ * 2026-11-04, replacing phase 8's edit links; gmt's docs have none either); no page carries the project line the
  * footer once had (licence, CLI version, maintainers); and no page shows the northguild organisation's GitHub avatar,
  * the second logo the footer once carried beside the header's mark; no id appears twice on a page; and the landing has one
  * action ("Get started") and no section below the hero. Per site: `llms.txt`
@@ -64,7 +64,8 @@ const ORIGIN = "https://northguild.dev/worktree/";
 const MAX_DESCRIPTION = 155;
 const CONTENT_DIR = join(here, "../src/content/docs");
 const REPO_ROOT = join(here, "../..");
-const EDIT_BRANCH = "main";
+/** Starlight's "Edit page" link, or any link into GitHub's web editor: `https://github.com/<owner>/<repo>/edit/...`. */
+const GITHUB_EDIT = /^https:\/\/github\.com\/[^/]+\/[^/]+\/edit\//;
 const BASE_PATH = new URL(ORIGIN).pathname;
 
 /**
@@ -169,14 +170,6 @@ function auditIcons(html, dist) {
       failures.push(`${rel} ${href || "(no href)"} is not a file in the build`);
   }
   return failures;
-}
-
-/** The repository URL from package.json `repository.url` (`git+https://github.com/o/r.git` -> `https://github.com/o/r`). */
-function repositoryUrl() {
-  const { repository } = JSON.parse(
-    readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
-  );
-  return repository.url.replace(/^git\+/, "").replace(/\.git$/, "");
 }
 
 /** The page's source file relative to the content directory, or undefined when none exists: `commands` is `commands/index.mdx`. */
@@ -1080,15 +1073,16 @@ async function auditPage(path, dist, descriptions, options) {
     );
 
   const times = tagsOf(html, "time");
-  const edits = tagsOf(html, "a").filter((a) => a.href?.includes("/edit/"));
 
-  // The landing has no footer (phase 15): no date, no edit link. The chat launcher is checked with the other controls
-  // above, so it is still required there.
+  // No "Edit page" link on any page, the landing included.
+  if (tagsOf(html, "a").some((a) => GITHUB_EDIT.test(a.href ?? "")))
+    fail("carries an edit link to GitHub; no page has one");
+
+  // The landing has no footer (phase 15): no date. The chat launcher is checked with the other controls above, so it is
+  // still required there.
   if (path === "") {
     if (times.length > 0)
       fail("the landing carries a last updated date; it has no footer");
-    if (edits.length > 0)
-      fail("the landing carries an edit link; it has no footer");
     return failures;
   }
 
@@ -1103,18 +1097,6 @@ async function auditPage(path, dist, descriptions, options) {
       fail(
         `last updated is ${shown}, expected ${expectedDate} (git log --follow)`,
       );
-  }
-
-  // Edit link: starts with the repository URL and names the page's real source file.
-  const source = options.sourcePath(path);
-  if (edits.length !== 1)
-    fail(`${edits.length} edit links, expected exactly 1`);
-  else if (source === undefined)
-    fail("edit link: the page has no source file under src/content/docs");
-  else {
-    const expected = `${options.repoUrl}/edit/${EDIT_BRANCH}/docs/src/content/docs/${source}`;
-    if (edits[0].href !== expected)
-      fail(`edit link is ${edits[0].href}, expected ${expected}`);
   }
   return failures;
 }
@@ -1320,8 +1302,6 @@ async function auditSite(dist) {
 /** Every failed rule across the build in `dist`, one line each; an empty array is a pass. */
 export async function auditDist(dist = DEFAULT_DIST, overrides = {}) {
   const options = {
-    repoUrl: repositoryUrl(),
-    sourcePath: sourcePathOf,
     expectedDate: defaultExpectedDate,
     ...overrides,
   };
