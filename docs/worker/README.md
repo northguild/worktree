@@ -208,7 +208,8 @@ of this endpoint.
 ## CI auto-deployment (optional)
 
 See `.github/workflows/worker-deploy.yml`. Deploys automatically on pushes to
-`main` that change `docs/worker/**`. Requires two GitHub **repository secrets**:
+`main` that change `docs/worker/**`. A manual "Run workflow" deploys only from `main`: a run from any other
+branch deploys nothing. Requires two GitHub **repository secrets**:
 
 | Secret | Where to get it |
 |---|---|

@@ -184,7 +184,8 @@ stable version has been published.
   The called jobs set their own `timeout-minutes` (20 and 10), which a calling job cannot: they hold the `publish`
   concurrency group while they run.
 - **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`, or a manual
-  dispatch. **Has succeeded once**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
+  dispatch from `main` only: the `deploy` job carries `if: github.ref == 'refs/heads/main'` (#246), so a run from
+  any other ref deploys nothing. **Has succeeded once**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
   repository secrets on 2026-10-03, and a manual dispatch that day succeeded. Every earlier run, the last
   push-triggered one on 2026-10-01, failed at *Deploy to Cloudflare* for want of that credential. No push
   has touched `docs/worker/**` since, so the push trigger has not yet been seen to succeed.
