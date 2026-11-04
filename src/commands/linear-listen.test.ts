@@ -271,6 +271,8 @@ describe("linear-listen server", () => {
     const { port } = listener.server.address() as AddressInfo;
     const socket = connect(port, "127.0.0.1");
     let received = "";
+    // The destroy can reach the client mid-write as a reset; `close` follows either way.
+    socket.on("error", () => {});
     socket.on("data", (data: Buffer) => {
       received += data.toString("latin1");
     });

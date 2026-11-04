@@ -47,9 +47,10 @@ const DEFAULT_PORT = 8733;
 const DEFAULT_PATH = "/webhook";
 
 /**
- * How long a sender that went over the cap may keep writing before it is cut
- * off. The rest of the body is read and thrown away so the 413 is not lost to
- * a reset.
+ * How long a sender of an oversized body may keep writing before it is cut
+ * off, counted from when the body is known to be over the cap: the headers,
+ * when `Content-Length` says so, or the byte that passes 1 MiB otherwise. The
+ * rest of the body is read and thrown away so the 413 is not lost to a reset.
  */
 const DRAIN_TIMEOUT_MS = 5_000;
 
