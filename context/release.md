@@ -176,9 +176,13 @@ stable version has been published.
   that bundle and nothing else. **Seen green in this shape once, from a push**: run 41910362381 on `main`
   (2026-11-04, c0cc821), `site` and `legacy-pages` both `success`. **Never yet run from `publish.yml`**: the
   first release after this lands is the first `docs` job, and #239 owns watching it.
-  **Recovery:** "Run workflow" on Publish, from `main`, redeploys the docs (the guard is forced open, every
-  publish step skips itself, `docs` runs); it builds `main`'s head at that time, not the release commit, and
-  `notify` posts to Discord again. A failed `docs` job leaves the Publish run red although the package shipped.
+  **Recovery:** "Re-run failed jobs" on the same Publish run (`gh run rerun <run-id> --failed`), within 30 days
+  of it. Only what failed runs again (`site`, `legacy-pages` or both), with the run's own `GITHUB_SHA` and
+  `GITHUB_REF`: it rebuilds the release commit, the `github-pages` rule still sees `main`, and `publish` and
+  `notify` do not repeat. Past 30 days, "Run workflow" on `docs-deploy.yml`, from `main`, builds `main`'s head at
+  that time, not the release commit. A failed `docs` job leaves the Publish run red although the package shipped.
+  The called jobs set their own `timeout-minutes` (20 and 10), which a calling job cannot: they hold the `publish`
+  concurrency group while they run.
 - **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`, or a manual
   dispatch. **Has succeeded once**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
   repository secrets on 2026-10-03, and a manual dispatch that day succeeded. Every earlier run, the last

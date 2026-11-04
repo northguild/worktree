@@ -23,6 +23,9 @@ permissions:
 jobs:
   site:
     runs-on: ubuntu-latest
+    # Both jobs set their own timeout: the publish.yml job that calls this workflow cannot set one, and while they
+    # run they hold its `publish` concurrency group, so a hang would hold back the next release.
+    timeout-minutes: 20
     # An in-flight deploy is never cancelled mid-publish.
     concurrency:
       group: docs-site
@@ -73,6 +76,7 @@ jobs:
     # Only after the new site answers: the stubs redirect to it.
     needs: site
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: github-pages
     permissions:
       contents: read

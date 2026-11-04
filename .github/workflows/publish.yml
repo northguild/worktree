@@ -202,9 +202,12 @@ jobs:
 
   # The docs site goes live only once the package it describes exists, and only for a stable version (a
   # prerelease is not the current release). Skipped when `publish` is skipped (guard saw no version move) or
-  # fails: `prerelease` is then empty. "Run workflow" redeploys it, from main's head at that time. The job is
-  # outside the `release` environment on purpose: its OIDC token cannot be exchanged for an npm credential.
-  # A failure here leaves this run red although the package shipped.
+  # fails: `prerelease` is then empty. The job is outside the `release` environment on purpose: its OIDC token
+  # cannot be exchanged for an npm credential. A failure here leaves this run red although the package shipped.
+  # Recover it with "Re-run failed jobs" on this run, within 30 days: only what failed runs again, with this
+  # run's sha and ref, so it rebuilds the release commit and `publish` and `notify` do not repeat. Past 30 days,
+  # "Run workflow" on docs-deploy.yml, from main, deploys main's head at that time. A calling job cannot set
+  # `timeout-minutes`; the called jobs set their own.
   docs:
     needs: publish
     if: needs.publish.outputs.prerelease == 'false'

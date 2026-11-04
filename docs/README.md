@@ -308,9 +308,9 @@ API key itself never leaves Cloudflare.
 
 ## Deployment
 
-The docs site deploys once per stable release, as the last job of `publish.yml` (a prerelease does not deploy
-it), by calling `.github/workflows/docs-deploy.yml`. It builds the release commit, so a docs change merged
-after the release waits for the next one. Two jobs:
+The docs site deploys once per stable release, as the `docs` job of `publish.yml`, after `publish` and beside
+`notify` (a prerelease does not deploy it), by calling `.github/workflows/docs-deploy.yml`. It builds the release
+commit, so a docs change merged after the release waits for the next one. Two jobs:
 
 - **`site`** builds `docs/dist`, audits it, copies it to `docs/.deploy/worktree/` and runs `wrangler deploy` with
   `docs/wrangler.jsonc`: a Worker with static assets and no script, on the Route `northguild.dev/worktree*`.
@@ -327,9 +327,11 @@ The Cloudflare Worker deploys automatically on pushes to `main` that touch
 To deploy outside a release (a docs fix that cannot wait), use "Run workflow" on `docs-deploy.yml`, from `main`:
 the `github-pages` environment accepts only that branch. It builds `main`'s head at that moment.
 
-To recover a failed `docs` job, use "Run workflow" on Publish, from `main`. The guard is forced open and every
-publish step skips itself, but `pnpm test` and `pnpm build` run again, the docs deploy builds `main`'s head at that
-moment, and `notify` posts to Discord again. A failed `docs` job leaves the Publish run red although the package shipped.
+To recover a failed `docs` job, use "Re-run failed jobs" on that Publish run (`gh run rerun <run-id> --failed`),
+within 30 days of it. Only what failed runs again, with the run's own commit and ref: it rebuilds the release
+commit, the `github-pages` environment still sees `main`, and `publish` and `notify` do not repeat. Past 30 days,
+use "Run workflow" on `docs-deploy.yml`, from `main`, as above; it builds `main`'s head. A failed `docs` job leaves
+the Publish run red although the package shipped.
 
 The docs site's version label comes from `docs/src/lib/site-meta.ts`, which `pnpm sync-version` writes
 from the root `package.json`. A release runs it as part of `pnpm changeset:prepare-release`, so the new
