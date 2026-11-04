@@ -283,6 +283,8 @@ export const PAIRS = [
   text("link text on the sidebar", "var(--sl-color-text-accent)", SIDEBAR),
   text("link text on a raised surface", "var(--sl-color-text-accent)", RAISED),
   text("header: NorthGuild wordmark", "var(--gmt-ice)", HEADER),
+  // The CLI version beside " / worktree" (the user, 2026-11-04: "smaller font ... and probably gray"): muted text.
+  text("header: the CLI version", "var(--sl-color-gray-3)", HEADER),
   text(
     'header: " / worktree" in the accent',
     "var(--sl-color-text-accent)",

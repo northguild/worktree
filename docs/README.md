@@ -175,9 +175,12 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 
 - **Header.** Starlight's own `Header` is kept, so search, the theme picker, the language select and the mobile menu are
   untouched; two of the components it renders are overridden. `src/components/SiteTitle.astro` is the NorthGuild mark and
-  "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home).
+  "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home),
+  then the CLI version (`cliVersion` from `src/lib/site-meta.ts`) in small grey text on the name's baseline, from 30rem up.
   `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, opening in a new tab and saying so in
-  their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only).
+  their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only),
+  and so is the wide header's grid: the search box keeps to the right, beside the GitHub link, on every page, where Starlight
+  would start it at the main column's edge (which moves with the sidebar and the table of contents).
 - **Sidebar as a git graph, and the leaf list markers (a hollow leaf for a nested item), and the growing link underline.** All in `src/styles/custom.css`, as
   CSS on Starlight's own markup: pseudo-elements with empty content, so nothing is added to the page, nothing decorative can take
   focus and nothing is announced. The graph's lengths are variables at the top of its rule (`--g-dot`, `--g-trunk`, ...), and the

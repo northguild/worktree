@@ -128,6 +128,22 @@ header.header {
   border-block-end-color: var(--gmt-border);
 }
 
+/* The search box sits at the right, beside the GitHub link, on every page (the user, 2026-11-04: it "seems to dance
+   around"). Starlight's wide header starts it at the main column's left edge, which moves with the sidebar and the
+   table of contents and is absent on the landing; here the middle column is all the free space and the box keeps to
+   its end, at Starlight's own 22rem at most. */
+@media (min-width: 50rem) {
+  header.header > .header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  header.header > .header > :nth-child(2) {
+    justify-content: flex-end;
+  }
+  header.header > .header > :nth-child(2) > site-search {
+    flex: 0 1 22rem;
+  }
+}
+
 /* Display type on the page title and section headings only, as on northguild.dev. */
 main h1,
 main h2 {
