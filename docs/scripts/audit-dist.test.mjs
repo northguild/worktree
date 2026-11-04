@@ -5,7 +5,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { auditDist, followDate, sourcePathOf } from "./audit-dist.mjs";
+import {
+  auditDist,
+  cyanFindings,
+  cyanLiterals,
+  followDate,
+  namesCyan,
+  sourcePathOf,
+} from "./audit-dist.mjs";
 
 // The audit is tested against a small compliant site built here, then broken one rule at a time. Expected
 // values come from plan §4.8 (what the audit asserts), D3 (URL form: https://northguild.dev/worktree/<path>/)
@@ -96,6 +103,19 @@ const THEME_SELECT =
   '<label><span class="sr-only">Select theme</span><select><option>Dark</option></select></label>';
 const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}${THEME_SELECT}${LAUNCHER}`;
 
+// Phase 13 (D17, northguild.dev's Header.astro at ade22a5): the header's two NorthGuild links and its two community
+// links, as the build renders them. The wording "(opens in a new tab)" is northguild.dev's own.
+const NORTHGUILD_LINK =
+  '<a href="https://northguild.dev/" class="wordmark"><svg aria-hidden="true"></svg><span>NorthGuild</span></a>';
+const PRODUCT_LINK = '<a href="/worktree/" class="product">worktree</a>';
+const community = (href, name, extra = "") =>
+  `<a ${extra || 'target="_blank" rel="noopener noreferrer"'} href="${href}" aria-label="NorthGuild on ${name} (opens in a new tab)"><svg aria-hidden="true"></svg></a>`;
+const GITHUB_LINK = community("https://github.com/northguild", "GitHub");
+const DISCORD_LINK = community("https://discord.gg/TdvQdP3t5a", "Discord");
+const header = (parts = {}) =>
+  `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
+const HEADER = header();
+
 function page(path, overrides = {}) {
   const description = overrides.description ?? descriptionOf(path);
   const editHref = overrides.editHref ?? `${EDIT_BASE}${sourceOf(path)}`;
@@ -116,7 +136,7 @@ function page(path, overrides = {}) {
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
     '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
-    `</head><body><h1>${heading}</h1>${overrides.edit ?? `<a href="${editHref}" class="sl-flex">Edit page</a>`}${overrides.updated ?? `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`}${overrides.controls ?? CONTROLS}${overrides.body ?? ""}</body></html>`,
+    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? `<a href="${editHref}" class="sl-flex">Edit page</a>`}${overrides.updated ?? `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`}${overrides.controls ?? CONTROLS}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -127,8 +147,9 @@ function notFoundPage(overrides = {}) {
     "<!doctype html><html><head><title>Page not found | @northguild/worktree</title>",
     overrides.head ?? "",
     "</head><body>",
+    overrides.header ?? HEADER,
     overrides.controls ?? CONTROLS,
-    "<h1>Page not found</h1>",
+    overrides.heading ?? "<h1>fatal: no such branch</h1>",
     overrides.link ?? '<a href="/worktree/">Getting Started</a>',
     "</body></html>",
   ].join("\n");
@@ -538,7 +559,7 @@ describe("auditDist", () => {
     it("accepts a name from visible text, aria-labelledby, aria-label or title", async () => {
       await withControls(
         "faq",
-        '<button>Cancel</button><button aria-labelledby="a"><svg></svg></button><button aria-label="Close"><svg></svg></button><button title="Copy"><div></div></button>',
+        '<button>Cancel</button><button aria-labelledby="a"><svg aria-hidden="true"></svg></button><button aria-label="Close"><svg aria-hidden="true"></svg></button><button title="Copy"><div></div></button>',
       );
       expect(await audit()).toEqual([]);
     });
@@ -782,5 +803,373 @@ describe("sourcePathOf", () => {
 
   it("returns undefined for a page with no source file", () => {
     expect(sourcePathOf("nowhere", content)).toBeUndefined();
+  });
+});
+
+// Phase 13. The header's expected links come from D17 (the mark and "NorthGuild" to https://northguild.dev/, "worktree" to
+// /worktree/) and from northguild.dev's Header.astro at ade22a5 (the GitHub and Discord hrefs, the new-tab wording). That a
+// name contains the visible text is WCAG 2.2 SC 2.5.3; that a control has a name at all is SC 4.1.2.
+describe("the product header", () => {
+  const withHeader = async (html) => {
+    await write(dist, htmlPath("faq"), page("faq", { header: html }));
+    return audit();
+  };
+
+  it("passes the header northguild.dev's design asks for", async () => {
+    expect(await withHeader(HEADER)).toEqual([]);
+  });
+
+  it("fails a page with no header", async () => {
+    const failures = await withHeader("");
+    expect(failures.some((f) => /faq.*no <header>/.test(f))).toBe(true);
+  });
+
+  it("fails when the NorthGuild link is missing or goes anywhere but the apex", async () => {
+    let failures = await withHeader(header({ northguild: "" }));
+    expect(
+      failures.some((f) => /0 links to https:\/\/northguild\.dev\//.test(f)),
+    ).toBe(true);
+    failures = await withHeader(
+      header({
+        northguild: NORTHGUILD_LINK.replace(
+          'href="https://northguild.dev/"',
+          'href="https://northguild.dev/gmt/"',
+        ),
+      }),
+    );
+    expect(
+      failures.some((f) => /0 links to https:\/\/northguild\.dev\//.test(f)),
+    ).toBe(true);
+  });
+
+  it('fails a NorthGuild link whose text is not "NorthGuild"', async () => {
+    const failures = await withHeader(
+      header({
+        northguild: NORTHGUILD_LINK.replace("NorthGuild</span>", "Home</span>"),
+      }),
+    );
+    expect(
+      failures.some((f) => /reads "Home", expected "NorthGuild"/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails when worktree does not link to the site's home, or its text differs", async () => {
+    let failures = await withHeader(
+      header({ product: '<a href="/worktree/faq/">worktree</a>' }),
+    );
+    expect(failures.some((f) => /0 links to \/worktree\//.test(f))).toBe(true);
+    failures = await withHeader(
+      header({ product: '<a href="/worktree/">docs</a>' }),
+    );
+    expect(
+      failures.some((f) => /reads "docs", expected "worktree"/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a second link to the same place (two names for one target)", async () => {
+    const failures = await withHeader(
+      header({ product: `${PRODUCT_LINK}${PRODUCT_LINK}` }),
+    );
+    expect(failures.some((f) => /2 links to \/worktree\//.test(f))).toBe(true);
+  });
+
+  it("fails a link whose aria-label leaves out its visible text (WCAG 2.5.3)", async () => {
+    const failures = await withHeader(
+      header({
+        product: '<a href="/worktree/" aria-label="Home page">worktree</a>',
+      }),
+    );
+    expect(
+      failures.some((f) =>
+        /"worktree".*does not contain its visible text/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts an aria-label that contains the visible text", async () => {
+    expect(
+      await withHeader(
+        header({
+          product:
+            '<a href="/worktree/" aria-label="worktree docs home">worktree</a>',
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("fails a community link missing, unnamed or without the new-tab wording", async () => {
+    let failures = await withHeader(header({ github: "" }));
+    expect(
+      failures.some((f) =>
+        /0 links to https:\/\/github\.com\/northguild/.test(f),
+      ),
+    ).toBe(true);
+    failures = await withHeader(
+      header({
+        discord:
+          '<a target="_blank" rel="noopener" href="https://discord.gg/TdvQdP3t5a"><svg aria-hidden="true"></svg></a>',
+      }),
+    );
+    expect(failures.some((f) => /Discord link is named ""/.test(f))).toBe(true);
+    failures = await withHeader(
+      header({ github: GITHUB_LINK.replace(" (opens in a new tab)", "") }),
+    );
+    expect(
+      failures.some((f) =>
+        /GitHub link is named "NorthGuild on GitHub"/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a community link that does not open in a new tab, or has no rel=noopener", async () => {
+    let failures = await withHeader(
+      header({
+        github: community(
+          "https://github.com/northguild",
+          "GitHub",
+          'rel="noopener"',
+        ),
+      }),
+    );
+    expect(
+      failures.some((f) => /GitHub link does not open in a new tab/.test(f)),
+    ).toBe(true);
+    failures = await withHeader(
+      header({
+        github: community(
+          "https://github.com/northguild",
+          "GitHub",
+          'target="_blank"',
+        ),
+      }),
+    );
+    expect(
+      failures.some((f) => /GitHub link has no rel="noopener"/.test(f)),
+    ).toBe(true);
+  });
+
+  it("checks 404.html's header too", async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({ header: header({ northguild: "" }) }),
+    );
+    expect((await audit()).some((f) => /404\.html: header:/.test(f))).toBe(
+      true,
+    );
+  });
+});
+
+describe("decorative graphics", () => {
+  const withBody = async (body) => {
+    await write(dist, htmlPath("faq"), page("faq", { body }));
+    return audit();
+  };
+
+  it("fails an svg that is neither hidden nor a named image", async () => {
+    const failures = await withBody("<svg viewBox='0 0 1 1'></svg>");
+    expect(
+      failures.some((f) => /faq.*<svg> is neither aria-hidden/.test(f)),
+    ).toBe(true);
+  });
+
+  it("accepts a hidden svg, a named image, and one inside a hidden span", async () => {
+    expect(
+      await withBody(
+        '<svg aria-hidden="true"></svg><svg role="img" aria-label="Twig"></svg><span aria-hidden="true"><svg></svg></span>',
+      ),
+    ).toEqual([]);
+  });
+
+  it("fails an image with role=img but no name", async () => {
+    expect((await withBody('<svg role="img"></svg>')).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("checks the 404's graphic too", async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({ heading: "<h1>fatal: no such branch</h1><svg></svg>" }),
+    );
+    expect((await audit()).some((f) => /404\.html.*<svg>/.test(f))).toBe(true);
+  });
+});
+
+describe("the 404 speaks git", () => {
+  it('fails a heading that is not a git error line ("fatal: ...")', async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({ heading: "<h1>Page not found</h1>" }),
+    );
+    expect(
+      (await audit()).some((f) => /404\.html.*git error line/.test(f)),
+    ).toBe(true);
+  });
+
+  it("accepts a heading with markup inside it", async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({
+        heading: '<h1 id="_top">fatal: <span>no such branch</span></h1>',
+      }),
+    );
+    expect(await audit()).toEqual([]);
+  });
+});
+
+// "No cyan accent left" (D17). The five literals are those the vendored tokens give a --gmt-cyan* variable at ade22a5:
+// tokens.css (dark) --gmt-cyan #22d3ee and --gmt-cyan-bright #67e8f9; tokens-light.css --gmt-cyan #0891b2,
+// --gmt-cyan-bright #0e7490 and --gmt-cyan-ink #045268. The rest of each case is the rule written in the audit's header: a
+// declaration naming cyan is a finding only when it is the cascade winner and something uses it.
+describe("no cyan accent left", () => {
+  const sheet = (css) => write(dist, "_astro/theme.abc.css", css);
+  const used = (selector = "a") =>
+    write(
+      dist,
+      "index.html",
+      page("", { body: `<div class="${selector.replace(/^\./, "")}"></div>` }),
+    );
+  const findings = () => cyanFindings(dist);
+
+  it("takes its literals from the vendored tokens", () => {
+    expect([...cyanLiterals()].sort()).toEqual([
+      "045268",
+      "0891b2",
+      "0e7490",
+      "22d3ee",
+      "67e8f9",
+    ]);
+  });
+
+  it.each([
+    ["var(--gmt-cyan)", true],
+    ["var( --gmt-cyan-ink )", true],
+    ["#22d3ee", true],
+    ["#22D3EE", true],
+    ["#22d3ee2e", true], // the same colour with an alpha byte, as a minifier writes rgba(34,211,238,.18)
+    ["rgb(34 211 238 / 8%)", true],
+    ["rgba(34, 211, 238, .18)", true],
+    ["rgb(8,145,178)", true], // 0891b2
+    ["color(from var(--gmt-cyan) srgb r g b / .2)", true],
+    ["var(--gmt-spring)", false],
+    ["#4ade80", false],
+    ["#22d3e0", false],
+    ["rgb(74 222 128)", false],
+  ])("reads %s as cyan: %s", (value, expected) => {
+    expect(namesCyan(value, cyanLiterals())).toBe(expected);
+  });
+
+  it("passes a build with no cyan", async () => {
+    await sheet(
+      "a{color:var(--gmt-spring-ink)}:root{--gmt-border:color(from var(--gmt-spring) srgb r g b/.18)}",
+    );
+    expect(await findings()).toEqual([]);
+  });
+
+  it("fails a rule the pages use that reads a cyan variable or a cyan literal", async () => {
+    await sheet("a{color:var(--gmt-cyan)}");
+    expect(await findings()).toHaveLength(1);
+    await sheet("a{border-color:#22d3ee}");
+    expect(await findings()).toHaveLength(1);
+  });
+
+  it("does not count the --gmt-cyan* definitions", async () => {
+    await sheet(
+      ":root{--gmt-cyan:#22d3ee;--gmt-cyan-bright:#67e8f9;--gmt-cyan-ink:var(--gmt-cyan)}[data-theme=light]{--gmt-cyan:#0891b2}",
+    );
+    expect(await findings()).toEqual([]);
+  });
+
+  it("does not count a vendored cyan value that a later declaration overrides", async () => {
+    await sheet(
+      "a{color:var(--gmt-hairline)}:root{--gmt-hairline:rgba(34,211,238,.18)}:root{--gmt-hairline:color-mix(in srgb,var(--gmt-spring) 18%,transparent)}",
+    );
+    expect(await findings()).toEqual([]);
+  });
+
+  it("counts a custom property a used rule reads, directly or through another", async () => {
+    await sheet(
+      "a{color:var(--b)}:root{--b:var(--a)}:root{--a:rgba(34,211,238,.18)}",
+    );
+    expect(await findings()).toHaveLength(1);
+  });
+
+  it("does not count a custom property nothing reads", async () => {
+    await sheet(":root{--gmt-series-1-wash:rgba(34,211,238,.18)}");
+    expect(await findings()).toEqual([]);
+  });
+
+  it("counts a light-theme cyan value when it comes after the :root override, not before it", async () => {
+    // :root and [data-theme=light] have equal specificity, so the later one wins in the light theme.
+    await sheet(
+      "a{color:var(--x)}[data-theme=light]{--x:#0891b2}:root{--x:var(--gmt-spring)}",
+    );
+    expect(await findings()).toEqual([]);
+    await sheet(
+      "a{color:var(--x)}:root{--x:var(--gmt-spring)}[data-theme=light]{--x:#0891b2}",
+    );
+    expect(await findings()).toHaveLength(1);
+  });
+
+  it("ignores a rule for a class no page or script uses (the vendored widgets)", async () => {
+    await sheet(".gmt-field{border-color:var(--gmt-cyan)}");
+    expect(await findings()).toEqual([]);
+    await used(".gmt-field");
+    expect(await findings()).toHaveLength(1);
+  });
+
+  it("reads a class used only by a script as used", async () => {
+    await sheet(".widget-xyz{color:#67e8f9}");
+    expect(await findings()).toEqual([]);
+    await write(dist, "_astro/page.abc.js", "el.className='widget-xyz';");
+    expect(await findings()).toHaveLength(1);
+  });
+
+  it("counts a keyframe only when a used rule names it", async () => {
+    await sheet("@keyframes ping{from{box-shadow:0 0 0 2px var(--gmt-cyan)}}");
+    expect(await findings()).toEqual([]);
+    await sheet(
+      "@keyframes ping{from{box-shadow:0 0 0 2px var(--gmt-cyan)}}a{animation:ping 1s}",
+    );
+    expect(await findings()).toHaveLength(1);
+  });
+
+  it("looks inside at-rules and inline styles", async () => {
+    await sheet("@media (min-width:50rem){a{color:var(--gmt-cyan)}}");
+    expect(await findings()).toHaveLength(1);
+    await sheet("");
+    await write(
+      dist,
+      "index.html",
+      page("", { body: '<p style="color:#22d3ee">x</p>' }),
+    );
+    expect(await findings()).toHaveLength(1);
+  });
+
+  it("fails cyan in the HTML text or in a script", async () => {
+    await write(
+      dist,
+      "index.html",
+      page("", {
+        body: '<svg aria-hidden="true"><path stroke="#67e8f9"/></svg>',
+      }),
+    );
+    expect((await findings()).some((f) => /HTML names cyan/.test(f))).toBe(
+      true,
+    );
+    await write(dist, "index.html", page(""));
+    await write(dist, "_astro/page.abc.js", "const c='var(--gmt-cyan)';");
+    expect((await findings()).some((f) => /script names cyan/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("is part of the audit", async () => {
+    await sheet("a{color:var(--gmt-cyan)}");
+    expect((await audit()).some((f) => /uses cyan/.test(f))).toBe(true);
   });
 });

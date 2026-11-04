@@ -102,7 +102,13 @@ source file that exists; across the site, a sitemap and an `llms.txt` (llmstxt.o
 URLs, a `404.html` (with the site's search, a link to Getting Started, and no canonical link or JSON-LD), Getting Started text in the root page's HTML, and no `shuding/nextra` string. The date rule is only meaningful on
 full git history (CI uses `fetch-depth: 0`): on a shallow clone Starlight and the oracle both read the same truncated log. It prints every failed rule, one line each, and
 exits 1 on any. To run it by hand: `pnpm docs:build && pnpm docs:audit-dist`, or point it at another build with
-`node docs/scripts/audit-dist.mjs <dir>`. It also checks accessible names on every page and the 404 (each button named, a name beside visible text containing it, each `<select>` labelled, the search button, and the chat launcher's `aria-keyshortcuts="Alt+Shift+C"`) and that the built CSS gives `[role=tab]` a minimum height of at least 44px; the search *input* is made in the browser and is checked there. `og:image` is not checked until the preview image is decided
+`node docs/scripts/audit-dist.mjs <dir>`. It also checks accessible names on every page and the 404 (each button named, a name beside visible text containing it, each `<select>` labelled, the search button, and the chat launcher's `aria-keyshortcuts="Alt+Shift+C"`) and that the built CSS gives `[role=tab]` a minimum height of at least 44px; the search *input* is made in the browser and is checked there.
+Phase 13 added: on every page and the 404, the header's two NorthGuild links (`https://northguild.dev/` reading "NorthGuild", `/worktree/` reading
+"worktree"), each named by its own visible text, and the GitHub and Discord links (new tab, `rel=noopener`, "(opens in a new tab)" in the name); every `<svg>`
+hidden or a named image; the 404's heading a git error line (`fatal: ...`); and no cyan: it reads the `--gmt-cyan*` variables and their literal colours
+from the vendored tokens and fails if any reaches a used rule, a used custom property, the HTML or a script in the build (the vendored definitions, rules for
+classes no page uses and values `theme.css` overrides are not findings). The contrast of every themed pair is separate: `node docs/scripts/theme-contrast.mjs`
+prints it, and its test in `pnpm docs:test` fails under 4.5:1 (text) or 3:1 (controls, rings). `og:image` is not checked until the preview image is decided
 (`PREVIEW_IMAGE_DECIDED` in the script). The script's own test,
 `docs/scripts/audit-dist.test.mjs`, runs under `pnpm docs:test` (the docs Vitest config takes any `*.test.mjs`).
 Added 2026-11-04 for #235 and run from the repo root of a worktree that day, exiting 0. CI runs `pnpm docs:build` then

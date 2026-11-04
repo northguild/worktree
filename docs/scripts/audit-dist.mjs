@@ -22,6 +22,13 @@
  * JSON-LD (it is not a page of the site, so it must not point at one). The search *input* is made by Pagefind in the
  * browser and is not in the HTML: its label is a real-browser check.
  *
+ * Also (phase 13, the product header and the spring theme): every page's header has the two NorthGuild links of D17 (the
+ * mark and "NorthGuild" to https://northguild.dev/, "worktree" to /worktree/), each named by its own visible text, and the
+ * GitHub and Discord icon links, each opening in a new tab and saying so in its name; every `<svg>` is either hidden from
+ * assistive technology or named (a decorative graphic is never announced); `404.html` speaks git (`fatal: ...`); and no
+ * cyan reaches a rule or file the site uses (see `cyanFindings`: the `--gmt-cyan*` variables and their literal colours
+ * from the vendored tokens, in the built CSS, the HTML and the scripts).
+ *
  * Not asserted yet, because the thing it checks does not exist until a later phase:
  *   - `og:image` / `twitter:image` (plan §9 Q3: the preview image is undecided). Set PREVIEW_IMAGE_DECIDED to
  *     true when it is; the rule is then a one-line addition in `auditPage`.
@@ -171,6 +178,382 @@ const CHAT_SHORTCUT_ARIA = "Alt+Shift+C";
 const MIN_TAB_HEIGHT_PX = 44;
 // A rem is the root font size, 16px unless the site changes it; the site does not.
 const PX_PER_REM = 16;
+
+// ---- Phase 13: the header's links, hidden decoration, and no cyan -----------------------------------------------------
+
+// D17: the mark and "NorthGuild" are one link to the apex; "worktree" is a second link to this site's home.
+const NORTHGUILD_HREF = "https://northguild.dev/";
+const PRODUCT_HREF = "/worktree/";
+// The community links of northguild.dev's Header.astro at ade22a5, and the wording the header must use for a link
+// that opens a new tab ("(opens in a new tab)", the same as northguild.dev).
+const COMMUNITY_LINKS = Object.freeze([
+  { href: "https://github.com/northguild", names: "GitHub" },
+  { href: "https://discord.gg/TdvQdP3t5a", names: "Discord" },
+]);
+const NEW_TAB_WORDING = "(opens in a new tab)";
+
+/** The page's `<header>` element, from its opening tag to its closing tag; "" when it has none. */
+function headerOf(html) {
+  const open = html.indexOf("<header");
+  const close = html.indexOf("</header>");
+  return open === -1 || close === -1 ? "" : html.slice(open, close);
+}
+
+/** What the sighted see of a link: its text without icons or screen-reader-only text. */
+const linkVisibleText = (inner) => visibleLabel(inner);
+
+/**
+ * The header's links (WCAG 4.1.2 name, 2.5.3 label in name): the two NorthGuild links exist, resolve where D17 says and
+ * are named by their own text; the community icons open in a new tab, say so, and carry `rel=noopener`.
+ */
+function auditHeader(html, where) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: header: ${rule}`);
+  const header = headerOf(html);
+  if (header === "") {
+    fail("no <header> element");
+    return failures;
+  }
+  const links = [...header.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map(
+    ([, rawAttrs, inner]) => ({
+      attrs: attributes(rawAttrs),
+      visible: linkVisibleText(inner),
+      inner,
+    }),
+  );
+  const named = (link) =>
+    (link.attrs["aria-label"] ?? "").trim() || linkVisibleText(link.inner);
+
+  const apex = links.filter((l) => l.attrs.href === NORTHGUILD_HREF);
+  if (apex.length !== 1)
+    fail(`${apex.length} links to ${NORTHGUILD_HREF}, expected exactly 1`);
+  else if (apex[0].visible !== "NorthGuild")
+    fail(
+      `the link to ${NORTHGUILD_HREF} reads "${apex[0].visible}", expected "NorthGuild"`,
+    );
+  const product = links.filter((l) => l.attrs.href === PRODUCT_HREF);
+  if (product.length !== 1)
+    fail(`${product.length} links to ${PRODUCT_HREF}, expected exactly 1`);
+  else if (product[0].visible !== "worktree")
+    fail(
+      `the link to ${PRODUCT_HREF} reads "${product[0].visible}", expected "worktree"`,
+    );
+  for (const link of [...apex, ...product]) {
+    const name = named(link);
+    if (name === "") fail(`link to ${link.attrs.href} has no accessible name`);
+    else if (!name.toLowerCase().includes(link.visible.toLowerCase()))
+      fail(
+        `link "${link.visible}": its name "${name}" does not contain its visible text (WCAG 2.5.3)`,
+      );
+  }
+
+  for (const { href, names } of COMMUNITY_LINKS) {
+    const found = links.filter((l) => l.attrs.href === href);
+    if (found.length !== 1) {
+      fail(`${found.length} links to ${href}, expected exactly 1`);
+      continue;
+    }
+    const [link] = found;
+    const name = named(link);
+    if (!name.includes(names) || !name.includes(NEW_TAB_WORDING))
+      fail(
+        `the ${names} link is named "${name}", expected it to say "${names}" and "${NEW_TAB_WORDING}"`,
+      );
+    if (link.attrs.target !== "_blank")
+      fail(`the ${names} link does not open in a new tab (target="_blank")`);
+    if (!/\bnoopener\b/.test(link.attrs.rel ?? ""))
+      fail(`the ${names} link has no rel="noopener"`);
+  }
+  return failures;
+}
+
+/** Every `<svg>` is hidden from assistive technology, or is an image with a name: decoration is never announced. */
+function auditSvgs(page, where) {
+  const failures = [];
+  // A graphic inside an element that is itself aria-hidden (Starlight's heading anchor icons) is hidden with it.
+  let html = page;
+  for (const element of ["span", "div"])
+    html = withoutElements(
+      html,
+      element,
+      new RegExp(`<${element}\\b[^>]*aria-hidden="true"[^>]*>`),
+    );
+  for (const [open] of html.matchAll(/<svg\b[^>]*>/g)) {
+    const attrs = attributes(open.slice(4, -1));
+    const hidden = attrs["aria-hidden"] === "true";
+    const named =
+      attrs.role === "img" &&
+      ((attrs["aria-label"] ?? "").trim() !== "" ||
+        (attrs["aria-labelledby"] ?? "").trim() !== "");
+    if (!hidden && !named)
+      failures.push(
+        `${where}: <svg> is neither aria-hidden="true" nor a named role="img" (${open.slice(0, 60)})`,
+      );
+  }
+  return failures;
+}
+
+// ---- no cyan ------------------------------------------------------------------------------------------------------
+
+const VENDORED_DIR = join(here, "../src/styles/northguild");
+
+/** The literal colours of the vendored `--gmt-cyan*` definitions (`22d3ee`, `67e8f9`, ...), lowercase, no `#`. */
+export function cyanLiterals(dir = VENDORED_DIR) {
+  const literals = new Set();
+  for (const file of ["tokens.css", "tokens-light.css"]) {
+    const css = readFileSync(join(dir, file), "utf8");
+    for (const [, hex] of css.matchAll(
+      /--gmt-cyan[\w-]*\s*:\s*#([0-9a-fA-F]{6})\b/g,
+    ))
+      literals.add(hex.toLowerCase());
+  }
+  return literals;
+}
+
+/** Whether a declaration value names cyan: a `var(--gmt-cyan...)`, or one of `literals` as hex (with or without alpha) or as rgb(). */
+export function namesCyan(value, literals) {
+  if (/var\(\s*--gmt-cyan/.test(value)) return true;
+  const lower = value.toLowerCase();
+  for (const hex of literals) {
+    if (new RegExp(`#${hex}(?![0-9a-f]{3})`).test(lower)) return true;
+    const [r, g, b] = [0, 2, 4].map((k) =>
+      Number.parseInt(hex.slice(k, k + 2), 16),
+    );
+    if (new RegExp(`rgba?\\(\\s*${r}[\\s,]+${g}[\\s,]+${b}\\b`).test(lower))
+      return true;
+  }
+  return false;
+}
+
+/** The index of the `}` closing the block that opens at `open`, skipping strings. */
+function closingBrace(css, open) {
+  let depth = 0;
+  let quote = "";
+  for (let i = open; i < css.length; i++) {
+    const ch = css[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = "";
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return i;
+  }
+  return css.length;
+}
+
+/** Splits at `separator` outside parentheses and quotes. */
+function splitOutside(text, separator) {
+  const parts = [];
+  let depth = 0;
+  let quote = "";
+  let current = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      current += ch;
+      if (ch === "\\") current += text[++i] ?? "";
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === separator && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+function declarationsOf(body) {
+  return splitOutside(body, ";").flatMap((declaration) => {
+    const colon = declaration.indexOf(":");
+    if (colon === -1) return [];
+    return [
+      [
+        declaration.slice(0, colon).trim().toLowerCase(),
+        declaration.slice(colon + 1).trim(),
+      ],
+    ];
+  });
+}
+
+/**
+ * Style rules and keyframes of a stylesheet, flattened: `{ chain, selector, declarations }` where `chain` is the
+ * enclosing at-rules (`@media ...`, `@layer ...`). The built CSS is minified and not nested.
+ */
+export function parseStylesheet(
+  css,
+  chain = [],
+  out = { rules: [], keyframes: [] },
+) {
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  let i = 0;
+  while (i < source.length) {
+    const open = source.indexOf("{", i);
+    const semicolon = source.indexOf(";", i);
+    if (semicolon !== -1 && (open === -1 || semicolon < open)) {
+      i = semicolon + 1; // @import, @charset, @layer a, b;
+      continue;
+    }
+    if (open === -1) break;
+    const prelude = source.slice(i, open).trim();
+    const close = closingBrace(source, open);
+    const body = source.slice(open + 1, close);
+    i = close + 1;
+    if (prelude.startsWith("@keyframes") || /^@-\w+-keyframes/.test(prelude))
+      out.keyframes.push({ name: prelude.split(/\s+/)[1], body });
+    else if (prelude.startsWith("@font-face")) continue;
+    else if (prelude.startsWith("@"))
+      parseStylesheet(body, [...chain, prelude], out);
+    else
+      out.rules.push({
+        chain,
+        selector: prelude,
+        declarations: declarationsOf(body),
+      });
+  }
+  return out;
+}
+
+/** `selector` without its `:not(...)`, `:where(...)` and `:is(...)` groups, which do not require a class to exist. */
+function withoutGroups(selector) {
+  let out = selector;
+  for (let guard = 0; guard < 10; guard++) {
+    const next = out.replace(/:(?:not|where|is)\([^()]*\)/g, "");
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/**
+ * Where cyan still reaches something the site uses, as one line each. The site's accent is spring (D17); gmt's cyan
+ * survives only where nothing can show it. For the built `dist`:
+ *
+ *  - It reads every stylesheet and every `<style>` and `style=""` in the HTML, and looks at each declaration whose value
+ *    names cyan: `var(--gmt-cyan...)`, or a literal colour that the vendored tokens give a `--gmt-cyan*` variable
+ *    (`cyanLiterals`), as hex or `rgb()`.
+ *  - The `--gmt-cyan*` definitions themselves are not findings (the vendored tokens define them).
+ *  - Per selector and property the last declaration wins, so a vendored cyan value that theme.css re-declares is
+ *    overridden, not a finding.
+ *  - A declaration counts only if something uses it. A rule is used when every class or id in its selector appears
+ *    in a page's HTML or in a script (the vendored widget rules, such as `.gmt-field`, are not). A custom property is
+ *    used when a used declaration reads it with `var()`, directly or through other used custom properties.
+ *    A keyframe is used when a used declaration names it.
+ *  - Outside stylesheets: a cyan literal or `--gmt-cyan` in the HTML text or in a script is a finding.
+ */
+export async function cyanFindings(dist, literals = cyanLiterals()) {
+  const files = await filesUnder(dist);
+  const sheets = []; // { origin, css }
+  const words = new Set();
+  const findings = [];
+  const wordsIn = (text) => {
+    for (const [word] of text.matchAll(/[\w-]{2,}/g)) words.add(word);
+  };
+  for (const file of files) {
+    const origin = file.slice(dist.length + 1);
+    if (file.endsWith(".css")) {
+      sheets.push({ origin, css: await readFile(file, "utf8") });
+    } else if (file.endsWith(".html")) {
+      const html = await readFile(file, "utf8");
+      for (const [, css] of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g))
+        sheets.push({ origin: `${origin} <style>`, css });
+      for (const [, inline] of html.matchAll(/\sstyle="([^"]*)"/g))
+        sheets.push({
+          origin: `${origin} style=""`,
+          css: `x{${decode(inline)}}`,
+        });
+      for (const [, names] of html.matchAll(/\sclass="([^"]*)"/g))
+        wordsIn(names);
+      const prose = html.replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, "");
+      if (namesCyan(prose.replace(/\sstyle="[^"]*"/g, ""), literals))
+        findings.push(`${origin}: the HTML names cyan`);
+    } else if (file.endsWith(".js") || file.endsWith(".mjs")) {
+      const script = await readFile(file, "utf8");
+      wordsIn(script);
+      if (namesCyan(script, literals))
+        findings.push(`${origin}: the script names cyan`);
+    }
+  }
+
+  // The last declaration of each (chain, selector, property) wins; one entry per single selector of a list.
+  const effective = new Map();
+  for (const { origin, css } of sheets) {
+    const { rules, keyframes } = parseStylesheet(css);
+    for (const { chain, selector, declarations } of rules) {
+      for (const single of splitOutside(selector, ",").map((s) => s.trim())) {
+        const classes = [
+          ...withoutGroups(single).matchAll(/[.#]([\w-]+)/g),
+        ].map((m) => m[1]);
+        const used = classes.every((c) => words.has(c));
+        // `:root` and `[data-theme=light]` have equal specificity, so the later of the two wins in the light theme
+        // and only `:root` counts in the dark one: two views of the same cascade, each with its own winner.
+        const normal = single.replace(/["']/g, "").replace(/\s+/g, "");
+        const views =
+          normal === ":root"
+            ? ["dark", "light"]
+            : normal === "[data-theme=light]"
+              ? ["light"]
+              : [single];
+        for (const [property, value] of declarations) {
+          const entry = { origin, selector: single, property, value, used };
+          for (const view of views)
+            effective.set(`${chain.join("|")}|${view}|${property}`, entry);
+        }
+      }
+    }
+    for (const { name, body } of keyframes)
+      effective.set(`@keyframes|${name}`, { keyframes: name, body, origin });
+  }
+
+  // What the used declarations read: custom properties through var(), keyframes by name.
+  const declarations = [...new Set(effective.values())].filter(
+    (d) => d.property !== undefined,
+  );
+  const readProperties = new Set();
+  const usedKeyframes = new Set();
+  const read = (value) => {
+    for (const [, name] of value.matchAll(/var\(\s*(--[\w-]+)/g))
+      readProperties.add(name);
+    for (const { keyframes } of effective.values())
+      if (
+        keyframes &&
+        new RegExp(`(^|[\\s,:])${keyframes}([\\s,;]|$)`).test(value)
+      )
+        usedKeyframes.add(keyframes);
+  };
+  for (const d of declarations)
+    if (d.used && !d.property.startsWith("--")) read(d.value);
+  for (let grew = true; grew; ) {
+    grew = false;
+    const before = readProperties.size;
+    for (const d of declarations)
+      if (d.used && readProperties.has(d.property)) read(d.value);
+    grew = readProperties.size > before;
+  }
+
+  for (const d of declarations) {
+    if (!d.used || !namesCyan(d.value, literals)) continue;
+    if (/^--gmt-cyan/.test(d.property)) continue; // a definition
+    if (d.property.startsWith("--") && !readProperties.has(d.property))
+      continue; // nothing reads it
+    findings.push(
+      `${d.origin}: ${d.selector} { ${d.property}: ${d.value} } uses cyan`,
+    );
+  }
+  for (const k of effective.values()) {
+    if (
+      k.keyframes &&
+      usedKeyframes.has(k.keyframes) &&
+      namesCyan(k.body, literals)
+    )
+      findings.push(`${k.origin}: @keyframes ${k.keyframes} uses cyan`);
+  }
+  return findings;
+}
 
 const textOf = (html) =>
   decode(html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ")).trim();
@@ -382,6 +765,8 @@ async function auditPage(path, dist, descriptions, options) {
     fail("loads chat code before it is activated");
 
   failures.push(...auditControls(html, label(path)));
+  failures.push(...auditHeader(html, label(path)));
+  failures.push(...auditSvgs(html, label(path)));
 
   // Last updated (D11): the rendered <time> must be the independently computed date.
   const times = tagsOf(html, "time");
@@ -492,8 +877,18 @@ async function auditLlms(dist, descriptions) {
 
 /** The 404: the site's search, a link to Getting Started, and nothing that names a URL the site does not have. */
 function auditNotFound(html) {
-  const failures = auditControls(html, "404.html");
+  const failures = [
+    ...auditControls(html, "404.html"),
+    ...auditHeader(html, "404.html"),
+    ...auditSvgs(html, "404.html"),
+  ];
   const fail = (rule) => failures.push(`404.html: ${rule}`);
+  // The 404 speaks git (phase 13): the heading is a git error line, which begins "fatal: " in git's own output.
+  const heading = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/);
+  if (!heading || !/^fatal: \S/.test(textOf(heading[1])))
+    fail(
+      'the heading is not a git error line (expected it to begin "fatal: ")',
+    );
   if (tagsOf(html, "link").some((l) => l.rel === "canonical"))
     fail("has a canonical link, but /404/ is not a page of the site");
   if (/<script type="application\/ld\+json">/.test(html))
@@ -535,6 +930,8 @@ async function auditSite(dist) {
   } catch {
     failures.push("404.html is missing");
   }
+
+  failures.push(...(await cyanFindings(dist)));
 
   const heights = [];
   for (const file of await filesUnder(dist)) {

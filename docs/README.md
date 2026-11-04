@@ -149,6 +149,44 @@ that commit's bytes, so **never edit them in place**. `src/styles/theme.css` is 
 follows the visitor's system through Starlight's theme picker, which sets `data-theme` on `<html>`.
 The header's NorthGuild mark is `src/components/SiteTitle.astro`, copied the same way.
 
+### The accent, and how a product picks its colour
+
+Each product keeps the NorthGuild style with its own accent (plan #235, D17): gmt's is cyan, worktree's is
+spring green. The vendored tokens define both families (`--gmt-cyan`, `--gmt-spring`, each with an `-ink`
+tier that the light theme darkens for text). **The accent is chosen in one place, `src/styles/theme.css`**:
+`--sl-color-accent` (fills, borders, rings: 3:1) takes the fill tier and `--sl-color-text-accent`,
+`--sl-color-accent-high` and the chat's `--color-chat-accent-ink` (in `globals.css`) take the ink tier (text: 4.5:1).
+To move to another family, change those mappings, the focus-ring colour, the launcher in `globals.css`, the
+re-derived hairline, border and selection tokens, and the two `--gmt-teal` lines in `theme.css` (the vendored tokens
+tint hairlines, glass and fills with cyan, and the vendored files are never edited). Then run:
+
+- `node docs/scripts/theme-contrast.mjs` prints every foreground/background pair in both themes with its ratio
+  and exits 1 under 4.5:1 (text) or 3:1 (controls, focus rings, and the dots and marks that carry meaning). It
+  resolves the colours from the CSS itself, so a changed mapping is measured, not assumed. `pnpm docs:test` runs
+  the same check.
+- `pnpm docs:build && pnpm docs:audit-dist` fails if the old family still reaches anything the site uses: it reads the
+  `--gmt-cyan*` variables and their literal colours out of the vendored tokens and searches the built CSS, HTML and
+  scripts. The vendored files' own definitions, rules for classes no page uses, and values that `theme.css` overrides
+  remain by design and are not findings.
+
+If gmt adopts the same accent it moves into `@northguild/theme`, and these overrides go with it.
+
+### The header, the sidebar and the page details
+
+- **Header.** Starlight's own `Header` is kept, so search, the theme picker, the language select and the mobile menu are
+  untouched; two of the components it renders are overridden. `src/components/SiteTitle.astro` is the NorthGuild mark and
+  "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home).
+  `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, opening in a new tab and saying so in
+  their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only).
+- **Sidebar as a git graph, and the leaf and branch-tip list markers, and the growing link underline.** All in `src/styles/custom.css`, as
+  CSS on Starlight's own markup: pseudo-elements with empty content, so nothing is added to the page, nothing decorative can take
+  focus and nothing is announced. The graph's lengths are variables at the top of its rule (`--g-dot`, `--g-trunk`, ...), and the
+  dots, elbow and lines are derived from them, so change a length there and not in each rule. Every transition is switched off
+  under `prefers-reduced-motion: reduce`.
+- **The 404** (`src/content/docs/404.md`) is a splash page headed `fatal: no such branch`, with a broken-twig graphic
+  (inline SVG, `aria-hidden`). `audit-dist.mjs` asserts the heading is a git error line and that every `<svg>` on every page is
+  hidden or named.
+
 To refresh: `git -C <northguild.dev clone> show origin/main:packages/theme/<file>` into the same path, put a
 new header above it naming the new commit, copy the font the same way, then check that every
 `var(--gmt-*)` in `theme.css` and `SiteTitle.astro` is still defined and that body text, muted text,

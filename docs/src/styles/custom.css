@@ -8,3 +8,221 @@
 starlight-tabs .tab > [role="tab"] {
   min-block-size: 44px;
 }
+
+/*
+ * The docs as a git repository (plan #235, phase 13, D17). Everything below is decoration drawn with CSS on
+ * markup Starlight already renders: pseudo-elements with `content: ""`, so nothing is added to the DOM, nothing
+ * decorative can take focus, and nothing is announced. Meaning stays in the existing markup: the links, the
+ * disclosure groups and `aria-current="page"`. Colour comes from the accent tokens (theme.css); a state is never
+ * told by colour alone: the current page is a larger, filled dot with a ring, the others are small and hollow,
+ * a group is a diamond.
+ */
+
+/* ---- The sidebar as a git graph ----
+ * The top level is the trunk (main): a vertical line with a commit dot beside each entry. A group (Commands,
+ * Guides) forks off it: a diamond on the trunk, an elbow out to its own line, and a dot per page on that line.
+ * Every offset below is derived from these few lengths so the dots and lines stay on one axis.
+ */
+.sidebar-content ul.top-level {
+  --g-dot: 0.6rem;
+  --g-line: 2px;
+  --g-gutter: 1.5rem; /* room left of the entries for the trunk and its dots */
+  --g-trunk: 0.5rem; /* the trunk's centre line, from the list's left edge */
+  --g-branch: 0.75rem; /* a branch's centre line, from the left edge of the group's entries */
+  --g-branch-gutter: 1.5rem; /* room left of a branch's entries */
+  --g-color: var(--gmt-border-strong);
+  --g-ink: var(--gmt-spring-ink);
+  position: relative;
+  padding-inline-start: var(--g-gutter);
+}
+.sidebar-content ul.top-level::before {
+  content: "";
+  position: absolute;
+  inset-block: 0.75rem;
+  inset-inline-start: calc(var(--g-trunk) - var(--g-line) / 2);
+  inline-size: var(--g-line);
+  background: var(--g-color);
+}
+
+/* A commit: a small hollow dot, centred on its line, drawn from the link's own box. */
+.sidebar-content ul.top-level a,
+.sidebar-content ul.top-level summary {
+  position: relative;
+}
+.sidebar-content ul.top-level a::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: calc(var(--g-trunk) - var(--g-gutter) - var(--g-dot) / 2);
+  inline-size: var(--g-dot);
+  block-size: var(--g-dot);
+  box-sizing: border-box;
+  border: var(--g-line) solid var(--g-ink);
+  border-radius: 50%;
+  background: var(--sl-color-bg-sidebar);
+  transform: translateY(-50%);
+  transition: background var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+/* HEAD: the current page. Larger, solid, and ringed, so it differs in shape and size from every other dot. */
+.sidebar-content ul.top-level a[aria-current="page"]::before {
+  inline-size: calc(var(--g-dot) + 0.3rem);
+  block-size: calc(var(--g-dot) + 0.3rem);
+  inset-inline-start: calc(
+    var(--g-trunk) -
+    var(--g-gutter) -
+    (var(--g-dot) + 0.3rem) /
+    2
+  );
+  background: var(--g-ink);
+  box-shadow:
+    0 0 0 3px var(--sl-color-bg-sidebar),
+    0 0 0 5px var(--g-ink);
+}
+
+/* A group forks off the trunk: a diamond where it leaves... */
+.sidebar-content ul.top-level summary::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: calc(var(--g-trunk) - var(--g-gutter) - var(--g-dot) / 2);
+  inline-size: var(--g-dot);
+  block-size: var(--g-dot);
+  box-sizing: border-box;
+  border: var(--g-line) solid var(--g-ink);
+  background: var(--sl-color-bg-sidebar);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+/* ... an elbow out to the branch's own line, which the entries' dots then sit on. */
+.sidebar-content ul.top-level details > ul {
+  position: relative;
+}
+.sidebar-content ul.top-level details > ul::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(
+    var(--g-trunk) -
+    var(--g-gutter) -
+    var(--g-line) /
+    2
+  );
+  inset-block-start: -0.9rem;
+  inline-size: calc(
+    var(--g-branch) +
+    var(--g-gutter) -
+    var(--g-trunk) +
+    var(--g-line) /
+    2
+  );
+  block-size: 1.4rem;
+  border-inline-start: var(--g-line) solid var(--g-color);
+  border-block-end: var(--g-line) solid var(--g-color);
+  border-end-start-radius: 0.9rem;
+}
+.sidebar-content ul.top-level details > ul::after {
+  content: "";
+  position: absolute;
+  inset-block: 0.5rem 0.75rem;
+  inset-inline-start: calc(var(--g-branch) - var(--g-line) / 2);
+  inline-size: var(--g-line);
+  background: var(--g-color);
+}
+/* Starlight's own 1px rule beside nested entries is replaced by the branch line above. */
+.sidebar-content ul.top-level details > ul > li {
+  margin-inline-start: 0;
+  border-inline-start: 0;
+  padding-inline-start: var(--g-branch-gutter);
+}
+.sidebar-content ul.top-level details > ul a::before {
+  inset-inline-start: calc(
+    var(--g-branch) -
+    var(--g-branch-gutter) -
+    var(--g-dot) /
+    2
+  );
+}
+.sidebar-content ul.top-level details > ul a[aria-current="page"]::before {
+  inset-inline-start: calc(
+    var(--g-branch) -
+    var(--g-branch-gutter) -
+    (var(--g-dot) + 0.3rem) /
+    2
+  );
+}
+
+/* Hover or keyboard focus fills the dot, so the entry about to be checked out is marked on the graph too. */
+.sidebar-content ul.top-level
+  a:not([aria-current="page"]):is(:hover, :focus-visible)::before {
+  background: var(--g-ink);
+}
+
+/* ---- Leaves and branch tips ----
+ * In the page text a list item is a leaf, a nested one a branch tip. The real marker stays in place (so the list is
+ * still a list to every browser and screen reader) and is only made transparent; the shape is a mask, painted in
+ * the ink tier. In forced-colors mode the real marker is left alone.
+ */
+@media (forced-colors: none) {
+  .sl-markdown-content
+    ul:not(:where(.not-content *, .contains-task-list))
+    > li {
+    position: relative;
+  }
+  .sl-markdown-content
+    ul:not(:where(.not-content *, .contains-task-list))
+    > li::marker {
+    color: transparent;
+  }
+  .sl-markdown-content
+    ul:not(:where(.not-content *, .contains-task-list))
+    > li::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: -1.45rem;
+    inset-block-start: 0.45em;
+    inline-size: 0.85em;
+    block-size: 0.85em;
+    background: var(--gmt-spring-ink);
+    -webkit-mask: var(--leaf) center / contain no-repeat;
+    mask: var(--leaf) center / contain no-repeat;
+    --leaf: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 14C2 7 6 2 14 2c0 7-4 12-12 12Z'/%3E%3C/svg%3E");
+  }
+  .sl-markdown-content
+    ul:not(:where(.not-content *, .contains-task-list))
+    ul
+    > li::before {
+    --leaf: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M2 14 8 8m0 0V3m0 5 5-2'/%3E%3C/svg%3E");
+  }
+}
+
+/* ---- Links whose underline grows ----
+ * The text keeps its ordinary underline (colour alone must not mark a link, WCAG 1.4.1); on hover or keyboard focus a
+ * heavier bar in the accent grows beneath it, left to right. Heading anchors and link-buttons are left as Starlight draws them.
+ */
+.sl-markdown-content
+a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)) {
+  background:
+    linear-gradient(var(--gmt-spring-ink), var(--gmt-spring-ink)) left bottom /
+    0 2px no-repeat;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-size var(--gmt-duration-med) var(--gmt-easing);
+}
+.sl-markdown-content
+  a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)):is(
+    :hover,
+    :focus-visible
+  ) {
+  background-size: 100% 2px;
+}
+
+/* No motion for a visitor who asks for none: the bar and the dots simply appear. */
+@media (prefers-reduced-motion: reduce) {
+  .sl-markdown-content a,
+  .sidebar-content ul.top-level a,
+  .sidebar-content ul.top-level a::before,
+  .sidebar-content ul.top-level summary::before {
+    transition: none;
+    animation: none;
+  }
+}

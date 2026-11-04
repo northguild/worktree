@@ -33,7 +33,7 @@ docs/                 Astro 7 + Starlight docs site, React 19 islands, Base UI; 
 docs/src/content/docs/ Starlight pages (23 pages: `index.mdx` is Getting Started, plus `commands/` (7 command pages and an index), `guides/` (9 guides and an index), `configuration`, `project-configuration`, `faq` and `changelog`)
 docs/src/             chat client, site metadata, styles
 docs/src/styles/northguild/ the NorthGuild theme, vendored unedited from `northguild/northguild.dev` `packages/theme/` (each file's header names the commit); `docs/src/styles/theme.css` is this site's own `--gmt-*` → `--sl-*` mapping. To refresh, see `docs/README.md` (Theme)
-docs/wrangler.jsonc   the docs site's Worker config (assets from `docs/.deploy`, the build staged under `worktree/` by `stage:deploy`); `docs/scripts/` holds `audit-dist.mjs`, `build-legacy-pages.mjs` (writes the gitignored `docs/legacy/`) and `deploy-smoke.mjs`
+docs/wrangler.jsonc   the docs site's Worker config (assets from `docs/.deploy`, the build staged under `worktree/` by `stage:deploy`); `docs/scripts/` holds `audit-dist.mjs`, `theme-contrast.mjs` (measures the theme's contrast pairs), `build-legacy-pages.mjs` (writes the gitignored `docs/legacy/`) and `deploy-smoke.mjs`
 docs/worker/          Cloudflare Worker proxying Gemini for the docs chat (its own `wrangler.toml`)
 context/              planning-workflow artifacts (this directory)
 context7.json         what Context7 (context7.com) may index from this repo: the user docs, the usage skill and the README — see Documentation below

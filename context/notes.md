@@ -264,3 +264,23 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   red and skips `legacy-pages` — intended, worth knowing at the first deploy.
 - `docs/README.md` ≈239-240 says the site deploys on pushes touching `docs/**` only; the filter lists six paths.
 - The coder's dry run reported 116 assets; `docs/dist` and `docs/.deploy` hold 87 files each now.
+
+## From phase 13's review (product header, spring theme, tree details)
+
+- The header glass takes the product accent: `--gmt-glass-tint` derives from `--gmt-teal`, which `theme.css`
+  overrides to spring, so the bar is green-tinted (subtle in dark, a pale green bar in light) where
+  northguild.dev's is teal. D17 supports it; teal would bring back a cyan literal. Told to the user.
+- `theme-contrast.mjs`: the `brightness()` helper is untested, and `measure()` passes a NaN ratio silently
+  (`NaN < min` is false) — pin a worked value and fail on a non-finite ratio. `saturate(1.4)` is not modelled
+  though the comment mentions it. The linearisation cutoff is 0.03928 where WCAG 2.2 says 0.04045
+  (immaterial here). Lowest pair 3.02:1 (light spring fill on `#f5f5f5`).
+- `SocialIcons.astro` has no `<nav aria-label="NorthGuild community">` landmark (northguild.dev has one; Starlight
+  renders the component twice), and its chip lacks `corner-shape: bevel` and northguild.dev's hover glow/sonar
+  focus (the vendored rules hard-code cyan).
+- The plan's phase 13 Files line names `Header.astro`; what landed overrides `SiteTitle` and `SocialIcons`
+  instead (Starlight's `Header` already composes them).
+- Unasserted: the "/" being `aria-hidden` (`auditHeader`; the browser pass checks it), the reduced-motion and
+  forced-colors rules (a built-CSS scan in `auditSite` would pin them).
+- `docs/README.md` ≈190-193's refresh steps name only `theme.css` and `SiteTitle.astro` for `--gmt-*` tokens;
+  `custom.css`, `SocialIcons.astro` and `globals.css` read them too.
+- At 320px "worktree" wraps under "NorthGuild /"; fits from 375px.

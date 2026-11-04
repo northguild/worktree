@@ -13,8 +13,8 @@
   --color-chat-raised: var(--gmt-surface-2);
   --color-chat-fg: var(--gmt-ice);
   --color-chat-muted: var(--gmt-ice-dim);
-  --color-chat-accent: var(--gmt-cyan);
-  --color-chat-accent-ink: var(--gmt-cyan-ink);
+  --color-chat-accent: var(--gmt-spring);
+  --color-chat-accent-ink: var(--gmt-spring-ink);
   --color-chat-on-accent: var(--gmt-ink-fixed);
   /* Decorative dividers and panel edges. A hairline of the accent, so well under 3:1: never the only mark of a control. */
   --color-chat-border: var(--gmt-border);
@@ -49,9 +49,9 @@
   inline-size: 4rem;
   block-size: 4rem;
   padding: 0;
-  border: 2px solid var(--gmt-cyan-bright);
+  border: 2px solid var(--gmt-spring-ink);
   border-radius: 9999px;
-  background: var(--gmt-cyan);
+  background: var(--gmt-spring);
   color: var(--gmt-ink-fixed);
   cursor: pointer;
   transition: filter var(--gmt-duration-fast) var(--gmt-easing);

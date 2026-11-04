@@ -1,16 +1,24 @@
 ---
 /**
- * Site title: the NorthGuild mark beside the title, in the display face, as on northguild.dev.
+ * The product header's left side (D17): northguild.dev's mark and wordmark, then " / worktree" in the accent.
+ * Two links, each named by its own visible text: the mark and "NorthGuild" go to https://northguild.dev/, "worktree" to
+ * this site's home. The mark is decorative (aria-hidden) because the word beside it names the link.
+ *
+ * Starlight renders this component in its Header, so the header's other parts (search, theme picker, language select,
+ * the mobile menu) are untouched.
  *
  * The mark's SVG and styles are copied from northguild/northguild.dev,
  * apps/site/src/components/NorthGuildMark.astro at commit ade22a5d30f274d02d50a33eb6ccdd705c2f5cbd
- * (shapes and rules unchanged).
- * Inline so the theme tokens reach every path; aria-hidden because the title beside it names the site.
- * The gradient ids are fixed, so Starlight must render this once per page (it does).
+ * (shapes and rules unchanged); the wordmark's font, letter-spacing and gap are those of
+ * apps/site/src/components/Header.astro at the same commit.
+ * Inline so the theme tokens reach every path. The gradient ids are fixed, so Starlight must render this once
+ * per page (it does).
  */
+const productHref = import.meta.env.BASE_URL;
 ---
 
-<a href={Astro.locals.starlightRoute.siteTitleHref} class="site-title">
+<div class="brand">
+<a href="https://northguild.dev/" class="wordmark">
 <svg
   class="ng-mark"
   viewBox="0 0 1000 1317"
@@ -52,8 +60,11 @@
     d="M366 640 L212 736.5 L366 833 M634 640 L788 736.5 L634 833 M560 560 L443 910"
   ></path>
 </svg>
-  <span class="title" translate="no">{Astro.locals.starlightRoute.siteTitle}</span>
+  <span translate="no">NorthGuild</span>
 </a>
+<span class="slash" aria-hidden="true">/</span>
+<a href={productHref} class="product" translate="no">worktree</a>
+</div>
 
 <style>
   .ng-mark {
@@ -132,19 +143,40 @@
 </style>
 
 <style>
-  .site-title {
-    display: inline-flex;
+  .brand {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--gmt-space-4);
+    column-gap: 0.5ch;
     min-width: 0;
-    color: var(--gmt-ice);
     font-family: var(--gmt-font-display);
-    font-size: var(--sl-text-h4);
+    /* Michroma is wide: the title shrinks on a phone and may wrap onto a second line, which the header's height holds. */
+    font-size: clamp(0.8rem, 0.5rem + 1.6vw, 1rem);
     letter-spacing: 0.04em;
+    line-height: 1.2;
+  }
+  .wordmark,
+  .product {
     text-decoration: none;
     white-space: nowrap;
   }
-  .title {
-    overflow: hidden;
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    /* The space either side of the GMT header's divider, as on northguild.dev. */
+    gap: var(--gmt-space-6);
+    color: var(--gmt-ice);
+  }
+  .slash,
+  .product {
+    color: var(--sl-color-text-accent);
+  }
+  .product:hover {
+    color: var(--sl-color-white);
+  }
+  @media (max-width: 30rem) {
+    .wordmark {
+      gap: var(--gmt-space-3);
+    }
   }
 </style>
