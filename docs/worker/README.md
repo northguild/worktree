@@ -15,7 +15,7 @@ Browser (GitHub Pages)  →  POST https://<worker>.workers.dev?model=...
                         SSE stream piped back to browser
 ```
 
-The static bundle bakes in `GEMINI_WORKER_URL` at build time.
+The static bundle bakes in `PUBLIC_GEMINI_WORKER_URL` at build time.
 That variable is set as a GitHub repo **variable** (not a secret) and injected
 by the `docs-deploy.yml` workflow.
 
@@ -81,19 +81,19 @@ Or run them separately:
 # Terminal 1 — worker (http://localhost:8787)
 pnpm --filter docs run worker:dev
 
-# Terminal 2 — Next.js (http://localhost:3000)
+# Terminal 2 — Astro (http://localhost:3000)
 pnpm --filter docs run dev
 ```
 
-### How `GEMINI_WORKER_URL` controls which worker is used
+### How `PUBLIC_GEMINI_WORKER_URL` controls which worker is used
 
-`GEMINI_WORKER_URL` is the single environment variable that switches between the local worker and the deployed Cloudflare Worker:
+`PUBLIC_GEMINI_WORKER_URL` is the single environment variable that switches between the local worker and the deployed Cloudflare Worker:
 
 | Value | Where it comes from | Effect |
 |---|---|---|
-| `http://localhost:8787` | Set explicitly by `dev:local` / `dev:local:watch` at startup | Next.js sends chat requests to your local `wrangler dev` instance |
+| `http://localhost:8787` | Set explicitly by `dev:local` / `dev:local:watch` at startup | Astro sends chat requests to your local `wrangler dev` instance |
 | `https://worktree-gemini-proxy.northguild.workers.dev` | GitHub repo variable, baked in at build time by `docs-deploy.yml` | The production static bundle hits the live Cloudflare Worker |
-| *(unset)* | — | Next.js falls back to `http://localhost:8787` |
+| *(unset)* | — | Astro falls back to `http://localhost:8787` |
 
 The variable is **public** — it is just a URL, not a secret. The API key never leaves Cloudflare.
 
@@ -159,7 +159,7 @@ Variables**, add:
 
 ### 6. Trigger a docs rebuild
 
-The `docs-deploy.yml` workflow bakes `GEMINI_WORKER_URL` into the static bundle.
+The `docs-deploy.yml` workflow bakes its `GEMINI_WORKER_URL` repository variable (as `PUBLIC_GEMINI_WORKER_URL`) into the static bundle.
 Push a commit or manually trigger:
 
 ```
@@ -179,7 +179,7 @@ deployed worker always has up-to-date docs content embedded in the system prompt
 
 The worker allows requests from:
 - `https://northguild.github.io` — production GitHub Pages
-- `http://localhost:3000` — local Next.js dev
+- `http://localhost:3000` — local Astro dev
 
 All other origins receive the production origin in `Access-Control-Allow-Origin`,
 so browsers will block unexpected cross-origin requests. Update `CORS_ORIGINS`

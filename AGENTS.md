@@ -1,6 +1,6 @@
 # AGENTS — Worktree repository
 
-`@northguild/worktree` — a Node CLI for managing git worktrees, built on oclif, with a Next.js/Nextra
+`@northguild/worktree` — a Node CLI for managing git worktrees, built on oclif, with an Astro/Starlight
 documentation site under `docs/`. Both live in one pnpm workspace.
 
 Layout, runtime and the conventions specific to this repository are in

@@ -21,19 +21,17 @@ export function FormProvider({ form, debug, children }: FormProviderProps) {
   return (
     <>
       <FormContext.Provider value={form}>{children}</FormContext.Provider>
-      {debug &&
-        typeof window !== "undefined" &&
-        process.env.NODE_ENV === "development" && (
-          <Portal containerRef={{ current: document.body }}>
-            <TanStackDevtools
-              plugins={[formDevtoolsPlugin()]}
-              config={{
-                position: "top-left",
-                panelLocation: "top",
-              }}
-            />
-          </Portal>
-        )}
+      {debug && typeof window !== "undefined" && import.meta.env.DEV && (
+        <Portal containerRef={{ current: document.body }}>
+          <TanStackDevtools
+            plugins={[formDevtoolsPlugin()]}
+            config={{
+              position: "top-left",
+              panelLocation: "top",
+            }}
+          />
+        </Portal>
+      )}
     </>
   );
 }

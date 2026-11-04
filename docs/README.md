@@ -1,6 +1,6 @@
 # Worktree Docs Site
 
-Next.js / Nextra documentation site for the Worktree CLI, deployed to GitHub Pages at
+Astro / Starlight documentation site for the Worktree CLI, deployed to GitHub Pages at
 `https://northguild.github.io/worktree`.
 
 ## Quick start
@@ -15,16 +15,16 @@ pnpm docs:dev
 To run with the AI chat worker locally, choose based on what you are working on:
 
 ```bash
-# Editing docs/UI only — builds the worker once, then starts worker + Next.js
+# Editing docs/UI only — builds the worker once, then starts worker + Astro
 pnpm --filter docs run dev:local
 
 # Editing worker code — same, but also watch-rebuilds the worker on every save
 pnpm --filter docs run dev:local:watch
 ```
 
-Both commands build the worker, write `.dev.vars`, start the Cloudflare Worker on `http://localhost:8787`, and start Next.js on `http://localhost:3000`. The difference is that `dev:local:watch` also runs `worker:build:watch` so the worker bundle stays up to date as you edit.
+Both commands build the worker, write `.dev.vars`, start the Cloudflare Worker on `http://localhost:8787`, and start Astro on `http://localhost:3000`. The difference is that `dev:local:watch` also runs `worker:build:watch` so the worker bundle stays up to date as you edit.
 
-`GEMINI_WORKER_URL` is the variable that controls which worker the docs app talks to. The `dev:local*` scripts set it to `http://localhost:8787` so Next.js hits your local `wrangler dev` instance. In production, the GitHub Actions workflow bakes in the deployed Cloudflare Worker URL at build time.
+`PUBLIC_GEMINI_WORKER_URL` is the variable that controls which worker the docs app talks to (Astro only exposes `PUBLIC_` variables to client code; unset, the chat falls back to `http://localhost:8787`). The `dev:local*` scripts set it to `http://localhost:8787` so Astro hits your local `wrangler dev` instance. In production, the GitHub Actions workflow bakes in (from its `GEMINI_WORKER_URL` repository variable) the deployed Cloudflare Worker URL at build time.
 
 **Prerequisite:** `docs/.env.local` must exist with your Gemini API key.
 Copy `.env.local.example` and fill it in:
@@ -146,8 +146,8 @@ or use the root-level aliases where noted.
 
 | Command | What it does |
 |---|---|
-| `dev` | Start Next.js dev server (no worker) |
-| `dev:local` | Build worker once, then start worker + Next.js — use when not editing worker code |
+| `dev` | Start Astro dev server (no worker) |
+| `dev:local` | Build worker once, then start worker + Astro — use when not editing worker code |
 | `dev:local:watch` | Same as `dev:local`, plus watch-rebuild the worker on every save — use when editing worker code |
 | `worker:dev` | Start the already-built worker at `http://localhost:8787` |
 | `worker:build:watch` | Watch-rebuild the worker bundle on file changes |
@@ -178,7 +178,7 @@ or use the root-level aliases where noted.
 | Variable | File | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | `docs/.env.local` | Gemini API key for local worker dev — never committed |
-| `GEMINI_WORKER_URL` | `docs/.env.local` (optional) | Override the worker URL in Next.js; defaults to `http://localhost:8787` |
+| `PUBLIC_GEMINI_WORKER_URL` | `docs/.env.local` (optional) | Override the worker URL in Astro; defaults to `http://localhost:8787` |
 
 ### GitHub Actions
 

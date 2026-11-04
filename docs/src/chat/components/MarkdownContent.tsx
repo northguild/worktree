@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import React from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
@@ -11,10 +10,9 @@ import { VALID_DOC_ROUTES } from "../docs-routes.generated";
 const GH_PAGES_ORIGIN = "https://northguild.github.io/worktree";
 
 /** Allowed external origins. Localhost is included only during development. */
-const ALLOWED_EXTERNAL_ORIGINS: string[] =
-  process.env.NODE_ENV === "development"
-    ? [GH_PAGES_ORIGIN, "http://localhost:3000"]
-    : [GH_PAGES_ORIGIN];
+const ALLOWED_EXTERNAL_ORIGINS: string[] = import.meta.env.DEV
+  ? [GH_PAGES_ORIGIN, "http://localhost:3000"]
+  : [GH_PAGES_ORIGIN];
 
 /** Only these URL schemes are permitted in external links. */
 const SAFE_PROTOCOLS = new Set(["https:", "http:", "mailto:"]);
@@ -119,9 +117,9 @@ const components: Components = {
     const inner = <strong className="font-semibold">{children}</strong>;
     if (route) {
       return (
-        <Link href={route} className={LINK_CLASS}>
+        <a href={route} className={LINK_CLASS}>
           {inner}
-        </Link>
+        </a>
       );
     }
     return inner;
@@ -175,9 +173,9 @@ const components: Components = {
     }
     if (resolved.internal) {
       return (
-        <Link href={resolved.href} className={LINK_CLASS}>
+        <a href={resolved.href} className={LINK_CLASS}>
           {children}
-        </Link>
+        </a>
       );
     }
     return (

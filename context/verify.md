@@ -13,6 +13,8 @@ under `@baldurpan/create-ai-workflow` 0.26.0, in this worktree and in a fresh cl
 2026-09-06). Anything that did not is recorded as such rather than written into a section. The one
 later addition, `pnpm --filter docs typecheck`, was added on 2026-10-26 for #152 and run from the repo
 root of a worktree that day, exiting 0; it has not been run in a fresh clone.
+`astro check` in Typecheck and `pnpm docs:build` in Build were added on 2026-11-04 for #235 and run from the repo
+root of a worktree that day, exiting 0.
 
 ## Prerequisites
 
@@ -63,18 +65,27 @@ pnpm --filter docs typecheck
 
 The root `tsconfig.json` includes only `src/`, so the second command is what type-checks the `docs`
 workspace, `docs/worker/` included. It first runs `worker:build-context`, which regenerates the gitignored
-`docs/worker/docs-context.ts` (`tsc` cannot resolve `worker.ts`'s import of it otherwise) and rewrites the
-tracked `docs/src/chat/docs-routes.generated.ts` in place, then runs `tsc --noEmit`. That rewrite changes
+`docs/worker/docs-context.ts` (the check cannot resolve `worker.ts`'s import of it otherwise) and rewrites the
+tracked `docs/src/chat/docs-routes.generated.ts` in place, then runs `astro check`, which type-checks the
+TypeScript, TSX and Astro files the docs `tsconfig.json` includes (`src/app/`, the not-yet-ported Nextra
+pages, is excluded). That rewrite changes
 nothing while the committed routes file is current. If a docs page was added without regenerating it, the
 file shows as modified after this section, as it would after `pnpm docs:build`, and the regenerated file
-belongs in the change. It needs no `GEMINI_WORKER_URL`, which is why it sits here while `pnpm docs:build`
-sits below *Not run by Gate 1*. CI runs both typecheck commands.
+belongs in the change. It needs no `PUBLIC_GEMINI_WORKER_URL`. CI runs both typecheck commands.
 
 ## Build
 
 ```bash
 pnpm build
+pnpm docs:build
 ```
+
+`pnpm docs:build` syncs the version, regenerates the Worker context, then runs `astro build` into `docs/dist/`,
+a sitemap and the Pagefind index included. It needs no environment: verified with `GEMINI_WORKER_URL` and
+`PUBLIC_GEMINI_WORKER_URL` unset (the chat falls back to `http://localhost:8787`; `docs-deploy.yml` sets the
+variable for the real build). Like `pnpm --filter docs typecheck`, it rewrites `docs-routes.generated.ts` in place. It also runs
+`docs:sync-version`, which is a no-op while `docs/src/lib/site-meta.ts` is current with `package.json`; a modified
+`site-meta.ts` after Build is drift to commit, not a by-product.
 
 ## Test
 
@@ -90,7 +101,7 @@ interactive shell. If a console assertion ever starts failing only on someone's 
 first.
 
 `pnpm test` covers `src/` and `scripts/`; `pnpm docs:test` covers the `docs` workspace including the Cloudflare Worker.
-CI runs both. As of 2026-10-26 that is 1181 and 69 tests respectively — a snapshot for recognising a suite
+CI runs both. As of 2026-11-04 that is 2751 and 55 tests respectively — a snapshot for recognising a suite
 that did not run, not a figure to assert against. It goes stale on any commit that adds a test, so correct
 it in passing rather than treating a mismatch as a failure.
 
@@ -127,9 +138,6 @@ test that genuinely has to be skipped is a conversation, not an edit to this pat
 - **`pnpm changeset:prepare-release`** — not a gate: it mutates the tree (bumps `package.json`, writes
   `CHANGELOG.md`, deletes the consumed notes) and is run once, by a maintainer, to make a release pull
   request. Never run it to verify anything.
-- **`pnpm docs:build`** — needs the `GEMINI_WORKER_URL` repository variable baked in at build time.
-  Deploy concern; `docs-deploy.yml` owns it. The TypeScript errors it would report outside Next's generated
-  route types are caught earlier, by `pnpm --filter docs typecheck` under *Typecheck*.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` — need `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID`. Never run against production from a workstation; `worker-deploy.yml` owns it.
 

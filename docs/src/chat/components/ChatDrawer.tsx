@@ -15,7 +15,7 @@ import { ChatPanel } from "./ChatPanel";
 import { ChatTrigger } from "./ChatTrigger";
 
 const IS_LOCAL_WORKER = (
-  process.env.GEMINI_WORKER_URL || "http://localhost:8787"
+  import.meta.env.PUBLIC_GEMINI_WORKER_URL || "http://localhost:8787"
 ).includes("localhost");
 
 export function ChatDrawer() {

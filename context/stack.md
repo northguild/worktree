@@ -2,7 +2,7 @@
 
 `@northguild/worktree` is a Node CLI for managing git worktrees, published to npm and built on
 [oclif](https://oclif.io/docs/api_reference). The repository is a two-package pnpm workspace: the CLI at
-the root, and a Next.js/Nextra documentation site under `docs/` that deploys to GitHub Pages and talks to
+the root, and an Astro/Starlight documentation site under `docs/` that deploys to GitHub Pages and talks to
 a small Cloudflare Worker proxying Gemini for its chat feature.
 
 One piece of history explains a lot of the current shape: the project moved from the `@burglekitt` org to
@@ -28,11 +28,10 @@ src/lib/              CLI helpers — git integration, validators, env, types, c
 src/integrations/     GitHub, Jira, Linear and ClickUp integrations
 scripts/              version-sync script, run by `pnpm sync-version`; `release-notes.mjs`, which publish.yml uses to cut a version's CHANGELOG section
 .changeset/           Changesets config and pending release notes (`.changeset/<name>.md`)
-patches/              pnpm patches applied through `patchedDependencies` in `pnpm-workspace.yaml`; `nextra-theme-docs@4.6.1` makes its layout's `children` optional, which zod >=4.4 otherwise rejects at prerender. Drop it once nextra ships a fix
 skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`. Nothing on npm discovers it since TanStack Intent went (`skills add` reads GitHub); it stays in `files` so an `npm i -g` install has a copy matching its own version on disk
-docs/                 Next.js 16 + Nextra 4 docs app, React 19, Base UI; own package.json
-docs/src/app/         docs content
-docs/src/             UI, components, chat client, site metadata
+docs/                 Astro 7 + Starlight docs site, React 19 islands, Base UI; own package.json, `astro.config.mjs`
+docs/src/content/docs/ Starlight pages (a one-page stub while the rewrite is in progress; the existing pages are still under `docs/src/app/docs/`, which Astro does not build)
+docs/src/             chat client, site metadata, styles
 docs/worker/          Cloudflare Worker proxying Gemini for the docs chat
 context/              planning-workflow artifacts (this directory)
 context7.json         what Context7 (context7.com) may index from this repo: the user docs, the usage skill and the README — see Documentation below
@@ -54,7 +53,7 @@ context7.json         what Context7 (context7.com) may index from this repo: the
   example or template — Biome 2 loads every one it finds as a nested config, and no exclusion in the root
   config can stop it. [`verify.md`](verify.md) has the detail; the standards bundle's starter template is
   renamed to `biome-example.json` here for exactly this reason.
-- **The docs app is static/SSR and must never hold a secret.** `GEMINI_API_KEY` lives in Cloudflare Worker
+- **The docs site is static and must never hold a secret.** `GEMINI_API_KEY` lives in Cloudflare Worker
   secrets (`pnpm --filter docs worker:setup-secret`, i.e. `wrangler secret put`). For local development,
   `worker:setup-dev-vars` reads it from `docs/.env.local` and writes `docs/worker/.dev.vars`; both are
   gitignored. `ci.yml` runs a secret scan that fails the build if a key value is committed.
@@ -62,7 +61,7 @@ context7.json         what Context7 (context7.com) may index from this repo: the
   `docs/src/lib/site-meta.ts`. The version bump arrives through `pnpm changeset:prepare-release` in the
   release pull request, which runs `pnpm sync-version` after `changeset version`; never bump by hand. CI
   hard-fails on drift via `git diff --exit-code`. Use the root `pnpm docs:dev`, not `pnpm --filter docs dev`
-  — the former syncs the version first.
+  — the former syncs the version first. The chat reads the Worker URL from `PUBLIC_GEMINI_WORKER_URL` (Astro only exposes `PUBLIC_` variables to client code); `docs-deploy.yml` feeds it from the `GEMINI_WORKER_URL` repository variable.
 - **One lockfile, at the root.** There is no `.npmrc` — the one that pinned
   `shared-workspace-lockfile=true` was removed in 260eb2f, and pnpm's default keeps the behaviour. CI
   still fails the build if `docs/pnpm-lock.yaml` ever appears, so do not add one.

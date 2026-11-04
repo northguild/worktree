@@ -69,7 +69,6 @@ const packageName =
 const defaultProjectName = packageName.split("/").pop() || "project";
 const projectName =
   defaultProjectName.charAt(0).toUpperCase() + defaultProjectName.slice(1);
-const metadataTitleTemplate = `%s – ${projectName}`;
 const projectLink = repositoryInfo?.url || "https://github.com";
 const projectOwnerName = repositoryInfo?.owner || projectName;
 const projectOwnerProfileUrl = `https://github.com/${projectOwnerName}`;
@@ -121,7 +120,7 @@ if (!rootVersion) {
   throw new Error("Root package.json is missing a version field.");
 }
 
-const siteMetaFileContent = `// Generated file. Do not edit directly.\nimport type { Metadata } from "next";\n\nexport const cliVersion = "${rootVersion}";\nexport const projectName = ${JSON.stringify(projectName)};\nexport const projectDescription = ${JSON.stringify(projectDescription)};\nexport const projectLink = ${JSON.stringify(projectLink)};\nexport const projectOwnerName = ${JSON.stringify(projectOwnerName)};\nexport const projectOwnerProfileUrl = ${JSON.stringify(projectOwnerProfileUrl)};\nexport const projectOwnerAvatarUrl = ${JSON.stringify(projectOwnerAvatarUrl)};\n\nexport const metadata: Metadata = {\n  title: {\n    default: projectName,\n    template: ${JSON.stringify(metadataTitleTemplate)},\n  },\n  description: projectDescription,\n};\n\nexport const maintainers = ${formatMaintainersAsTs(maintainers)} as const;\n`;
+const siteMetaFileContent = `// Generated file. Do not edit directly.\n\nexport const cliVersion = "${rootVersion}";\nexport const projectName = ${JSON.stringify(projectName)};\nexport const projectDescription = ${JSON.stringify(projectDescription)};\nexport const projectLink = ${JSON.stringify(projectLink)};\nexport const projectOwnerName = ${JSON.stringify(projectOwnerName)};\nexport const projectOwnerProfileUrl = ${JSON.stringify(projectOwnerProfileUrl)};\nexport const projectOwnerAvatarUrl = ${JSON.stringify(projectOwnerAvatarUrl)};\n\nexport const maintainers = ${formatMaintainersAsTs(maintainers)} as const;\n`;
 await writeFile(docsSiteMetaFilePath, siteMetaFileContent);
 
 console.log(`[docs] Synced site metadata to CLI version ${rootVersion}`);

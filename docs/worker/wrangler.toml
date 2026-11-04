@@ -10,7 +10,7 @@ workers_dev = true
 # account_id = ""
 
 [dev]
-# Pin the local dev port so the Next.js frontend always finds the worker.
+# Pin the local dev port so the Astro frontend always finds the worker.
 # If 8787 is busy, kill the other process rather than silently moving ports.
 port = 8787
 

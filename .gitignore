@@ -6,8 +6,8 @@ oclif.manifest.json
 *.tsbuildinfo
 /_*
 **/_pagefind/
-.next
-docs/out/
+.astro
+docs/dist/
 docs/pnpm-lock.yaml
 **/.env
 **/.env.local
