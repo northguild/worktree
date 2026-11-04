@@ -39,15 +39,18 @@
  * together, at most 32 KB gzipped; and on the landing the still SVG and the canvas are `aria-hidden`, while no other page
  * carries the hero's markup.
  *
- * Not asserted yet, because the thing it checks does not exist until a later phase:
- *   - `og:image` / `twitter:image` (plan §9 Q3: the preview image is undecided). Set PREVIEW_IMAGE_DECIDED to
- *     true when it is; the rule is then a one-line addition in `auditPage`.
+ * Also (plan §9 Q3, the share preview and the favicon): every page has an `og:image` that is an absolute URL under the
+ * site and names a file in the build, a `twitter:image` that is the same URL, and alt text for both; and every page and
+ * the 404 link an icon (`rel="icon"`), with every icon link (`icon`, `shortcut icon`, `apple-touch-icon`) naming a file
+ * in the build, a regular file and not a directory. The favicon 404'd on every page until then, and nothing noticed. The
+ * og:image is 1200×630 (plan §4.4), read from the file's own header, and `og:image:type`, `:width` and `:height` say what
+ * the file is.
  *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,7 +64,87 @@ const MAX_DESCRIPTION = 155;
 const CONTENT_DIR = join(here, "../src/content/docs");
 const REPO_ROOT = join(here, "../..");
 const EDIT_BRANCH = "main";
-export const PREVIEW_IMAGE_DECIDED = false;
+const BASE_PATH = new URL(ORIGIN).pathname;
+
+/**
+ * The file in `dist` a site URL names: absolute under ORIGIN, or a path under the base (`/worktree/favicon.svg`).
+ * Undefined for anything outside the site. The build is written without the base (stage:deploy adds it).
+ */
+function builtFileOf(href, dist) {
+  const path = href.startsWith(ORIGIN)
+    ? href.slice(ORIGIN.length)
+    : href.startsWith(BASE_PATH)
+      ? href.slice(BASE_PATH.length)
+      : undefined;
+  return path === undefined || path === "" ? undefined : join(dist, path);
+}
+
+/** Whether a site URL names a regular file in `dist`: a directory (`/worktree/faq/`) is not one. */
+function isBuiltFile(href, dist) {
+  const file = href ? builtFileOf(href, dist) : undefined;
+  if (file === undefined) return false;
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false; // ENOENT, or ENOTDIR for a path that runs through a file (`favicon.ico/x`)
+  }
+}
+
+/**
+ * An image's type and size from its own header, or undefined when it is neither a PNG nor a JPEG. PNG: the IHDR chunk's
+ * width and height follow the 8-byte signature and the chunk's length and type (PNG spec §11.2.2). JPEG: the first
+ * start-of-frame marker (SOF0-SOF15 but DHT, JPG and DAC) carries the height, then the width (ITU T.81 §B.2.2).
+ */
+export function imageSize(bytes) {
+  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (png.every((b, i) => bytes[i] === b) && bytes.length >= 24)
+    return {
+      type: "image/png",
+      width: bytes.readUInt32BE(16),
+      height: bytes.readUInt32BE(20),
+    };
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return undefined;
+  for (let i = 2; i + 8 < bytes.length; ) {
+    if (bytes[i] !== 0xff) return undefined;
+    const marker = bytes[i + 1];
+    if (marker === 0xff) {
+      i += 1; // fill byte
+      continue;
+    }
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      ![0xc4, 0xc8, 0xcc].includes(marker)
+    )
+      return {
+        type: "image/jpeg",
+        width: bytes.readUInt16BE(i + 7),
+        height: bytes.readUInt16BE(i + 5),
+      };
+    i += 2 + bytes.readUInt16BE(i + 2);
+  }
+  return undefined;
+}
+
+/** Plan §4.4: a 1200×630 preview image. */
+const PREVIEW_SIZE = { width: 1200, height: 630 };
+
+/** Every page and the 404 link an icon, and every icon link names a file in the build (plan §9 Q3). */
+function auditIcons(html, dist) {
+  const failures = [];
+  const icons = tagsOf(html, "link").filter((l) =>
+    (l.rel ?? "")
+      .split(/\s+/)
+      .some((t) => t === "icon" || t === "apple-touch-icon"),
+  );
+  if (!icons.some((l) => l.rel.split(/\s+/).includes("icon")))
+    failures.push('no favicon (a <link rel="icon">)');
+  for (const { rel, href } of icons) {
+    if (!isBuiltFile(href, dist))
+      failures.push(`${rel} ${href || "(no href)"} is not a file in the build`);
+  }
+  return failures;
+}
 
 /** The repository URL from package.json `repository.url` (`git+https://github.com/o/r.git` -> `https://github.com/o/r`). */
 function repositoryUrl() {
@@ -882,10 +965,49 @@ async function auditPage(path, dist, descriptions, options) {
   if (card === undefined) fail("no twitter:card tag");
   else if (card !== "summary_large_image")
     fail(`twitter:card is ${card}, expected summary_large_image`);
-  if (PREVIEW_IMAGE_DECIDED) {
-    if (!metaContent("property", "og:image")) fail("no og:image tag");
-    if (!metaContent("name", "twitter:image")) fail("no twitter:image tag");
+  // The share preview (plan §9 Q3): crawlers need an absolute URL, and a URL that 404s shows no card at all.
+  const image = metaContent("property", "og:image");
+  if (!image) fail("no og:image tag");
+  else if (!image.startsWith(ORIGIN))
+    fail(`og:image is ${image}, expected an absolute URL under ${ORIGIN}`);
+  else if (!isBuiltFile(image, dist))
+    fail(`og:image ${image} is not a file in the build`);
+  else {
+    // What the tags declare must be what the file is, and the file what plan §4.4 asks for.
+    const size = imageSize(readFileSync(builtFileOf(image, dist)));
+    const declared = {
+      type: metaContent("property", "og:image:type"),
+      width: metaContent("property", "og:image:width"),
+      height: metaContent("property", "og:image:height"),
+    };
+    if (!size) fail(`og:image ${image} is not a PNG or a JPEG`);
+    else {
+      if (
+        size.width !== PREVIEW_SIZE.width ||
+        size.height !== PREVIEW_SIZE.height
+      )
+        fail(
+          `og:image is ${size.width}×${size.height}, expected ${PREVIEW_SIZE.width}×${PREVIEW_SIZE.height}`,
+        );
+      if (
+        declared.width !== String(size.width) ||
+        declared.height !== String(size.height)
+      )
+        fail(
+          `og:image:width and og:image:height say ${declared.width}×${declared.height}, the file is ${size.width}×${size.height}`,
+        );
+      if (declared.type !== size.type)
+        fail(`og:image:type is ${declared.type}, the file is ${size.type}`);
+    }
   }
+  const twitterImage = metaContent("name", "twitter:image");
+  if (!twitterImage) fail("no twitter:image tag");
+  else if (twitterImage !== image)
+    fail(`twitter:image is ${twitterImage}, expected the og:image (${image})`);
+  if (!metaContent("property", "og:image:alt")) fail("no og:image:alt tag");
+  if (!metaContent("name", "twitter:image:alt"))
+    fail("no twitter:image:alt tag");
+  for (const rule of auditIcons(html, dist)) fail(rule);
 
   const ld = jsonLdTypes(html);
   if (ld.error)
@@ -1099,6 +1221,8 @@ async function auditSite(dist) {
   try {
     const notFound = await readFile(join(dist, "404.html"), "utf8");
     failures.push(...auditNotFound(notFound));
+    for (const rule of auditIcons(notFound, dist))
+      failures.push(`404.html: ${rule}`);
     for (const rule of await auditHero(notFound, dist, false))
       failures.push(`404.html: ${rule}`);
   } catch {

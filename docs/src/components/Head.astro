@@ -5,9 +5,8 @@
  * `og:type`, `og:locale`, `twitter:card` and the meta description (plan §9 Q8, read off the built HTML), so none of
  * those are repeated here.
  *
- * Not emitted yet: `og:image` and `twitter:image` (plan §9 Q3, the preview image is undecided). When it is, add the image to
- * `starlight({ head })` in astro.config.mjs as two `meta` tags (`property="og:image"` and `name="twitter:image"`,
- * both with an absolute URL) and turn on the image rule in scripts/audit-dist.mjs.
+ * The share preview (`og:image`, `twitter:image` and their alt text) and the icon links are site-wide, so they are
+ * `starlight({ head })` entries in astro.config.mjs rather than anything here (plan §9 Q3).
  */
 import { cliVersion } from "../lib/site-meta";
 import { buildStructuredData, headTitle } from "../lib/structured-data";

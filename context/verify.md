@@ -111,8 +111,10 @@ Phase 13 added: on every page and the 404, the header's two NorthGuild links (`h
 hidden or a named image; the 404's heading a git error line (`fatal: ...`); and no cyan: it reads the `--gmt-cyan*` variables and their literal colours
 from the vendored tokens and fails if any reaches a used rule, a used custom property, the HTML or a script in the build (the vendored definitions, rules for
 classes no page uses and values `theme.css` overrides are not findings). The contrast of every themed pair is separate: `node docs/scripts/theme-contrast.mjs`
-prints it, and its test in `pnpm docs:test` fails under 4.5:1 (text) or 3:1 (controls, rings). `og:image` is not checked until the preview image is decided
-(`PREVIEW_IMAGE_DECIDED` in the script). The script's own test,
+prints it, and its test in `pnpm docs:test` fails under 4.5:1 (text) or 3:1 (controls, rings).
+Plan §9 Q3 added, on every page: an `og:image` that is an absolute URL under `https://northguild.dev/worktree/` and a file in the build, 1200×630 by the
+file's own header, with `og:image:type`, `:width` and `:height` saying what the file is; a `twitter:image` that is the same URL; and alt text for both. On
+every page and the 404, a `<link rel="icon">`, with every icon link (`icon`, `shortcut icon`, `apple-touch-icon`) naming a regular file in the build. The script's own test,
 `docs/scripts/audit-dist.test.mjs`, runs under `pnpm docs:test` (the docs Vitest config takes any `*.test.mjs`).
 Phase 16 added, for the leaf-particle hero (D18): the root alone loads the hero loader (the page script built from `HeroLeaves.astro`) and no other
 page, the 404 included, does or carries the hero's art box; no page loads the effect's chunks (`particles.*`) up front, whether by a script, a modulepreload or

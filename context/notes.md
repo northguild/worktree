@@ -76,7 +76,8 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
 ## From phase 3's review (top-level and command pages)
 
 - `/worktree/favicon.svg` is referenced by every page (Starlight's default favicon) and supplied by no phase;
-  the old site had none either. Phase 7 (head) or phase 9 (the 404 and a11y pass) could take it.
+  the old site had none either. **Resolved 2026-11-04 with Q3:** the hero's leaf as `favicon.svg`, `.ico` and
+  `apple-touch-icon.png`, and an audit rule that every icon link names a file in the build.
 - In `commands/branch.mdx` the moved Jira subsection's "decide in the same order … the write happens at the
   same point" (≈300-302) now refers to `### Moving the issue to started`, which sits below it (≈371). A link to
   `#moving-the-issue-to-started` would repair it; D12 left it alone.
@@ -242,7 +243,7 @@ Branch-local, advisory, deleted whole by `/feature-close`. Nothing reads this fi
   raw `>`; `aria-labelledby` is accepted without checking the id exists; `tabMinHeightPx` accepts a
   `[role=tab]` rule inside a media query.
 - `404.md` hard-codes `/worktree/` for the hero link (Starlight does not base-prefix hero links).
-- The favicon (`/worktree/favicon.svg`) still 404s on every page; no phase owns it.
+- The favicon (`/worktree/favicon.svg`) still 404s on every page; no phase owns it. Resolved with Q3 (phase 3's note).
 - The real-browser pass (headless Chrome) did not exercise the chat answering (needs the Gemini Worker and its
   secret) or LCP/CLS — §8 rows for after the deploy.
 

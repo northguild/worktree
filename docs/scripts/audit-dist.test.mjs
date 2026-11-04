@@ -12,6 +12,7 @@ import {
   cyanFindings,
   cyanLiterals,
   followDate,
+  imageSize,
   namesCyan,
   sourcePathOf,
 } from "./audit-dist.mjs";
@@ -136,6 +137,61 @@ const HERO_SCRIPT =
 const HERO_ART =
   '<div class="art" data-hero-art><svg class="hero-still" aria-hidden="true" focusable="false"></svg><canvas class="hero-canvas" data-hero-canvas aria-hidden="true"></canvas></div>';
 
+// Plan §9 Q3: the favicon (Starlight's own link, the ICO fallback and the touch icon) and the share preview, as the build
+// renders them on every page; the 404 carries the icons too.
+const ICONS = [
+  '<link rel="shortcut icon" href="/worktree/favicon.svg" type="image/svg+xml"/>',
+  '<link rel="icon" href="/worktree/favicon.ico" sizes="32x32"/>',
+  '<link rel="apple-touch-icon" href="/worktree/apple-touch-icon.png"/>',
+].join("\n");
+const PREVIEW = "https://northguild.dev/worktree/og-image.jpg";
+const PREVIEW_TAGS = [
+  `<meta property="og:image" content="${PREVIEW}"/>`,
+  '<meta property="og:image:type" content="image/jpeg"/>',
+  '<meta property="og:image:width" content="1200"/>',
+  '<meta property="og:image:height" content="630"/>',
+  '<meta property="og:image:alt" content="The landing."/>',
+  `<meta name="twitter:image" content="${PREVIEW}"/>`,
+  '<meta name="twitter:image:alt" content="The landing."/>',
+].join("\n");
+
+function jpeg(width, height) {
+  const app0 = [0xff, 0xe0, 0x00, 0x04, 0x00, 0x00];
+  const sof0 = [
+    0xff,
+    0xc0,
+    0x00,
+    0x11,
+    0x08,
+    height >> 8,
+    height & 0xff,
+    width >> 8,
+    width & 0xff,
+    0x03,
+  ];
+  return Buffer.from([
+    0xff,
+    0xd8,
+    ...app0,
+    0xff,
+    ...sof0,
+    ...new Array(9).fill(0),
+    0xff,
+    0xd9,
+  ]);
+}
+
+// A PNG's signature and IHDR chunk (PNG spec §11.2.2): length 13, "IHDR", then width and height as 32-bit integers.
+function png(width, height) {
+  const bytes = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
+  bytes.writeUInt32BE(13, 8);
+  bytes.write("IHDR", 12, "latin1");
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+}
+
 function page(path, overrides = {}) {
   const description = overrides.description ?? descriptionOf(path);
   const editHref = overrides.editHref ?? `${EDIT_BASE}${sourceOf(path)}`;
@@ -162,6 +218,8 @@ function page(path, overrides = {}) {
     `<meta property="og:url" content="${url(path)}"/>`,
     `<meta property="og:site_name" content="@northguild/worktree"/>`,
     `<meta name="twitter:card" content="summary_large_image"/>`,
+    overrides.preview ?? PREVIEW_TAGS,
+    overrides.icons ?? ICONS,
     `<meta name="description" content="${description}"/>`,
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
@@ -176,6 +234,7 @@ function page(path, overrides = {}) {
 function notFoundPage(overrides = {}) {
   return [
     "<!doctype html><html><head><title>Page not found | @northguild/worktree</title>",
+    overrides.icons ?? ICONS,
     overrides.head ?? "",
     "</head><body>",
     overrides.header ?? HEADER,
@@ -230,6 +289,9 @@ beforeEach(async () => {
     'document.addEventListener("x",()=>import("./particles.jkl.js"));',
   );
   await write(dist, "_astro/particles.jkl.js", "export const effect = 1;");
+  for (const file of ["favicon.svg", "favicon.ico", "apple-touch-icon.png"])
+    await write(dist, file, "x");
+  await write(dist, "og-image.jpg", jpeg(1200, 630));
 });
 
 afterEach(async () => {
@@ -380,9 +442,155 @@ describe("auditDist", () => {
     expect((await audit()).some((f) => /twitter:card/.test(f))).toBe(true);
   });
 
-  it("does not require og:image while the preview image is undecided (plan §9 Q3)", async () => {
-    // The compliant site above has none, and passes.
-    expect(await audit()).toEqual([]);
+  describe("the share preview (plan §9 Q3)", () => {
+    it.each([
+      ["og:image", /<meta property="og:image" [^>]*>/],
+      ["twitter:image", /<meta name="twitter:image" [^>]*>/],
+      ["og:image:alt", /<meta property="og:image:alt"[^>]*>/],
+      ["twitter:image:alt", /<meta name="twitter:image:alt"[^>]*>/],
+    ])("fails a page missing %s", async (tag, pattern) => {
+      await rewrite("faq", (html) => html.replace(pattern, ""));
+      const failures = await audit();
+      // A missing og:image also leaves twitter:image naming something else; either way, only faq fails.
+      expect(failures.length).toBeGreaterThan(0);
+      expect(failures.every((f) => f.startsWith("/faq/:"))).toBe(true);
+      expect(failures.some((f) => f.includes(`no ${tag} tag`))).toBe(true);
+    });
+
+    it("fails an og:image that is not an absolute URL under the site", async () => {
+      await rewrite("faq", (html) =>
+        html.replaceAll(PREVIEW, "/worktree/og-image.jpg"),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: og:image is /worktree/og-image.jpg, expected an absolute URL under https://northguild.dev/worktree/",
+      ]);
+    });
+
+    it("fails an og:image whose file is not in the build", async () => {
+      await rm(join(dist, "og-image.jpg"));
+      const failures = await audit();
+      expect(failures).toContain(
+        `/faq/: og:image ${PREVIEW} is not a file in the build`,
+      );
+      expect(failures).toHaveLength(PATHS.length);
+    });
+
+    it("fails a preview that is not 1200×630, saying what the file is", async () => {
+      await write(dist, "og-image.jpg", jpeg(1440, 756));
+      const failures = await audit();
+      expect(failures).toContain(
+        "/faq/: og:image is 1440×756, expected 1200×630",
+      );
+      expect(failures).toContain(
+        "/faq/: og:image:width and og:image:height say 1200×630, the file is 1440×756",
+      );
+      expect(failures).toHaveLength(PATHS.length * 2);
+    });
+
+    it("fails declared tags that disagree with the file", async () => {
+      await rewrite("faq", (html) =>
+        html
+          .replace('content="1200"/>', 'content="1201"/>')
+          .replace('content="image/jpeg"/>', 'content="image/png"/>'),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: og:image:width and og:image:height say 1201×630, the file is 1200×630",
+        "/faq/: og:image:type is image/png, the file is image/jpeg",
+      ]);
+    });
+
+    it("fails a preview that is not an image", async () => {
+      await write(dist, "og-image.jpg", "x");
+      expect((await audit()).filter((f) => f.startsWith("/faq/:"))).toEqual([
+        `/faq/: og:image ${PREVIEW} is not a PNG or a JPEG`,
+      ]);
+    });
+
+    it("fails a twitter:image that is not the og:image", async () => {
+      const other = "https://northguild.dev/worktree/favicon.ico";
+      await rewrite("faq", (html) =>
+        html.replace(
+          `<meta name="twitter:image" content="${PREVIEW}"/>`,
+          `<meta name="twitter:image" content="${other}"/>`,
+        ),
+      );
+      expect(await audit()).toEqual([
+        `/faq/: twitter:image is ${other}, expected the og:image (${PREVIEW})`,
+      ]);
+    });
+  });
+
+  describe("the favicon (plan §9 Q3)", () => {
+    it("fails a page that links no icon", async () => {
+      await write(dist, htmlPath("faq"), page("faq", { icons: "" }));
+      expect(await audit()).toEqual([
+        '/faq/: no favicon (a <link rel="icon">)',
+      ]);
+    });
+
+    it("fails a touch icon alone: it is not a favicon", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          icons:
+            '<link rel="apple-touch-icon" href="/worktree/apple-touch-icon.png"/>',
+        }),
+      );
+      expect(await audit()).toEqual([
+        '/faq/: no favicon (a <link rel="icon">)',
+      ]);
+    });
+
+    // The defect this rule was written for: Starlight links /worktree/favicon.svg by default, and nothing supplied it.
+    it("fails an icon link whose file is not in the build, on every page and the 404", async () => {
+      await rm(join(dist, "favicon.svg"));
+      const failures = await audit();
+      expect(failures).toHaveLength(PATHS.length + 1);
+      expect(failures).toContain(
+        "/faq/: shortcut icon /worktree/favicon.svg is not a file in the build",
+      );
+      expect(failures).toContain(
+        "404.html: shortcut icon /worktree/favicon.svg is not a file in the build",
+      );
+    });
+
+    it("fails an icon link outside the site", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          icons: '<link rel="icon" href="/favicon.ico"/>',
+        }),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: icon /favicon.ico is not a file in the build",
+      ]);
+    });
+
+    it("fails an icon link that names a directory, a path through a file, or nothing", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          icons:
+            '<link rel="icon" href="/worktree/faq/"/><link rel="icon" href="/worktree/favicon.ico/x"/><link rel="icon" href=""/><link rel="icon" href="/worktree/"/>',
+        }),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: icon /worktree/faq/ is not a file in the build",
+        "/faq/: icon /worktree/favicon.ico/x is not a file in the build",
+        "/faq/: icon (no href) is not a file in the build",
+        "/faq/: icon /worktree/ is not a file in the build",
+      ]);
+    });
+
+    it("fails a 404 that links no icon", async () => {
+      await write(dist, "404.html", notFoundPage({ icons: "" }));
+      expect(await audit()).toEqual([
+        '404.html: no favicon (a <link rel="icon">)',
+      ]);
+    });
   });
 
   it("fails a nested page that has no BreadcrumbList", async () => {
@@ -964,6 +1172,48 @@ describe("auditDist", () => {
       await notFound({ controls: LAUNCHER });
       expect((await audit()).some((f) => /404.*search/i.test(f))).toBe(true);
     });
+  });
+});
+
+// The preview's size comes from the file's own header: PNG spec §11.2.2 (IHDR) and ITU T.81 §B.2.2 (SOF), built above.
+describe("imageSize", () => {
+  it("reads a PNG's IHDR", () => {
+    expect(imageSize(png(1200, 630))).toEqual({
+      type: "image/png",
+      width: 1200,
+      height: 630,
+    });
+  });
+
+  it("reads a JPEG's frame header after the segments and fill bytes before it", () => {
+    expect(imageSize(jpeg(1200, 630))).toEqual({
+      type: "image/jpeg",
+      width: 1200,
+      height: 630,
+    });
+  });
+
+  it("does not take a JPEG's Huffman table (DHT, FFC4) for its frame", () => {
+    const dht = [0xff, 0xc4, 0x00, 0x05, 0x00, 0x00, 0x00];
+    const bytes = jpeg(1200, 630);
+    const withTable = Buffer.concat([
+      bytes.subarray(0, 2),
+      Buffer.from(dht),
+      bytes.subarray(2),
+    ]);
+    expect(imageSize(withTable)).toEqual({
+      type: "image/jpeg",
+      width: 1200,
+      height: 630,
+    });
+  });
+
+  it("is undefined for a PNG cut short before its size", () => {
+    expect(imageSize(png(1200, 630).subarray(0, 20))).toBeUndefined();
+  });
+
+  it("is undefined for anything else", () => {
+    expect(imageSize(Buffer.from("GIF89a and more bytes"))).toBeUndefined();
   });
 });
 

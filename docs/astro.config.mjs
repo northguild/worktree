@@ -3,6 +3,10 @@ import starlight from "@astrojs/starlight";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 
+// What the share preview shows, for readers who cannot see it (og:image:alt, twitter:image:alt).
+const PREVIEW_ALT =
+  "The worktree docs landing: “A git worktree for every branch” beside a git graph drawn in green leaves.";
+
 // One URL form: https://northguild.dev/worktree/<path>/ — no /docs/ prefix.
 // `site` is what makes Starlight emit a sitemap.
 export default defineConfig({
@@ -92,9 +96,11 @@ export default defineConfig({
         // The landing (D17) sets its copy beside the leaf-particle hero; every other splash page (the 404) keeps Starlight's Hero.
         Hero: "./src/components/Hero.astro",
       },
-      // Preload the display face so the title and headings do not reflow out of the mono fallback.
-      // The href carries `base`: Starlight does not prefix `head` entries.
+      // The hero's leaf (public/favicon.svg, drawn from src/hero/geometry.ts). Starlight prefixes `base` onto this one.
+      favicon: "/favicon.svg",
+      // Every href below carries `base`, and the social images are absolute: Starlight does not prefix `head` entries.
       head: [
+        // Preload the display face so the title and headings do not reflow out of the mono fallback.
         {
           tag: "link",
           attrs: {
@@ -105,6 +111,35 @@ export default defineConfig({
             crossorigin: "",
           },
         },
+        // The leaf for browsers without SVG favicons, and for iOS's home screen (on the site's dark ground).
+        {
+          tag: "link",
+          attrs: { rel: "icon", href: "/worktree/favicon.ico", sizes: "32x32" },
+        },
+        {
+          tag: "link",
+          attrs: {
+            rel: "apple-touch-icon",
+            href: "/worktree/apple-touch-icon.png",
+          },
+        },
+        // The share preview (plan §9 Q3; the user, 2026-11-04: the landing with one of the hero's shapes): the landing in
+        // the dark theme with the hero formed as the git graph. A screenshot of `astro preview` at 1440×756 (DPR 2), the chat launcher and the CLI
+        // version hidden so it does not age with a release, scaled to 1200×630. Retake it when the landing changes.
+        ...[
+          ["og:image", "https://northguild.dev/worktree/og-image.jpg"],
+          ["og:image:type", "image/jpeg"],
+          ["og:image:width", "1200"],
+          ["og:image:height", "630"],
+          ["og:image:alt", PREVIEW_ALT],
+        ].map(([property, content]) => ({
+          tag: "meta",
+          attrs: { property, content },
+        })),
+        ...[
+          ["twitter:image", "https://northguild.dev/worktree/og-image.jpg"],
+          ["twitter:image:alt", PREVIEW_ALT],
+        ].map(([name, content]) => ({ tag: "meta", attrs: { name, content } })),
       ],
       // Frame colours come from the --sl-* variables (the default), so the code blocks follow the theme picker.
       expressiveCode: {
