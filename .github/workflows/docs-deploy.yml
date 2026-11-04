@@ -1,22 +1,20 @@
 name: Deploy Docs
 
-# Two deploys from one push (#235):
+# Two deploys, once per stable release (#241):
 #   site          - the Astro build, as a Worker with static assets on northguild.dev/worktree* (docs/wrangler.jsonc)
 #   legacy-pages  - the generated bundle on https://northguild.github.io/worktree/: the schema file plus a
 #                   redirect stub per old route
+# publish.yml calls this workflow (workflow_call) after it publishes a stable version, passing the two Cloudflare
+# secrets; the deploy builds the release commit. Nothing else triggers it except workflow_dispatch, the manual
+# route for a docs fix that cannot wait. Run it from main: the github-pages environment accepts only that branch,
+# so legacy-pages fails from any other ref.
 on:
-  push:
-    branches:
-      - main
-    # Everything that changes the built site: the docs workspace (content, config, scripts, the Worker config),
-    # the version it shows (package.json, synced by scripts/sync-docs-version.mjs), the install, this file.
-    paths:
-      - "docs/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "scripts/sync-docs-version.mjs"
-      - ".github/workflows/docs-deploy.yml"
+  workflow_call:
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
   workflow_dispatch:
 
 permissions:
@@ -25,6 +23,9 @@ permissions:
 jobs:
   site:
     runs-on: ubuntu-latest
+    # Both jobs set their own timeout: the publish.yml job that calls this workflow cannot set one, and while they
+    # run they hold its `publish` concurrency group, so a hang would hold back the next release.
+    timeout-minutes: 20
     # An in-flight deploy is never cancelled mid-publish.
     concurrency:
       group: docs-site
@@ -75,6 +76,7 @@ jobs:
     # Only after the new site answers: the stubs redirect to it.
     needs: site
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: github-pages
     permissions:
       contents: read
