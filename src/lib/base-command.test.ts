@@ -297,6 +297,57 @@ describe("openWorktreePath", () => {
   });
 });
 
+describe("openWorktreePath — reopening a tree that exists (#254)", () => {
+  const worktreePath = "/repo/project.worktrees/feature/test";
+  let command: TestCommand;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    logSpy = vi.spyOn(command, "log").mockImplementation(() => {});
+    mockRun.mockResolvedValue("");
+  });
+
+  it("does not claim a creation with the none opener, and ends on the path", async () => {
+    setConfig({ opener: "none", codeEditor: "code" });
+
+    await command.open(worktreePath, { reopened: true });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      `Worktree already exists at ${worktreePath}`,
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining("created"));
+  });
+
+  it("does not claim a creation under --no-open", async () => {
+    setConfig({ opener: "editor", codeEditor: "code" });
+
+    await command.open(worktreePath, { open: false, reopened: true });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      `Worktree already exists at ${worktreePath}`,
+    );
+  });
+
+  it("does not claim a creation when no editor is configured", async () => {
+    setConfig({});
+
+    await command.open(worktreePath, { reopened: true });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      `✔ Worktree already exists at ${worktreePath}`,
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining("created"));
+  });
+});
+
 describe("openWorktreePath — the editor and none openers", () => {
   const worktreePath = "/repo/project.worktrees/feature/test";
   let command: TestCommand;

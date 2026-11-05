@@ -244,6 +244,11 @@ export interface OpenWorktreeOptions {
   agent?: boolean;
   /** The kickoff brief, delivered to the one agent this run starts (D11). */
   brief?: string;
+  /**
+   * `true` when the tree already existed and this run only opens it (#254). It
+   * changes nothing but the closing line, which must not claim a creation.
+   */
+  reopened?: boolean;
 }
 
 interface HerdrAgentPlan {
@@ -519,10 +524,21 @@ export abstract class BaseCommand extends Command {
    */
   protected async openWorktreePath(
     path: string,
-    { open = true, agent = true, brief }: OpenWorktreeOptions = {},
+    {
+      open = true,
+      agent = true,
+      brief,
+      reopened = false,
+    }: OpenWorktreeOptions = {},
   ): Promise<OpenOutcome> {
     const handoff = agent ? brief : undefined;
-    const outcome = await this.openWithHandoff(path, open, agent, handoff);
+    const outcome = await this.openWithHandoff(
+      path,
+      open,
+      agent,
+      handoff,
+      reopened,
+    );
 
     if (handoff !== undefined && !outcome.agent?.prompted) {
       process.exitCode = 1;
@@ -536,6 +552,7 @@ export abstract class BaseCommand extends Command {
     open: boolean,
     agent: boolean,
     handoff: string | undefined,
+    reopened: boolean,
   ): Promise<OpenOutcome> {
     const opener = await this.resolveOpener(open);
 
@@ -568,11 +585,14 @@ export abstract class BaseCommand extends Command {
         : undefined;
 
     // Nothing is opened and nothing is launched: the path is the whole result.
-    // Plain text, no glyph, so a script can take the last word of the line.
+    // Plain text, no glyph, so a script can take the last word of the line —
+    // the path stays last whichever verb the line carries.
     if (opener === "none") {
-      this.log(`Worktree created at ${path}`);
+      this.log(
+        `${reopened ? "Worktree already exists at" : "Worktree created at"} ${path}`,
+      );
     } else {
-      await this.openCodeEditor(path);
+      await this.openCodeEditor(path, reopened);
     }
 
     return { opener, agent: dispatched };
@@ -906,7 +926,7 @@ export abstract class BaseCommand extends Command {
     return { name: sessionName, kind, command: [kind, ...args], prompted };
   }
 
-  private async openCodeEditor(path: string) {
+  private async openCodeEditor(path: string, reopened: boolean) {
     const codeEditor = await gitGetConfigValue("codeEditor");
     // codeEditor is a command line, not a bare program name: the head is the
     // file to launch and the tail is leading arguments, with the worktree path
@@ -929,7 +949,9 @@ export abstract class BaseCommand extends Command {
         (error: Error) => spinner.fail(error.message),
       );
     } else {
-      this.log(`${chalk.green("✔")} Worktree created in ${path}`);
+      this.log(
+        `${chalk.green("✔")} ${reopened ? "Worktree already exists at" : "Worktree created in"} ${path}`,
+      );
     }
   }
 

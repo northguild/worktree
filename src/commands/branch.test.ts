@@ -5428,10 +5428,10 @@ jira:
         message:
           'Branch "feat" already has a worktree at /repo.worktrees/feat. Open it instead?',
       });
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
-        worktreePath,
-        defaultOpenOptions,
-      );
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(worktreePath, {
+        ...defaultOpenOptions,
+        reopened: true,
+      });
       expect(result).toBeUndefined();
       expectNothingDone();
     });
@@ -5477,6 +5477,7 @@ jira:
         open: false,
         agent: true,
         brief: "implement it",
+        reopened: true,
       });
     });
 
@@ -5553,10 +5554,10 @@ jira:
         message:
           'Branch "feat" already has a worktree at /repo.worktrees/feat. Open it instead?',
       });
-      expect(mockOpenWorktreePath).toHaveBeenCalledWith(
-        worktreePath,
-        defaultOpenOptions,
-      );
+      expect(mockOpenWorktreePath).toHaveBeenCalledWith(worktreePath, {
+        ...defaultOpenOptions,
+        reopened: true,
+      });
       expectNothingDone();
     });
 

@@ -563,6 +563,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       open: !flags["no-open"],
       agent: !flags["no-agent"],
       brief,
+      reopened: true,
     });
     return true;
   }

@@ -572,7 +572,7 @@ tells them apart:
 
 Opening an existing worktree creates nothing, so it copies no env files, installs nothing and assigns or moves no
 issue, and `--source`, `--assign`, `--start` and `--install` are ignored. It passes `--no-open`, `--no-agent` and any
-brief through to the same opener as a new worktree. With a brief, the question says that `y` starts a new
+brief through to the same opener as a new worktree. Where that opener opens nothing (`--no-open`, `opener` `none`, or no `codeEditor`), the last line says the worktree already exists rather than that it was created — `Worktree already exists at <path>`, or `✔ Worktree already exists at <path>` with no `codeEditor` — and still ends on the path. With a brief, the question says that `y` starts a new
 agent there, beside any agent already running in it. It prints no [JSON document](#json-output); a
 non-interactive run refuses instead, so `--json` never reaches it.
 
