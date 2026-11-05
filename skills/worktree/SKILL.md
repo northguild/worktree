@@ -627,6 +627,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `linear.agentContext` | `true` | whether `linear-listen` adds the delegated issue's text to the agent's brief, fenced as untrusted and capped at 32 KiB; only `true` or `false` is accepted, unset means `false`; `worktree config` never asks for it, and `.worktree.yml` cannot set it (a `linear.agentContext` there is ignored with a warning) |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
+| `clickup.autoAssign` | `true` or `false` | whether `--clickup` assigns the task to you; unset means ask (assign when non-interactive) |
 | `clickup.autoStart` | `true` or `false` | whether `--clickup` moves the task to in progress once the worktree exists; unset means ask (move when non-interactive); moving needs edit access to the task |
 | `branchPrefix.feature` | `feature/` | auto-prefix on Feature issues, on Linear issues with no bug, chore or maintenance label, and on ClickUp tasks with no such tag |
 | `branchPrefix.bugfix` | `fix/` | auto-prefix on Bug issues, on Linear issues labelled `bug`, and on ClickUp tasks tagged `bug` |

@@ -264,12 +264,12 @@ export async function configureLinear(ctx: WizardContext): Promise<void> {
   }
 }
 
-// Three keys. The token is required and secret, so it is asked
+// Four keys. The token is required and secret, so it is asked
 // like `linear.apiKey`; the workspace id matters only to a custom task id
 // and most Workspaces have those off, so an empty answer skips it (as
 // `herdr.agent` and `postCreate` accept empty) and a non-interactive run
-// takes that empty default instead of failing. The start select comes last,
-// shaped like Linear's. Nothing is validated against ClickUp here: the
+// takes that empty default instead of failing. The assign and start selects
+// come last, shaped like Jira's. Nothing is validated against ClickUp here: the
 // token is checked when `branch --clickup` first uses it.
 export async function configureClickUp(ctx: WizardContext): Promise<void> {
   if (shouldPrompt(ctx, "clickup.apiToken")) {
@@ -309,6 +309,35 @@ export async function configureClickUp(ctx: WizardContext): Promise<void> {
     if (clickUpWorkspaceId.trim()) {
       await saveConfigValue("clickup.workspaceId", clickUpWorkspaceId.trim());
     }
+  }
+
+  if (shouldPrompt(ctx, "clickup.autoAssign")) {
+    // Same shape as `jira.autoAssign` (D10): anything but an explicit
+    // "true" or "false" is normalised to the "ask me" choice.
+    const storedClickUpAutoAssign =
+      await gitGetConfigValue("clickup.autoAssign");
+    const clickUpAutoAssignDefault =
+      storedClickUpAutoAssign === "true" || storedClickUpAutoAssign === "false"
+        ? storedClickUpAutoAssign
+        : "";
+    const clickUpAutoAssign = await askSelect<"true" | "false" | "">(
+      {
+        message: "Should `branch --clickup` assign the task to you?",
+        choices: [
+          { name: "Yes, always", value: "true" },
+          { name: "No, never", value: "false" },
+          // Tri-state through unset (D4): also the way to keep being asked.
+          { name: "Ask me each time", value: "" },
+        ],
+        default: clickUpAutoAssignDefault,
+      },
+      {
+        value: "clickup.autoAssign",
+        flag: "worktree config clickup.autoAssign <true|false>",
+        fallback: clickUpAutoAssignDefault,
+      },
+    );
+    await saveConfigValue("clickup.autoAssign", clickUpAutoAssign);
   }
 
   if (shouldPrompt(ctx, "clickup.autoStart")) {
