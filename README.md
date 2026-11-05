@@ -489,7 +489,7 @@ Merging a pull request publishes nothing. A release is a deliberate release pull
 ## Requirements
 
 - Git installed and available on your `PATH`
-- Node.js `^20.17.0`, `^22.13.0` or `>=23.5.0` (the range `@inquirer/prompts` supports; Node 21 is not)
+- Node.js `^22.13.0` or `>=23.5.0` (the range `@inquirer/prompts` and `@oclif/core` 5 both support; Node 20 and 21 are not)
 - an existing Git repository where you want to manage worktrees
 - macOS or Linux — Windows is not supported
 
