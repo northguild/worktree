@@ -11,6 +11,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # A manual run from any other branch deploys nothing (#246): it would ship that branch's Worker to production.
+    # The same guard publish.yml's `guard` job and docs-deploy.yml's `site` job use. The push trigger is already
+    # limited to main, so it passes. This stops an accidental dispatch, not a deliberate one: workflow_dispatch runs
+    # the selected branch's copy of this file, so a branch that drops the guard still deploys. Enforcing it
+    # server-side, with an environment that admits only main, is #253.
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
