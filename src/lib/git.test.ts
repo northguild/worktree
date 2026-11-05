@@ -94,6 +94,26 @@ vi.mock("cli-progress", () => ({
   },
 }));
 
+// gitRemoveWorktreesWithProgress counts and watches the trees only where
+// progress is on, which a test run never is. The switch is a mock so a case can
+// turn it on, and the count is a mock so a case decides what was "counted".
+const removalProgressMocks = vi.hoisted(() => ({
+  isProgressEnabled: vi.fn().mockReturnValue(false),
+  measureTree: vi.fn(),
+  countGone: vi.fn().mockReturnValue(0),
+}));
+
+vi.mock("./progress.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./progress.js")>()),
+  isProgressEnabled: removalProgressMocks.isProgressEnabled,
+}));
+
+vi.mock("./removal-progress.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./removal-progress.js")>()),
+  measureTree: removalProgressMocks.measureTree,
+  createRemovalWatcher: () => ({ countGone: removalProgressMocks.countGone }),
+}));
+
 // The three calls the merged probe makes, and the answers they get. It runs for
 // any worktree that is ahead of a comparison base and has no live remote branch,
 // which is every stale candidate — so the suites below that drive
@@ -2442,6 +2462,8 @@ describe("what the removal helpers report", () => {
     const two = entry({ branchName: "feature/two", path: twoPath });
 
     beforeEach(() => {
+      removalProgressMocks.isProgressEnabled.mockReturnValue(false);
+      removalProgressMocks.countGone.mockReturnValue(0);
       expectCommands(
         `git worktree remove ${onePath} --force`,
         `git worktree remove ${twoPath} --force`,
@@ -2506,10 +2528,9 @@ describe("what the removal helpers report", () => {
       expect(mockRun).not.toHaveBeenCalled();
     });
 
-    // Pre-existing and deliberately unchanged by this phase: a throw aborts the
-    // loop, so the entries already completed are lost with the exception rather
-    // than returned. Pinned so the behaviour is a decision rather than a
-    // surprise — see the plan's §9 and findings.md F-011.
+    // Pre-existing and deliberately unchanged: a throw aborts the loop, so the
+    // entries already completed are lost with the exception rather than
+    // returned. Pinned so the behaviour is a decision rather than a surprise.
     it("still aborts the whole loop when a removal throws", async () => {
       mockRun.mockRejectedValue(
         new Error("Command failed: git worktree remove"),
@@ -2543,6 +2564,146 @@ describe("what the removal helpers report", () => {
         onePath,
         "--force",
       ]);
+    });
+
+    describe("with progress on", () => {
+      beforeEach(() => {
+        removalProgressMocks.isProgressEnabled.mockReturnValue(true);
+        vi.spyOn(fs, "existsSync").mockReturnValue(true);
+        mockRun.mockResolvedValue("");
+      });
+
+      it("counts nothing and draws nothing when progress is off", async () => {
+        removalProgressMocks.isProgressEnabled.mockReturnValue(false);
+
+        await gitRemoveWorktreesWithProgress([entry(), two]);
+
+        expect(removalProgressMocks.measureTree).not.toHaveBeenCalled();
+        expect(progressMocks.start).not.toHaveBeenCalled();
+        expect(spinnerMocks.oraFactory).not.toHaveBeenCalled();
+      });
+
+      it("starts one bar whose total is the entries counted across worktrees", async () => {
+        removalProgressMocks.measureTree
+          .mockResolvedValueOnce({
+            total: 120,
+            checkpoints: [],
+            coveredFraction: 0,
+          })
+          .mockResolvedValueOnce({
+            total: 30,
+            checkpoints: [],
+            coveredFraction: 0,
+          });
+
+        await gitRemoveWorktreesWithProgress([entry(), two]);
+
+        expect(spinnerMocks.oraFactory).toHaveBeenCalledWith("Counting files…");
+        expect(removalProgressMocks.measureTree).toHaveBeenCalledWith(onePath);
+        expect(removalProgressMocks.measureTree).toHaveBeenCalledWith(twoPath);
+        expect(progressMocks.start).toHaveBeenCalledTimes(1);
+        expect(progressMocks.start.mock.calls[0][0]).toBe(150);
+        // Each finished worktree is credited its own weight.
+        expect(progressMocks.update).toHaveBeenCalledWith(
+          120,
+          expect.anything(),
+        );
+        expect(progressMocks.update).toHaveBeenLastCalledWith(
+          150,
+          expect.anything(),
+        );
+        expect(progressMocks.stop).toHaveBeenCalledTimes(1);
+      });
+
+      it("weighs a worktree whose directory is gone as one entry", async () => {
+        vi.spyOn(fs, "existsSync").mockImplementation(
+          (candidate) => candidate !== twoPath,
+        );
+        removalProgressMocks.measureTree.mockResolvedValueOnce({
+          total: 40,
+          checkpoints: [],
+          coveredFraction: 0,
+        });
+
+        await gitRemoveWorktreesWithProgress([entry(), two]);
+
+        expect(removalProgressMocks.measureTree).toHaveBeenCalledTimes(1);
+        expect(progressMocks.start.mock.calls[0][0]).toBe(41);
+      });
+
+      it("falls back to a spinner line per worktree when the count throws, and still removes", async () => {
+        removalProgressMocks.measureTree.mockRejectedValue(
+          new Error("EACCES: permission denied"),
+        );
+
+        await expect(
+          gitRemoveWorktreesWithProgress([entry(), two]),
+        ).resolves.toEqual([entry(), two]);
+
+        expect(progressMocks.start).not.toHaveBeenCalled();
+        expect(spinnerMocks.oraFactory).toHaveBeenCalledWith(
+          `Deleting ${branchName} (1/2)`,
+        );
+        expect(spinnerMocks.oraFactory).toHaveBeenCalledWith(
+          "Deleting feature/two (2/2)",
+        );
+        expect(mockRun).toHaveBeenCalledWith("git", [
+          "worktree",
+          "remove",
+          twoPath,
+          "--force",
+        ]);
+      });
+
+      it("stops the bar when a removal throws", async () => {
+        removalProgressMocks.measureTree.mockResolvedValue({
+          total: 10,
+          checkpoints: [],
+          coveredFraction: 0,
+        });
+        mockRun.mockRejectedValue(
+          new Error("Command failed: git worktree remove"),
+        );
+
+        await expect(
+          gitRemoveWorktreesWithProgress([entry(), two]),
+        ).rejects.toThrow("Command failed: git worktree remove");
+
+        expect(progressMocks.stop).toHaveBeenCalledTimes(1);
+      });
+
+      it("polls the watcher while git runs and never lets the bar pass the total", async () => {
+        vi.useFakeTimers();
+        try {
+          removalProgressMocks.measureTree.mockResolvedValue({
+            total: 10,
+            checkpoints: [],
+            coveredFraction: 0,
+          });
+          removalProgressMocks.countGone.mockReturnValue(99);
+          mockRun.mockImplementation(
+            () => new Promise((resolve) => setTimeout(() => resolve(""), 250)),
+          );
+
+          const running = gitRemoveWorktreesWithProgress([entry()]);
+          await vi.advanceTimersByTimeAsync(1000);
+          await running;
+
+          const values = progressMocks.update.mock.calls
+            .map(([value]) => value)
+            .filter((value): value is number => typeof value === "number");
+          // Polling happened: the watcher was read while git ran, and those
+          // reads reached the bar before the final credit for the worktree.
+          expect(removalProgressMocks.countGone).toHaveBeenCalled();
+          expect(values.filter((value) => value === 10).length).toBeGreaterThan(
+            1,
+          );
+          // The watcher said 99 of 10; the bar never went past the total.
+          expect(Math.max(...values)).toBe(10);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
   });
 });

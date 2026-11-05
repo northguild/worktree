@@ -17,6 +17,12 @@ import { isNonInteractive } from "./interaction.js";
 import { gatherIssueLinks } from "./issue-link.js";
 import { createSpinner, isProgressEnabled } from "./progress.js";
 import { askConfirm } from "./prompt.js";
+import {
+  createRemovalWatcher,
+  measureAbsentTree,
+  measureTree,
+  type TreeMeasurement,
+} from "./removal-progress.js";
 import type {
   AgentSession,
   WorktreeAgent,
@@ -1093,25 +1099,64 @@ export async function gitRemoveWorktree(
 }
 
 /**
- * Removes a set of worktrees behind a progress bar, answering with the ones it
- * got through.
+ * Counts every worktree that still has a directory, behind one "Counting
+ * files…" line, so the bar that follows has a total to be a percentage of. A
+ * worktree whose directory is gone weighs one entry. Answers undefined when a
+ * count throws: the count is best effort and must never fail the removal.
+ */
+async function measureWorktrees(
+  worktrees: WorktreeListEntry[],
+): Promise<TreeMeasurement[] | undefined> {
+  const spinner = createSpinner("Counting files…").start();
+  try {
+    const measurements: TreeMeasurement[] = [];
+    for (const wt of worktrees) {
+      measurements.push(
+        fs.existsSync(wt.path)
+          ? await measureTree(wt.path)
+          : measureAbsentTree(),
+      );
+    }
+    return measurements;
+  } catch {
+    return undefined;
+  } finally {
+    spinner.stop();
+  }
+}
+
+/**
+ * Removes a set of worktrees, answering with the ones it got through.
  *
- * "Got through" means `gitNukeWorktreeCmd` did not throw on it. A throw still
- * aborts the loop and still leaves the bar unstopped — pre-existing behaviour,
- * deliberately unchanged here, and the entries already completed are lost with
- * the exception rather than returned. That gap is recorded against this plan's
- * §9 and is adjacent to findings.md F-011; this function's contract is only
- * that what it *returns* was really removed.
+ * In an interactive terminal one bar covers the whole run. Every worktree is
+ * counted before the first removal, the bar moves on entries (files and
+ * directories) weighted by each worktree's own count, and while git deletes a
+ * tree a 100 ms timer reads how many of its entries have vanished. If the count
+ * throws, each worktree gets a "Deleting <branch> (n/m)" spinner line with no
+ * percentage and the removal goes ahead. Where progress is off (a
+ * non-interactive run, or a terminal with no usable width) nothing is counted
+ * and nothing is drawn.
+ *
+ * "Got through" means `gitNukeWorktreeCmd` did not throw on it. A throw aborts
+ * the loop and the entries already completed are lost with the exception
+ * rather than returned; the bar, the spinner and the timer are still stopped,
+ * so the cursor is not left hidden. This function's contract is only that what
+ * it *returns* was really removed.
  */
 export async function gitRemoveWorktreesWithProgress(
   worktrees: WorktreeListEntry[],
 ): Promise<WorktreeListEntry[]> {
-  // No animated bar where the spinner seam would not animate either (E2): a
-  // non-interactive run, or a terminal with no usable width.
-  const process = isProgressEnabled()
+  const showProgress = worktrees.length > 0 && isProgressEnabled();
+  const measurements = showProgress
+    ? await measureWorktrees(worktrees)
+    : undefined;
+  const count = worktrees.length;
+
+  const bar = measurements
     ? new Process.SingleBar(
         {
-          format: "{bar} {percentage}% ({metaValue}/{metaTotal}) {description}",
+          format:
+            "{bar} {percentage}% \u00b7 {value}/{total} files \u00b7 {eta_formatted} left \u00b7 {description}",
           barCompleteChar: "\u2588",
           barIncompleteChar: "\u2591",
           hideCursor: true,
@@ -1119,30 +1164,61 @@ export async function gitRemoveWorktreesWithProgress(
         Process.Presets.shades_classic,
       )
     : undefined;
+  const total = (measurements ?? []).reduce(
+    (sum, measurement) => sum + measurement.total,
+    0,
+  );
 
-  process?.start(worktrees.length * 10, 0, {
-    metaTotal: worktrees.length,
+  const removed: WorktreeListEntry[] = [];
+  let timer: NodeJS.Timeout | undefined;
+  let spinner: ReturnType<typeof createSpinner> | undefined;
+
+  bar?.start(total, 0, {
+    description: `Deleting ${worktrees[0]?.branchName} (1/${count})`,
   });
 
-  let i = 0;
-  const removed: WorktreeListEntry[] = [];
+  try {
+    let finishedEntries = 0;
 
-  for (const wt of worktrees) {
-    const description = `Deleting ${wt.branchName}`;
-    process?.update({ metaValue: i, description });
+    for (const [index, wt] of worktrees.entries()) {
+      const description = `Deleting ${wt.branchName} (${index + 1}/${count})`;
+      const measurement = measurements?.[index];
 
-    i++;
+      if (bar && measurement) {
+        const watcher = createRemovalWatcher(measurement);
+        const base = finishedEntries;
+        bar.update(base, { description });
+        timer = setInterval(() => {
+          bar.update(Math.min(total, base + watcher.countGone()), {
+            description,
+          });
+        }, 100);
+      } else if (showProgress) {
+        spinner = createSpinner(description).start();
+      }
 
-    await gitNukeWorktreeCmd(wt, { force: true });
-    removed.push(wt);
+      try {
+        await gitNukeWorktreeCmd(wt, { force: true });
+      } finally {
+        clearInterval(timer);
+        timer = undefined;
+        spinner?.stop();
+        spinner = undefined;
+      }
+      removed.push(wt);
 
-    process?.update(i * 10, {
-      metaValue: i,
-      description: i === worktrees.length ? "Done" : description,
-    });
+      if (bar && measurement) {
+        finishedEntries += measurement.total;
+        bar.update(finishedEntries, {
+          description: index + 1 === count ? "Done" : description,
+        });
+      }
+    }
+  } finally {
+    clearInterval(timer);
+    spinner?.stop();
+    bar?.stop();
   }
-
-  process?.stop();
 
   return removed;
 }
