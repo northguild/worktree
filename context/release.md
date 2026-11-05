@@ -185,7 +185,8 @@ stable version has been published.
   concurrency group while they run.
 - **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`, or a manual
   dispatch from `main` only: the `deploy` job carries `if: github.ref == 'refs/heads/main'` (#246), so a run from
-  any other ref deploys nothing. **Has succeeded once**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
+  any other ref deploys nothing, as long as that ref's copy of the workflow keeps the guard (`workflow_dispatch`
+  runs the selected ref's file, and the Cloudflare secrets are repository-level; #253). **Has succeeded once**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
   repository secrets on 2026-10-03, and a manual dispatch that day succeeded. Every earlier run, the last
   push-triggered one on 2026-10-01, failed at *Deploy to Cloudflare* for want of that credential. No push
   has touched `docs/worker/**` since, so the push trigger has not yet been seen to succeed.

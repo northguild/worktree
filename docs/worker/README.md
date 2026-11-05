@@ -209,7 +209,8 @@ of this endpoint.
 
 See `.github/workflows/worker-deploy.yml`. Deploys automatically on pushes to
 `main` that change `docs/worker/**`. A manual "Run workflow" deploys only from `main`: a run from any other
-branch deploys nothing. Requires two GitHub **repository secrets**:
+branch deploys nothing, provided that branch's copy of the workflow still has the guard (a manual run uses the
+selected branch's file). Requires two GitHub **repository secrets**:
 
 | Secret | Where to get it |
 |---|---|
