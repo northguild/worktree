@@ -7,7 +7,7 @@ overrides:
   # GHSA-g3hv-75wg-m249. @oclif/core (latest 5.1.11) still declares minimatch ^10.2.5, which has no
   # patched release. Remove once @oclif/core depends on minimatch ^11. This fixes this repository only:
   # the published package has no shrinkwrap, so users resolve @oclif/core's own range.
-  'minimatch@>=7.0.0 <11.0.1': '>=11.0.1'
+  'minimatch@>=7.0.0 <11.0.1': ^11.0.1
   undici@>=7.0.0 <7.30.1: ^7.30.1
 allowBuilds:
   esbuild: false
