@@ -1156,7 +1156,7 @@ export async function gitRemoveWorktreesWithProgress(
     ? new Process.SingleBar(
         {
           format:
-            "{bar} {percentage}% \u00b7 {value}/{total} files \u00b7 {eta_formatted} left \u00b7 {description}",
+            "{bar} {percentage}% \u00b7 {value}/{total} entries \u00b7 {eta_formatted} left \u00b7 {description}",
           barCompleteChar: "\u2588",
           barIncompleteChar: "\u2591",
           hideCursor: true,

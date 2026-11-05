@@ -19,6 +19,18 @@ const CHECKPOINT_FRACTION = 0.01;
 const MAX_SAMPLED_FILES = 100;
 
 /**
+ * Directory checkpoints have no cap of their own: a large directory holding
+ * many tiny subdirectories (a build cache of hashed directories, say) makes one
+ * checkpoint of each. A tree of 30,000 two-entry subdirectories gave 30,001
+ * checkpoints, and one lstat pass over them took 71 to 89 ms of the 100 ms
+ * interval. So each poll checks at most this many, in rotation. This repo's
+ * 52,044-entry node_modules gave 1,290 checkpoints in a 3.6 to 4.0 ms pass, so
+ * it is still checked whole on every poll; a tree with more checkpoints costs
+ * about as much per poll, and its count lags by one rotation at most.
+ */
+const MAX_CHECKS_PER_POLL = 1_500;
+
+/**
  * One path whose disappearance accounts for `entries` entries of the tree.
  * A checkpoint directory accounts for its whole subtree, because git removes a
  * directory only after everything inside it.
@@ -41,8 +53,16 @@ export interface MeasureTreeOptions {
   maxSampledFiles?: number;
 }
 
+export interface RemovalWatcherOptions {
+  maxChecksPerPoll?: number;
+}
+
 export interface RemovalWatcher {
-  /** Entries gone so far; never decreases, never exceeds the total. */
+  /**
+   * Entries gone so far; never decreases, never exceeds the total. Each call
+   * checks at most `maxChecksPerPoll` of the remaining checkpoints, the ones
+   * checked longest ago, so the count can trail the deletion by a few calls.
+   */
   countGone(): number;
 }
 
@@ -163,16 +183,22 @@ function isGone(path: string): boolean {
  */
 export function createRemovalWatcher(
   measurement: TreeMeasurement,
+  options: RemovalWatcherOptions = {},
 ): RemovalWatcher {
+  const { maxChecksPerPoll = MAX_CHECKS_PER_POLL } = options;
+  // A queue: each call checks the front of it, and what is still there goes
+  // to the back, so every checkpoint is checked once per rotation.
   let remaining = [...measurement.checkpoints];
   let gone = 0;
   return {
     countGone() {
-      remaining = remaining.filter((checkpoint) => {
+      const checked = remaining.slice(0, maxChecksPerPoll);
+      const stillThere = checked.filter((checkpoint) => {
         if (!isGone(checkpoint.path)) return true;
         gone += checkpoint.entries;
         return false;
       });
+      remaining = remaining.slice(checked.length).concat(stillThere);
       return Math.min(gone, measurement.total);
     },
   };

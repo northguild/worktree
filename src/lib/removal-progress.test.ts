@@ -1,5 +1,4 @@
 import {
-  chmodSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -13,6 +12,28 @@ import {
   measureAbsentTree,
   measureTree,
 } from "./removal-progress.js";
+
+// Every read goes to the real readdir, so each case walks a real tree. The
+// mock is there for the one case that needs a directory to be unreadable:
+// a mode-000 directory is still readable to root, as in a CI container.
+const fsMocks = vi.hoisted(() => ({ unreadable: new Set<string>() }));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const readdirUnlessUnreadable = (async (
+    ...args: Parameters<typeof actual.readdir>
+  ) => {
+    const [path] = args;
+    if (fsMocks.unreadable.has(String(path))) {
+      throw Object.assign(
+        new Error(`EACCES: permission denied, scandir '${String(path)}'`),
+        { code: "EACCES" },
+      );
+    }
+    return actual.readdir(...args);
+  }) as typeof actual.readdir;
+  return { ...actual, readdir: readdirUnlessUnreadable };
+});
 
 /**
  * Builds a tree and counts the entries as it creates them, so every expected
@@ -109,13 +130,13 @@ describe("measureTree", () => {
     fixture = buildFixture();
     const locked = fixture.directory("locked");
     fixture.files("locked", 1);
-    chmodSync(locked, 0o000);
+    fsMocks.unreadable.add(locked);
     try {
       await expect(measureTree(fixture.root)).rejects.toMatchObject({
         code: "EACCES",
       });
     } finally {
-      chmodSync(locked, 0o755);
+      fsMocks.unreadable.delete(locked);
     }
   });
 
@@ -246,6 +267,59 @@ describe("createRemovalWatcher", () => {
     if (firstGroup === undefined) throw new Error("no sampled group");
     rmSync(firstGroup.path);
     expect(watcher.countGone()).toBe(5);
+  });
+
+  it("checks no more checkpoints per call than it is allowed", async () => {
+    fixture = buildFixture();
+    const measurement = await measureTree(fixture.root, {
+      checkpointFraction: 0.4,
+    });
+    const [first, second] = measurement.checkpoints;
+    if (first === undefined || second === undefined) {
+      throw new Error("fewer than two checkpoints");
+    }
+    const watcher = createRemovalWatcher(measurement, { maxChecksPerPoll: 2 });
+    fixture.dispose();
+    expect(watcher.countGone()).toBe(first.entries + second.entries);
+  });
+
+  it("moves on to the checkpoints it has not checked, rather than rechecking the same ones", async () => {
+    fixture = buildFixture();
+    const measurement = await measureTree(fixture.root, {
+      checkpointFraction: 0.4,
+    });
+    const [first, second, third, fourth] = measurement.checkpoints;
+    if (
+      first === undefined ||
+      second === undefined ||
+      third === undefined ||
+      fourth === undefined
+    ) {
+      throw new Error("fewer than four checkpoints");
+    }
+    // Rechecking the first two would answer their sum, so it must differ.
+    expect(third.entries + fourth.entries).not.toBe(
+      first.entries + second.entries,
+    );
+    const watcher = createRemovalWatcher(measurement, { maxChecksPerPoll: 2 });
+    expect(watcher.countGone()).toBe(0); // the first two, both still there
+    fixture.dispose();
+    expect(watcher.countGone()).toBe(third.entries + fourth.entries);
+  });
+
+  it("reaches the full total a few calls late when it checks a few at a time", async () => {
+    fixture = buildFixture();
+    const measurement = await measureTree(fixture.root, {
+      checkpointFraction: 0.4,
+    });
+    const watcher = createRemovalWatcher(measurement, { maxChecksPerPoll: 2 });
+    fixture.dispose();
+    const calls = Math.ceil(measurement.checkpoints.length / 2);
+    for (let call = 1; call < calls; call += 1) {
+      expect(watcher.countGone()).toBeLessThan(fixture.entries);
+    }
+    expect(watcher.countGone()).toBe(fixture.entries);
+    expect(watcher.countGone()).toBe(13);
   });
 
   it("never exceeds the total and never goes back down", async () => {

@@ -76,6 +76,7 @@ vi.mock("@inquirer/prompts", () => ({
 // gitRemoveWorktreesWithProgress draws a real progress bar otherwise, which
 // writes to stdout and depends on a TTY.
 const progressMocks = vi.hoisted(() => ({
+  construct: vi.fn(),
   start: vi.fn(),
   update: vi.fn(),
   stop: vi.fn(),
@@ -86,6 +87,9 @@ vi.mock("cli-progress", () => ({
   // an arrow implementation cannot be constructed.
   default: {
     SingleBar: class {
+      constructor(options: unknown) {
+        progressMocks.construct(options);
+      }
       start = progressMocks.start;
       update = progressMocks.update;
       stop = progressMocks.stop;
@@ -2613,6 +2617,22 @@ describe("what the removal helpers report", () => {
           expect.anything(),
         );
         expect(progressMocks.stop).toHaveBeenCalledTimes(1);
+      });
+
+      it("labels the count entries, since it counts directories as well as files", async () => {
+        removalProgressMocks.measureTree.mockResolvedValue({
+          total: 10,
+          checkpoints: [],
+          coveredFraction: 0,
+        });
+
+        await gitRemoveWorktreesWithProgress([entry()]);
+
+        expect(progressMocks.construct).toHaveBeenCalledWith(
+          expect.objectContaining({
+            format: expect.stringContaining("{value}/{total} entries"),
+          }),
+        );
       });
 
       it("weighs a worktree whose directory is gone as one entry", async () => {
