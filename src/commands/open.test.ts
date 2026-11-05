@@ -77,6 +77,7 @@ describe("open command", () => {
     expect(mockSelect).not.toHaveBeenCalled();
     expect(mockOpenWorktreePath).toHaveBeenCalledWith(
       "/tmp/project.worktrees/feature/two",
+      { reopened: true },
     );
   });
 
@@ -99,6 +100,7 @@ describe("open command", () => {
     });
     expect(mockOpenWorktreePath).toHaveBeenCalledWith(
       "/tmp/project.worktrees/feature/one",
+      { reopened: true },
     );
   });
 

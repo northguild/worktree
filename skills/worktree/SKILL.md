@@ -603,7 +603,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
-| `opener` | `editor`, `herdr` or `none` | where a worktree opens, and for `herdr` where its space is closed on removal; `none` opens nothing and prints `Worktree created at <path>`; defaults to `editor` |
+| `opener` | `editor`, `herdr` or `none` | where a worktree opens, and for `herdr` where its space is closed on removal; `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |

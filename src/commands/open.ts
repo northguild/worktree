@@ -46,6 +46,6 @@ export default class OpenCmd extends BaseCommand {
     }
 
     // Handle opening the worktree
-    await this.openWorktreePath(wt.path);
+    await this.openWorktreePath(wt.path, { reopened: true });
   }
 }
