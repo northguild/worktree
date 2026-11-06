@@ -138,6 +138,23 @@ that agent is working in. `cleanup` names each such worktree under
 but it does not stop, and what it removes now includes those panes. Without the flag, an agent that is
 working holds its worktree back, and its space with it. One that is only idle does not.
 
+## When the worktree is renamed
+
+[`worktree rename`](/worktree/commands/rename/) moves a worktree's directory and renames its branch. With
+`opener herdr` the space follows: Herdr lists a worktree's space from git's worktrees, so it is found at the new
+path with the same id and panes, and `worktree` relabels it to the new name with `herdr workspace rename`.
+
+```
+✔ Renamed Herdr space feature/x to bugfix/y
+```
+
+The space is looked up before the directory moves and relabelled only once both the move and the branch rename
+have succeeded. A worktree with no space open prints nothing. If Herdr cannot be reached or refuses the label,
+that is a warning and the command still exits `0`. `rename --json` lists the id under `herdrSpacesRenamed`.
+
+The agent Herdr started in the space keeps the name it was given, and so does a Claude `--name` session: both
+are set when the agent starts and keep the old branch name.
+
 ## When Herdr cannot be reached
 
 Every call to Herdr is bounded, so a Herdr that accepts the connection and then never answers fails

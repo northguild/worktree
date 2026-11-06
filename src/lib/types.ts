@@ -291,6 +291,10 @@ export interface RenameDocument {
   to: { branch: string; path: string };
   /** The branch's upstream after the rename, as `origin/<branch>`, or null. */
   upstream: string | null;
+  /** The Herdr workspace ids that were relabelled to follow the rename. */
+  herdrSpacesRenamed: string[];
+  /** The Rex session ids that were relabelled to follow the rename. */
+  rexSessionsRenamed: string[];
   warnings: string[];
 }
 

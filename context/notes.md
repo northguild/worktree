@@ -61,3 +61,22 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file whol
   section.
 - `rename.mdx` says Herdr spaces and Rex sessions are not renamed — phase 4 makes that untrue and carries
   the page on its Files line.
+
+## Phase 4 — Herdr spaces and Rex sessions follow the rename (Gate 2, PASS WITH NOTES after one loopback)
+
+- **Rex sessions are not relabelled in D1's main case.** `rexMultiplexer.findSpaces` drops the current
+  worktree and the `REX_SESSION` session (right for closing, shared with `remove`), so renaming the worktree
+  you stand in never relabels its Rex session, silently. Documented in `rename.mdx` and `rex-sessions.mdx`.
+  Fixing it is a seam change (a rename-specific candidate set); this branch is not on main, so it is fixed
+  here or explicitly accepted by the maintainer — not filed. Herdr is unaffected: its `findSpaces` only
+  excludes the main checkout's `source_workspace_id`.
+- No test asserts that a preflight refusal starts no Herdr or Rex process; only the declined confirm is
+  pinned.
+- The spinner text "Renamed <tool> <noun> <from> to <to>" has no §4.3 source; it copies the closer's pattern.
+- `closedSpacesOf` now also names the renamed spaces' tool and reads oddly in `rename.ts`. Cosmetic.
+- `src/agent-mode.test.ts` was edited outside phase 4's Files line, necessarily: its exact document has to
+  carry §4.4's new keys.
+- `configuration.mdx`'s Opener Notes say herdr/rex close on remove and do not mention relabel on rename.
+  Incomplete, not untrue; §7 did not list the page.
+- The output-order test resets `succeed.mock.invocationCallOrder` by hand and does not check the space
+  line's text; `mockClear()` plus a `toHaveBeenCalledWith` would be sturdier.

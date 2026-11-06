@@ -704,3 +704,17 @@ export async function listHerdrAgents(): Promise<HerdrAgentEntry[]> {
 export async function closeHerdrWorkspace(workspaceId: string): Promise<void> {
   await runHerdrRequest(["workspace", "close", workspaceId]);
 }
+
+/**
+ * Relabels one Herdr space by id: `herdr workspace rename <workspace_id>
+ * <label>` (Herdr 0.9.0, observed in the #272 probe). The space keeps its id
+ * and its panes; only the sidebar label changes. Nothing is read from the
+ * `workspace_info` answer — `runHerdrRequest` has already insisted on a result
+ * object, and a refusal arrives as a thrown `HerdrError`.
+ */
+export async function renameHerdrWorkspace(
+  workspaceId: string,
+  label: string,
+): Promise<void> {
+  await runHerdrRequest(["workspace", "rename", workspaceId, label]);
+}

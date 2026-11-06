@@ -102,6 +102,34 @@ An agent session (feature-one-1f) is working in feature/x. Rename it anyway?
 A session that is only idle does not count. A plain rename with nobody in the worktree asks nothing and has no
 `--dry-run`, because nothing is lost and every refusal below is checked before anything moves.
 
+## Herdr spaces and Rex sessions
+
+With `opener` set to `herdr` or `rex`, a space or session open in the worktree follows the rename: it is
+relabelled to the new name, the way `open` would have labelled it, and keeps its panes and its id. Nothing is
+closed and reopened.
+
+```
+✔ Renamed feature/x to bugfix/y; the worktree is at /abs/repo.worktrees/bugfix/y
+✔ Renamed Herdr space feature/x to bugfix/y
+```
+
+- The space is looked up before the directory moves, because both tools list it from git's worktrees, and
+  relabelled only after the directory and the branch have both been renamed. A rename that fails relabels
+  nothing.
+- Only the tool `opener` names is asked, as `remove` does. With `opener` unset, `editor` or `none`, no `herdr` or
+  `rex` process is started.
+- A worktree with no space open prints nothing.
+- If the tool cannot be reached or refuses the new label, that is a warning, in the human output and in the
+  `warnings` array of `--json`, and the command still exits `0`: the rename has happened and cannot be undone.
+  Relabel it by hand (`herdr workspace rename <id> <label>`, `rex session rename <session> <label>`) or close it
+  and `worktree open` the new name.
+- Herdr follows the moved directory by itself, so `worktree remove <new name>` still finds and closes the
+  relabelled space (checked on Herdr 0.9.0). The Rex session is not yet verified against a live Rex.
+- Rex sessions are matched as `remove` matches them, by where their shells are. The session `worktree` runs in,
+  and any session of the worktree you run the command from, are not relabelled.
+
+`--json` lists the ids under `herdrSpacesRenamed` and `rexSessionsRenamed`, and `[]` when nothing was relabelled.
+
 ## Caveats
 
 Renaming moves a directory out from under whatever is using it. Those are not handled:
@@ -117,8 +145,8 @@ Renaming moves a directory out from under whatever is using it. Those are not ha
 - **Case-only renames on a case-insensitive filesystem**, such as macOS's default, are refused as
   `already exists`: the new directory name is the old one as far as the filesystem can tell.
   Rename through another name first.
-- Herdr spaces, Rex sessions, a Herdr agent's name and a Claude session's `--name` are not renamed.
-  Close and reopen the space with `worktree open`.
+- **A Herdr agent's name and a Claude session's `--name`** are set when the agent starts and keep the
+  old branch name. Neither tool has a way to rename a running agent.
 
 ## Refusals
 

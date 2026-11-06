@@ -3,6 +3,7 @@ import {
   closeHerdrWorkspace,
   isHerdrInstalled,
   listHerdrWorktrees,
+  renameHerdrWorkspace,
 } from "./herdr.js";
 
 export const herdrMultiplexer: Multiplexer = {
@@ -35,4 +36,5 @@ export const herdrMultiplexer: Multiplexer = {
     );
   },
   closeSpace: (spaceId) => closeHerdrWorkspace(spaceId),
+  renameSpace: (spaceId, label) => renameHerdrWorkspace(spaceId, label),
 };

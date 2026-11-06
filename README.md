@@ -378,7 +378,7 @@ With `--issues`, each entry also has `issue`: `null` when no Linear issue is rec
 `remove --json` gives `{"removed":[{branch,path}],"herdrSpacesClosed":[…],"rexSessionsClosed":[…],"warnings":[]}`. Nothing removed is
 never reported as a success.
 
-`rename --json` gives `{"from":{branch,path},"to":{branch,path},"upstream":string|null,"warnings":[]}`. `upstream` is what the branch still tracks, such as `origin/feature/x`: the remote branch is left alone. A non-interactive run needs `<newName>`, and `-f` when an agent session is working in the worktree.
+`rename --json` gives `{"from":{branch,path},"to":{branch,path},"upstream":string|null,"herdrSpacesRenamed":[],"rexSessionsRenamed":[],"warnings":[]}`. `herdrSpacesRenamed` and `rexSessionsRenamed` list the ids of a Herdr space or Rex session relabelled to follow the rename. `upstream` is what the branch still tracks, such as `origin/feature/x`: the remote branch is left alone. A non-interactive run needs `<newName>`, and `-f` when an agent session is working in the worktree.
 
 A failure prints `{"error":{"code","message",…}}` on stdout, one line on stderr, and exits non-zero:
 

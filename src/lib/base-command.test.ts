@@ -79,6 +79,14 @@ class TestCommand extends BaseCommand {
     return this.resolveSpaceCloser();
   }
 
+  renamer() {
+    return this.resolveSpaceRenamer();
+  }
+
+  get renamedSpacesOf() {
+    return this.closedSpacesOf;
+  }
+
   assertBrief(options: OpenWorktreeOptions) {
     return this.assertBriefHasAnAgent(options);
   }
@@ -2038,6 +2046,137 @@ describe("resolveSpaceCloser", () => {
 
       await expect(afterFailedClose([onePath])).resolves.toEqual([]);
     });
+  });
+});
+
+// #272 D12: the same lookup as the closer, the same opener gate, and a relabel
+// in place of the close. Expected labels come from `toSpaceLabel`'s rule: the
+// path under `<root>.worktrees/` is the label, slashes and all.
+describe("resolveSpaceRenamer", () => {
+  const gitRootPath = "/repo/project";
+  const worktreesRootPath = `${gitRootPath}.worktrees`;
+  const oldPath = `${worktreesRootPath}/feature/one`;
+  const newPath = `${worktreesRootPath}/bugfix/one`;
+  const noSpacePath = `${worktreesRootPath}/feature/no-space`;
+
+  let command: TestCommand;
+  let mockList: ReturnType<typeof vi.spyOn>;
+  let mockRename: ReturnType<typeof vi.spyOn>;
+  let mockInstalled: ReturnType<typeof vi.spyOn>;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    vi.spyOn(command, "log").mockImplementation(() => {});
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      worktreesRootPath,
+    );
+    mockInstalled = vi.spyOn(herdr, "isHerdrInstalled").mockResolvedValue(true);
+    mockList = vi.spyOn(herdr, "listHerdrWorktrees").mockResolvedValue({
+      sourceWorkspaceId: "w5",
+      worktrees: [
+        { path: gitRootPath, workspaceId: "w5" },
+        { path: oldPath, workspaceId: "wQ" },
+        { path: noSpacePath, workspaceId: undefined },
+      ],
+    });
+    mockRename = vi.spyOn(herdr, "renameHerdrWorkspace").mockResolvedValue();
+    setConfig({ opener: "herdr" });
+  });
+
+  it.each([
+    "",
+    "editor",
+    "none",
+    "code",
+  ])("spawns nothing at all when opener is %o", async (opener) => {
+    setConfig({ opener });
+
+    const renameSpace = await command.renamer();
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual([]);
+
+    expect(mockInstalled).not.toHaveBeenCalled();
+    expect(mockList).not.toHaveBeenCalled();
+    expect(mockRename).not.toHaveBeenCalled();
+    expect(mockRunCapturing).not.toHaveBeenCalled();
+  });
+
+  it("looks the space up when resolved and relabels only when called", async () => {
+    const renameSpace = await command.renamer();
+
+    expect(mockList).toHaveBeenCalledWith({ gitRootPath });
+    expect(mockRename).not.toHaveBeenCalled();
+
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual(["wQ"]);
+    expect(mockRename).toHaveBeenCalledWith("wQ", "bugfix/one");
+    expect(spinnerMocks.succeed).toHaveBeenCalledWith(
+      "Renamed Herdr space feature/one to bugfix/one",
+    );
+  });
+
+  it("relabels nothing, and says nothing, for a worktree with no space", async () => {
+    const renameSpace = await command.renamer();
+
+    await expect(renameSpace(noSpacePath, newPath)).resolves.toEqual([]);
+    expect(mockRename).not.toHaveBeenCalled();
+    expect(spinnerMocks.warn).not.toHaveBeenCalled();
+  });
+
+  it("answers for Rex when the opener is rex", async () => {
+    setConfig({ opener: "rex" });
+    vi.spyOn(rex, "isRexInstalled").mockResolvedValue(true);
+    vi.spyOn(git, "gitGetWorktrees").mockResolvedValue([
+      {
+        path: oldPath,
+        branchName: "feature/one",
+        pathExists: true,
+        isCurrent: false,
+      },
+    ]);
+    vi.spyOn(rex, "findRexSessions").mockResolvedValue(
+      new Map([[oldPath, "session:Q"]]),
+    );
+    const mockRexRename = vi.spyOn(rex, "renameRexSession").mockResolvedValue();
+
+    const renameSpace = await command.renamer();
+
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual(["session:Q"]);
+    expect(mockRexRename).toHaveBeenCalledWith("session:Q", "bugfix/one");
+    expect(mockRename).not.toHaveBeenCalled();
+    expect(command.renamedSpacesOf).toBe("rex");
+  });
+
+  it("warns, records the warning and relabels nothing when the relabel throws", async () => {
+    mockRename.mockRejectedValue(
+      new herdr.HerdrError("workspace_not_found", "workspace wQ not found"),
+    );
+
+    const renameSpace = await command.renamer();
+
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual([]);
+    expect(spinnerMocks.warn).toHaveBeenCalledWith(
+      "Herdr: workspace wQ not found (workspace_not_found)",
+    );
+    expect(command.recordedWarnings).toEqual([
+      "Herdr: workspace wQ not found (workspace_not_found)",
+    ]);
+  });
+
+  it("warns once and relabels nothing when the lookup throws", async () => {
+    mockList.mockRejectedValue(new Error("herdr did not answer"));
+
+    const renameSpace = await command.renamer();
+
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual([]);
+    expect(command.recordedWarnings).toEqual(["herdr did not answer"]);
+    expect(mockRename).not.toHaveBeenCalled();
   });
 });
 

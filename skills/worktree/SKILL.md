@@ -430,8 +430,9 @@ pane id (for example `w4P:p1`) when Herdr reports no name. `agent.name` in the
 Naming a branch and removing nothing is a failure, never a success.
 
 `rename --json` gives
-`{"from":{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"},"to":{"branch":"bugfix/y","path":"/abs/repo.worktrees/bugfix/y"},"upstream":"origin/feature/x","warnings":[]}`.
-`upstream` is `null` when the branch tracks nothing. A non-interactive run needs the new name, and `-f` when an
+`{"from":{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"},"to":{"branch":"bugfix/y","path":"/abs/repo.worktrees/bugfix/y"},"upstream":"origin/feature/x","herdrSpacesRenamed":["w5"],"rexSessionsRenamed":[],"warnings":[]}`.
+`upstream` is `null` when the branch tracks nothing. The `*Renamed` keys list the ids of a Herdr space or Rex session
+(whichever `opener` names) that was relabelled to follow the rename; a failed relabel is a warning, not an error. A non-interactive run needs the new name, and `-f` when an
 agent session is working in the worktree (without it, exit `2` with `missing_value`).
 
 A failure prints `{"error":{"code","message"}}` on stdout, one line on stderr,
@@ -567,6 +568,12 @@ confirmation, a failed removal and anything `cleanup` held back all keep their
 spaces and sessions, because those checkouts are still on disk. A failed close is a warning
 and the command still exits `0` — by then the worktree is already gone. With
 `opener` unset, `editor` or `none`, no Herdr or Rex process is started by either command.
+
+`rename` does not close a space: with `opener` `herdr` or `rex` it relabels the one open in the
+worktree to the new name (`herdr workspace rename`, `rex session rename`), looked up before the move and applied
+only after the move and the branch rename both succeed. A failed lookup or relabel is a warning and the
+command still exits `0`; `rename --json` lists the ids as `herdrSpacesRenamed` and `rexSessionsRenamed`. The Herdr
+agent name and a Claude `--name` session keep the old branch name. The Rex relabel is unverified against a live Rex.
 
 Note that `--ignore-agents` now closes a live agent's space or session too, taking down the
 panes it is working in along with the directory.

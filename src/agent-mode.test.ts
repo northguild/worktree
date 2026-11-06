@@ -857,6 +857,9 @@ describe("agent mode, spawned", () => {
             path: path.join(realRoot, "bugfix/y"),
           },
           upstream: null,
+          // §4.4: no opener is configured in this repository, so no tool is asked.
+          herdrSpacesRenamed: [],
+          rexSessionsRenamed: [],
           warnings: [],
         });
         expect(fs.existsSync(scenario.worktreePath("bugfix/y"))).toBe(true);

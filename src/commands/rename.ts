@@ -52,7 +52,8 @@ The directory moves to <repo>.worktrees/<newName> and the branch is renamed, loc
 Without <branchName> the worktree you are in is renamed.
 
 --json prints one document on stdout:
-{from: {branch, path}, to: {branch, path}, upstream: string|null, warnings: [string]}
+{from: {branch, path}, to: {branch, path}, upstream: string|null, herdrSpacesRenamed: [string], rexSessionsRenamed: [string], warnings: [string]}
+An open Herdr space or Rex session (whichever the opener setting names) is relabelled to the new name; a failure there is a warning, not an error.
 On failure: {error:{code, message, details?}} on stdout.
 A non-interactive run needs <newName>, and --force when an agent session is working in the worktree.
 
@@ -106,6 +107,9 @@ Exit codes:
     }
 
     const startedInside = await isInside(target.path, process.cwd());
+    // D12: looked up before the move, because the tool's listing comes from
+    // git's worktrees and the old path is not in them afterwards.
+    const renameSpace = await this.resolveSpaceRenamer();
     const result = await gitRenameWorktree(plan, repoRoot);
 
     this.log(
@@ -114,14 +118,22 @@ Exit codes:
     if (result.upstream) {
       this.log(pushHint(result.upstream, result.to.branch));
     }
+    // D4: only reached once both git steps have succeeded. A failure inside is
+    // a recorded warning, so the rename stays a success. Reported after the
+    // rename and its push hint, and before `cd`, which stays last (§4.3).
+    const renamedSpaces = await renameSpace(result.from.path, result.to.path);
     if (startedInside) {
       this.log(`cd ${result.to.path}`);
     }
+
+    const rex = this.closedSpacesOf === "rex";
 
     return {
       from: result.from,
       to: result.to,
       upstream: result.upstream,
+      herdrSpacesRenamed: rex ? [] : renamedSpaces,
+      rexSessionsRenamed: rex ? renamedSpaces : [],
       warnings: this.warnings,
     };
   }
