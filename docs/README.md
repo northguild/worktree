@@ -219,7 +219,8 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 pagination; there is no edit link, since `astro.config.mjs` sets no `editLink`) through `Default` and nothing else; the licence line, the CLI version and the maintainers it once
 added are gone (the CLI version is in the header). The landing renders no footer at all: it is the hero alone. The chat
 launcher is rendered from the same file on every page, the landing included, because Starlight has no slot of its own
-for it. `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
+for it. Its script then moves it to the end of `<body>`: Starlight's page pane is `isolation: isolate`, so inside it the
+right sidebar ("On this page") painted over the button on wide pages whatever its z-index (#266). `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
 checked in `dist/` instead (`pnpm docs:audit-dist`).
 
 ## The landing hero
