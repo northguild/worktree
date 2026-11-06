@@ -244,6 +244,20 @@ long as the page is visible. The pointer pushes leaves near the art box.
   are an invented palette), and re-tint when the header's theme toggle (`ThemeSelect.astro`, `ThemeProvider.astro`) changes `data-theme` on `<html>`.
 - **Drawing** pauses, with the clock, while the tab is hidden or the art box is off screen; the device pixel ratio is capped at 1.5.
 - Both the canvas and the SVG are `aria-hidden`: the heading and the link carry the meaning.
+- **The header's entrance** (#266, 2026-11-06): on the landing only, and on an arrival from outside the docs site and on every reload, the header's
+  `/ worktree vX.Y.Z` (the shield and the "NorthGuild" wordmark stay static), search button and theme toggle fade up like the hero copy (`hero-copy-in`), left to right. Once they are
+  in, a second pass paints the theme toggle, GitHub and Discord, one after another, from northguild.dev's resting icon colour
+  (`--gmt-ice-dim`) into their own green. GitHub and Discord do not fade; they are there throughout. It is CSS in `custom.css` ("The
+  landing header's entrance"), all inside `prefers-reduced-motion: no-preference`, animating opacity, transform and colour only, with a
+  `backwards` fill so hover and focus take over afterwards; with reduced motion, or no script, the finished header is simply there.
+  **Timings** are the `--entrance-*` custom properties at the top of that block (fade duration and the three fade delays, the colour
+  pass's start, step and duration); change numbers there, not rules. `Header.astro` marks its root `data-landing-entrance` on the
+  landing, and an inline script in it sets `data-entrance-off` on `<html>` when the navigation followed a link or used Back/Forward
+  (Navigation Timing type `navigate` or `back_forward`, read as `navigate` if unavailable) and `document.referrer` is a page under the
+  site base; a reload always plays it, since it keeps the old referrer (`internal-arrival.ts` is the tested form of that test;
+  `Header.test.ts` runs the inline copy against it). No referrer, and northguild.dev itself, count as external. To see it: open the landing from a typed URL or `https://northguild.dev/`; reload it and it plays again; follow the
+  header's "worktree" link from `/worktree/faq/` and it does not play. `pnpm docs:audit-dist` pins the marker, the inline script, the
+  query and the absence of any `opacity: 0` rule on a header item.
 
 ## Scripts reference
 

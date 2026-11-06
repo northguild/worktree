@@ -292,3 +292,84 @@ a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)) {
     animation: none;
   }
 }
+
+/*
+ * The landing header's entrance (plan #266, D6-D9). Header.astro puts `data-landing-entrance` on its root on the landing
+ * only, and its inline script puts `data-entrance-off` on <html> for an arrival from another page of this site by link or by
+ * history (not a reload), so this plays on an arrival from outside it and on every reload. Two passes, both CSS, both after the hero copy's model (`hero-copy-in`, Hero.astro):
+ *   1. "/ worktree vX.Y.Z" (not the shield or the NorthGuild wordmark, which stay static), the search button and the theme
+ *      button fade up, left to right;
+ *   2. once they are in, the theme button, GitHub and Discord paint, one after another, from northguild.dev's resting icon
+ *      colour (--gmt-ice-dim) into their own resting colour (.header-chip). GitHub and Discord do not fade: they are
+ *      there throughout and only change colour.
+ * Only opacity, transform and colour animate. The `backwards` fill holds the first frame during the delay and releases
+ * the element at the end, so the rest style (and :hover, :focus-visible) is what remains. Nothing is ever set to
+ * opacity 0 outside a keyframe, and everything is inside the no-preference query, so a visitor who asks for no motion,
+ * or a page whose script failed, simply gets the finished header. audit-dist.mjs holds each of those to the build.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  /* Every number of the entrance, in one place (D9). The delays are the hero copy's own first two (0.3s, 0.45s) and one
+     more step; the colour pass starts after the last fade ends (0.6s + 0.6s = 1.2s). Starting values, for review. */
+  :root:not([data-entrance-off]) .header[data-landing-entrance] {
+    --entrance-fade-duration: 0.6s;
+    --entrance-fade-delay-title: 0.3s;
+    --entrance-fade-delay-search: 0.45s;
+    --entrance-fade-delay-theme: 0.6s;
+    --entrance-ink-start: 1.4s;
+    --entrance-ink-step: 0.15s;
+    --entrance-ink-duration: 0.5s;
+  }
+
+  /* "/ worktree vX.Y.Z" only: the shield and the "NorthGuild" wordmark (a.wordmark) are northguild.dev's and stay static (the
+     user, 2026-11-06). The slash and the product line share one delay, so they enter as one step. */
+  :root:not([data-entrance-off])
+    .header[data-landing-entrance]
+    .brand
+    > :is(.slash, .product-line) {
+    animation: header-entrance-fade var(--entrance-fade-duration)
+      cubic-bezier(0.22, 1, 0.36, 1) var(--entrance-fade-delay-title) backwards;
+  }
+  /* Only the open button: the dialog inside <site-search> holds more buttons, which would replay when it opens. */
+  :root:not([data-entrance-off])
+    .header[data-landing-entrance]
+    site-search
+    > button[data-open-modal] {
+    animation: header-entrance-fade var(--entrance-fade-duration)
+      cubic-bezier(0.22, 1, 0.36, 1) var(--entrance-fade-delay-search) backwards;
+  }
+  /* The theme button does both: it fades in, then takes the colour pass first (left to right). */
+  :root:not([data-entrance-off]) .header[data-landing-entrance] .theme-toggle {
+    animation:
+      header-entrance-fade var(--entrance-fade-duration)
+      cubic-bezier(0.22, 1, 0.36, 1) var(--entrance-fade-delay-theme) backwards,
+      header-entrance-ink var(--entrance-ink-duration) ease-out
+      var(--entrance-ink-start) backwards;
+  }
+  :root:not([data-entrance-off]) .header[data-landing-entrance] a.header-chip {
+    animation: header-entrance-ink var(--entrance-ink-duration) ease-out
+      calc(var(--entrance-ink-start) + var(--entrance-ink-step)) backwards;
+  }
+  :root:not([data-entrance-off])
+    .header[data-landing-entrance]
+    a.header-chip
+    + a.header-chip {
+    animation-delay: calc(
+      var(--entrance-ink-start) +
+      2 *
+      var(--entrance-ink-step)
+    );
+  }
+
+  @keyframes header-entrance-fade {
+    from {
+      opacity: 0;
+      transform: translateY(0.75rem);
+    }
+  }
+  /* No `to`: the last frame is the element's own colour, which is what hover and focus then change. */
+  @keyframes header-entrance-ink {
+    from {
+      color: var(--gmt-ice-dim);
+    }
+  }
+}

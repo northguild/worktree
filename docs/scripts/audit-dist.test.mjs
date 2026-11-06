@@ -122,6 +122,19 @@ const header = (parts = {}) =>
   `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.theme ?? THEME_SELECT}${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
 const HEADER = header();
 
+// #266 phase 3 (D6-D9): the landing's header carries the entrance marker and, inline before the header paints, the
+// script that turns the entrance off for an arrival from another page of the site. Header.astro renders both inside
+// the <header>, the script first; no other page's header has either. The entrance keyframes (custom.css) are named
+// `header-entrance-*` and live under the no-preference query alone.
+const ENTRANCE_SCRIPT =
+  '<script>try{var f=new URL(document.referrer);if(f.origin===location.origin&&(f.pathname+"/").indexOf("/worktree/")===0)document.documentElement.setAttribute("data-entrance-off","")}catch(e){}</script>';
+const LANDING_HEADER = HEADER.replace(
+  '<header class="header">',
+  `<header class="header" data-landing-entrance>${ENTRANCE_SCRIPT}`,
+);
+const GATE = ":root:not([data-entrance-off]) .header[data-landing-entrance]";
+const ENTRANCE_CSS = `@media (prefers-reduced-motion:no-preference){@keyframes header-entrance-fade{from{opacity:0;transform:translateY(.75rem)}}@keyframes header-entrance-ink{from{color:#888}}${GATE} .brand>:is(.slash,.product-line){animation:header-entrance-fade .6s backwards}${GATE} site-search>button[data-open-modal]{animation:header-entrance-fade .6s backwards}${GATE} a.header-chip{animation:header-entrance-ink .5s backwards}}`;
+
 // Phase 15 (the user, 2026-11-04): the landing is the hero alone, with no footer, so it carries no date; every other
 // page keeps one. And no page carries the project line, the footer's licence, version and
 // maintainers block (the user, 2026-11-04: "lose this content that is on every damn page ... is there any need for an
@@ -226,7 +239,7 @@ function page(path, overrides = {}) {
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
     '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
     path === "" ? (overrides.heroScript ?? HERO_SCRIPT) : "",
-    `</head><body>${overrides.header ?? HEADER}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
+    `</head><body>${overrides.header ?? (path === "" ? LANDING_HEADER : HEADER)}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -272,7 +285,7 @@ beforeEach(async () => {
   await write(
     dist,
     "_astro/common.abc.css",
-    ".tab>[role=tab]{display:flex;min-block-size:44px}",
+    `.tab>[role=tab]{display:flex;min-block-size:44px}${ENTRANCE_CSS}`,
   );
   await write(
     dist,
@@ -1171,7 +1184,9 @@ describe("auditDist", () => {
   });
 
   describe("package-manager tabs", () => {
-    const css = (rule) => write(dist, "_astro/common.abc.css", rule);
+    // The entrance's keyframes stay, so only the tab rule is under test.
+    const css = (rule) =>
+      write(dist, "_astro/common.abc.css", `${rule}${ENTRANCE_CSS}`);
 
     it("fails a build with no tab rule", async () => {
       await css(".other{min-block-size:44px}");
@@ -2147,5 +2162,199 @@ describe("the leaf-particle hero", () => {
     expect((await heroFailures()).some((f) => /only the landing/.test(f))).toBe(
       true,
     );
+  });
+});
+
+// #266 phase 3, D6-D9. The expected rules are the user's of 2026-11-06 (plan §3 D6-D9 and §8 items 5-8): the entrance is
+// on the landing's header only, the internal-arrival check is an inline script in that header, the motion is inside
+// the reduced-motion no-preference query, and nothing is ever held at opacity 0 outside a keyframe.
+describe("the landing header's entrance (#266)", () => {
+  const css = (rules) =>
+    write(
+      dist,
+      "_astro/common.abc.css",
+      `.tab>[role=tab]{display:flex;min-block-size:44px}${rules}`,
+    );
+  const withLandingHeader = async (landingHeader) => {
+    await write(dist, "index.html", page("", { header: landingHeader }));
+    return audit();
+  };
+
+  it("passes the landing's marker and inline script, and the keyframes under the query", async () => {
+    expect(await audit()).toEqual([]);
+  });
+
+  it("fails a landing whose header has no entrance marker", async () => {
+    const failures = await withLandingHeader(
+      LANDING_HEADER.replace(" data-landing-entrance", ""),
+    );
+    expect(failures.some((f) => /\(root\).*entrance marker/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails an inner page whose header carries the entrance marker", async () => {
+    await write(dist, htmlPath("faq"), page("faq", { header: LANDING_HEADER }));
+    expect(
+      (await audit()).some((f) => /faq.*entrance marker.*landing/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails the 404 when its header carries the entrance marker", async () => {
+    await write(dist, "404.html", notFoundPage({ header: LANDING_HEADER }));
+    expect(
+      (await audit()).some((f) => /404\.html.*entrance marker/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a landing whose header has no internal-arrival script", async () => {
+    const failures = await withLandingHeader(
+      LANDING_HEADER.replace(ENTRANCE_SCRIPT, ""),
+    );
+    expect(
+      failures.some((f) => /\(root\).*internal-arrival script/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a landing whose internal-arrival script is not inline", async () => {
+    const failures = await withLandingHeader(
+      LANDING_HEADER.replace(
+        ENTRANCE_SCRIPT,
+        '<script type="module" src="/worktree/_astro/entrance.js"></script>',
+      ),
+    );
+    expect(
+      failures.some((f) => /\(root\).*internal-arrival script/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a landing whose inline script is outside the header", async () => {
+    await withLandingHeader(LANDING_HEADER.replace(ENTRANCE_SCRIPT, ""));
+    await rewrite("", (html) => html.replace("<h1>", `${ENTRANCE_SCRIPT}<h1>`));
+    expect(
+      (await audit()).some((f) => /\(root\).*internal-arrival script/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails entrance keyframes outside the no-preference query", async () => {
+    await css(
+      "@keyframes header-entrance-fade{from{opacity:0}}@keyframes header-entrance-ink{from{color:#888}}",
+    );
+    const failures = await audit();
+    expect(
+      failures.some((f) =>
+        /header-entrance-fade.*prefers-reduced-motion/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails entrance keyframes under the reduce query", async () => {
+    await css(
+      "@media (prefers-reduced-motion:reduce){@keyframes header-entrance-fade{from{opacity:0}}@keyframes header-entrance-ink{from{color:#888}}}",
+    );
+    expect(
+      (await audit()).some((f) =>
+        /header-entrance-fade.*prefers-reduced-motion/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails an animation of the entrance applied outside the query", async () => {
+    await css(
+      `${ENTRANCE_CSS}.header .theme-toggle{animation:header-entrance-ink .5s backwards}`,
+    );
+    expect(
+      (await audit()).some((f) =>
+        /\.theme-toggle.*header-entrance-ink.*prefers-reduced-motion/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a build with no entrance keyframes at all", async () => {
+    await css("");
+    expect(
+      (await audit()).some((f) => /no header-entrance-\* keyframes/.test(f)),
+    ).toBe(true);
+  });
+
+  it.each([
+    [".header .title-wrapper{opacity:0}"],
+    ["header .theme-toggle{opacity:0%}"],
+    ["@media (min-width:50rem){.header-chip{opacity:0!important}}"],
+    [
+      "@media (prefers-reduced-motion:no-preference){.header[data-landing-entrance] site-search button{opacity:0}}",
+    ],
+  ])("fails a rule that gives a header item opacity 0: %s", async (rule) => {
+    await css(`${ENTRANCE_CSS}${rule}`);
+    expect((await audit()).some((f) => /opacity: 0/.test(f))).toBe(true);
+  });
+
+  // The user, 2026-11-06: the shield and the "NorthGuild" wordmark stay static; only "/ worktree vX.Y.Z" fades.
+  // The reviewer's finding: `site-search button` would also fade the dialog's buttons each time it opens.
+  it.each([
+    ["the wordmark", ".brand>.wordmark"],
+    ["the title wrapper", ".title-wrapper"],
+    ["GitHub and Discord", "a.header-chip"],
+    ["every button in the search component", "site-search button"],
+    ["the search dialog's buttons", "site-search>dialog button"],
+  ])("fails an entrance fade on %s", async (_name, target) => {
+    await css(
+      `${ENTRANCE_CSS}@media (prefers-reduced-motion:no-preference){${GATE} ${target}{animation:header-entrance-fade .6s backwards}}`,
+    );
+    expect(
+      (await audit()).some((f) => /fades (the wordmark|more than)/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails an entrance rule not scoped to the landing marker or not gated by data-entrance-off", async () => {
+    await css(
+      `${ENTRANCE_CSS}@media (prefers-reduced-motion:no-preference){.brand>.slash{animation:header-entrance-fade .6s backwards}}`,
+    );
+    const failures = await audit();
+    expect(
+      failures.some((f) => /not scoped to \[data-landing-entrance\]/.test(f)),
+    ).toBe(true);
+    expect(
+      failures.some((f) =>
+        /not gated by :not\(\[data-entrance-off\]\)/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "forwards",
+    "both",
+  ])("fails an entrance animation with the %s fill", async (fill) => {
+    await css(
+      `${ENTRANCE_CSS}@media (prefers-reduced-motion:no-preference){${GATE} a.header-chip{animation:header-entrance-ink .5s ${fill}}}`,
+    );
+    expect((await audit()).some((f) => /keeps an end state/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails an entrance keyframe that animates anything but opacity, transform and color", async () => {
+    await css(
+      ENTRANCE_CSS.replace(
+        "translateY(.75rem)}",
+        "translateY(.75rem);filter:blur(2px)}",
+      ),
+    );
+    expect((await audit()).some((f) => /animates filter/.test(f))).toBe(true);
+  });
+
+  it("allows opacity 0 on something that is not a header item, and in a keyframe", async () => {
+    await css(`${ENTRANCE_CSS}.chat-hint{opacity:0}.header a{opacity:1}`);
+    expect(await audit()).toEqual([]);
+  });
+
+  it("fails a header item holding opacity 0 in its style attribute", async () => {
+    const failures = await withLandingHeader(
+      LANDING_HEADER.replace(
+        '<div class="brand">',
+        '<div class="brand" style="opacity: 0">',
+      ),
+    );
+    expect(failures.some((f) => /style.*opacity/.test(f))).toBe(true);
   });
 });
