@@ -15,7 +15,7 @@ The worktree itself is created exactly as before. Only the final step changes.
 - A running Herdr server.
 
 Without the `herdr` CLI, `worktree config` neither lists nor prompts for any of the keys below, and its
-`opener` question offers `editor` and `none` only — the feature is invisible until Herdr is installed. You
+`opener` question does not offer `herdr` — the feature is invisible until Herdr is installed. You
 can still set one explicitly by name, which is what to do if you are configuring a machine ahead of
 installing Herdr:
 
@@ -30,7 +30,7 @@ worktree config --missing --names opener          # prompts for it regardless
 worktree config opener herdr
 ```
 
-`opener` accepts `editor`, `herdr` or `none`. Unset means `editor`, so nothing changes for anyone who
+`opener` accepts `editor`, `herdr`, `rex` or `none`. Unset means `editor`, so nothing changes for anyone who
 does not set it.
 
 The key is stored in local Git config under `northguild.worktree.opener`, so it applies to one
@@ -193,6 +193,6 @@ closed — the removals still happen.
 
 | Key | Values | Default |
 |---|---|---|
-| `opener` | `editor`, `herdr` or `none` | `editor` |
+| `opener` | `editor`, `herdr`, `rex` or `none` | `editor` |
 | `herdr.focus` | `true` or `false` | `true` |
 | `herdr.agent` | an agent kind, such as `claude` | unset — no agent |

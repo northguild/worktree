@@ -24,6 +24,7 @@ describe("the wizard's headings and closing summary", () => {
     return {
       configNames,
       herdrOffered: false,
+      rexOffered: false,
       hiddenNames: new Set(),
       log: (message) => {
         lines.push(message);

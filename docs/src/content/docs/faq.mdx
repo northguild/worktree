@@ -1,6 +1,6 @@
 ---
 title: "FAQ: @northguild/worktree and git worktrees"
-description: "Answers on worktree vs git stash, private repos, GitHub Enterprise, Jira Data Center, editors, Herdr, Windows and where to find every command option."
+description: "Answers on worktree vs git stash, private repos, GitHub Enterprise, Jira Data Center, editors, Herdr, Rex, Windows and where to find every command option."
 ---
 
 ## Why use Git worktrees instead of stashing?
@@ -50,10 +50,17 @@ Yes. Set `opener` to `herdr` to have each worktree land as a
 worktree config opener herdr
 ```
 
-See [Herdr Spaces](/worktree/guides/herdr-spaces/).
+See [Herdr Spaces](/worktree/guides/herdr-spaces/). Or set it to `rex` to have each land as a Rex
+session, which needs the `rex` CLI:
+
+```bash
+worktree config opener rex
+```
+
+See [Rex Sessions](/worktree/guides/rex-sessions/).
 
 To open it nowhere, set `opener` to `none`. The command prints `Worktree created at <path>` (`Worktree already exists at <path>` when it reopens an existing worktree) and stops,
-without starting an editor or Herdr.
+without starting an editor, Herdr or Rex.
 
 ```bash
 worktree config opener none

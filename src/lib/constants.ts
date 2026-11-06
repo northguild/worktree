@@ -29,6 +29,7 @@ export const CONFIG_NAMES = [
   "codeEditor",
   "herdr.focus",
   "herdr.agent",
+  "rex.focus",
   "agent.command",
   "postCreate",
   "defaultSourceBranch",
@@ -73,7 +74,7 @@ export const JIRA_DEPLOYMENTS = ["cloud", "datacenter"] as const;
 // handed to once it exists. Unset means `editor`, which is what every install
 // did before the key existed. `none` opens nothing: the path is printed and the
 // command stops, for scripts and agents that have no use for a window.
-export const OPENER_KINDS = ["editor", "herdr", "none"] as const;
+export const OPENER_KINDS = ["editor", "herdr", "rex", "none"] as const;
 
 // The keys that only mean something when Herdr is installed. `worktree config`
 // hides them when it is not, so the feature is invisible to everyone else.
@@ -82,4 +83,11 @@ export const OPENER_KINDS = ["editor", "herdr", "none"] as const;
 export const HERDR_CONFIG_NAMES = [
   "herdr.focus",
   "herdr.agent",
+] as const satisfies readonly ConfigName[];
+
+// The keys that only mean something when the `rex` CLI can be found, hidden
+// from `worktree config` the same way (#270 D5). `opener` stays out for the
+// reason it stays out of the list above.
+export const REX_CONFIG_NAMES = [
+  "rex.focus",
 ] as const satisfies readonly ConfigName[];

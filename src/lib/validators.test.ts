@@ -270,14 +270,14 @@ describe("isValidBranchName", () => {
 
 describe("isValidOpener", () => {
   it.each`
-    opener      | expected                                  | description
-    ${"editor"} | ${true}                                   | ${"the default opener"}
-    ${"herdr"}  | ${true}                                   | ${"the Herdr opener"}
-    ${"none"}   | ${true}                                   | ${"no opener"}
-    ${"bogus"}  | ${"Opener must be editor, herdr or none"} | ${"an unknown opener"}
-    ${"Editor"} | ${"Opener must be editor, herdr or none"} | ${"the right kind in the wrong case"}
-    ${""}       | ${"Opener must be editor, herdr or none"} | ${"empty string"}
-    ${"herdr "} | ${"Opener must be editor, herdr or none"} | ${"a trailing space"}
+    opener      | expected                                       | description
+    ${"editor"} | ${true}                                        | ${"the default opener"}
+    ${"herdr"}  | ${true}                                        | ${"the Herdr opener"}
+    ${"none"}   | ${true}                                        | ${"no opener"}
+    ${"bogus"}  | ${"Opener must be editor, herdr, rex or none"} | ${"an unknown opener"}
+    ${"Editor"} | ${"Opener must be editor, herdr, rex or none"} | ${"the right kind in the wrong case"}
+    ${""}       | ${"Opener must be editor, herdr, rex or none"} | ${"empty string"}
+    ${"herdr "} | ${"Opener must be editor, herdr, rex or none"} | ${"a trailing space"}
   `(
     'should return $expected for "$opener" ($description)',
     ({ opener, expected }) => {
@@ -340,7 +340,7 @@ describe("isValidConfigValue — the opener keys", () => {
     configName        | value         | expected                                                                         | description
     ${"opener"}       | ${"herdr"}    | ${true}                                                                          | ${"a known opener"}
     ${"opener"}       | ${"none"}     | ${true}                                                                          | ${"no opener"}
-    ${"opener"}       | ${"bogus"}    | ${"Opener must be editor, herdr or none"}                                        | ${"an unknown opener"}
+    ${"opener"}       | ${"bogus"}    | ${"Opener must be editor, herdr, rex or none"}                                   | ${"an unknown opener"}
     ${"herdr.focus"}  | ${"false"}    | ${true}                                                                          | ${"a boolean focus value"}
     ${"herdr.focus"}  | ${"maybe"}    | ${"Value must be true or false"}                                                 | ${"a non-boolean focus value"}
     ${"herdr.agent"}  | ${"claude"}   | ${true}                                                                          | ${"a well-shaped agent kind"}

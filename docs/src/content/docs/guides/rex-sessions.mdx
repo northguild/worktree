@@ -1,0 +1,202 @@
+---
+title: "Open a git worktree as a Rex session"
+description: "Open each git worktree as a Rex session labelled by branch, with a coding agent started by its brief, and reuse the session if the worktree is open."
+---
+
+By default a new worktree opens in your editor. If you work in Rex, a terminal app with a `rex` command
+line, you can have each worktree land as a Rex session instead — labelled by branch, optionally with a
+coding agent already running in it.
+
+The worktree itself is created exactly as before. Only the final step changes.
+
+## Requirements
+
+- The `rex` CLI. `worktree` looks for it on your `PATH`, then in `$REX_BIN_DIR` (Rex sets that inside its own
+  terminals), then in a `Rex*.app` bundle under `/Applications`.
+- The Rex app running. To bring the app to the session (see [Focus](#focus)), Remote Control must be on.
+
+Where the CLI cannot be found, `worktree config` neither lists nor prompts for `rex.focus`, and its `opener`
+question does not offer `rex` — the feature is invisible until Rex is installed. You can still set it by
+name, which is what to do if you are configuring a machine ahead of installing Rex:
+
+```bash
+worktree config opener rex                        # works whether or not rex can be found yet
+worktree config --missing --names opener          # prompts for it regardless
+```
+
+## Switch the opener
+
+```bash
+worktree config opener rex
+```
+
+`opener` accepts `editor`, `herdr`, `rex` or `none`. Unset means `editor`, so nothing changes for anyone who
+does not set it. The key is stored in local Git config, so it applies to one repository.
+
+Now `worktree branch`, `worktree checkout` and `worktree open` all hand the finished worktree to Rex:
+
+```bash
+worktree branch feature/add-bulk-actions
+```
+
+```
+✔ Opened Rex session feature/add-bulk-actions
+```
+
+The session is labelled with the branch name — `feature/add-bulk-actions`, not the repository name — and
+starts in the worktree.
+
+### Re-opening a worktree
+
+Rex makes a second session if it is asked for a label that is already in use, so `worktree` looks first. It
+lists your sessions, reads the working directory of each one's terminals and matches the ones inside this
+worktree. A label is not an identity: two repositories can have a branch of the same name, a working directory
+cannot be shared that way.
+
+A worktree that already has a session is brought up instead of opened again:
+
+```
+✔ Rex session feature/add-bulk-actions was already open
+```
+
+No agent is started in it, because the one you left running is still there. A session whose terminals have all
+moved out of the worktree is not found, and opening the worktree then makes a new one.
+
+## Focus
+
+`rex new` creates a session but does not show it, so `worktree` then asks the app to select it. This is on by
+default, because every command that opens a worktree is you asking to be taken to it. To leave the session in
+the background:
+
+```bash
+worktree config rex.focus false
+```
+
+Only `false` turns it off; unset or anything else means on.
+
+Focus is best effort. Rex refuses it when Remote Control is off, when more than one app is connected and none
+was chosen, or when no app is open. The session exists whatever the answer, so the open still counts: you get a
+warning with Rex's own words, and the run carries on. `worktree` does not turn Remote Control on or choose an
+app for you.
+
+Inside a Rex terminal `worktree` passes the app that terminal belongs to (`$REX_CLIENT`). Elsewhere it passes
+nothing, which works when exactly one app is connected.
+
+## Start an agent with the session
+
+An agent starts only when you give `worktree branch` or `worktree checkout` a brief (`--agent`, `--agent-file`
+or `--agent-stdin`) and [`agent.command`](/worktree/configuration/#agent-command) names a program. There is no
+Rex equivalent of `herdr.agent`: without a brief the session is a plain shell.
+
+```bash
+worktree config agent.command "claude --model sonnet"
+worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
+```
+
+The agent is the session's own command. `worktree` runs `rex new` with the program `agent.command` names, its
+arguments, and the brief as the **last argument**, so there is no prompt to wait for and no ready signal. Each
+argument reaches the program unchanged: quotes, `$VAR`, backticks and newlines in the brief are not interpreted
+by anything on the way.
+
+- `agent.command`'s arguments are passed to the program, with `--bg` and `--background` dropped (a note says so
+  on stderr), because a program that detaches would end the session's only process.
+- With a brief and no `agent.command`, `worktree branch` exits `2` before it creates anything and names the key
+  to set.
+- `--no-agent` opens the session as a plain shell, and `--no-open` skips Rex for the run.
+- If a session for the worktree is already open, the brief is not delivered: the run warns and exits `1`, because
+  the agent working on it was part of what was asked for.
+
+### How long a brief can be
+
+Rex refuses any request over **65,536 encoded bytes**. With `opener rex` and the CLI found, a brief that would
+exceed that is refused before anything is created: `worktree branch` exits `2`, naming the limit and the brief's
+size, never its text. No worktree exists to clean up.
+
+The check estimates the request from `agent.command`, the brief and a margin for Rex's envelope. Quotes,
+backslashes, newlines and tabs count as two bytes; `<`, `>`, `&` and other control characters as six; other
+non-ASCII characters as their UTF-8 length. That is how Rex was measured to encode them. The most a brief can be is
+therefore about 62,000 bytes of plain text, and less when it is full of those characters: about 31,000 bytes of
+nothing but quotes, and about 10,000 of nothing but `<`, `>` or `&`, so code with generics, JSX or `&&` counts for
+more than its length. For a longer brief, shorten it, or use the editor or `none` opener, where `agent.command`
+receives it whole, up to 131,071 bytes.
+
+### What `prompted` means
+
+`agent.prompted` in `branch --json` is `true` when the session was **created with** the command and the brief.
+It cannot mean the agent has read it: Rex reports nothing that says so, and a terminal program may fail to start
+after the session exists. Check the session if it matters.
+
+### `list --agents`
+
+`worktree list --agents` does not show Rex sessions. Rex's command line has no registry of agents to ask, so an
+agent started this way is visible in Rex and nowhere in that listing.
+
+## When Rex cannot be reached
+
+Every call to Rex is bounded, so a Rex that accepts the connection and never answers fails with a line saying so
+rather than hanging the command: fifteen seconds for each call.
+
+If `rex` cannot be found, the app is not running, or the open fails, `worktree` prints what Rex said and where
+the worktree is:
+
+```
+✖ Rex: the `rex` CLI was not found.
+The worktree is at /path/to/repo.worktrees/feature/add-bulk-actions
+```
+
+It does not fall back to your editor. Setting `opener rex` is a deliberate choice, and an unexpected editor
+window is not a useful consolation prize. The command still exits `0`: by the time the opener runs, the branch,
+the worktree and the copied env files all exist, and only the last step failed. The exception is a run given a
+brief, which exits `1` if no agent ends up with it. With a brief and an `agent.command`, a Rex that did not open
+falls back to starting that command detached, as an editor run does.
+
+Two cases get special care, because opening twice would leave two sessions:
+
+- If the lookup for an existing session fails, `worktree` does not open one on a guess, and starts no detached
+  agent either, since a session and an agent may already be there. The open fails with the lookup's message, and
+  with a brief the run exits `1`.
+- If `rex new` itself times out, it is not retried, since Rex says a timed-out `new` may have succeeded.
+  `worktree` looks the session up instead. A session that is found counts as opened; one that is not is a failed
+  open, and no detached agent is started beside a session that might exist.
+
+Nothing in these messages quotes the brief. It is named by its size. When a `rex new` that carries a brief
+fails, Rex's own message is withheld as well and only its exit code is shown, because Rex may repeat its
+arguments, and an echo that comes escaped or cut short cannot be told apart from the rest of its message.
+
+## When the worktree goes
+
+With `opener` set to `rex`, [`remove`](/worktree/commands/remove/) and [`cleanup`](/worktree/commands/cleanup/)
+kill the Rex session that was opened for each worktree they delete (`rex kill`), so a session does not outlive
+its checkout. Only a worktree that was actually removed has its session closed. A branch that was not found, a
+declined confirmation, a failed removal and a worktree `cleanup` held back all leave the session alone, because
+their checkouts are still on disk. `remove --json` lists the ids under `rexSessionsClosed`, and `[]` when
+nothing was open.
+
+A session is matched by where its shells are, not by its label. `worktree` asks Rex for each session's terminal
+blocks and reads each shell's working directory, because two repositories can share a branch name and a label
+proves nothing. That lookup runs before the removal, since git forgets the worktree afterwards.
+
+A session is closed only when **every** shell it has is inside the worktree being removed. A shell in the main
+checkout, in the worktree you are standing in, or in another worktree leaves the session open, since killing it
+would take that shell down too. A session whose shells have all moved elsewhere is not found, and is left open
+rather than guessed at.
+
+The session `worktree` itself runs in is never closed: its id is in `REX_SESSION`, and killing it would end the
+terminal doing the removal.
+
+A failed `rex kill` is a warning, the command still exits `0` (the worktree is already gone, so there is nothing
+to retry), and the next session is still closed.
+
+One gap is known: if two sessions are open in the same worktree, only the first one Rex lists that qualifies is closed. With
+`opener` unset, `editor` or `none`, no `rex` process is started.
+
+## Configuration reference
+
+| Key | Values | Default |
+|---|---|---|
+| `opener` | `editor`, `herdr`, `rex` or `none` | `editor` |
+| `rex.focus` | `true` or `false` | `true` |
+| `agent.command` | a command line, such as `claude --model sonnet` | unset |
+
+`rex.focus` is a personal key: a `.worktree.yml` cannot set it. See
+[Project Configuration](/worktree/project-configuration/).

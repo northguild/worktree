@@ -7,7 +7,7 @@ import { askConfigInput, shouldPrompt, type WizardContext } from "./context.js";
 import { saveConfigValue } from "./written.js";
 
 /**
- * The opener the wizard works from: a stored value that is one of the three
+ * The opener the wizard works from: a stored value that is one of the four
  * kinds, else "editor". Select values are compared with `===`, so anything
  * else (unset, empty, a hand-edited oddity) is normalised before it becomes
  * the default, the non-interactive fallback or the follow-ups' deciding value.
@@ -20,8 +20,8 @@ export async function getStoredOpener(): Promise<OpenerKind> {
 /**
  * Asks `opener` when this run is to, and returns the answer; undefined when
  * the key is not in the run's prompt list. `herdr` is a choice only where
- * Herdr is in use (`ctx.herdrOffered`, plan #236 D3); a `--names` run offers
- * all three.
+ * Herdr is in use (`ctx.herdrOffered`, plan #236 D3) and `rex` only where the
+ * `rex` CLI is (`ctx.rexOffered`, #270); a `--names` run offers all four.
  */
 export async function configureOpener(
   ctx: WizardContext,
@@ -31,9 +31,11 @@ export async function configureOpener(
   }
   const stored = await getStoredOpener();
   const kinds = OPENER_KINDS.filter(
-    (kind) => kind !== "herdr" || ctx.herdrOffered,
+    (kind) =>
+      (kind !== "herdr" || ctx.herdrOffered) &&
+      (kind !== "rex" || ctx.rexOffered),
   );
-  // A stored `herdr` makes Herdr offered, so the default is always a choice.
+  // A stored `herdr` or `rex` makes it offered, so the default is always a choice.
   const openerDefault = kinds.find((kind) => kind === stored) ?? "editor";
   const opener = await askSelect<OpenerKind>(
     {
@@ -43,7 +45,7 @@ export async function configureOpener(
     },
     {
       value: "opener",
-      flag: "worktree config opener <editor|herdr|none>",
+      flag: "worktree config opener <editor|herdr|rex|none>",
       fallback: openerDefault,
     },
   );
@@ -54,7 +56,7 @@ export async function configureOpener(
 /**
  * The bare run's "How worktrees open" item: `opener` decides what follows.
  * `editor` asks `codeEditor`, `herdr` asks `herdr.focus` (`herdr.agent` is the
- * agent item's), `none` asks
+ * agent item's), `rex` asks `rex.focus`, `none` asks
  * nothing. Where `opener` is not asked (`--missing` found it set) the stored
  * one decides.
  */
@@ -67,6 +69,12 @@ export async function configureOpening(ctx: WizardContext): Promise<void> {
     // hiding rule has taken them out of the prompt list because the binary is
     // missing. Keys `--missing` or a project file removed stay removed.
     await configureHerdrFocus({
+      ...ctx,
+      configNames: [...ctx.configNames, ...ctx.hiddenNames],
+    });
+  } else if (opener === "rex") {
+    // The same opt-in as Herdr's: choosing Rex asks its key.
+    await configureRexFocus({
       ...ctx,
       configNames: [...ctx.configNames, ...ctx.hiddenNames],
     });
@@ -113,6 +121,25 @@ export async function configureHerdrFocus(ctx: WizardContext): Promise<void> {
       },
     );
     await saveConfigValue("herdr.focus", String(herdrFocus));
+  }
+}
+
+export async function configureRexFocus(ctx: WizardContext): Promise<void> {
+  if (shouldPrompt(ctx, "rex.focus")) {
+    // Only an explicit "false" means no, as for `herdr.focus`.
+    const focusDefault = (await gitGetConfigValue("rex.focus")) !== "false";
+    const rexFocus = await askConfirm(
+      {
+        message: "Should opening a worktree focus its Rex session?",
+        default: focusDefault,
+      },
+      {
+        value: "rex.focus",
+        flag: "worktree config rex.focus <true|false>",
+        fallback: focusDefault,
+      },
+    );
+    await saveConfigValue("rex.focus", String(rexFocus));
   }
 }
 

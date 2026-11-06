@@ -75,6 +75,7 @@ export default defineConfig({
             { label: "Environment Files", slug: "guides/env-files" },
             { label: "Editor Integration", slug: "guides/editor-integration" },
             { label: "Herdr Spaces", slug: "guides/herdr-spaces" },
+            { label: "Rex Sessions", slug: "guides/rex-sessions" },
           ],
         },
         { label: "FAQ", slug: "faq" },

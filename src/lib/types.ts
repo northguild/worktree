@@ -18,7 +18,11 @@ export interface OpenedAgent {
   kind: string | null;
   /** The command, without the brief. */
   command: string[];
-  /** Whether a brief went to it — the receipt `branch` exits 1 without. */
+  /**
+   * Whether a brief went to it — the receipt `branch` exits 1 without. For a
+   * Rex session it means the session was created with the agent command and the
+   * brief as its last argument; Rex reports nothing that says the agent read it.
+   */
   prompted: boolean;
 }
 
@@ -30,6 +34,16 @@ export interface OpenOutcome {
     pane: string;
     /** The Herdr handle, `null` when no agent was started in the pane. */
     agent: string | null;
+  };
+  rex?: {
+    session: string;
+    /**
+     * The session's first terminal, as `rex new` reported it. `null` whenever
+     * the session was found by the lookup instead, which reads shells: one that
+     * was already open, or one whose `rex new` timed out and turned up after.
+     * Whether an agent started is `agent`'s to say, not this field's.
+     */
+    block: string | null;
   };
   agent?: OpenedAgent;
 }
@@ -192,6 +206,8 @@ export interface BranchDocument {
   installed: InstallResult;
   /** `null` when Herdr was not opened. */
   herdr: OpenOutcome["herdr"] | null;
+  /** `null` when no Rex session was opened. */
+  rex: OpenOutcome["rex"] | null;
   /** `null` when no agent was started. */
   agent: OpenedAgent | null;
   warnings: string[];
@@ -274,5 +290,7 @@ export interface RemoveDocument {
   removed: { branch: string; path: string }[];
   /** The Herdr workspace ids that were closed. */
   herdrSpacesClosed: string[];
+  /** The Rex session ids that were killed. */
+  rexSessionsClosed: string[];
   warnings: string[];
 }

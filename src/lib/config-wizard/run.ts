@@ -16,6 +16,7 @@ import {
   configureHerdr,
   configureOpener,
   configureOpening,
+  configureRexFocus,
 } from "./opening.js";
 import {
   configureClickUp,
@@ -79,6 +80,7 @@ async function askQuestions(ctx: WizardContext): Promise<void> {
     await configureOpener(ctx);
     await configureCodeEditor(ctx);
     await configureHerdr(ctx);
+    await configureRexFocus(ctx);
     await configureAgentCommand(ctx);
     await configurePostCreate(ctx);
   } else {

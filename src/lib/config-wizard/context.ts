@@ -6,7 +6,7 @@ import type { ConfigName } from "../types.js";
 /**
  * What every wizard section shares: the keys this run is to ask, whether they
  * were named with `--names`, and where to print. `configNames` is already
- * filtered (project-file keys, hidden Herdr keys, Data Center's email), so a
+ * filtered (project-file keys, hidden Herdr and Rex keys, Data Center's email), so a
  * section only asks `shouldPrompt`.
  */
 export type WizardContext = {
@@ -17,7 +17,9 @@ export type WizardContext = {
    * would show a Herdr key (plan #236 D3). A `--names` run is always true.
    */
   readonly herdrOffered: boolean;
-  /** The Herdr keys that rule keeps out of `configNames`; empty for `--names`. */
+  /** The same for `rex`: the Rex-key hiding rule would show `rex.focus`. */
+  readonly rexOffered: boolean;
+  /** The Herdr and Rex keys those rules keep out of `configNames`; empty for `--names`. */
   readonly hiddenNames: ReadonlySet<ConfigName>;
   readonly log: (message: string) => void;
 };

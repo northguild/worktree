@@ -245,6 +245,7 @@ const PERSONAL_KEYS = new Set([
   "codeEditor",
   "herdr.focus",
   "herdr.agent",
+  "rex.focus",
   "agent.command",
   "jira.email",
   "jira.autoAssign",
@@ -256,7 +257,7 @@ const PERSONAL_KEYS = new Set([
   "clickup.autoAssign",
   "clickup.autoStart",
 ]);
-const PERSONAL_SECTIONS = new Set(["herdr", "agent"]);
+const PERSONAL_SECTIONS = new Set(["herdr", "rex", "agent"]);
 const SECRET_KEYS = new Set<string>(SECRET_CONFIG_NAMES);
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import { EOL } from "node:os";
 import { Args, Flags } from "@oclif/core";
+import { isRexInstalled } from "../integrations/rex.js";
 import { BaseCommand } from "../lib/base-command.js";
 import { commandExists } from "../lib/cli.js";
 import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
@@ -12,6 +13,7 @@ import { runWizard } from "../lib/config-wizard/run.js";
 import {
   CONFIG_NAMES,
   HERDR_CONFIG_NAMES,
+  REX_CONFIG_NAMES,
   SECRET_CONFIG_NAMES,
   UNPROMPTED_CONFIG_NAMES,
 } from "../lib/constants.js";
@@ -90,29 +92,38 @@ export default class Config extends BaseCommand {
   }
 
   /**
-   * The Herdr keys to keep out of sight. Someone without the `herdr` binary has
-   * no use for any of them, and listing or prompting for them is the whole of
-   * what this feature would otherwise cost them.
+   * The Herdr and Rex keys to keep out of sight. Someone without the `herdr`
+   * binary has no use for the first group, nor someone who cannot run the `rex`
+   * CLI for the second, and listing or prompting for them is the whole of what
+   * these features would otherwise cost them.
    *
    * A key that already holds a value is never hidden: a machine that configured
    * Herdr and later lost the binary should still be told what it set.
    */
   private async getHiddenConfigNames(): Promise<Set<ConfigName>> {
+    const opener = await gitGetConfigValue("opener");
+    const hidden = new Set<ConfigName>();
+
     // An explicit `opener=herdr` is an opt-in, and it governs the other two, so
     // it un-hides all of them. A shell that has not picked up `herdr` on PATH
     // yet should not make the keys of someone who plainly uses it disappear.
-    if ((await gitGetConfigValue("opener")) === "herdr") {
-      return new Set();
-    }
+    // `opener=rex` does the same for the Rex keys.
+    const groups: [readonly ConfigName[], boolean][] = [
+      [
+        HERDR_CONFIG_NAMES,
+        opener === "herdr" || (await commandExists("herdr")),
+      ],
+      [REX_CONFIG_NAMES, opener === "rex" || (await isRexInstalled())],
+    ];
 
-    if (await commandExists("herdr")) {
-      return new Set();
-    }
-
-    const hidden = new Set<ConfigName>();
-    for (const name of HERDR_CONFIG_NAMES) {
-      if (!(await gitGetConfigValue(name))) {
-        hidden.add(name);
+    for (const [names, shown] of groups) {
+      if (shown) {
+        continue;
+      }
+      for (const name of names) {
+        if (!(await gitGetConfigValue(name))) {
+          hidden.add(name);
+        }
       }
     }
     return hidden;
@@ -304,7 +315,9 @@ export default class Config extends BaseCommand {
           !(
             (name === "codeEditor" && opener !== "editor") ||
             ((HERDR_CONFIG_NAMES as readonly string[]).includes(name) &&
-              opener !== "herdr")
+              opener !== "herdr") ||
+            ((REX_CONFIG_NAMES as readonly string[]).includes(name) &&
+              opener !== "rex")
           ),
       );
     }
@@ -322,6 +335,7 @@ export default class Config extends BaseCommand {
       // test, not a second one. Naming `opener` is asking for every choice.
       herdrOffered:
         !hidden || HERDR_CONFIG_NAMES.some((name) => !hidden.has(name)),
+      rexOffered: !hidden || REX_CONFIG_NAMES.some((name) => !hidden.has(name)),
       hiddenNames: hidden ?? new Set(),
       log: (message) => this.log(message),
     };

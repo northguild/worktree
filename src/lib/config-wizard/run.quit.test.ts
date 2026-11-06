@@ -27,6 +27,7 @@ describe("the wizard when the user quits", () => {
       configNames,
       names: configNames.join(","),
       herdrOffered: false,
+      rexOffered: false,
       hiddenNames: new Set(),
       log: (message) => {
         lines.push(message);

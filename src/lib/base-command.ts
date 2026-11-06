@@ -11,15 +11,22 @@ import chalk from "chalk";
 // `./prompt.js` — not a leaf utility. Satisfying the boundary strictly
 // means moving this file out of `lib/`, a wider refactor than this feature buys.
 import {
-  closeHerdrWorkspace,
   isHerdrInstalled,
-  listHerdrWorktrees,
   openHerdrWorktree,
   promptHerdrAgent,
   startHerdrAgent,
   toAgentSessionName,
   toHerdrAgentName,
 } from "../integrations/herdr.js";
+import { herdrMultiplexer } from "../integrations/herdr-multiplexer.js";
+import {
+  openRexSession as createRexSession,
+  findRexSessions,
+  isRexInstalled,
+  RexError,
+  selectRexSession,
+} from "../integrations/rex.js";
+import { rexMultiplexer } from "../integrations/rex-multiplexer.js";
 import { run, spawnDetached } from "./cli.js";
 import { gitGetConfigValue } from "./config.js";
 import { gitGetAbsoluteWorktreesPath, gitGetRootPath } from "./git.js";
@@ -29,13 +36,14 @@ import {
   resolveNonInteractive,
   setNonInteractive,
 } from "./interaction.js";
+import type { Multiplexer } from "./multiplexer.js";
 import { createSpinner } from "./progress.js";
 import {
   getTeamConfigValue,
   isTeamConfigKey,
   showLinesVisibly,
 } from "./project-config.js";
-import { askConfirm, MissingValueError } from "./prompt.js";
+import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
 import type {
   ConfigName,
@@ -139,6 +147,79 @@ function toSpaceLabel(worktreePath: string, worktreesRootPath: string) {
  * brief that passes validation must always be one that spawns.
  */
 export const AGENT_BRIEF_MAX_BYTES = 128 * 1024 - 1;
+
+/**
+ * What Rex accepts in one request: it refuses anything over 65,536 encoded
+ * bytes ("control message too large", live probe of 2026-11-06, commit
+ * aa9d59d), and does so before it makes a session.
+ */
+export const REX_REQUEST_LIMIT_BYTES = 65_536;
+
+/**
+ * What a request carries besides the argv. The probe measured ≈1.3 KB for a
+ * `rex new` (103,675 encoded bytes for one 102,400-byte argument); 2,048
+ * leaves room for a label, a path and an `agent.command` longer than the
+ * probe's, none of which is known before the worktree exists.
+ */
+const REX_ENVELOPE_BYTES = 2_048;
+
+/**
+ * Rex encodes its requests as Go's `json.Marshal` does, measured live on
+ * 2026-11-06 (one character repeated 10,000 times in an argument): 6 bytes for
+ * `<`, `>`, `&`, U+2028/U+2029 and other control characters; 2 for `"`, `\`,
+ * newline and tab; 1 for DEL and other ASCII; other non-ASCII as its raw UTF-8
+ * (2 to 4 bytes). It is not JSON.stringify, which leaves `<`, `>` and `&` alone,
+ * and it does not write non-ASCII as `\uXXXX`. The 2% on top is a safety
+ * margin, not a correction: against the probe's 60,000- and 108,088-byte texts
+ * this model is within a few bytes of what Rex reported.
+ */
+const REX_ENCODING_SLACK = 1.02;
+
+/** Bytes one argv element takes once Rex has encoded it, quotes and comma included. */
+function encodedRexElementBytes(text: string): number {
+  let bytes = 3;
+
+  for (let index = 0; index < text.length; index++) {
+    const unit = text.charCodeAt(index);
+
+    if (unit === 0x22 || unit === 0x5c || unit === 0x0a || unit === 0x09) {
+      bytes += 2; // \" \\ \n \t
+    } else if (
+      unit < 0x20 ||
+      unit === 0x3c ||
+      unit === 0x3e ||
+      unit === 0x26 ||
+      unit === 0x2028 ||
+      unit === 0x2029
+    ) {
+      bytes += 6; // \u00XX style: controls, <, >, &, U+2028, U+2029
+    } else if (unit < 0x80) {
+      bytes += 1;
+    } else if (unit < 0x800) {
+      bytes += 2;
+    } else if (unit >= 0xd800 && unit <= 0xdfff) {
+      bytes += 2; // half of a surrogate pair, whose UTF-8 is 4 bytes
+    } else {
+      bytes += 3;
+    }
+  }
+
+  return bytes;
+}
+
+/**
+ * An upper estimate of the request `rex new … -- <argv>` makes, for D10's
+ * refusal before a worktree exists. It must never be lower than what Rex
+ * measures, so every term rounds up.
+ */
+export function estimateRexRequestBytes(argv: readonly string[]): number {
+  const encoded = argv.reduce(
+    (total, element) => total + encodedRexElementBytes(element),
+    0,
+  );
+
+  return Math.ceil(encoded * REX_ENCODING_SLACK) + REX_ENVELOPE_BYTES;
+}
 
 export interface AgentBriefSources {
   agent?: string;
@@ -268,6 +349,16 @@ function missingAgentCommand(): MissingValueError {
   return new MissingValueError(
     "the agent command",
     '`worktree config agent.command "<command>"`',
+  );
+}
+
+/**
+ * D10: names the limit and the brief's size, never its text (#72). Exit 2 and
+ * `invalid_value`, like the other values that are wrong before anything exists.
+ */
+function briefTooLargeForRex(briefBytes: number): InvalidValueError {
+  return new InvalidValueError(
+    `The agent brief is ${briefBytes} bytes, more than Rex takes: it refuses a request over ${REX_REQUEST_LIMIT_BYTES} bytes once encoded. Shorten the brief, or use another opener.`,
   );
 }
 
@@ -446,8 +537,8 @@ export abstract class BaseCommand extends Command {
 
     return !open || configured === "none"
       ? "none"
-      : configured === "herdr"
-        ? "herdr"
+      : configured === "herdr" || configured === "rex"
+        ? configured
         : "editor";
   }
 
@@ -459,9 +550,11 @@ export abstract class BaseCommand extends Command {
    *
    * Who takes a brief is a matter of config, so it is knowable here. Herdr
    * starts its kind when it will open the tree — Herdr the opener and
-   * installed; every other run, Herdr not installed included, falls to the
-   * detached dispatch, which needs `agent.command`. Neither is a missing value
-   * naming its key. A run without a brief, or with `--no-agent`, hands nothing
+   * installed. Rex starts the program `agent.command` names, so with Rex the
+   * opener and its CLI found a brief needs that command (and, D10, must fit
+   * the request Rex accepts); every other run, Herdr or Rex not installed
+   * included, falls to the detached dispatch, which needs `agent.command`.
+   * Neither is a missing value naming its key. A run without a brief, or with `--no-agent`, hands nothing
    * over.
    *
    * What can only fail once the tree exists — Herdr not opening, a space
@@ -489,10 +582,20 @@ export abstract class BaseCommand extends Command {
       return;
     }
 
-    const [head] = splitCommandValue(await gitGetConfigValue("agent.command"));
+    const [head, ...tail] = splitCommandValue(
+      await gitGetConfigValue("agent.command"),
+    );
 
     if (!head) {
       throw missingAgentCommand();
+    }
+
+    if (
+      (await this.resolveOpener(open)) === "rex" &&
+      (await isRexInstalled()) &&
+      estimateRexRequestBytes([head, ...tail, brief]) > REX_REQUEST_LIMIT_BYTES
+    ) {
+      throw briefTooLargeForRex(Buffer.byteLength(brief, "utf8"));
     }
   }
 
@@ -578,6 +681,29 @@ export abstract class BaseCommand extends Command {
       return { opener, herdr, agent: startedAgent };
     }
 
+    if (opener === "rex") {
+      const { rex, opened, mayExist, startedAgent } = await this.openRexSession(
+        path,
+        agent,
+        handoff,
+      );
+
+      // As for Herdr, a run where Rex did not open falls to the detached
+      // dispatch, except when a timed-out `rex new` may have made the session:
+      // an agent beside one that is already running is two in one tree.
+      if (!opened && !mayExist && handoff !== undefined) {
+        return { opener, agent: await this.dispatchAgent(path, handoff) };
+      }
+
+      if (opened && handoff !== undefined && !startedAgent) {
+        this.warn(
+          "The brief was not delivered: no agent was started in this Rex session.",
+        );
+      }
+
+      return { opener, rex, agent: startedAgent };
+    }
+
     // Before the opener, so the editor's line stays the last one printed.
     const dispatched =
       handoff !== undefined
@@ -607,7 +733,13 @@ export abstract class BaseCommand extends Command {
   }
 
   /**
-   * Reads which Herdr space each of this repository's worktrees is open in, and
+   * Whose ids the closer returns, so a command can report them under the right
+   * key. Set by `resolveSpaceCloser`; Herdr's until it says otherwise.
+   */
+  protected closedSpacesOf: "herdr" | "rex" = "herdr";
+
+  /**
+   * Reads which Herdr space or Rex session each of this repository's worktrees is open in, and
    * answers with the function that closes them once they have been removed.
    *
    * **Call this before removing anything.** The listing is derived from git's
@@ -618,53 +750,43 @@ export abstract class BaseCommand extends Command {
    * where one does.
    *
    * Everything that means "there is nothing to close" answers with the same
-   * no-op, and none of them spawns a Herdr process: an `opener` that is not
-   * `herdr`, no `herdr` on PATH, or a repository with no open spaces. The
-   * second of those is deliberately silent rather than a warning — someone
+   * no-op, and none of them spawns a Herdr or Rex process: an `opener` that is
+   * neither `herdr` nor `rex`, the opener's tool not on PATH, or a repository
+   * with no open spaces. The second of those is deliberately silent rather than a warning — someone
    * whose `opener` says `herdr` but who has no Herdr installed was already told
    * so, loudly, when the open failed, and a warning on every `remove`
    * afterwards is noise about something they cannot act on here.
    */
   protected async resolveSpaceCloser(): Promise<SpaceCloser> {
-    if ((await gitGetConfigValue("opener")) !== "herdr") {
+    // D9 (#270): only the configured opener's tool is consulted. `editor`,
+    // `none` and anything else close nothing and spawn nothing.
+    const opener = await gitGetConfigValue("opener");
+
+    if (opener !== "herdr" && opener !== "rex") {
       return closeNothing;
     }
 
-    if (!(await isHerdrInstalled())) {
+    this.closedSpacesOf = opener;
+    const multiplexer = opener === "rex" ? rexMultiplexer : herdrMultiplexer;
+
+    if (!(await multiplexer.isInstalled())) {
       return closeNothing;
     }
 
-    const spinner = createSpinner("Finding Herdr spaces").start();
+    const spinner = createSpinner(
+      `Finding ${multiplexer.displayName} ${multiplexer.spaceNoun}s`,
+    ).start();
     let spaces: Map<string, string>;
     let worktreesRootPath: string;
 
     try {
-      const [{ worktrees, sourceWorkspaceId }, worktreesPath] =
-        await Promise.all([
-          listHerdrWorktrees({ gitRootPath: await gitGetRootPath() }),
-          gitGetAbsoluteWorktreesPath(),
-        ]);
+      const [found, worktreesPath] = await Promise.all([
+        multiplexer.findSpaces(await gitGetRootPath()),
+        gitGetAbsoluteWorktreesPath(),
+      ]);
 
       worktreesRootPath = `${worktreesPath}/`;
-      // flatMap rather than filter-then-map so the narrowing is the compiler's:
-      // `workspaceId` is `string | undefined`, and inside this branch it is a
-      // string. A filter needs an assertion to say the same thing, and an
-      // assertion keeps compiling if the first guard below is ever dropped —
-      // which is exactly the regression these two guards exist to prevent.
-      spaces = new Map(
-        worktrees.flatMap((worktree) =>
-          // #52 D9 — a worktree with no space open is not an error and is
-          // nothing to close.
-          worktree.workspaceId !== undefined &&
-          // #52 D7 — the repository's own checkout is in this listing like any
-          // other, and closing it would take down the window the user is
-          // sitting in. Both removal paths already exclude the current
-          // worktree, so this guards a future caller rather than a live defect.
-          worktree.workspaceId !== sourceWorkspaceId
-            ? [[worktree.path, worktree.workspaceId] as const]
-            : [],
-        ),
-      );
+      spaces = found;
       spinner.stop();
     } catch (error) {
       // Deliberately wider than the Herdr call: the two git lookups above share
@@ -708,6 +830,7 @@ export abstract class BaseCommand extends Command {
 
         if (
           await this.closeSpace(
+            multiplexer,
             workspaceId,
             toSpaceLabel(worktreePath, worktreesRootPath),
           )
@@ -729,12 +852,19 @@ export abstract class BaseCommand extends Command {
    * happened (D5). Each space gets its own `catch` so one failure does not take
    * the rest of the run with it.
    */
-  private async closeSpace(workspaceId: string, label: string) {
-    const spinner = createSpinner(`Closing Herdr space ${label}`).start();
+  private async closeSpace(
+    multiplexer: Multiplexer,
+    workspaceId: string,
+    label: string,
+  ) {
+    const { displayName, spaceNoun } = multiplexer;
+    const spinner = createSpinner(
+      `Closing ${displayName} ${spaceNoun} ${label}`,
+    ).start();
 
     try {
-      await closeHerdrWorkspace(workspaceId);
-      spinner.succeed(`Closed Herdr space ${label}`);
+      await multiplexer.closeSpace(workspaceId);
+      spinner.succeed(`Closed ${displayName} ${spaceNoun} ${label}`);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -924,6 +1054,164 @@ export abstract class BaseCommand extends Command {
     }
 
     return { name: sessionName, kind, command: [kind, ...args], prompted };
+  }
+
+  /**
+   * Opens the worktree as a Rex session, in the skeleton of `openHerdrSpace`:
+   * a spinner, the installed check, a label, and a failure that warns and
+   * leaves the worktree where it is.
+   *
+   * The lookup comes first (D6): `rex new` with a label in use makes a second
+   * session, so a worktree that is already open is selected, not opened again,
+   * and no agent starts in it. A lookup that fails is a failed open and not a
+   * guess, for the same reason.
+   *
+   * `opened` is whether a Rex session exists for the path afterwards, and
+   * `mayExist` that a failed lookup, or a timed-out `rex new`, left it unknown.
+   */
+  private async openRexSession(
+    path: string,
+    wantsAgent: boolean,
+    brief: string | undefined,
+  ): Promise<{
+    rex?: OpenOutcome["rex"];
+    opened: boolean;
+    mayExist?: boolean;
+    startedAgent?: OpenedAgent;
+  }> {
+    const spinner = createSpinner("Opening in Rex").start();
+    let mayExist = false;
+
+    try {
+      if (!(await isRexInstalled())) {
+        throw new Error("Rex: the `rex` CLI was not found.");
+      }
+
+      const [label, focus] = await Promise.all([
+        this.resolveSpaceLabel(path),
+        gitGetConfigValue("rex.focus"),
+      ]);
+
+      // Before the lookup and the open, so a brief with no program to take it
+      // fails before a session exists.
+      const command =
+        wantsAgent && brief !== undefined
+          ? await this.resolveRexAgentCommand(brief)
+          : undefined;
+
+      // Unknown until the lookup answers: a failed one leaves a session, and an
+      // agent in it, possible, so no detached agent may start beside it.
+      mayExist = true;
+      const existing = (await findRexSessions({ paths: [path] })).get(path);
+      mayExist = false;
+
+      if (existing) {
+        spinner.succeed(`Rex session ${label} was already open`);
+        await this.focusRexSession(existing, focus);
+        return { opened: true, rex: { session: existing, block: null } };
+      }
+
+      let session: string;
+      let block: string | null = null;
+
+      try {
+        const created = await createRexSession({ path, label, command });
+        session = created.sessionId;
+        block = created.blockId;
+      } catch (error) {
+        if (!(error instanceof RexError && error.timedOut)) {
+          throw error;
+        }
+
+        // Rex's guide says a timed-out `new` may have succeeded (D4).
+        const found = await findRexSessions({ paths: [path] }).catch(
+          () => new Map<string, string>(),
+        );
+        const late = found.get(path);
+
+        if (!late) {
+          mayExist = true;
+          throw error;
+        }
+        // Found by the lookup, which reads shells: `block` stays null, as for a
+        // session that was already open.
+        session = late;
+      }
+
+      spinner.succeed(`Opened Rex session ${label}`);
+      await this.focusRexSession(session, focus);
+
+      return {
+        opened: true,
+        rex: { session, block },
+        // Created with the command: Rex reports nothing that says the agent
+        // read the brief, and `prompted` documents that.
+        startedAgent: command
+          ? {
+              name: null,
+              kind: null,
+              command: command.slice(0, -1),
+              prompted: true,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      if (error instanceof MissingValueError) {
+        spinner.stop();
+        throw error;
+      }
+
+      // As Herdr's D5: no editor as a consolation prize, exit 0, the path.
+      const message = error instanceof Error ? error.message : String(error);
+      spinner.fail(message);
+      this.recordWarning(message);
+      this.log(`The worktree is at ${path}`);
+      return { opened: false, mayExist };
+    }
+  }
+
+  /**
+   * The argv of a Rex agent session (D7): the program `agent.command` names,
+   * its leading arguments, then the brief as the last element. A background
+   * flag is dropped, because a program that detaches would end the session's
+   * only process.
+   */
+  private async resolveRexAgentCommand(brief: string): Promise<string[]> {
+    const [head, ...tail] = splitCommandValue(
+      await gitGetConfigValue("agent.command"),
+    );
+
+    if (!head) {
+      throw missingAgentCommand();
+    }
+
+    const args = tail.filter((arg) => !BACKGROUND_FLAGS.includes(arg));
+
+    if (args.length < tail.length) {
+      this.logToStderr(
+        `Dropped ${BACKGROUND_FLAGS.join("/")} from agent.command: Rex runs the agent in the session.`,
+      );
+    }
+
+    return [head, ...args, brief];
+  }
+
+  /**
+   * Best effort (D5): the session exists whether or not the app comes to it,
+   * so a refusal — Remote Control off, several apps, none open — is a warning.
+   * Focus is on unless `rex.focus` is `false`.
+   */
+  private async focusRexSession(sessionId: string, focus: string) {
+    if (focus === "false") {
+      return;
+    }
+
+    try {
+      await selectRexSession(sessionId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.warn(`The Rex session is open but was not focused. ${message}`);
+    }
   }
 
   private async openCodeEditor(path: string, reopened: boolean) {

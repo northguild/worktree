@@ -27,7 +27,7 @@ export default class Delete extends BaseCommand {
   static override description = `Remove worktree branches
 
 --json prints one document on stdout:
-{removed: [{branch, path}], herdrSpacesClosed: [id], warnings: [string]}
+{removed: [{branch, path}], herdrSpacesClosed: [id], rexSessionsClosed: [id], warnings: [string]}
 On failure: {error:{code, message, details?}} on stdout.
 A non-interactive run needs <branchName> and --force.
 
@@ -195,14 +195,17 @@ Exit codes:
 
   private toDocument(
     removed: WorktreeListEntry[],
-    herdrSpacesClosed: string[],
+    closed: string[],
   ): RemoveDocument {
+    const rex = this.closedSpacesOf === "rex";
+
     return {
       removed: removed.map(({ branchName, path }) => ({
         branch: branchName,
         path,
       })),
-      herdrSpacesClosed,
+      herdrSpacesClosed: rex ? [] : closed,
+      rexSessionsClosed: rex ? closed : [],
       warnings: this.warnings,
     };
   }

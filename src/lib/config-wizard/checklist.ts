@@ -67,8 +67,8 @@ export const CHECKLIST_ITEMS: readonly ChecklistItem[] = [
   {
     id: "opening",
     title: "how worktrees open",
-    label: "How worktrees open: in an editor or Herdr, or not at all",
-    keys: ["opener", "codeEditor", "herdr.focus"],
+    label: "How worktrees open: in an editor, Herdr or Rex, or not at all",
+    keys: ["opener", "codeEditor", "herdr.focus", "rex.focus"],
   },
   {
     id: "agent",

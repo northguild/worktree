@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import { checkbox, confirm } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
+import * as rex from "../integrations/rex.js";
 import * as agent from "../lib/agent.js";
 import * as config from "../lib/config.js";
 import * as git from "../lib/git.js";
@@ -30,6 +31,7 @@ vi.mock("ora", () => ({
     stop: vi.fn().mockReturnThis(),
     succeed: vi.fn().mockReturnThis(),
     fail: vi.fn().mockReturnThis(),
+    warn: vi.fn().mockReturnThis(),
   }),
 }));
 
@@ -769,6 +771,122 @@ describe("remove command — the herdr closer", () => {
   });
 });
 
+/**
+ * The same seam with `opener=rex`: the command is run end to end with the Rex
+ * integration spied at its exports, so no `rex` process is spawned and the
+ * suite means the same with REX_SESSION set.
+ */
+describe("remove command — the rex closer", () => {
+  const originalExitCode = process.exitCode;
+  const originalRexSession = process.env.REX_SESSION;
+  const gitRootPath = "/path/to/project";
+  const safePath = `${gitRootPath}.worktrees/feature/safe`;
+  const safeWorktree = {
+    path: safePath,
+    branchName: "feature/safe",
+    remote: "",
+    ahead: 0,
+    remoteExists: false,
+    pathExists: true,
+    uncommittedChanges: 0,
+    safeToRemove: true,
+  };
+  let output: ReturnType<typeof captureOutput>;
+  let calls: string[];
+  let mockClose: ReturnType<typeof vi.spyOn>;
+
+  async function runJson(flags: Record<string, unknown> = { force: true }) {
+    const command = new Remove(["--json"], await loadConfig());
+    (command as any).parse = vi
+      .fn()
+      .mockResolvedValue({ args: { branchName: "feature/safe" }, flags });
+    (command as any).parsed = true;
+    await (command as any)._run();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calls = [];
+    delete process.env.REX_SESSION;
+    process.exitCode = undefined;
+    output = captureOutput();
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => (name === "opener" ? "rex" : ""),
+    );
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      `${gitRootPath}.worktrees`,
+    );
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue([safeWorktree]);
+    vi.spyOn(git, "gitGetWorktrees").mockResolvedValue([
+      {
+        path: safePath,
+        branchName: "feature/safe",
+        pathExists: true,
+        isCurrent: false,
+      },
+    ]);
+    vi.spyOn(git, "gitRemoveWorktree").mockImplementation(async () => {
+      calls.push("remove");
+      return safeWorktree;
+    });
+    vi.spyOn(rex, "isRexInstalled").mockResolvedValue(true);
+    vi.spyOn(rex, "findRexSessions").mockImplementation(async () => {
+      calls.push("find");
+      return new Map([[safePath, "session:Q"]]);
+    });
+    mockClose = vi
+      .spyOn(rex, "closeRexSession")
+      .mockImplementation(async () => {
+        calls.push("kill");
+      });
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+    if (originalRexSession === undefined) {
+      delete process.env.REX_SESSION;
+    } else {
+      process.env.REX_SESSION = originalRexSession;
+    }
+  });
+
+  it("finds the session before the removal and kills it after", async () => {
+    await runJson();
+
+    expect(calls).toEqual(["find", "remove", "kill"]);
+    expect(mockClose).toHaveBeenCalledWith("session:Q");
+  });
+
+  it("reports the killed id under rexSessionsClosed and leaves herdrSpacesClosed empty", async () => {
+    await runJson();
+
+    expect(output.document()).toMatchObject({
+      herdrSpacesClosed: [],
+      rexSessionsClosed: ["session:Q"],
+    });
+  });
+
+  it("lists only the ids whose kill was accepted", async () => {
+    mockClose.mockRejectedValue(new Error("Rex: no such session"));
+
+    await runJson();
+
+    expect(output.document()).toMatchObject({ rexSessionsClosed: [] });
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("reports [] when no session was open", async () => {
+    vi.spyOn(rex, "findRexSessions").mockResolvedValue(new Map());
+
+    await runJson();
+
+    expect(output.document()).toMatchObject({ rexSessionsClosed: [] });
+    expect(mockClose).not.toHaveBeenCalled();
+  });
+});
+
 describe("remove command — --json", () => {
   const originalExitCode = process.exitCode;
   let output: ReturnType<typeof captureOutput>;
@@ -823,11 +941,13 @@ describe("remove command — --json", () => {
     expect(Object.keys(document).sort()).toEqual([
       "herdrSpacesClosed",
       "removed",
+      "rexSessionsClosed",
       "warnings",
     ]);
     expect(document).toEqual({
       removed: [{ branch: "feature/safe", path: worktree.path }],
       herdrSpacesClosed: ["w5"],
+      rexSessionsClosed: [],
       warnings: [],
     });
     expect(process.exitCode).toBeUndefined();
@@ -937,6 +1057,7 @@ describe("remove command — --json", () => {
     expect(output.document()).toEqual({
       removed: [],
       herdrSpacesClosed: [],
+      rexSessionsClosed: [],
       warnings: [],
     });
     expect(output.stdout()).not.toContain("No worktree branches found");
@@ -1152,6 +1273,7 @@ describe("remove command — agent sessions", () => {
       expect(output.document()).toEqual({
         removed: [{ branch: "feature/busy", path: busyPath }],
         herdrSpacesClosed: [],
+        rexSessionsClosed: [],
         warnings: [warning],
       });
       expect(output.stderr()).toContain(warning);

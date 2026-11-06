@@ -486,7 +486,7 @@ An empty brief, or one over **131,071 bytes** (the most a single argument can ca
 verbatim, so quotes, apostrophes, semicolons and newlines in it reach the agent unchanged and no shell
 interprets it.
 
-There is **one agent per worktree**, started one of two ways:
+There is **one agent per worktree**, started one of three ways:
 
 - **When the worktree opens as a Herdr space** (`opener` `herdr`), the agent is started in the space's pane
   with `herdr agent start`, and the brief is then submitted to it with `herdr agent prompt`, once, after the
@@ -502,7 +502,25 @@ There is **one agent per worktree**, started one of two ways:
     stderr. Herdr's own handle for the agent is separate and capped at 32 characters.
   - If starting the agent fails, or the brief cannot be delivered, a warning says so (a failed delivery names the brief by its size, never its text), the worktree and
     space are kept, and the run exits `1`.
-- **Otherwise** (editor opener, `opener` `none`, or Herdr failing to open) `agent.command` is launched
+- **When the worktree opens as a Rex session** (`opener` `rex`, with the `rex` CLI found), the agent is the session's
+  own command: `rex new` is given the program [`agent.command`](/worktree/configuration/#agent-command) names, its
+  arguments, and the brief as the **last argument**, so nothing is typed into a prompt and no ready signal is
+  waited for. Without a brief the session is a plain shell.
+  - With a brief and no `agent.command`, the run exits `2` before the worktree is created, with
+    `` worktree: no default for the agent command; pass `worktree config agent.command "<command>"` ``.
+  - A brief whose request Rex would refuse, over 65,536 encoded bytes, also exits `2` before the worktree is
+    created. `worktree` estimates the request from the command, the brief and Rex's envelope, counting each quote,
+    backslash, newline and tab as two bytes, `<`, `>`, `&` and other control characters as six, and other non-ASCII
+    characters as their UTF-8 length, so the most a brief can be is about
+    62,000 bytes of plain text and less when it is full of those characters (code with generics or `&&` counts for more than its length). The message names the limit and the brief's
+    size, never its text.
+  - `--bg` and `--background` are dropped from `agent.command`'s arguments (a note says so on stderr): a program
+    that detaches would end the session's only process.
+  - A worktree that already has a Rex session is selected and not opened again, and no agent is started in it: the
+    run exits `1` with a warning that the brief was not delivered.
+  - `agent.prompted` is `true` when the session was **created with** the command and the brief. Rex reports
+    nothing that says the agent read it.
+- **Otherwise** (editor opener, `opener` `none`, or Herdr or Rex failing to open) `agent.command` is launched
   detached with the brief as its last argument and the new worktree as its working directory. It is started
   and left running; `worktree` does not wait for it and its output does not appear here. That output is not
   kept anywhere either, so name an agent that keeps its own session record, such as `claude --bg`
@@ -516,7 +534,7 @@ There is **one agent per worktree**, started one of two ways:
   worktree is kept, no `Agent started` line is printed, `agent` is `null`, and the run exits `1`.
 
 `--no-agent` opens the worktree as usual but starts no agent. `--no-open` creates the worktree and prints
-`Worktree created at <path>` without calling Herdr or the editor, for this run only, like `opener` `none`;
+`Worktree created at <path>` without calling Herdr, Rex or the editor, for this run only, like `opener` `none`;
 an agent is still started, detached, when a brief is given, unless `--no-agent` says otherwise.
 
 [`checkout`](/worktree/commands/checkout/) takes `--agent` and follows the same rules.
@@ -564,7 +582,7 @@ With `--dry-run`, steps 2 to 10 do not happen: the command stops after naming, s
    under `copy` — see [Environment Files](/worktree/guides/env-files/) and
    [Copy files](/worktree/project-configuration/#copy-files).
 8. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
-9. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
+9. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`, or as a Rex session when it is `rex`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
 10. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
 
 ## A branch name that is already taken
@@ -598,6 +616,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
  "envFilesCopied":["docs/.env.local"],
  "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-70-headless-agent-mode"},
+ "rex":null,
  "agent":{"name":"demo-70-headless-agent-mode","kind":"claude","command":["claude","--name","demo-70-headless-agent-mode"],"prompted":true},
  "warnings":[]}
 ```
@@ -611,13 +630,14 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
 | `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`) or `"lockfile"` |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |
-| `agent` | `{name, kind, command, prompted}` for the agent that was started; `null` when none was. `command` leaves out the brief. `name` is the session name, `null` where `worktree` named nothing (a detached start) |
-| `warnings` | what went wrong without stopping the run: a failed assignment or start, a Herdr or agent failure, missing config, a closed `--github` issue |
+| `rex` | `{session, block}` for the Rex session that was opened; `null` when no Rex session was opened. `block` is the session's first terminal as `rex new` reported it, `null` when the session was found instead: one that was already open, or one whose `rex new` timed out and turned up after. Whether an agent started is `agent`'s to say |
+| `agent` | `{name, kind, command, prompted}` for the agent that was started; `null` when none was. `command` leaves out the brief. `name` is the session name, `null` where `worktree` named nothing (a detached start or a Rex session). `prompted` is the receipt for the brief: with Herdr the agent was given it, with Rex the session was created with it |
+| `warnings` | what went wrong without stopping the run: a failed assignment or start, a Herdr, Rex or agent failure, missing config, a closed `--github` issue |
 
 A failed install still prints the document, with `installed.ok` `false` and the message in `warnings`, and
 exits `1`: the worktree exists, so its path is reported rather than left out of an error. A brief that was
 given and reached no agent is reported the same way, with `agent` `null` or `agent.prompted` `false` —
-`agent.prompted` is the receipt that the agent has the brief.
+`agent.prompted` is the receipt that the agent has the brief (with a Rex session, that it was created with the brief).
 
 A failure otherwise prints a different document, still one line on stdout, and exits non-zero. A line
 describing it goes to stderr as usual:
