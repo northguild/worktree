@@ -6,7 +6,7 @@
 export interface Multiplexer {
   /** What the user sees in spinner text: "Closing <displayName> space <label>". */
   displayName: string;
-  /** Whether the tool is on PATH. A tool that is not installed has nothing to close. */
+  /** Whether the tool can be found. A tool that is not installed has nothing to close. */
   isInstalled(): Promise<boolean>;
   /**
    * Maps the absolute path of each worktree that has a space open to that

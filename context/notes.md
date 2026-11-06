@@ -42,3 +42,16 @@ Non-blocking observations from the gates of #270. Read by nothing.
 - `multiplexer.ts`'s `isInstalled` doc comment says "on PATH"; under D3 Rex is also found via `REX_BIN_DIR` and the app bundle.
 - §4 says `resolveSpaceCloser` "no longer names Herdr"; after phase 1 it still selects `herdrMultiplexer` on `opener === "herdr"` (D9), which phase 4 replaces.
 - The spinner-wording test sits in `resolveSpaceCloser`'s "the gate" block; it is about what the user sees and would read better under "what it closes".
+
+## Phase 2 — Rex CLI integration module
+
+- Block calls within one session are uncapped (`Promise.all` in `rex.ts`); only sessions are capped at 4. After one call times out, the other workers keep issuing bounded calls, which can hold the process open briefly after the warning.
+- `redactBrief` matches the brief exactly; `runCapturing` trims stderr, so a brief with trailing whitespace, or an escaped/truncated echo, would not be scrubbed, and a one-character brief would mangle Rex's message.
+- Nothing asserts that the Rex adapter calls `gitGetWorktrees()` without `includeCurrent` (what keeps the current worktree out); "deepest root wins" and a relative `foreground.cwd` falling back to `pwd` are also untested.
+- `isRefusal` treats every Rex exit code as "this session vanished"; a CLI change that fails every `block ls -s` on usage would yield an empty map with no warning. Exit 3 is the observed not-found code.
+- `items[index] as T` in the concurrency helper is a type assertion `typescript/rules.md` asks to avoid; `items.entries()` would remove it.
+- `rex-multiplexer.test.ts`'s "is installed when the CLI can be found" mocks and asserts `false`.
+- `rex.test.ts` sets `process.env.PATH` and `REX_BIN_DIR` in `beforeAll` with no `afterAll` restoring them.
+- The concurrency-cap test's `peak <= 4` comes from the code's own constant; D6 says only "a small cap".
+- `runRexJson` keeps the `JSON.parse` SyntaxError as `cause`; V8 quotes a snippet of the input, so a non-JSON stdout echoing the brief would put part of it there. Nothing observed does; dropping that `cause` closes it.
+- The timeout test asserts `cause` is undefined twice.
