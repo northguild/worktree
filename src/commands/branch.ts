@@ -177,7 +177,7 @@ nothing, assigns nothing, moves nothing, saves nothing and asks nothing, so
 
 --json prints one document on stdout:
 path, branch, source, issue, assigned, started, envFilesCopied, installed,
-herdr, agent, warnings
+herdr, rex, agent, warnings
 issue: {provider:"github", number, url|null}, {provider:"jira", key,
 url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
 url|null} or null
@@ -191,8 +191,12 @@ installed: {ran:true, command, steps[], from, inferred, ok, reason?} or
 command is the step that failed, else the last that ran; steps are the ones
 that ran, in order; from is "git-config", "project" or "lockfile"
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
+rex: {session, block|null}, or null if no Rex session was opened (block is
+null for a session that was already open)
 agent: {name|null, kind|null, command[], prompted}, or null if none started
-agent.prompted is the delivery receipt for a brief.
+agent.prompted is the delivery receipt for a brief. With Herdr it means the
+brief reached the agent; with Rex it means the session was created with the
+agent command and the brief as its last argument.
 With --dry-run it prints one other document: dryRun, branch, issue, kind|null,
 match, fields, warnings
 match: {source:"rule", position, rule}, {source:"built-in"} or
@@ -272,7 +276,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }),
     "no-open": Flags.boolean({
       description:
-        "Create the worktree and print its path, without opening it in Herdr or the editor",
+        "Create the worktree and print its path, without opening it in Herdr, Rex or the editor",
     }),
     // Source-agnostic on purpose (D2). Jira has assignees too, and the
     // per-integration difference belongs in the config key rather than in the
@@ -1615,6 +1619,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       envFilesCopied,
       installed,
       herdr: outcome?.herdr ?? null,
+      rex: outcome?.rex ?? null,
       agent: outcome?.agent ?? null,
       warnings: this.warnings,
     };

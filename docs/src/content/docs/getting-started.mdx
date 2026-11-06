@@ -107,7 +107,8 @@ Common values:
 - `agent.command`: optional, such as `claude --bg`, the command `--agent` runs to hand a brief to a coding agent
 
 To open worktrees as [Herdr](https://herdr.dev) spaces instead of editor windows, set
-`opener` to `herdr` — see [Herdr Spaces](/worktree/guides/herdr-spaces/). Set it to `none` to open nothing:
+`opener` to `herdr` — see [Herdr Spaces](/worktree/guides/herdr-spaces/). To open them as Rex sessions, set it to `rex` — see
+[Rex Sessions](/worktree/guides/rex-sessions/). Set it to `none` to open nothing:
 `branch` prints `Worktree created at <path>` and stops.
 
 ## First Workflow
@@ -123,7 +124,7 @@ This command will:
 1. Branch from your configured source branch.
 2. Create a worktree under `<repo>.worktrees/feature/improve-readme`.
 3. Copy the gitignored env files from your main repository — `.env*`, `.dev.vars*` and `.envrc`.
-4. Open the new worktree in your configured editor, or as a Herdr space when `opener` is `herdr`.
+4. Open the new worktree in your configured editor, or as a Herdr space when `opener` is `herdr`, or as a Rex session when it is `rex`.
 
 ## Requirements
 

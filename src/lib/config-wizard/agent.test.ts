@@ -20,6 +20,7 @@ function context(overrides: Partial<WizardContext> = {}): WizardContext {
   return {
     configNames: ["agent.command", "herdr.agent"],
     herdrOffered: true,
+    rexOffered: false,
     hiddenNames: new Set(),
     log: () => {},
     ...overrides,

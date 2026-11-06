@@ -34,17 +34,22 @@ const OLD_ROUTES = [
   "/docs/project-configuration",
 ];
 
+// Pages added since the move, which have no old route: the Rex Sessions guide (#270).
+const ADDED_ROUTES = ["/guides/rex-sessions/"];
+
 function toNewRoute(old: string): string {
   if (old === "/docs") return "/";
   return `${old.slice("/docs".length)}/`;
 }
 
 describe("VALID_DOC_ROUTES", () => {
-  it("holds the 26 routes D17 maps the 26 old ones to", () => {
-    const expected = [...new Set(OLD_ROUTES.map(toNewRoute))].sort();
+  it("holds the 26 routes D17 maps the 26 old ones to, and the pages added since", () => {
+    const mapped = [...new Set(OLD_ROUTES.map(toNewRoute))];
+    const expected = [...mapped, ...ADDED_ROUTES].sort();
 
     expect(OLD_ROUTES).toHaveLength(26);
-    expect(expected).toHaveLength(26);
+    expect(mapped).toHaveLength(26);
+    expect(expected).toHaveLength(27);
     expect([...VALID_DOC_ROUTES].sort()).toEqual(expected);
   });
 });

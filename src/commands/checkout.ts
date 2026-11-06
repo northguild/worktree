@@ -109,7 +109,8 @@ export default class Checkout extends BaseCommand {
         copy: project.status === "loaded" ? project.config.copy : undefined,
       });
       // The brief rides on the open: with Herdr it goes to the agent Herdr
-      // starts, and the detached launch happens only where Herdr did not open.
+      // starts, with Rex it is the last argument of the session's command, and
+      // the detached launch happens only where neither opened.
       await this.openWorktreePath(projectPath, { brief });
     }
   }

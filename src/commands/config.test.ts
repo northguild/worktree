@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { checkbox, confirm, input, select } from "@inquirer/prompts";
+import * as rex from "../integrations/rex.js";
 import * as cli from "../lib/cli.js";
 import * as gitConfig from "../lib/config.js";
 import {
@@ -67,6 +68,11 @@ describe("config command", () => {
       warnings: [],
     });
     vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
+
+    // Whether this machine has Rex must never change a result: the suites that
+    // care say so themselves. Declared here so a user running the tests inside
+    // a Rex terminal (REX_BIN_DIR set) sees what CI sees.
+    vi.spyOn(rex, "isRexInstalled").mockResolvedValue(false);
 
     // Default mock to prevent config verification from running
     vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
@@ -812,6 +818,40 @@ describe("config command", () => {
       );
     });
 
+    it("should accept rex as an opener and store it", async () => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "opener", value: "rex" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith("opener", "rex");
+    });
+
+    it("should refuse a rex.focus that is not a boolean", async () => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "rex.focus", value: "maybe" },
+        flags: {},
+      });
+
+      await expect(config.run()).rejects.toMatchObject({
+        code: "invalid_value",
+      });
+      expect(mockSetConfigValue).not.toHaveBeenCalledWith(
+        "rex.focus",
+        expect.anything(),
+      );
+    });
+
     it("should reject a bogus opener naming the accepted kinds", async () => {
       // Earlier tests stub the validator; this one wants the real one.
       vi.spyOn(validators, "validateConfigValue").mockRestore();
@@ -823,7 +863,7 @@ describe("config command", () => {
         flags: {},
       });
 
-      await expect(config.run()).rejects.toThrow("editor, herdr or none");
+      await expect(config.run()).rejects.toThrow("editor, herdr, rex or none");
       expect(mockSetConfigValue).not.toHaveBeenCalledWith(
         "opener",
         expect.anything(),
@@ -1993,6 +2033,7 @@ describe("config command", () => {
           choices: [
             { name: "editor", value: "editor" },
             { name: "herdr", value: "herdr" },
+            { name: "rex", value: "rex" },
             { name: "none", value: "none" },
           ],
         }),
@@ -3765,6 +3806,86 @@ describe("config command", () => {
     });
   });
 
+  // #270: the same rule for the Rex key. "Found" is `isRexInstalled`, stubbed
+  // by the top-level beforeEach to false, so a machine that has Rex (or runs
+  // the suite inside a Rex terminal) sees what CI sees.
+  describe("hiding rex.focus when the rex CLI is not found", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const listed = () =>
+      mockConsoleLog.mock.calls.map((call: unknown[]) => String(call[0]));
+
+    const parseList = () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: { list: true, missing: false },
+      });
+    };
+
+    it("omits rex.focus from --list when the CLI is not found", async () => {
+      parseList();
+
+      await config.run();
+
+      expect(listed()).not.toContain("rex.focus");
+      expect(listed()).toContain("opener");
+    });
+
+    it("lists rex.focus when the CLI is found", async () => {
+      vi.mocked(rex.isRexInstalled).mockResolvedValue(true);
+      parseList();
+
+      await config.run();
+
+      expect(listed()).toContain("rex.focus");
+    });
+
+    it("lists rex.focus with the CLI missing when opener is rex", async () => {
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          return Promise.resolve(key === "opener" ? "rex" : "");
+        },
+      );
+      parseList();
+
+      await config.run();
+
+      expect(listed()).toContain("rex.focus");
+    });
+
+    it("still lists a rex.focus that holds a value", async () => {
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          return Promise.resolve(key === "rex.focus" ? "false" : "");
+        },
+      );
+      parseList();
+
+      await config.run();
+
+      expect(listed()).toContain("rex.focus=false");
+    });
+
+    it("keeps rex.focus out of the names an unknown-name error offers", async () => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "nonsense", value: "x" },
+        flags: {},
+      });
+      vi.spyOn(config, "error").mockImplementation(((message: string) => {
+        throw new Error(message);
+      }) as any);
+
+      const error = await config.run().catch((thrown: Error) => thrown);
+
+      expect((error as Error).message).toContain("Available variables");
+      expect((error as Error).message).not.toContain("rex.focus");
+    });
+  });
+
   // Phase 7: someone without the `herdr` binary should never be shown the keys
   // that only mean something with it. `commandExists` is stubbed true globally
   // in test-setup, so "installed" is the default every other suite sees.
@@ -4095,6 +4216,51 @@ describe("config command", () => {
       expect(herdrAgentAsked()).toBe(false);
     });
 
+    // The Rex siblings of the Herdr cases above (#270). Rex is found through
+    // `isRexInstalled`, stubbed per case, never through the machine.
+    describe("rex", () => {
+      const REX_FOCUS_MESSAGE =
+        "Should opening a worktree focus its Rex session?";
+
+      it("offers rex and asks rex.focus when the CLI is found and rex is chosen", async () => {
+        vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+        vi.mocked(rex.isRexInstalled).mockResolvedValue(true);
+        answerOpener("rex");
+        bare();
+
+        await config.run();
+
+        // Herdr is absent here and Rex found: each is offered on its own test.
+        expect(openerChoices()).toEqual(["editor", "rex", "none"]);
+        expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
+          REX_FOCUS_MESSAGE,
+        ]);
+        expect(inputMessages()).not.toContain(EDITOR_MESSAGE);
+      });
+
+      it("does not offer rex when the CLI is not found and nothing is stored", async () => {
+        answerOpener("editor");
+        bare();
+
+        await config.run();
+
+        expect(openerChoices()).not.toContain("rex");
+      });
+
+      it("offers rex, and asks rex.focus, with the CLI missing and opener=rex stored", async () => {
+        stored({ opener: "rex" });
+        answerOpener("rex");
+        bare();
+
+        await config.run();
+
+        expect(openerChoices()).toContain("rex");
+        expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
+          REX_FOCUS_MESSAGE,
+        ]);
+      });
+    });
+
     it("asks no Herdr key when herdr was not offered and editor is chosen", async () => {
       vi.spyOn(cli, "commandExists").mockResolvedValue(false);
       answerOpener("editor");
@@ -4195,15 +4361,17 @@ describe("config command", () => {
       });
     });
 
-    it("offers all three choices for --names opener, without probing for herdr", async () => {
+    it("offers all four choices for --names opener, without probing for herdr or rex", async () => {
       const exists = vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      const rexFound = vi.mocked(rex.isRexInstalled);
       answerOpener("editor");
       bare({ names: "opener" });
 
       await config.run();
 
-      expect(openerChoices()).toEqual(["editor", "herdr", "none"]);
+      expect(openerChoices()).toEqual(["editor", "herdr", "rex", "none"]);
       expect(exists).not.toHaveBeenCalled();
+      expect(rexFound).not.toHaveBeenCalled();
       expect(mockCheckbox).not.toHaveBeenCalled();
       expect(inputMessages()).toEqual([]);
     });

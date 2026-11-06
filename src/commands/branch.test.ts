@@ -9,6 +9,7 @@ import * as githubIntegration from "../integrations/github.js";
 import * as herdr from "../integrations/herdr.js";
 import * as jiraIntegration from "../integrations/jira.js";
 import * as linearIntegration from "../integrations/linear.js";
+import * as rex from "../integrations/rex.js";
 import { run } from "../lib/cli.js";
 import * as gitConfig from "../lib/config.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
@@ -18,7 +19,7 @@ import { setNonInteractive } from "../lib/interaction.js";
 import * as issueLink from "../lib/issue-link.js";
 import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
-import { MissingValueError } from "../lib/prompt.js";
+import { InvalidValueError, MissingValueError } from "../lib/prompt.js";
 import * as validators from "../lib/validators.js";
 import {
   captureOutput,
@@ -4336,6 +4337,7 @@ jira:
               "envFilesCopied",
               "installed",
               "herdr",
+              "rex",
               "agent",
               "warnings",
             ].sort(),
@@ -4586,6 +4588,61 @@ jira:
           flag: '`worktree config agent.command "<command>"`',
         });
         expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      // #270 D7 and D10. The expected 2 is the code of a usage error, as for the
+      // missing value above; the limit is Rex's own (65,536 encoded bytes).
+      describe("with the rex opener", () => {
+        const rexOnly = { opener: "rex", "agent.command": "claude" };
+
+        beforeEach(() => {
+          vi.spyOn(rex, "isRexInstalled").mockResolvedValue(true);
+        });
+
+        it("fails naming agent.command, before the worktree is created, when none is set", async () => {
+          configure({ opener: "rex" });
+          parsed({ agent: "implement the issue" });
+
+          await expect(branch.run()).rejects.toMatchObject({
+            value: "the agent command",
+          });
+          expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+        });
+
+        it("refuses a brief over Rex's limit with exit 2, before the worktree exists, without quoting it", async () => {
+          const secret = "SECRET-BRIEF ";
+          configure(rexOnly);
+          parsed({ agent: secret.repeat(6000) });
+
+          const error = await branch.run().catch((thrown: unknown) => thrown);
+
+          expect(error).toBeInstanceOf(InvalidValueError);
+          expect(error).toMatchObject({ oclif: { exit: 2 } });
+          expect((error as Error).message).toContain("65536");
+          expect((error as Error).message).toContain(String(6000 * 13));
+          expect((error as Error).message).not.toContain("SECRET");
+          expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+          expect(mockOpenWorktreePath).not.toHaveBeenCalled();
+        });
+
+        it("creates the worktree for a brief under the limit", async () => {
+          configure(rexOnly);
+          parsed({ agent: "x".repeat(50_000) });
+
+          await branch.run();
+
+          expect(git.gitCreateWorktree).toHaveBeenCalled();
+        });
+
+        it("does not apply Rex's limit when the CLI is not found, where the detached dispatch takes the brief", async () => {
+          vi.spyOn(rex, "isRexInstalled").mockResolvedValue(false);
+          configure(rexOnly);
+          parsed({ agent: "x".repeat(100_000) });
+
+          await branch.run();
+
+          expect(git.gitCreateWorktree).toHaveBeenCalled();
+        });
       });
 
       it("fails naming agent.command when Herdr is not installed, for the detached path", async () => {
@@ -5056,6 +5113,7 @@ jira:
           "installed",
           "issue",
           "path",
+          "rex",
           "source",
           "started",
           "warnings",
@@ -5082,6 +5140,8 @@ jira:
           ok: true,
         },
         herdr: { space: "w5", pane: "w5:p1", agent: "wt-42-add-dark-mode" },
+        // No Rex session was opened: null, as `herdr` is when Herdr was not.
+        rex: null,
         agent: {
           name: "demo-42-add-dark-mode",
           kind: "claude",
@@ -5089,6 +5149,29 @@ jira:
           prompted: true,
         },
         warnings: [],
+      });
+    });
+
+    it("emits the Rex session under rex, and null under herdr", async () => {
+      await runJson(
+        {},
+        { github: "42" },
+        {
+          opener: "rex",
+          rex: { session: "session:abc", block: "block:def" },
+          agent: {
+            name: null,
+            kind: null,
+            command: ["claude"],
+            prompted: true,
+          },
+        },
+      );
+
+      expect(output.document()).toMatchObject({
+        herdr: null,
+        rex: { session: "session:abc", block: "block:def" },
+        agent: { command: ["claude"], prompted: true },
       });
     });
 

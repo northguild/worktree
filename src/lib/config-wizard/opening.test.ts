@@ -1,5 +1,5 @@
 import * as gitConfig from "../config.js";
-import { HERDR_CONFIG_NAMES } from "../constants.js";
+import { HERDR_CONFIG_NAMES, REX_CONFIG_NAMES } from "../constants.js";
 import * as prompt from "../prompt.js";
 import type { ConfigName } from "../types.js";
 import type { WizardContext } from "./context.js";
@@ -13,12 +13,14 @@ const OPENING_KEYS: ConfigName[] = [
   "codeEditor",
   "herdr.focus",
   "herdr.agent",
+  "rex.focus",
 ];
 
 function context(overrides: Partial<WizardContext> = {}): WizardContext {
   return {
     configNames: OPENING_KEYS,
     herdrOffered: true,
+    rexOffered: false,
     hiddenNames: new Set(),
     log: () => {},
     ...overrides,
@@ -125,6 +127,43 @@ describe("the opener decides its follow-ups", () => {
     });
   });
 
+  describe("the rex opener", () => {
+    it("asks rex.focus and not codeEditor or a Herdr key for rex", async () => {
+      answerOpener("rex");
+
+      await configureOpening(context({ rexOffered: true }));
+
+      expect(written()).toEqual(["opener", "rex.focus"]);
+      expect(askConfirm.mock.calls[0]?.[0]).toMatchObject({
+        message: "Should opening a worktree focus its Rex session?",
+        default: true,
+      });
+    });
+
+    it("asks rex.focus once rex is chosen even where the hiding rule removed it", async () => {
+      answerOpener("rex");
+
+      await configureOpening(
+        context({
+          rexOffered: true,
+          configNames: ["opener"],
+          hiddenNames: new Set<ConfigName>(["rex.focus"]),
+        }),
+      );
+
+      expect(written()).toEqual(["opener", "rex.focus"]);
+    });
+
+    it("defaults rex.focus to the stored false", async () => {
+      stored["rex.focus"] = "false";
+      answerOpener("rex");
+
+      await configureOpening(context({ rexOffered: true }));
+
+      expect(askConfirm.mock.calls[0]?.[0]).toMatchObject({ default: false });
+    });
+  });
+
   describe("the opener's choices", () => {
     const choices = () =>
       (
@@ -137,6 +176,14 @@ describe("the opener decides its follow-ups", () => {
       await configureOpener(context());
 
       expect(choices()).toEqual(["editor", "herdr", "none"]);
+    });
+
+    it("offers rex only where the Rex CLI is found", async () => {
+      answerOpener("editor");
+
+      await configureOpener(context({ rexOffered: true }));
+
+      expect(choices()).toEqual(["editor", "herdr", "rex", "none"]);
     });
 
     it("offers editor and none only where it is not", async () => {
@@ -171,6 +218,10 @@ describe("the opener decides its follow-ups", () => {
       );
       expect(askSelect).not.toHaveBeenCalled();
     });
+  });
+
+  it("names the one Rex key the hiding rule governs", () => {
+    expect([...REX_CONFIG_NAMES]).toEqual(["rex.focus"]);
   });
 
   it("names the same Herdr keys the hiding rule governs", () => {

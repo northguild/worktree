@@ -8,7 +8,7 @@
     "Create a new branch in its own worktree with `worktree branch`; use `worktree checkout` only for a branch that already exists on the remote, because it fails for one that does not.",
     "Run `worktree` only inside a git repository, and run `worktree config` once per repository before first use.",
     "Give `--source` with the `origin/` prefix, such as `origin/main`, because a bare `main` prompts for confirmation and a non-interactive run exits 2 instead of waiting.",
-    "Set `agent.command` (or `herdr.agent` when `opener` is `herdr`) before using `--agent`, because a brief with no agent configured to take it exits 2 before any worktree is created.",
+    "Set `agent.command` (or `herdr.agent` when `opener` is `herdr`; `opener` `rex` needs `agent.command`) before using `--agent`, because a brief with no agent configured to take it exits 2 before any worktree is created.",
     "In scripts, CI or another agent, pass explicit values such as `remove <branch> -f` and `cleanup --force`, because a non-interactive run never prompts and a value with no default fails at once with exit 2.",
     "Re-running `worktree branch` for a name that already exists is refused when non-interactive, with exit 2 and `invalid_value`; the answer is `worktree open <branch>`, not a retry.",
     "An unapproved `postCreate` in `.worktree.yml` makes a non-interactive `worktree branch` fail with exit 2 and `missing_value` before anything is created; approve it once in a terminal with `worktree config --approve`, or skip the steps with `--no-install`.",

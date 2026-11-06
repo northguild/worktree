@@ -14,10 +14,11 @@ config.
 ## Common Keys
 
 - `defaultSourceBranch` (example: `origin/main`) — see [Default source branch](#default-source-branch)
-- `opener` (`editor`, `herdr` or `none`, default `editor`)
+- `opener` (`editor`, `herdr`, `rex` or `none`, default `editor`)
 - `codeEditor` (example: `code`)
 - `herdr.focus` (`true` or `false`, default `true`)
 - `herdr.agent` (example: `claude`; the agent kind that starts in every new Herdr space. Unset means no agent, unless `worktree branch` or `checkout` is given a brief, which falls back to `agent.command`'s program)
+- `rex.focus` (`true` or `false`, default `true`)
 - `agent.command` (the command `--agent` runs to hand a brief to a coding agent, example: `claude --bg`)
 - `postCreate` (a command to run in each new worktree, example: `pnpm install`; unset means the steps in `.worktree.yml`, else infer from the lockfile)
 - `github.token` (GitHub personal access token, for github.com only; a GitHub Enterprise host's token comes from `gh auth token --hostname <host>`)
@@ -113,7 +114,7 @@ relying on expansion.
 
 ## Agent Command
 
-`agent.command` is the command that `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The agent that starts in every new Herdr space, brief or not, is [`herdr.agent`](/worktree/guides/herdr-spaces/#start-an-agent-with-the-space). Like `codeEditor` it is a command
+`agent.command` is the command that `--agent` runs to hand a brief to a coding agent. It does not start an agent on its own: without a brief, only `herdr.agent` does. The agent that starts in every new Herdr space, brief or not, is [`herdr.agent`](/worktree/guides/herdr-spaces/#start-an-agent-with-the-space). With `opener` set to `rex`, the program it names is the session's own command and the brief its last argument, with `--bg` and `--background` dropped, and a brief too long for Rex is refused before anything is created — see [Rex Sessions](/worktree/guides/rex-sessions/#start-an-agent-with-the-session). Like `codeEditor` it is a command
 line, not just a program name, and it is split the same way: the first word is the program to launch, and
 anything after it is passed to that program as leading arguments.
 
@@ -183,6 +184,8 @@ worktree config codeEditor code
 worktree config opener herdr
 worktree config herdr.focus false
 worktree config herdr.agent claude
+worktree config opener rex
+worktree config rex.focus false
 worktree config agent.command "claude --bg"
 worktree config postCreate "pnpm install"
 worktree config github.token <token>
@@ -201,21 +204,26 @@ worktree config branchPrefix.chore chore/
 ## Opener Notes
 
 - `opener` selects where a finished worktree is handed off: `editor` uses `codeEditor`, `herdr`
-  opens it as a Herdr space — and closes that space again when the worktree is removed, and `none`
+  opens it as a Herdr space — and closes that space again when the worktree is removed, `rex` opens
+  it as a Rex session, and `none`
   opens nothing: the command prints `Worktree created at <path>` (`Worktree already exists at <path>` when it reopens an existing worktree) and stops. Unset means `editor`.
 - `codeEditor` is used only by the `editor` opener — see [Editor Command](#editor-command) above and
   the [Editor Integration](/worktree/guides/editor-integration/) guide.
 - `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`. See
   [Herdr Spaces](/worktree/guides/herdr-spaces/).
+- `rex.focus` applies only when `opener` is `rex`. See [Rex Sessions](/worktree/guides/rex-sessions/).
+  It is shown by `worktree config` only when the `rex` CLI can be found, by the same rule as the Herdr
+  keys below: setting `opener` to `rex`, or a value already held, keeps it shown. The wizard offers `rex` as
+  an answer only where it would be shown, and the answer `rex` asks `rex.focus`.
 - `herdr.focus` and `herdr.agent` are shown by `worktree config` only when the `herdr` CLI is on
   your `PATH`. Without it they are neither listed nor prompted for, so the feature stays out of the way.
   This gating never hides a key that already holds a value, and setting `opener` to `herdr` un-hides both
   whether or not the CLI is found. `opener` itself is always shown, but the wizard offers `herdr` as its
-  answer only where those keys would be shown; otherwise it offers `editor` and `none`. The opener's answer
+  answer only where those keys would be shown; otherwise it offers `editor` and `none` (and `rex`, where the `rex` CLI is found). The opener's answer
   decides the follow-ups: `editor` asks `codeEditor`, `herdr` asks `herdr.focus`, `none`
   asks nothing more. `herdr.agent` is asked with the coding agent: after `agent.command`, when `opener` is
   `herdr`, a yes/no offers to set it to the command's first word. Naming a key with `--names`, or setting it directly, always works, and `--names opener`
-  offers all three answers.
+  offers all four answers.
 
 ## GitHub Integration Notes
 

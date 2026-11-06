@@ -90,7 +90,7 @@ The setup flow can configure:
 
 - `defaultSourceBranch` for new worktrees, such as `origin/main`
 - `codeEditor` for automatically opening a worktree, such as `code`
-- `opener` for where a worktree opens — `editor` (default), `herdr` or `none`
+- `opener` for where a worktree opens — `editor` (default), `herdr`, `rex` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
 - `linear.agentToken`, `linear.webhookSecret`, `linear.agentAllow` and `linear.agentContext` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`), the Linear user ids allowed to delegate an issue to it, and `true` to also hand the issue's text to the agent (off by default). `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
@@ -114,7 +114,7 @@ That will:
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
 3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc` — and any gitignored file `.worktree.yml` lists under `copy`
 4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml` (run in order, after you approve them: checked before anything is created, asked on a terminal, exit `2` with `missing_value` when nothing can be asked, so approve with `worktree config --approve` or skip with `--no-install`), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); a failure stops the remaining steps, keeps the worktree, opens nothing and exits `1`
-5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`
+5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`, or as a Rex session when it is `rex`
 
 ## Common Workflows
 
@@ -152,7 +152,7 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 
 The agent starts with the new worktree as its working directory and the flag's value as its prompt, so it works inside `<repo>.worktrees` alongside everything else. `worktree checkout` takes `--agent` too.
 
-There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. Otherwise `agent.command` is launched detached. A brief with no agent to take it exits `2` before creating anything. Without a brief, only `herdr.agent` starts an agent.
+There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. With `opener` set to `rex`, the session is created with the program `agent.command` names as its command and the prompt as that command's last argument, so no `herdr.agent` is needed; a prompt over what Rex accepts (about 62,000 bytes of plain text, less when it is full of quotes, backslashes, newlines, `<`, `>` or `&`) exits `2` before creating anything, and `agent.prompted` there means the session was created with the prompt, not that the agent has read it. Otherwise `agent.command` is launched detached. A brief with no agent to take it exits `2` before creating anything. Without a brief, only `herdr.agent` starts an agent.
 
 For a long prompt, `--agent-file <path>` or `--agent-stdin` reads it whole (at most 131,071 bytes, the most one argument can carry on Linux; the three are mutually exclusive). `--no-agent` opens the worktree without an agent, and `--no-open` creates it and prints its path without opening anything.
 
@@ -273,6 +273,7 @@ Examples:
 worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
 worktree config opener herdr
+worktree config opener rex
 worktree config agent.command "claude --bg"
 worktree config --list
 worktree config --missing
@@ -284,7 +285,8 @@ worktree config --project
 `Worktree created at <path>` and stops, which suits scripts and agents. `worktree config <key>` with no
 value prints the stored value. Set `opener` to `herdr` to open worktrees as
 [Herdr](https://herdr.dev) spaces instead of editor windows — and to close those spaces again when
-`remove` or `cleanup` deletes the worktree; `herdr.focus` and `herdr.agent` tune that. See the
+`remove` or `cleanup` deletes the worktree; `herdr.focus` and `herdr.agent` tune that. Set it to `rex` to open
+them as Rex sessions instead; `rex.focus` turns off bringing the app to the session. See the
 [configuration docs](https://northguild.dev/worktree/configuration/).
 
 ## Agent mode
@@ -311,7 +313,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 | --- | --- | --- |
 | `--json` | `branch`, `list`, `remove` | one JSON document on stdout; everything for a person goes to stderr |
 | `--agent <text>`, `--agent-file <path>`, `--agent-stdin` | `branch` (`checkout` takes `--agent`) | the brief for the agent, from a value, a file or piped stdin; mutually exclusive with each other and with `--no-agent`, read whole, empty is refused, at most 131,071 bytes |
-| `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
+| `--no-open` | `branch` | create the worktree and print its path; call none of Herdr, Rex or the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not (a Jira issue someone else holds is left alone) |
@@ -352,12 +354,13 @@ worktree branch --github 42 --json --agent-file brief.md
  "envFilesCopied":["docs/.env.local"],
  "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
+ "rex":null,
  "agent":{"name":"demo-42-fix-login","kind":"claude","command":["claude","--name","demo-42-fix-login"],"prompted":true},
  "warnings":[]}
 ```
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, `{provider:"clickup",key,url}`, or `null`.
-- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), and `null` when no assignment was attempted. `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), and `null` when none was attempted. `herdr` and `agent` are `null` when skipped, and
+- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), and `null` when no assignment was attempted. `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), and `null` when none was attempted. `herdr`, `rex` and `agent` are `null` when skipped (`rex` is `{session,block}`, with `block` `null` for a session that was already open), and
   `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
 - `installed` is `{ran:false,reason}` when skipped. `steps` are the commands that ran, in order; `command` is the
   one that failed, else the last that ran; `from` is `"git-config"`, `"project"` or `"lockfile"`. A failed install still prints the whole document, with

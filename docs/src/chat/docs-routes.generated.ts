@@ -26,6 +26,7 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/guides/jira-integration/",
   "/guides/linear-agent-delegation/",
   "/guides/linear-integration/",
+  "/guides/rex-sessions/",
   "/guides/team-conventions/",
   "/project-configuration/",
 ]);

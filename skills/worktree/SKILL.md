@@ -4,7 +4,7 @@ description: >
   Use when creating, listing, opening, removing or cleaning up git worktrees
   with the `worktree` CLI (@northguild/worktree), including starting a
   worktree from a GitHub, Jira or Linear issue or a ClickUp task, handing a new worktree to a coding
-  agent, opening worktrees as Herdr spaces, and driving worktrees from a
+  agent, opening worktrees as Herdr spaces or Rex sessions, and driving worktrees from a
   script, CI or another coding agent with `--json`.
 ---
 
@@ -29,12 +29,14 @@ worktree config
 # the questions of each ticked item. Items already set up start ticked; unticking
 # clears nothing. `--names <keys>` skips the checklist. A ticked "how worktrees
 # open" asks opener, and its answer decides what follows: editor asks codeEditor,
-# herdr asks herdr.focus, none asks nothing. A ticked coding agent asks
+# herdr asks herdr.focus, rex asks rex.focus, none asks nothing. A ticked coding agent asks
 # agent.command once (empty: no agent) and, with opener herdr, one yes/no that
 # sets herdr.agent from the command's first word. The Herdr keys, and
 # herdr as an opener answer, are offered only when `herdr` is on PATH (or opener
 # is already herdr, or a Herdr key holds a value); opener itself is always
-# offered, and `--names opener` offers all three answers.
+# offered, and `--names opener` offers all four answers. rex.focus, and rex as an
+# opener answer, follow the same rule for the `rex` CLI (found on PATH, in
+# $REX_BIN_DIR or in the Rex app bundle).
 # `worktree config <key>` prints one value, for scripts.
 # It skips any key the project's .worktree.yml sets and says which.
 
@@ -58,8 +60,8 @@ Creates a branch, adds a worktree under `<repo>.worktrees/feature/add-bulk-actio
 copies the gitignored env files from the root worktree (plus any gitignored
 file the project's `.worktree.yml` lists under `copy`, which `checkout` copies
 too), and opens the directory
-in the configured `codeEditor` — or, when `opener` is `herdr`, as a Herdr space
-labelled with the branch name.
+in the configured `codeEditor` — or, when `opener` is `herdr`, as a Herdr space,
+or, when it is `rex`, as a Rex session, labelled with the branch name.
 
 ### Check out an existing remote branch as a worktree
 
@@ -246,7 +248,7 @@ leave it off for a shared workspace.
 ### Hand a new worktree to a coding agent
 
 ```bash
-# Detached (non-Herdr) runs need agent.command, e.g. claude --bg; with opener herdr, herdr.agent alone is enough
+# Detached (non-Herdr) runs need agent.command, e.g. claude --bg; with opener herdr, herdr.agent alone is enough; opener rex needs agent.command
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 131,071 bytes
 worktree branch feature/x --no-agent                # open, but start no agent
@@ -265,7 +267,15 @@ new space and the brief is submitted with `herdr agent prompt` afterwards, never
 in the start command; the kind is `herdr.agent`, else the program `agent.command`
 names (a brief with neither exits 2). `agent.command`'s arguments are reused
 without `--bg`/`--background`, and `claude` gets `--name <repo>-<branch>`
-(lowercased, never truncated, printed on stderr). Otherwise `agent.command` is
+(lowercased, never truncated, printed on stderr). With `opener` `rex`, the Rex
+session is created with the program `agent.command` names as its command and the
+brief as that command's last argument (`--bg`/`--background` dropped); there is
+no ready signal, so `agent.prompted` there means the session was created with the
+brief, not that the agent read it, and a worktree whose session is already open
+gets no second agent (exit `1`, brief not delivered). A brief too long for Rex (it
+refuses a request over 65,536 encoded bytes; about 62,000 bytes of plain text,
+less with quotes, backslashes, newlines, `<`, `>` or `&`) exits `2` before anything is created.
+Otherwise `agent.command` is
 launched detached and left running, so `worktree` does not wait for it and its
 output does not appear here. That output is discarded, not kept, so name an agent
 that keeps its own session record: `claude --bg` (see `claude agents`), or
@@ -296,7 +306,7 @@ Flags for agent mode:
 |---|---|---|
 | `--json` | `branch`, `list`, `remove` | one JSON document on stdout; everything for a person goes to stderr |
 | `--agent <text>`, `--agent-file <path>`, `--agent-stdin` | `branch` (`checkout` takes `--agent`) | the brief for the agent, from a value, a file or piped stdin; mutually exclusive with each other and with `--no-agent`; read whole, empty is refused, at most 131,071 bytes |
-| `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
+| `--no-open` | `branch` | create the worktree and print its path; call none of Herdr, Rex or the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
@@ -351,6 +361,7 @@ document:
  "envFilesCopied":["docs/.env.local"],
  "installed":{"ran":true,"command":"pnpm install --frozen-lockfile","steps":["pnpm install --frozen-lockfile"],"from":"lockfile","inferred":true,"ok":true},
  "herdr":{"space":"w5","pane":"w5:p1","agent":"wt-42-fix-login"},
+ "rex":null,
  "agent":{"name":"demo-42-fix-login","kind":"claude","command":["claude","--name","demo-42-fix-login"],"prompted":true},
  "warnings":[]}
 ```
@@ -359,7 +370,9 @@ document:
   `{provider:"clickup",key,url}`, or `null`; `url` can itself be `null`.
 - `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), `null` when no assignment was attempted.
 - `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), `null` when none was attempted.
-- `herdr` and `agent` are `null` when skipped. `agent.command` leaves the brief
+- `herdr`, `rex` and `agent` are `null` when skipped. `rex` is `{session,block}`
+  for the Rex session that was opened, `block` `null` for one that was already
+  open. `agent.command` leaves the brief
   out. `agent.name` is `null` where this CLI named nothing: a detached
   start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a
   detached start. `herdr.agent` is `null` when no agent was started in the
@@ -425,8 +438,9 @@ Exit codes follow the same rule without `--json`: `0` success, `1` failure,
 exits `0`.
 
 A brief that no configured agent would take (no `herdr.agent` or
-`agent.command` for Herdr, no `agent.command` for the detached start) exits `2`
-with `missing_value` before anything is created.
+`agent.command` for Herdr, no `agent.command` for Rex or the detached start)
+exits `2` with `missing_value` before anything is created, and a brief over what
+Rex accepts exits `2` with `invalid_value`.
 
 #### A coordinator driving worker agents
 
@@ -571,7 +585,7 @@ flag, then git config (any scope), then the file, then the built-in default. The
 file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
 that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
-`herdr.*`, `agent.command`, `jira.email`, `*.autoAssign`,
+`herdr.*`, `rex.focus`, `agent.command`, `jira.email`, `*.autoAssign`,
 `linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoStart`, `jira.autoStart`) in the file is ignored
 with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
 `linear.agentToken`, `linear.webhookSecret`, `clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
@@ -603,10 +617,11 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
-| `opener` | `editor`, `herdr` or `none` | where a worktree opens, and for `herdr` where its space is closed on removal; `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
+| `opener` | `editor`, `herdr`, `rex` or `none` | where a worktree opens, and for `herdr` where its space is closed on removal; `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
+| `rex.focus` | `true` or `false` | whether the app is brought to a new Rex session; defaults to `true`, only `false` turns it off |
 | `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
 | `postCreate` | `pnpm install` | the install step of `branch`; unset means the steps in `.worktree.yml` (once approved with `worktree config --approve`), else infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
 | `github.token` | `ghp_...` | `--github` flag, for github.com only; a GitHub Enterprise host's token is read from `gh auth token --hostname <host>` |
@@ -715,8 +730,8 @@ worktree branch feature/x
 Without `defaultSourceBranch` set, `branch` offers to run `config` in a
 terminal and uses `origin/main` when non-interactive, with a warning naming the
 missing key. Without `codeEditor`, the
-worktree is created but not opened — unless `opener` is `herdr`, which
-ignores `codeEditor` and opens a Herdr space instead, or `none`, which opens nothing.
+worktree is created but not opened — unless `opener` is `herdr` or `rex`, which
+ignore `codeEditor` and open a Herdr space or a Rex session instead, or `none`, which opens nothing.
 
 Source: `src/commands/branch.ts`
 
@@ -815,7 +830,8 @@ worktree branch feature/x --agent "add bulk actions to the table"
 
 A brief with no agent configured to take it exits `2` before any worktree is
 created, naming the missing key: `worktree config agent.command "<command>"` for
-the detached start (editor or `none` opener, `--no-open`, or Herdr not installed), or
+the detached start (editor or `none` opener, `--no-open`, or Herdr not installed) and
+for `opener rex`, or
 `worktree config herdr.agent <kind>` on the Herdr path, where `herdr.agent`
 alone is enough (`branch` and `checkout` both). Set the key first, or check
 `worktree config --list`.

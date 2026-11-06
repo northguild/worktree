@@ -235,6 +235,7 @@ export async function isValidConfigValue(
     case "clickup.autoStart":
       return isValidBoolean(value);
     case "herdr.focus":
+    case "rex.focus":
       return isValidBoolean(value);
     case "herdr.agent":
       return isValidAgentKind(value);

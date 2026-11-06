@@ -55,3 +55,16 @@ Non-blocking observations from the gates of #270. Read by nothing.
 - The concurrency-cap test's `peak <= 4` comes from the code's own constant; D6 says only "a small cap".
 - `runRexJson` keeps the `JSON.parse` SyntaxError as `cause`; V8 quotes a snippet of the input, so a non-JSON stdout echoing the brief would put part of it there. Nothing observed does; dropping that `cause` closes it.
 - The timeout test asserts `cause` is undefined twice.
+
+## Phase 3 — `rex` opener
+
+- The stderr note for a dropped `--bg`/`--background` with Rex is not asserted (`logToStderr` is mocked, never checked), and `rex.focus` values other than `"true"`/`"false"` meaning "on" are untested.
+- `src/lib/config-wizard/checklist.ts` gained `rex.focus` in the opening item's keys; not on the phase's Files line, but it follows from the wizard follow-up §4 names.
+- `src/commands/open.ts:12`'s description "Open worktree branch in code editor" was already untrue for Herdr and is now untrue for Rex too.
+- Rex's request encoding, measured live on 2026-11-06, is Go `json.Marshal`'s: `<` `>` `&`, U+2028/2029 and control characters 6 bytes, `"` `\` `\n` `\t` 2, other ASCII 1, non-ASCII its UTF-8 length; fixed envelope ≈1,080 bytes, 3 per argv element. A Rex release that changes encoders moves the D10 boundary.
+- Live pass (§8 steps 2–3) in a throwaway repo: a session labelled by the branch, shell in the worktree, the agent got a quotes/`$`/backtick/newline/UTF-8 brief byte-identical; `open` again said "already open", no second session or agent. With Remote Control off, focus fails cleanly: "Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server."
+- `base-command.ts` comment near the detached fallback still says "except when a timed-out `rex new` may have made the session"; since the N1 fix it also covers a failed lookup.
+- The D10 estimate counts `[head, ...tail, brief]`, not the label or path; the 2,048-byte envelope plus the 2% slack leave ≈2,180 encoded bytes for them (a path near the OS maximum full of `<>&` could slip). `REX_ENVELOPE_BYTES`'s comment still says "≈1.3 KB"; measured fixed part is ≈1,080 + 3 per argv element.
+- A lone UTF-16 surrogate costs 2 in the estimator but Node sends U+FFFD (3 bytes); unreachable from argv, file or stdin, which decode as UTF-8.
+- The generics counter-example is refused through `assertBriefHasAnAgent` in a unit test, not through `branch.run()`.
+- Cross-check of the built estimator against live Rex (171-char path): generics 58.5 KB est 116,828 / Rex 113,790; mixed 115 KB 183,230 / 172,490; HTML 58.5 KB 135,188 / 131,790; plain 64,000 B est 67,358 (refused) / Rex accepted.
