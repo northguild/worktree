@@ -5,6 +5,7 @@ import { expectCommands, mockRun, mockRunCapturing } from "../test-setup.js";
 import * as agent from "./agent.js";
 import * as cli from "./cli.js";
 import {
+  DETACHED_LABEL,
   findWorktreeByTarget,
   getCurrentBranchName,
   gitCreateWorktree,
@@ -26,6 +27,7 @@ import {
   gitHasOriginRemote,
   gitNukeWorktree,
   gitNukeWorktreeCmd,
+  gitPlanWorktreeRename,
   gitReadBlobAtRef,
   gitRemoveWorktree,
   gitRemoveWorktreesWithProgress,
@@ -34,12 +36,14 @@ import {
 } from "./git.js";
 import { setNonInteractive } from "./interaction.js";
 import * as issueLink from "./issue-link.js";
+import { InvalidValueError } from "./prompt.js";
 import type {
   AgentSession,
   WorktreeAgent,
   WorktreeIssue,
   WorktreeListEntry,
 } from "./types.js";
+import { isValidBranchName } from "./validators.js";
 
 // One record of `git worktree list --porcelain`, as git-worktree(1) "Porcelain
 // Format" lays it out: label and value on a line, a blank line after the record.
@@ -3564,5 +3568,341 @@ describe("gitGetWorktreeList issue link", () => {
     await gitGetWorktreeList({ includeIssues: true });
 
     expect(gather).toHaveBeenCalledTimes(1);
+  });
+});
+
+// WORKTREE-RENAME plan §4.3 (the preflight table) and §4.1 (what git does) are
+// where every expected message and value below comes from; none is read back
+// out of gitPlanWorktreeRename. The "not found", "no new name" and "live
+// agent" rows belong to the command (phase 3) and are not asserted here.
+describe("gitPlanWorktreeRename", () => {
+  const trees = "/home/dev/proj.worktrees";
+  const target = {
+    branchName: "feature/x",
+    path: `${trees}/feature/x`,
+    pathExists: true,
+  };
+  const branches = ["main", "feature/x", "other"];
+
+  // The paths that exist on disk. Anything else is absent.
+  let existing: Set<string>;
+
+  // What execFile rejects with for the real `git check-ref-format --branch -x`
+  // (run again and read: exit 128, that stderr, and it in the message).
+  function gitRefuses(name: string) {
+    const stderr = `fatal: '${name}' is not a valid branch name\n`;
+    return Object.assign(
+      new Error(
+        `Command failed: git check-ref-format --branch ${name}\n${stderr}`,
+      ),
+      { code: 128, stderr },
+    );
+  }
+
+  async function refusal(
+    newName: string,
+    options: { worktree?: typeof target; branches?: string[] } = {},
+  ): Promise<unknown> {
+    try {
+      await gitPlanWorktreeRename(
+        options.worktree ?? target,
+        newName,
+        options.branches ?? branches,
+        trees,
+        isValidBranchName,
+      );
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    existing = new Set([trees, `${trees}/feature`, target.path]);
+    vi.spyOn(fs, "existsSync").mockImplementation((p) =>
+      existing.has(String(p)),
+    );
+    mockRun.mockResolvedValue("");
+    // The one subprocess a preflight may run, for each name these tests offer.
+    expectCommands(
+      ...[
+        "bugfix/y",
+        "solo",
+        "deep/er/est",
+        "-x",
+        "a/.b",
+        "other",
+        "other-parent",
+        "other/sub",
+        "taken",
+        "feature/xy",
+        "../outside",
+      ].map(
+        (name) => `git check-ref-format --branch ${name} (cwd: ${target.path})`,
+      ),
+      `git check-ref-format --branch x/y (cwd: ${trees}/x)`,
+      `git check-ref-format --branch a (cwd: ${trees}/a/b)`,
+    );
+  });
+
+  it("plans feature/x -> bugfix/y with bugfix as the one parent to create", async () => {
+    const plan = await gitPlanWorktreeRename(
+      target,
+      "bugfix/y",
+      branches,
+      trees,
+      isValidBranchName,
+    );
+
+    expect(plan).toEqual({
+      fromBranch: "feature/x",
+      toBranch: "bugfix/y",
+      fromPath: `${trees}/feature/x`,
+      toPath: `${trees}/bugfix/y`,
+      parentsToCreate: [`${trees}/bugfix`],
+    });
+  });
+
+  it("plans no parent when the new name sits directly under the worktrees root", async () => {
+    const plan = await gitPlanWorktreeRename(
+      target,
+      "solo",
+      branches,
+      trees,
+      isValidBranchName,
+    );
+
+    expect(plan.toPath).toBe(`${trees}/solo`);
+    expect(plan.parentsToCreate).toEqual([]);
+  });
+
+  it("plans only the parents that are missing, shallowest first", async () => {
+    existing.add(`${trees}/deep`);
+
+    const plan = await gitPlanWorktreeRename(
+      target,
+      "deep/er/est",
+      branches,
+      trees,
+      isValidBranchName,
+    );
+
+    expect(plan.parentsToCreate).toEqual([`${trees}/deep/er`]);
+  });
+
+  it("asks git for the verdict by argv, with the worktree as cwd and no shell", async () => {
+    await gitPlanWorktreeRename(
+      target,
+      "bugfix/y",
+      branches,
+      trees,
+      isValidBranchName,
+    );
+
+    expect(mockRun).toHaveBeenCalledWith(
+      "git",
+      ["check-ref-format", "--branch", "bugfix/y"],
+      { cwd: target.path },
+    );
+  });
+
+  it("refuses a detached HEAD, which has no branch to rename", async () => {
+    const detached = { ...target, branchName: DETACHED_LABEL };
+
+    const error = await refusal("bugfix/y", { worktree: detached });
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      `The worktree at ${target.path} is on a detached HEAD, so it has no branch to rename.`,
+    );
+  });
+
+  it("refuses a worktree whose directory is gone, and points at remove", async () => {
+    const missing = { ...target, pathExists: false };
+
+    const error = await refusal("bugfix/y", { worktree: missing });
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      `The worktree directory ${target.path} is missing. Run \`worktree remove feature/x\` instead.`,
+    );
+  });
+
+  it("refuses the name the worktree already has", async () => {
+    const error = await refusal("feature/x");
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(`"feature/x" already has that name.`);
+  });
+
+  it("refuses an empty name with the validator's message, without asking git", async () => {
+    const error = await refusal("");
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe("Branch name cannot be empty");
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  // `@` passes git (`--branch` expands it, §4.1) but the validator refuses it.
+  it("refuses `@` on the validator's word, without asking git", async () => {
+    const error = await refusal("@");
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      "Branch name contains invalid characters",
+    );
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  // `-x` and `a/.b` pass the validator and are refused by git (§4.1, D3).
+  it.each(["-x", "a/.b"])("refuses %s on git's word", async (name) => {
+    mockRun.mockRejectedValue(gitRefuses(name));
+
+    const error = await refusal(name);
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      `'${name}' is not a valid branch name`,
+    );
+  });
+
+  it("does not call a failure to run git an invalid name", async () => {
+    const spawnFailure = Object.assign(new Error("spawn git ENOENT"), {
+      code: "ENOENT",
+    });
+    mockRun.mockRejectedValue(spawnFailure);
+
+    const error = await refusal("bugfix/y");
+
+    expect(error).toBe(spawnFailure);
+    expect(error).not.toBeInstanceOf(InvalidValueError);
+  });
+
+  // The validator is injected, so containment is the second line of defence
+  // behind it (plan §5): a name that gets past both must still be refused.
+  it("refuses a name that resolves outside the worktrees root, naming the root", async () => {
+    let planned: unknown;
+    let error: unknown;
+    try {
+      planned = await gitPlanWorktreeRename(
+        target,
+        "../outside",
+        branches,
+        trees,
+        () => true,
+      );
+    } catch (thrown) {
+      error = thrown;
+    }
+
+    expect(planned).toBeUndefined();
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toContain(trees);
+  });
+
+  it("refuses a branch that already exists", async () => {
+    const error = await refusal("other");
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      `A branch named "other" already exists.`,
+    );
+  });
+
+  it("refuses a name that is a ref prefix of another branch", async () => {
+    const error = await refusal("other-parent", {
+      branches: [...branches, "other-parent/child"],
+    });
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      `"other-parent" clashes with the existing branch "other-parent/child".`,
+    );
+  });
+
+  it("refuses a name that has another branch as its ref prefix", async () => {
+    const error = await refusal("other/sub");
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      `"other/sub" clashes with the existing branch "other".`,
+    );
+  });
+
+  it("refuses a directory that already exists, because git would move into it", async () => {
+    existing.add(`${trees}/taken`);
+
+    const error = await refusal("taken");
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(`${trees}/taken already exists.`);
+  });
+
+  it("refuses x -> x/y as nesting", async () => {
+    const solo = {
+      branchName: "x",
+      path: `${trees}/x`,
+      pathExists: true,
+    };
+    existing.add(solo.path);
+
+    const error = await refusal("x/y", {
+      worktree: solo,
+      branches: ["main", "x"],
+    });
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      `"x/y" and "x" nest inside each other, so the directory cannot move between them. Rename through another name first.`,
+    );
+  });
+
+  it("refuses a/b -> a as nesting, though a exists as a's parent directory", async () => {
+    const nested = {
+      branchName: "a/b",
+      path: `${trees}/a/b`,
+      pathExists: true,
+    };
+    existing.add(`${trees}/a`);
+    existing.add(nested.path);
+
+    const error = await refusal("a", {
+      worktree: nested,
+      branches: ["main", "a/b"],
+    });
+
+    expect(error).toBeInstanceOf(InvalidValueError);
+    expect((error as Error).message).toBe(
+      `"a" and "a/b" nest inside each other, so the directory cannot move between them. Rename through another name first.`,
+    );
+  });
+
+  it("does not treat a shared leading string as nesting", async () => {
+    const plan = await gitPlanWorktreeRename(
+      target,
+      "feature/xy",
+      branches,
+      trees,
+      isValidBranchName,
+    );
+
+    expect(plan.toPath).toBe(`${trees}/feature/xy`);
+  });
+
+  it("never fetches", async () => {
+    await gitPlanWorktreeRename(
+      target,
+      "bugfix/y",
+      branches,
+      trees,
+      isValidBranchName,
+    );
+
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["fetch"]),
+      expect.anything(),
+    );
   });
 });

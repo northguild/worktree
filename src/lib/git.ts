@@ -16,7 +16,7 @@ import { gitGetConfigValue } from "./config.js";
 import { isNonInteractive } from "./interaction.js";
 import { gatherIssueLinks } from "./issue-link.js";
 import { createSpinner, isProgressEnabled } from "./progress.js";
-import { askConfirm } from "./prompt.js";
+import { askConfirm, InvalidValueError } from "./prompt.js";
 import {
   createRemovalWatcher,
   measureAbsentTree,
@@ -942,6 +942,122 @@ function toGitReason(error: unknown): string {
     .join(" ");
 
   return reason || (error instanceof Error ? error.message : String(error));
+}
+
+export interface WorktreeRenamePlan {
+  fromBranch: string;
+  toBranch: string;
+  fromPath: string;
+  toPath: string;
+  /** Missing directories between the worktrees root and `toPath`, shallowest first. */
+  parentsToCreate: string[];
+}
+
+// Two names nest when one is a path prefix of the other (`x`, `x/y`): the
+// directory cannot move into or out of itself. Compared on whole components,
+// so `feature/x` and `feature/xy` do not nest.
+function namesNest(a: string, b: string): boolean {
+  return a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+/**
+ * Every refusal `worktree rename` can know about before anything changes
+ * (WORKTREE-RENAME plan §4.3, D6), or the plan for the move. Local only, no
+ * fetch (D9): `localBranches` comes from gitGetLocalBranches. The checks are
+ * the plan's order: what the worktree is, then the name (the validator, then
+ * git's own check-ref-format, D3), then what the name collides with.
+ *
+ * `validateName` is `isValidBranchName` (validators.ts), passed in because
+ * validators.ts imports this module and a direct import would be a runtime
+ * cycle, which scripts/import-cycles.test.mjs forbids.
+ */
+export async function gitPlanWorktreeRename(
+  worktree: WorktreeListBaseEntry,
+  newName: string,
+  localBranches: string[],
+  worktreesRoot: string,
+  validateName: (name: string) => true | string,
+): Promise<WorktreeRenamePlan> {
+  const { path: fromPath, branchName: fromBranch } = worktree;
+
+  if (fromBranch === DETACHED_LABEL) {
+    throw new InvalidValueError(
+      `The worktree at ${fromPath} is on a detached HEAD, so it has no branch to rename.`,
+    );
+  }
+  if (worktree.pathExists === false) {
+    throw new InvalidValueError(
+      `The worktree directory ${fromPath} is missing. Run \`worktree remove ${fromBranch}\` instead.`,
+    );
+  }
+  if (newName === fromBranch) {
+    throw new InvalidValueError(`"${fromBranch}" already has that name.`);
+  }
+
+  const verdict = validateName(newName);
+  if (verdict !== true) {
+    throw new InvalidValueError(verdict);
+  }
+  try {
+    await run("git", ["check-ref-format", "--branch", newName], {
+      cwd: fromPath,
+    });
+  } catch (error) {
+    // Only git's own refusal (exit 128, "fatal: '<name>' is not a valid branch
+    // name") is a bad name; a spawn error or a timeout is not, and passes on.
+    if (toGitReason(error).includes("is not a valid branch name")) {
+      throw new InvalidValueError(`'${newName}' is not a valid branch name`);
+    }
+    throw error;
+  }
+
+  const toPath = path.resolve(worktreesRoot, newName);
+  if (!toPath.startsWith(`${worktreesRoot}${path.sep}`)) {
+    throw new InvalidValueError(
+      `"${newName}" would put the worktree outside ${worktreesRoot}/.`,
+    );
+  }
+
+  const others = localBranches.filter((branch) => branch !== fromBranch);
+  if (others.includes(newName)) {
+    throw new InvalidValueError(`A branch named "${newName}" already exists.`);
+  }
+  const clash = others.find((branch) => namesNest(branch, newName));
+  if (clash) {
+    throw new InvalidValueError(
+      `"${newName}" clashes with the existing branch "${clash}".`,
+    );
+  }
+
+  // Before the existence check: `a/b` -> `a` lands on `a/b`'s own parent.
+  if (namesNest(newName, fromBranch)) {
+    throw new InvalidValueError(
+      `"${newName}" and "${fromBranch}" nest inside each other, so the directory cannot move between them. Rename through another name first.`,
+    );
+  }
+  // git moves a worktree *into* an existing directory instead of refusing (§4.1).
+  if (fs.existsSync(toPath)) {
+    throw new InvalidValueError(`${toPath} already exists.`);
+  }
+
+  const parentsToCreate: string[] = [];
+  for (
+    let dir = path.dirname(toPath);
+    dir !== worktreesRoot;
+    dir = path.dirname(dir)
+  ) {
+    if (!fs.existsSync(dir)) {
+      parentsToCreate.unshift(dir);
+    }
+  }
+
+  return {
+    fromBranch,
+    toBranch: newName,
+    fromPath,
+    toPath,
+    parentsToCreate,
+  };
 }
 
 /**
