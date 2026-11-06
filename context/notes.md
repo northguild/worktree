@@ -27,3 +27,16 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   `linear.autoStart`. Same shape, wording only.
 - The prompt text and the checklist label "whether to assign and start tasks" have no source beyond the Jira
   analogy; the plan fixes no wording.
+
+## Phase 3 — `branch --clickup` assigns
+
+- `branch.ts` doc comment above the private `assignClickUpTask` says a custom id with no workspace id is a
+  `ClickUp:` error; it is a `MissingValueError`, and on a real run the naming fetch throws it first.
+- The `branch.test.ts` it.each case "a custom id with no workspace id" rejects with a message no code produces,
+  not a `MissingValueError`, so it does not cover the path its label names (unreachable on a real run).
+- `branch.mdx`'s idempotency bullet names GitHub and Jira only, not ClickUp's already-yours path; the
+  `branch.ts` comment above the assignment block still has GitHub's "does not replace existing assignees".
+- The JSON help's `assigned` line still says "held by someone else" without tying it to Jira.
+- The "Could not assign <key>. " warning prefix follows the GitHub/Jira convention, not §4.
+- Gate 2 loopback 1: the ClickUp guide claimed a custom id without a workspace id warns and still creates the
+  worktree; it exits 2 at the naming fetch. Sentence removed.

@@ -105,6 +105,10 @@ worktree branch --jira dev-123
 # Assign Issues on the project. --no-assign skips it for one run.
 worktree branch --jira DEV-123 --assign
 
+# Assign a ClickUp task to yourself; the task keeps its other assignees.
+# Needs permission to edit the task. --no-assign skips it for one run.
+worktree branch --clickup 9hx --assign
+
 # Move a To Do Jira issue to its in-progress status once the worktree exists.
 # Needs Transition Issues on the project. --no-start skips it for one run.
 worktree branch --jira DEV-123 --start
@@ -136,9 +140,9 @@ worktree branch --clickup 9hx --no-start
 ```
 
 `--github`, `--jira`, `--linear` and `--clickup` are mutually exclusive. `--assign` and
-`--no-assign` need one of the four; `--assign --linear` (as `--assign --clickup`)
-skips the assignment with a warning, because assignment is not supported for
-them yet. `--linear` alone warns nothing about assignment.
+`--no-assign` need one of the four; `--assign --linear` skips the assignment
+with a warning, because assignment is not supported for Linear yet. `--linear`
+alone warns nothing about assignment.
 
 `--start` and `--no-start` also need one of the four (exit `2` otherwise), and `--linear`,
 `--clickup` and `--jira` act on them: `--start` with `--github` warns that it is not supported
@@ -171,16 +175,17 @@ transition or several leading to different statuses, is left where it is, a warn
 `started` is `false`. Needs the Transition Issues permission, and happens at the same point as the
 Linear move.
 
-With neither flag, `github.autoAssign` (for `--github`) or `jira.autoAssign`
-(for `--jira`) decides whether the issue is assigned: `true` always, `false`
+With neither flag, `github.autoAssign` (for `--github`), `jira.autoAssign`
+(for `--jira`) or `clickup.autoAssign` (for `--clickup`) decides whether the issue is assigned: `true` always, `false`
 never, and unset means you are asked once and the answer is saved to the key
 (a non-interactive run assigns instead, and saves nothing). A failed
 assignment warns and the worktree is still created. A Jira issue that
-someone else holds is never reassigned, even with `--assign`.
+someone else holds is never reassigned, even with `--assign`; a ClickUp task
+keeps its other assignees and you are added.
 
 The generated branch name is pre-filled in an interactive prompt and
 editable before confirmation. A non-interactive run takes the pre-filled name
-without asking. With `github.autoAssign` or `jira.autoAssign` unset it assigns the issue and does
+without asking. With `github.autoAssign`, `jira.autoAssign` or `clickup.autoAssign` unset it assigns the issue and does
 not save the key; `false` or `--no-assign` skips assignment. With `jira.autoStart` unset a `--jira`
 run also moves the issue to in progress, and `--no-start` or `false` skips that. Branch prefixes are applied when configured:
 - `Feature` / `Story` → `branchPrefix.feature`
@@ -299,7 +304,7 @@ Flags for agent mode:
 | `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
-| `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
+| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not |
 | `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its one in-progress transition, once the worktree exists, or not; only a backlog or unstarted issue (Linear), an open-status task (ClickUp) or a To Do-category issue (Jira) moves, and a `--start` with no issue flag exits `2` |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
@@ -308,8 +313,8 @@ Defaults when non-interactive:
 
 - **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to
   48 characters at the last dash. With no issue, the branch name is required.
-- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or
-  `jira.autoAssign`, then assign. The default is never saved.
+- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`,
+  `jira.autoAssign` or `clickup.autoAssign`, then assign. The default is never saved.
 - **Start (Linear, ClickUp, Jira):** `--start`/`--no-start`, then `linear.autoStart`,
   `clickup.autoStart` or `jira.autoStart`, then start: a non-interactive `--linear` run moves a
   backlog or unstarted issue to started, a non-interactive `--clickup` run moves an open-status task
