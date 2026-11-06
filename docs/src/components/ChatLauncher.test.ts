@@ -55,4 +55,13 @@ describe("ChatLauncher placement", () => {
     expect(move).toBeGreaterThan(-1);
     expect(init).toBeGreaterThan(move);
   });
+
+  // Expected value: Starlight 0.42.8 PageFrame.astro traps focus in the open mobile menu by making `.main-frame` inert on
+  // the sidebar popover's `toggle` event. Out of the pane, the launcher must do the same for itself, or Tab reaches a
+  // button the open menu covers (WCAG 2.2 SC 2.4.11; found by #266's phase 4 review).
+  it("is inert while the mobile menu is open, as the page pane is", () => {
+    expect(script).toMatch(/starlight__sidebar/);
+    expect(script).toMatch(/addEventListener\(\s*"toggle"/);
+    expect(script).toMatch(/inert/);
+  });
 });
