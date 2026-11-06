@@ -21,3 +21,10 @@ Non-blocking observations from the gates of #266 (unify the header). Read by not
 - The phase 4 test checks `ChatLauncher.astro`'s script source, not behaviour; renaming `root` breaks it. A small exported start function (move, trap, init) tested in jsdom, or a browser driver once §9 Q4 is answered, would test it properly.
 - `AssistantMessage.test.tsx` matches the article name with `/^Dox/`; the name is exactly "Dox", so `name: "Dox"` would be tighter.
 - The loaded chat (`Chat.tsx`) mounts its own trigger on `<body>`, so after the first open it is outside Starlight's mobile-menu focus trap too; 6a09323 covers only the static launcher.
+
+## Phase 3 — Landing header entrance
+
+- Nothing pins D8's ordering: that `--entrance-ink-start` is at or after `--entrance-fade-delay-theme` + `--entrance-fade-duration`, and that GitHub and Discord are staggered. A check on the custom properties in `entranceCssFindings` would; the values themselves are D9's proposals.
+- Nothing asserts that `header-entrance-ink` starts from `--gmt-ice-dim`, the colour `theme-contrast.mjs` measures; a change to the keyframe would leave that row measuring a colour no longer shown.
+- 29ff4b7's browser record does not state item 5's 1440px viewport (it was 1440px) or item 6's "then responds to hover as normal".
+- On the landing the internal-arrival script is the first child of `header.header` (craigbot, PR #267); no rule counts that element's children, and the header's geometry is identical on `/` and `/faq/`.
