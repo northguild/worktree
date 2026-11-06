@@ -15,3 +15,9 @@ Non-blocking observations from the gates of #266 (unify the header). Read by not
 - Biome's noUnusedImports/noUnusedVariables flag `.astro` frontmatter imports the template uses (31 warnings now, 6 from `Header.astro`). The fixes are "unsafe", so `biome check --write` leaves the files alone, but `--unsafe` would break six components. A Biome `overrides` entry for `**/*.astro` in the root config would silence it; never a second `biome.json`.
 - `audit-dist.mjs:344` locates a link by `header.indexOf(whole)` (first occurrence); the match's own `.index` would be exact. Duplicates are already caught elsewhere.
 - The language select's slot (between the toggle and GitHub) cannot be observed on this one-language site.
+
+## Phases 4 and 5 — chat button and Dox
+
+- The phase 4 test checks `ChatLauncher.astro`'s script source, not behaviour; renaming `root` breaks it. A small exported start function (move, trap, init) tested in jsdom, or a browser driver once §9 Q4 is answered, would test it properly.
+- `AssistantMessage.test.tsx` matches the article name with `/^Dox/`; the name is exactly "Dox", so `name: "Dox"` would be tighter.
+- The loaded chat (`Chat.tsx`) mounts its own trigger on `<body>`, so after the first open it is outside Starlight's mobile-menu focus trap too; 6a09323 covers only the static launcher.
