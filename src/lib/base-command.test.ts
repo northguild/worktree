@@ -1290,6 +1290,18 @@ describe("resolveSpaceCloser", () => {
       expect(spinnerMocks.warn).not.toHaveBeenCalled();
     });
 
+    it("words the spinners for Herdr exactly as it always has", async () => {
+      const closeSpaces = await command.closer();
+      await closeSpaces([onePath]);
+
+      expect(spinnerMocks.oraFactory).toHaveBeenCalledWith(
+        "Finding Herdr spaces",
+      );
+      expect(spinnerMocks.oraFactory).toHaveBeenCalledWith(
+        "Closing Herdr space feature/one",
+      );
+    });
+
     it("looks the spaces up once for the whole run", async () => {
       // cleanup removes a set, so a lookup per worktree would be N subprocesses
       // where one does (D2).

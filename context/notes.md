@@ -28,3 +28,17 @@ Non-blocking observations from the gates of #266 (unify the header). Read by not
 - Nothing asserts that `header-entrance-ink` starts from `--gmt-ice-dim`, the colour `theme-contrast.mjs` measures; a change to the keyframe would leave that row measuring a colour no longer shown.
 - 29ff4b7's browser record does not state item 5's 1440px viewport (it was 1440px) or item 6's "then responds to hover as normal".
 - On the landing the internal-arrival script is the first child of `header.header` (craigbot, PR #267); no rule counts that element's children, and the header's geometry is identical on `/` and `/faq/`.
+
+---
+
+# #270 (rex-session-opener)
+
+Non-blocking observations from the gates of #270. Read by nothing.
+
+## Phase 1 — removal-side seam
+
+- `Multiplexer.findSpaces` takes `gitRootPath` and returns every space keyed by path, not `findSpaces(paths)` as D1/§4 wrote it: `resolveSpaceCloser` builds the map before the closure gets its paths. The Rex adapter (phases 2, 4) lists the worktree paths itself.
+- D1's "plus the open-failure policy" and §4's "the shared policy" in `multiplexer.ts` are owned by no phase; phase 3's Scope names "failure policy" for Rex only.
+- `multiplexer.ts`'s `isInstalled` doc comment says "on PATH"; under D3 Rex is also found via `REX_BIN_DIR` and the app bundle.
+- §4 says `resolveSpaceCloser` "no longer names Herdr"; after phase 1 it still selects `herdrMultiplexer` on `opener === "herdr"` (D9), which phase 4 replaces.
+- The spinner-wording test sits in `resolveSpaceCloser`'s "the gate" block; it is about what the user sees and would read better under "what it closes".

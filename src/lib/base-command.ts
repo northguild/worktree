@@ -11,15 +11,14 @@ import chalk from "chalk";
 // `./prompt.js` — not a leaf utility. Satisfying the boundary strictly
 // means moving this file out of `lib/`, a wider refactor than this feature buys.
 import {
-  closeHerdrWorkspace,
   isHerdrInstalled,
-  listHerdrWorktrees,
   openHerdrWorktree,
   promptHerdrAgent,
   startHerdrAgent,
   toAgentSessionName,
   toHerdrAgentName,
 } from "../integrations/herdr.js";
+import { herdrMultiplexer } from "../integrations/herdr-multiplexer.js";
 import { run, spawnDetached } from "./cli.js";
 import { gitGetConfigValue } from "./config.js";
 import { gitGetAbsoluteWorktreesPath, gitGetRootPath } from "./git.js";
@@ -29,6 +28,7 @@ import {
   resolveNonInteractive,
   setNonInteractive,
 } from "./interaction.js";
+import type { Multiplexer } from "./multiplexer.js";
 import { createSpinner } from "./progress.js";
 import {
   getTeamConfigValue,
@@ -626,45 +626,31 @@ export abstract class BaseCommand extends Command {
    * afterwards is noise about something they cannot act on here.
    */
   protected async resolveSpaceCloser(): Promise<SpaceCloser> {
+    // D9 (#270): only the configured opener is consulted.
     if ((await gitGetConfigValue("opener")) !== "herdr") {
       return closeNothing;
     }
 
-    if (!(await isHerdrInstalled())) {
+    const multiplexer = herdrMultiplexer;
+
+    if (!(await multiplexer.isInstalled())) {
       return closeNothing;
     }
 
-    const spinner = createSpinner("Finding Herdr spaces").start();
+    const spinner = createSpinner(
+      `Finding ${multiplexer.displayName} spaces`,
+    ).start();
     let spaces: Map<string, string>;
     let worktreesRootPath: string;
 
     try {
-      const [{ worktrees, sourceWorkspaceId }, worktreesPath] =
-        await Promise.all([
-          listHerdrWorktrees({ gitRootPath: await gitGetRootPath() }),
-          gitGetAbsoluteWorktreesPath(),
-        ]);
+      const [found, worktreesPath] = await Promise.all([
+        multiplexer.findSpaces(await gitGetRootPath()),
+        gitGetAbsoluteWorktreesPath(),
+      ]);
 
       worktreesRootPath = `${worktreesPath}/`;
-      // flatMap rather than filter-then-map so the narrowing is the compiler's:
-      // `workspaceId` is `string | undefined`, and inside this branch it is a
-      // string. A filter needs an assertion to say the same thing, and an
-      // assertion keeps compiling if the first guard below is ever dropped —
-      // which is exactly the regression these two guards exist to prevent.
-      spaces = new Map(
-        worktrees.flatMap((worktree) =>
-          // #52 D9 — a worktree with no space open is not an error and is
-          // nothing to close.
-          worktree.workspaceId !== undefined &&
-          // #52 D7 — the repository's own checkout is in this listing like any
-          // other, and closing it would take down the window the user is
-          // sitting in. Both removal paths already exclude the current
-          // worktree, so this guards a future caller rather than a live defect.
-          worktree.workspaceId !== sourceWorkspaceId
-            ? [[worktree.path, worktree.workspaceId] as const]
-            : [],
-        ),
-      );
+      spaces = found;
       spinner.stop();
     } catch (error) {
       // Deliberately wider than the Herdr call: the two git lookups above share
@@ -708,6 +694,7 @@ export abstract class BaseCommand extends Command {
 
         if (
           await this.closeSpace(
+            multiplexer,
             workspaceId,
             toSpaceLabel(worktreePath, worktreesRootPath),
           )
@@ -729,12 +716,19 @@ export abstract class BaseCommand extends Command {
    * happened (D5). Each space gets its own `catch` so one failure does not take
    * the rest of the run with it.
    */
-  private async closeSpace(workspaceId: string, label: string) {
-    const spinner = createSpinner(`Closing Herdr space ${label}`).start();
+  private async closeSpace(
+    multiplexer: Multiplexer,
+    workspaceId: string,
+    label: string,
+  ) {
+    const { displayName } = multiplexer;
+    const spinner = createSpinner(
+      `Closing ${displayName} space ${label}`,
+    ).start();
 
     try {
-      await closeHerdrWorkspace(workspaceId);
-      spinner.succeed(`Closed Herdr space ${label}`);
+      await multiplexer.closeSpace(workspaceId);
+      spinner.succeed(`Closed ${displayName} space ${label}`);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
