@@ -146,7 +146,9 @@ The site wears the NorthGuild theme. `src/styles/northguild/{tokens,tokens-light
 that commit's bytes, so **never edit them in place**. `src/styles/theme.css` is this site's own: it maps the
 `--gmt-*` tokens onto Starlight's `--sl-*` variables, repoints the `@font-face` at `/worktree/fonts/`
 (the vendored one looks for `./fonts/`) and sets the few rules Starlight has no variable for. Light or dark
-follows the visitor's system through Starlight's theme picker, which sets `data-theme` on `<html>`.
+follows the visitor's system until they press the header's theme button, a two-state toggle (system, or the opposite theme set
+explicitly; pressing it again returns to the system) that sets `data-theme` on `<html>` and stores only `light` or `dark` under
+Starlight's `starlight-theme` key (`src/components/ThemeSelect.astro`, `ThemeProvider.astro`, the logic in `src/lib/theme-toggle.ts`).
 The header's NorthGuild mark is `src/components/SiteTitle.astro`, copied the same way.
 
 ### The accent, and how a product picks its colour
@@ -173,13 +175,19 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 
 ### The header, the sidebar and the page details
 
-- **Header.** Starlight's own `Header` is kept, so search, the theme picker, the language select and the mobile menu are
-  untouched; two of the components it renders are overridden. `src/components/SiteTitle.astro` is the NorthGuild mark and
+- **Header.** `src/components/Header.astro` overrides Starlight's `Header` (copied from Starlight 0.42.8, with the right group from GMT's `apps/dox`, commit `b15b3899`):
+  the right group is the theme button, the language select, then GitHub and Discord, as three controls of one size in one row with one gap and no divider,
+  and `scripts/audit-dist.mjs` fails a page whose header orders them otherwise. The three direct children of `.header` (title, search, right group) keep their order, because `theme.css` selects them by position.
+  The components it renders (`SiteTitle`, `SocialIcons`, `ThemeSelect`) are overridden too, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head. `src/components/ThemeSelect.astro` and `ThemeProvider.astro` make the theme
+  control a two-state button (ported from GMT's `apps/dox`, commit `b15b3899`; Starlight also renders the select in the mobile
+  menu); the provider's script stays inline so the theme is set before first paint, and replacing both is what keeps the
+  button's icon current. The button and the two links below share one chip, `.header-chip` in `src/styles/custom.css`.
+  `src/components/SiteTitle.astro` is the NorthGuild mark and
   "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home),
   then the CLI version (`cliVersion` from `src/lib/site-meta.ts`) in small grey text on the name's baseline, from 30rem up.
   `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, opening in a new tab and saying so in
   their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only),
-  and so is the wide header's grid: the search box keeps to the right, beside the GitHub link, on every page, where Starlight
+  and so is the wide header's grid: the search box keeps to the right, beside the theme button, on every page, where Starlight
   would start it at the main column's edge (which moves with the sidebar and the table of contents).
 - **Sidebar as a git graph, and the leaf list markers (a smaller, paler leaf for a nested item), and the growing link underline.** All in `src/styles/custom.css`, as
   CSS on Starlight's own markup: pseudo-elements with empty content, so nothing is added to the page, nothing decorative can take
@@ -211,7 +219,8 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 pagination; there is no edit link, since `astro.config.mjs` sets no `editLink`) through `Default` and nothing else; the licence line, the CLI version and the maintainers it once
 added are gone (the CLI version is in the header). The landing renders no footer at all: it is the hero alone. The chat
 launcher is rendered from the same file on every page, the landing included, because Starlight has no slot of its own
-for it. `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
+for it. Its script then moves it to the end of `<body>`: Starlight's page pane is `isolation: isolate`, so inside it the
+right sidebar ("On this page") painted over the button on wide pages whatever its z-index (#266). `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
 checked in `dist/` instead (`pnpm docs:audit-dist`).
 
 ## The landing hero
@@ -233,9 +242,24 @@ long as the page is visible. The pointer pushes leaves near the art box.
   `data-hero` attribute (`live` or `still`) and CSS choose between the SVG and the canvas. A WebGL context the browser takes back
   later turns the box to the still for good. The hero's CSS is in the site's shared stylesheet; only its script is landing-only.
 - **Theme**: the leaves read the `--leaf-*` tokens, defined at the foot of `HeroLeaves.astro` (leaf 1 is `--gmt-spring`; the rest
-  are an invented palette), and re-tint when Starlight's theme picker changes `data-theme` on `<html>`.
+  are an invented palette), and re-tint when the header's theme toggle (`ThemeSelect.astro`, `ThemeProvider.astro`) changes `data-theme` on `<html>`.
 - **Drawing** pauses, with the clock, while the tab is hidden or the art box is off screen; the device pixel ratio is capped at 1.5.
 - Both the canvas and the SVG are `aria-hidden`: the heading and the link carry the meaning.
+- **The header's entrance** (#266, 2026-11-06): on the landing only, and on an arrival from outside the docs site and on every reload, the header's
+  `/ worktree vX.Y.Z` (the shield and the "NorthGuild" wordmark stay static), search button and theme toggle fade up like the hero copy (`hero-copy-in`), left to right. Once they are
+  in, a second pass paints the theme toggle, GitHub and Discord, one after another, from northguild.dev's resting icon colour
+  (`--gmt-ice-dim`) into their own green. GitHub and Discord do not fade; they are there throughout. It is CSS in `custom.css` ("The
+  landing header's entrance"), all inside `prefers-reduced-motion: no-preference`, animating opacity, transform and colour only, with a
+  `backwards` fill so hover and focus take over afterwards; with reduced motion, or no script, the finished header is simply there.
+  **Timings** are the `--entrance-*` custom properties at the top of that block (fade duration and the three fade delays, the colour
+  pass's start, step and duration); change numbers there, not rules. `Header.astro` marks its root `data-landing-entrance` on the
+  landing, and an inline script in it sets `data-entrance-off` on `<html>` when the navigation followed a link or used Back/Forward
+  (Navigation Timing type `navigate` or `back_forward`, read as `navigate` if unavailable) and `document.referrer` is a page under the
+  site base; a reload always plays it, since it keeps the old referrer (`internal-arrival.ts` is the tested form of that test;
+  `Header.test.ts` runs the inline copy against it). No referrer, and northguild.dev itself, count as external. To see it: open the landing from a typed URL or `https://northguild.dev/`; reload it and it plays again; follow the
+  header's "worktree" link from `/worktree/faq/` and it does not play. `pnpm docs:audit-dist` pins the marker, the inline script, the
+  query, the absence of any `opacity: 0` rule on a header item, and which parts may fade (never the wordmark, GitHub or
+  Discord, or the search dialog's buttons).
 
 ## Scripts reference
 

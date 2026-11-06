@@ -337,6 +337,15 @@ export const PAIRS = [
     "var(--sl-color-text-accent)",
     HEADER,
   ),
+  // The theme toggle's icon (#266) is the same chip as the two links above: `.header-chip` in custom.css.
+  shape("header: theme toggle icon", "var(--sl-color-text-accent)", HEADER),
+  // The landing entrance's colour pass (#266, D8) starts the theme toggle, GitHub and Discord in northguild.dev's resting
+  // icon colour, --gmt-ice-dim (custom.css, "The landing header's entrance"); that is what shows for the first second.
+  shape(
+    "header: icons at the start of the colour pass",
+    "var(--gmt-ice-dim)",
+    HEADER,
+  ),
   shape("chat launcher fill on the page", "var(--gmt-spring)", PAGE),
   shape("chat launcher border on the page", "var(--gmt-spring-ink)", PAGE),
   shape("chat launcher glyph on its fill", "var(--gmt-ink-fixed)", [

@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import { readFileSync } from "node:fs";
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
 import { describe, expect, it } from "vitest";
 import ChatLauncher from "./ChatLauncher.astro";
@@ -30,5 +32,36 @@ describe("ChatLauncher markup", () => {
   it("ships no React: the page script only imports the launcher module", async () => {
     const html = await render();
     expect(html).not.toMatch(/client:|astro-island|react/i);
+  });
+});
+
+// Expected value: #266 D11 (the user's report of 2026-11-06: the chat button cannot be clicked on inner pages). The
+// launcher renders inside Starlight's `.main-pane`, which is `isolation: isolate`, so the right sidebar paints over it
+// whatever its z-index; moving the root to the end of <body> takes it out of that stacking context. It has to happen before
+// `initChatLauncher` runs, so the handlers and the loaded chat attach to the element where it stays.
+describe("ChatLauncher placement", () => {
+  const source = readFileSync(
+    new URL("./ChatLauncher.astro", import.meta.url),
+    "utf8",
+  );
+  const script = source.slice(
+    source.indexOf("<script>"),
+    source.indexOf("</script>"),
+  );
+
+  it("moves its root to the end of <body> before the launcher starts", () => {
+    const move = script.search(/document\.body\.append(Child)?\(root\)/);
+    const init = script.indexOf("initChatLauncher(root");
+    expect(move).toBeGreaterThan(-1);
+    expect(init).toBeGreaterThan(move);
+  });
+
+  // Expected value: Starlight 0.42.8 PageFrame.astro traps focus in the open mobile menu by making `.main-frame` inert on
+  // the sidebar popover's `toggle` event. Out of the pane, the launcher must do the same for itself, or Tab reaches a
+  // button the open menu covers (WCAG 2.2 SC 2.4.11; found by #266's phase 4 review).
+  it("is inert while the mobile menu is open, as the page pane is", () => {
+    expect(script).toMatch(/starlight__sidebar/);
+    expect(script).toMatch(/addEventListener\(\s*"toggle"/);
+    expect(script).toMatch(/inert/);
   });
 });

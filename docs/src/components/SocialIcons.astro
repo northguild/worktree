@@ -6,7 +6,8 @@
  *
  * The paths and hrefs are from northguild/northguild.dev, apps/site/src/components/Header.astro at commit
  * ade22a5d30f274d02d50a33eb6ccdd705c2f5cbd. An icon has no visible text, so the aria-label is the name; it states
- * that the link opens in a new tab (WCAG 2.2 SC 4.1.2, and the technique for a new-tab link).
+ * that the link opens in a new tab (WCAG 2.2 SC 4.1.2, and the technique for a new-tab link). The chip look is the
+ * shared `.header-chip` in custom.css, which the theme toggle uses too.
  */
 const links = [
   {
@@ -25,7 +26,7 @@ const links = [
 {
   links.map((link) => (
     <a
-      class="social-link"
+      class="header-chip"
       href={link.href}
       target="_blank"
       rel="noopener noreferrer"
@@ -37,29 +38,3 @@ const links = [
     </a>
   ))
 }
-
-<style>
-  /* A chip with the same reach as northguild.dev's icon button (0.5em of padding round a 1.25em glyph); the
-     negative margin keeps the larger target from spreading the header row. Hover and focus are changes of colour
-     and of the chip's fill and border, not of position, so there is no motion to reduce. */
-  .social-link {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.5em;
-    margin: -0.25em;
-    border: 1px solid transparent;
-    border-radius: var(--gmt-radius-md);
-    color: var(--sl-color-text-accent);
-    text-decoration: none;
-  }
-  .social-link:hover {
-    color: var(--sl-color-white);
-    background: var(--gmt-fill-strong);
-    border-color: var(--gmt-border);
-  }
-  svg {
-    inline-size: 1.25em;
-    block-size: 1.25em;
-  }
-</style>

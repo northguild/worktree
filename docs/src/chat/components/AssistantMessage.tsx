@@ -30,7 +30,7 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
     <article aria-labelledby={titleId} className="mb-4">
       <MessageMeta
         titleId={titleId}
-        title="Assistant"
+        title="Dox"
         titleClass="font-semibold text-chat-accent-ink"
         createdAt={createdAt}
       />
@@ -42,7 +42,7 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
         {streaming && !content ? (
           <div className="flex items-center gap-2 text-sm italic">
             <LoadingDots className="text-current h-6" size={12} />
-            <span className="sr-only">Assistant is typing</span>
+            <span className="sr-only">Dox is typing</span>
           </div>
         ) : (
           <MarkdownContent content={content} />

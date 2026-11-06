@@ -13,8 +13,8 @@
  * see docs/README.md (Theme).
  *
  * Every `--sl-*` below points at a `--gmt-*` token that `northguild/tokens-light.css` re-tints for
- * `[data-theme="light"]`, so the mapping re-resolves in the light theme on its own. Starlight's theme
- * picker sets `data-theme` on <html>, defaulting to the visitor's system preference.
+ * `[data-theme="light"]`, so the mapping re-resolves in the light theme on its own. The header's theme
+ * toggle (ThemeSelect.astro and ThemeProvider.astro) sets `data-theme` on <html>, defaulting to the visitor's system preference.
  * Glass goes on chrome only (the header), never behind body text.
  */
 
@@ -46,7 +46,7 @@
   /* Text on an accent fill (the current sidebar entry, the skip link): the page background colour. */
   --sl-color-text-invert: var(--gmt-void);
   --sl-color-bg: var(--gmt-void);
-  /* Read by Starlight's theme select and the mobile "On this page" bar; the header itself is northguild.dev's glass (below). */
+  /* Read by Starlight's language select and the mobile "On this page" bar; the header itself is northguild.dev's glass (below). */
   --sl-color-bg-nav: color-mix(in srgb, var(--gmt-void) 82%, transparent);
   --sl-color-bg-sidebar: var(--gmt-surface);
   --sl-color-bg-inline-code: var(--gmt-code-bg);
@@ -145,7 +145,7 @@
    under it only, no panel border. */
 header.header {
   /* The user's decision of 2026-11-04: exact northguild.dev glass (the `.gmt-glass` tint, saturate and brightness), so page text
-     shows faintly, blurred, through the bar while scrolling. Set here, not on --sl-color-bg-nav, which the theme select
+     shows faintly, blurred, through the bar while scrolling. Set here, not on --sl-color-bg-nav, which the language select
      and the mobile table of contents also read. */
   background: var(--gmt-glass-tint);
   -webkit-backdrop-filter: blur(4px) saturate(var(--gmt-saturate))
@@ -155,7 +155,7 @@ header.header {
   border-block-end-color: var(--gmt-border);
 }
 
-/* The search box sits at the right, beside the GitHub link, on every page (the user, 2026-11-04: it "seems to dance
+/* The search box sits at the right, beside the theme button, on every page (the user, 2026-11-04: it "seems to dance
    around"). Starlight's wide header starts it at the main column's left edge, which moves with the sidebar and the
    table of contents and is absent on the landing; here the middle column is all the free space and the box keeps to
    its end, at Starlight's own 22rem at most. */
