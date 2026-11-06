@@ -157,8 +157,9 @@ worktree config clickup.autoAssign true
   [Jira Issue Integration](/worktree/guides/jira-integration/#assigning-the-issue).
 - **A ClickUp assignment only adds you.** ClickUp keeps several assignees, so you join the task alongside whoever is
   already on it and nobody is removed; a task that is already yours is reported as such and nothing is written.
-  Assigning needs permission to edit the task, so a token that can read it but not change it gets a warning with
-  ClickUp's status line and that hint. See
+  Assigning needs permission to edit the task, so a token that can read it but not change it gets a warning: with
+  ClickUp's status line and that hint, or the authentication or not-found message when ClickUp answers 401, 403 or
+  404. See
   [the ClickUp guide](/worktree/guides/clickup-integration/#assigning-the-task).
 - For `--github`, success is confirmed against the API response rather than assumed. If the issue comes back without you on
   it, `worktree` says so instead of reporting success — GitHub documents that it accepts an assignee change
@@ -167,8 +168,9 @@ worktree config clickup.autoAssign true
 - **A failed assignment never stops the branch.** The worktree is created either way; you get a warning, not
   an error.
 - The assignment happens before the worktree is created, so the question is never buried behind creation
-  output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees, and a
-  Jira issue that is already yours is not written again — so retrying after a failed creation is harmless.
+  output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees, a
+  Jira issue that is already yours is not written again, and a ClickUp assignment only adds you and skips a task
+  that already lists you — so retrying after a failed creation is harmless.
 - `--assign` and `--no-assign` both require one of `--github`, `--jira`, `--linear` or `--clickup`; on their own there is no issue to act
   on. `--assign --linear` warns that assignment is not supported for Linear yet and carries on.
 
