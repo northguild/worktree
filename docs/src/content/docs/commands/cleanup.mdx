@@ -177,8 +177,8 @@ status they give has to say idle or done. A session that is working, one that is
 one whose status is not recognised, and one that reports no status at all still hold the worktree back.
 Where a worktree holds several sessions, one that is working holds it back whatever the rest are doing.
 An idle session does not excuse anything else: uncommitted changes and unpushed commits hold the
-worktree back as before. With [`opener`](/worktree/configuration/) set to `herdr`, the idle pane closes
-with the worktree's space.
+worktree back as before. With [`opener`](/worktree/configuration/) set to `herdr` or `rex`, the idle pane closes
+with the worktree's space or session.
 
 `--force` does **not** override this. It answers the confirmation prompt, not the safety
 verdict. To sweep a worktree anyway, pass `--ignore-agents`. It still looks up the sessions, but
@@ -194,17 +194,18 @@ Removing 1 worktree branch despite a live agent session:
 It has no short alias on purpose: overruling this one is worth spelling out.
 
 `--ignore-agents` costs more than it used to. With [`opener`](/worktree/configuration/) set to
-`herdr`, a worktree removed this way also has its Herdr space closed — which takes down the
+`herdr` or `rex`, a worktree removed this way also has its Herdr space or Rex session closed — which takes down the
 panes the agent is working in, not just the directory underneath it. Before spaces were
 closed, an overruled agent at least kept its output on screen.
 
 If neither source is available — `herdr` is not installed and no runtime is configured, or the
 runtime cannot be reached — no session data is gathered and `cleanup` behaves exactly as it always has. With `--ignore-agents` that means no heading above either.
 
-## Herdr spaces
+## Herdr spaces and Rex sessions
 
 With [`opener`](/worktree/configuration/) set to `herdr`, every worktree `cleanup` removes also has its
-Herdr space closed.
+Herdr space closed. With `rex`, its Rex session is killed instead, but only a session whose every shell is in
+that worktree; see [Rex Sessions](/worktree/guides/rex-sessions/#when-the-worktree-goes).
 
 Only the ones it actually removed. A worktree held back — for uncommitted changes, a live agent,
 unpushed commits it could not count, or a canceled issue's commits it could not confirm on the
@@ -212,5 +213,5 @@ remote — keeps its space, because its checkout is still there — `cleanup` cl
 it merely looked at. Each space is closed independently, so one failure does not stop the rest, and
 a failed close is a warning that leaves the exit code at `0`.
 
-With `opener` unset or set to `editor`, no Herdr process is started. See
+With `opener` unset, `editor` or `none`, no Herdr or Rex process is started. See
 [Herdr Spaces](/worktree/guides/herdr-spaces/#when-the-worktree-goes).

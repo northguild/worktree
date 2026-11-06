@@ -161,6 +161,33 @@ Two cases get special care, because opening twice would leave two sessions:
 
 Nothing in these messages quotes the brief. It is named by its size.
 
+## When the worktree goes
+
+With `opener` set to `rex`, [`remove`](/worktree/commands/remove/) and [`cleanup`](/worktree/commands/cleanup/)
+kill the Rex session that was opened for each worktree they delete (`rex kill`), so a session does not outlive
+its checkout. Only a worktree that was actually removed has its session closed. A branch that was not found, a
+declined confirmation, a failed removal and a worktree `cleanup` held back all leave the session alone, because
+their checkouts are still on disk. `remove --json` lists the ids under `rexSessionsClosed`, and `[]` when
+nothing was open.
+
+A session is matched by where its shells are, not by its label. `worktree` asks Rex for each session's terminal
+blocks and reads each shell's working directory, because two repositories can share a branch name and a label
+proves nothing. That lookup runs before the removal, since git forgets the worktree afterwards.
+
+A session is closed only when **every** shell it has is inside the worktree being removed. A shell in the main
+checkout, in the worktree you are standing in, or in another worktree leaves the session open, since killing it
+would take that shell down too. A session whose shells have all moved elsewhere is not found, and is left open
+rather than guessed at.
+
+The session `worktree` itself runs in is never closed: its id is in `REX_SESSION`, and killing it would end the
+terminal doing the removal.
+
+A failed `rex kill` is a warning, the command still exits `0` (the worktree is already gone, so there is nothing
+to retry), and the next session is still closed.
+
+One gap is known: if two sessions are open in the same worktree, only the first one Rex lists that qualifies is closed. With
+`opener` unset, `editor` or `none`, no `rex` process is started.
+
 ## Configuration reference
 
 | Key | Values | Default |

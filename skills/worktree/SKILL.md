@@ -418,7 +418,7 @@ pane id (for example `w4P:p1`) when Herdr reports no name. `agent.name` in the
 `branch` document is the session name to address.
 
 `remove --json` gives
-`{"removed":[{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"}],"herdrSpacesClosed":["w5"],"warnings":[]}`.
+`{"removed":[{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"}],"herdrSpacesClosed":["w5"],"rexSessionsClosed":[],"warnings":[]}`.
 Naming a branch and removing nothing is a failure, never a success.
 
 A failure prints `{"error":{"code","message"}}` on stdout, one line on stderr,
@@ -537,14 +537,18 @@ session in your own terminal, an agent this tool dispatched, and one Herdr
 started (found through `herdr agent list`).
 
 With `opener` set to `herdr`, both removal commands also close the Herdr space
-the worktree was opened as, so a space does not outlive its checkout. Only
+the worktree was opened as, so a space does not outlive its checkout. With
+`rex` they kill its Rex session instead, but only one whose every shell is in
+that worktree: a shell in the main checkout, the current worktree or another
+worktree leaves it open, and so does the session the CLI runs in
+(`REX_SESSION`). `remove --json` lists the killed ids as `rexSessionsClosed`. Only
 worktrees that were actually removed: a branch that was not found, a declined
 confirmation, a failed removal and anything `cleanup` held back all keep their
-spaces, because those checkouts are still on disk. A failed close is a warning
+spaces and sessions, because those checkouts are still on disk. A failed close is a warning
 and the command still exits `0` — by then the worktree is already gone. With
-`opener` unset or `editor`, no Herdr process is started by either command.
+`opener` unset, `editor` or `none`, no Herdr or Rex process is started by either command.
 
-Note that `--ignore-agents` now closes a live agent's space too, taking down the
+Note that `--ignore-agents` now closes a live agent's space or session too, taking down the
 panes it is working in along with the directory.
 
 ### Start worktrees from Linear agent delegations (`linear-listen`)
@@ -617,7 +621,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
-| `opener` | `editor`, `herdr`, `rex` or `none` | where a worktree opens, and for `herdr` where its space is closed on removal; `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
+| `opener` | `editor`, `herdr`, `rex` or `none` | where a worktree opens, and for `herdr` and `rex` where its space or session is closed on removal; `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
 | `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |

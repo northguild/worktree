@@ -4,8 +4,10 @@
  * the tools differ exactly there.
  */
 export interface Multiplexer {
-  /** What the user sees in spinner text: "Closing <displayName> space <label>". */
+  /** What the user sees in spinner text: "Closing <displayName> <spaceNoun> <label>". */
   displayName: string;
+  /** What the tool calls the thing it closes: Herdr's spaces, Rex's sessions. */
+  spaceNoun: "space" | "session";
   /** Whether the tool can be found. A tool that is not installed has nothing to close. */
   isInstalled(): Promise<boolean>;
   /**

@@ -68,3 +68,11 @@ Non-blocking observations from the gates of #270. Read by nothing.
 - A lone UTF-16 surrogate costs 2 in the estimator but Node sends U+FFFD (3 bytes); unreachable from argv, file or stdin, which decode as UTF-8.
 - The generics counter-example is refused through `assertBriefHasAnAgent` in a unit test, not through `branch.run()`.
 - Cross-check of the built estimator against live Rex (171-char path): generics 58.5 KB est 116,828 / Rex 113,790; mixed 115 KB 183,230 / 172,490; HTML 58.5 KB 135,188 / 131,790; plain 64,000 B est 67,358 (refused) / Rex accepted.
+
+## Phase 4 — close Rex sessions
+
+- `closedSpacesOf` is a mutable field written by `resolveSpaceCloser` and read by `remove`'s `toDocument`; sound for every current caller, but a future caller building JSON elsewhere must know about it. Having the closer return which tool it used would remove the side effect.
+- `rex-multiplexer.test.ts` pins the order of the roots passed to `findRexSessions`; D11 decides which roots, not their order.
+- `cleanup` has no Rex-specific test; it reaches the same seam the base-command suite covers.
+- Live pass (§8 steps 4–5) in a throwaway repo: a plain `remove` killed the worktree's session (`rexSessionsClosed: [id]`); with `REX_SESSION` naming it, with an extra shell in `$HOME`, and with an extra shell in the main checkout, the session was left open and `rexSessionsClosed: []`. With 24 Rex sessions, `open` took 1.19 s against 0.41 s with 2; `remove` took ≈10.5 s with any opener (`none` too), so the Rex lookup is not what costs. A Herdr-terminal run of step 4 was not possible on this machine.
+- `resolveSpaceCloser`'s doc comment body is still Herdr-worded ("take the entry out of Herdr's answer too"); the lookup-first reason applies to Rex as well.

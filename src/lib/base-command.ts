@@ -26,6 +26,7 @@ import {
   RexError,
   selectRexSession,
 } from "../integrations/rex.js";
+import { rexMultiplexer } from "../integrations/rex-multiplexer.js";
 import { run, spawnDetached } from "./cli.js";
 import { gitGetConfigValue } from "./config.js";
 import { gitGetAbsoluteWorktreesPath, gitGetRootPath } from "./git.js";
@@ -732,7 +733,13 @@ export abstract class BaseCommand extends Command {
   }
 
   /**
-   * Reads which Herdr space each of this repository's worktrees is open in, and
+   * Whose ids the closer returns, so a command can report them under the right
+   * key. Set by `resolveSpaceCloser`; Herdr's until it says otherwise.
+   */
+  protected closedSpacesOf: "herdr" | "rex" = "herdr";
+
+  /**
+   * Reads which Herdr space or Rex session each of this repository's worktrees is open in, and
    * answers with the function that closes them once they have been removed.
    *
    * **Call this before removing anything.** The listing is derived from git's
@@ -743,27 +750,31 @@ export abstract class BaseCommand extends Command {
    * where one does.
    *
    * Everything that means "there is nothing to close" answers with the same
-   * no-op, and none of them spawns a Herdr process: an `opener` that is not
-   * `herdr`, no `herdr` on PATH, or a repository with no open spaces. The
-   * second of those is deliberately silent rather than a warning — someone
+   * no-op, and none of them spawns a Herdr or Rex process: an `opener` that is
+   * neither `herdr` nor `rex`, the opener's tool not on PATH, or a repository
+   * with no open spaces. The second of those is deliberately silent rather than a warning — someone
    * whose `opener` says `herdr` but who has no Herdr installed was already told
    * so, loudly, when the open failed, and a warning on every `remove`
    * afterwards is noise about something they cannot act on here.
    */
   protected async resolveSpaceCloser(): Promise<SpaceCloser> {
-    // D9 (#270): only the configured opener is consulted.
-    if ((await gitGetConfigValue("opener")) !== "herdr") {
+    // D9 (#270): only the configured opener's tool is consulted. `editor`,
+    // `none` and anything else close nothing and spawn nothing.
+    const opener = await gitGetConfigValue("opener");
+
+    if (opener !== "herdr" && opener !== "rex") {
       return closeNothing;
     }
 
-    const multiplexer = herdrMultiplexer;
+    this.closedSpacesOf = opener;
+    const multiplexer = opener === "rex" ? rexMultiplexer : herdrMultiplexer;
 
     if (!(await multiplexer.isInstalled())) {
       return closeNothing;
     }
 
     const spinner = createSpinner(
-      `Finding ${multiplexer.displayName} spaces`,
+      `Finding ${multiplexer.displayName} ${multiplexer.spaceNoun}s`,
     ).start();
     let spaces: Map<string, string>;
     let worktreesRootPath: string;
@@ -846,14 +857,14 @@ export abstract class BaseCommand extends Command {
     workspaceId: string,
     label: string,
   ) {
-    const { displayName } = multiplexer;
+    const { displayName, spaceNoun } = multiplexer;
     const spinner = createSpinner(
-      `Closing ${displayName} space ${label}`,
+      `Closing ${displayName} ${spaceNoun} ${label}`,
     ).start();
 
     try {
       await multiplexer.closeSpace(workspaceId);
-      spinner.succeed(`Closed ${displayName} space ${label}`);
+      spinner.succeed(`Closed ${displayName} ${spaceNoun} ${label}`);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

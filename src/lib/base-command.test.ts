@@ -1885,6 +1885,7 @@ describe("resolveSpaceCloser", () => {
     it.each([
       "",
       "editor",
+      "none",
       "code",
     ])("spawns nothing at all when opener is %o", async (opener) => {
       setConfig({ opener });
@@ -2037,6 +2038,154 @@ describe("resolveSpaceCloser", () => {
 
       await expect(afterFailedClose([onePath])).resolves.toEqual([]);
     });
+  });
+});
+
+// The Rex side of the closer. Every call into src/integrations/rex.js is
+// stubbed: no test here spawns `rex`, and REX_SESSION is set or cleared by the
+// test that needs it, so the suite means the same inside a Rex terminal.
+describe("resolveSpaceCloser — the Rex opener", () => {
+  const gitRootPath = "/repo/project";
+  const worktreesRootPath = `${gitRootPath}.worktrees`;
+  const onePath = `${worktreesRootPath}/feature/one`;
+  const twoPath = `${worktreesRootPath}/feature/two`;
+  const ownSession = process.env.REX_SESSION;
+
+  let command: TestCommand;
+  let mockFind: ReturnType<typeof vi.spyOn>;
+  let mockClose: ReturnType<typeof vi.spyOn>;
+  let mockInstalled: ReturnType<typeof vi.spyOn>;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.REX_SESSION;
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    vi.spyOn(command, "log").mockImplementation(() => {});
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      worktreesRootPath,
+    );
+    vi.spyOn(git, "gitGetWorktrees").mockResolvedValue([
+      {
+        path: onePath,
+        branchName: "feature/one",
+        pathExists: true,
+        isCurrent: false,
+      },
+      {
+        path: twoPath,
+        branchName: "feature/two",
+        pathExists: true,
+        isCurrent: false,
+      },
+    ]);
+    mockInstalled = vi.spyOn(rex, "isRexInstalled").mockResolvedValue(true);
+    mockFind = vi.spyOn(rex, "findRexSessions").mockResolvedValue(
+      new Map([
+        [onePath, "session:Q"],
+        [twoPath, "session:R"],
+      ]),
+    );
+    mockClose = vi.spyOn(rex, "closeRexSession").mockResolvedValue();
+    setConfig({ opener: "rex" });
+  });
+
+  afterEach(() => {
+    if (ownSession === undefined) {
+      delete process.env.REX_SESSION;
+    } else {
+      process.env.REX_SESSION = ownSession;
+    }
+  });
+
+  it.each([
+    "",
+    "editor",
+    "none",
+  ])("spawns no rex process when opener is %o", async (opener) => {
+    setConfig({ opener });
+
+    const closeSpaces = await command.closer();
+    await closeSpaces([onePath, twoPath]);
+
+    expect(mockInstalled).not.toHaveBeenCalled();
+    expect(mockFind).not.toHaveBeenCalled();
+    expect(mockClose).not.toHaveBeenCalled();
+    expect(mockRunCapturing).not.toHaveBeenCalled();
+  });
+
+  it("looks sessions up when the closer is resolved and closes only after it is called", async () => {
+    const closeSpaces = await command.closer();
+
+    expect(mockFind).toHaveBeenCalledTimes(1);
+    expect(mockClose).not.toHaveBeenCalled();
+
+    await expect(closeSpaces([onePath])).resolves.toEqual(["session:Q"]);
+    expect(mockClose).toHaveBeenCalledTimes(1);
+    expect(mockClose).toHaveBeenCalledWith("session:Q");
+  });
+
+  it("words the spinners for Rex", async () => {
+    const closeSpaces = await command.closer();
+    await closeSpaces([onePath]);
+
+    expect(spinnerMocks.oraFactory).toHaveBeenCalledWith(
+      "Finding Rex sessions",
+    );
+    expect(spinnerMocks.succeed).toHaveBeenCalledWith(
+      "Closed Rex session feature/one",
+    );
+    expect(spinnerMocks.oraFactory).toHaveBeenCalledWith(
+      "Closing Rex session feature/one",
+    );
+  });
+
+  it("skips the session the CLI itself runs in (D8)", async () => {
+    process.env.REX_SESSION = "session:Q";
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([onePath, twoPath])).resolves.toEqual([
+      "session:R",
+    ]);
+    expect(mockClose).not.toHaveBeenCalledWith("session:Q");
+  });
+
+  it("carries on to the next session when one kill is refused", async () => {
+    mockClose.mockRejectedValueOnce(new Error("Rex: no such session"));
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([onePath, twoPath])).resolves.toEqual([
+      "session:R",
+    ]);
+    expect(spinnerMocks.warn).toHaveBeenCalledWith("Rex: no such session");
+    expect(mockClose).toHaveBeenCalledWith("session:R");
+  });
+
+  it("warns once and closes nothing when the lookup throws", async () => {
+    mockFind.mockRejectedValue(new Error("Rex: down"));
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([onePath])).resolves.toEqual([]);
+    expect(spinnerMocks.warn).toHaveBeenCalledTimes(1);
+    expect(mockClose).not.toHaveBeenCalled();
+  });
+
+  it("answers [] without a kill when nothing was open", async () => {
+    mockFind.mockResolvedValue(new Map());
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([onePath])).resolves.toEqual([]);
+    expect(mockClose).not.toHaveBeenCalled();
   });
 });
 

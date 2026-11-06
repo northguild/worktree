@@ -7,6 +7,7 @@ import {
 
 export const herdrMultiplexer: Multiplexer = {
   displayName: "Herdr",
+  spaceNoun: "space",
   isInstalled: () => isHerdrInstalled(),
   async findSpaces(gitRootPath) {
     const { worktrees, sourceWorkspaceId } = await listHerdrWorktrees({

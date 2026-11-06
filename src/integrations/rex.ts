@@ -510,7 +510,7 @@ async function readBlockDirectory(
 async function worktreesOfSession(
   sessionId: string,
   roots: Array<{ path: string; real: string }>,
-): Promise<Set<string>> {
+): Promise<{ matched: Set<string>; outside: boolean }> {
   let blockIds: string[];
   try {
     blockIds = readTerminalBlockIds(
@@ -518,7 +518,7 @@ async function worktreesOfSession(
     );
   } catch (error) {
     if (isRefusal(error)) {
-      return new Set();
+      return { matched: new Set(), outside: false };
     }
     throw error;
   }
@@ -528,8 +528,11 @@ async function worktreesOfSession(
   );
 
   const found = new Set<string>();
+  let outside = false;
   for (const directory of directories) {
+    // A shell whose directory could not be read is not known to be inside.
     if (directory === undefined) {
+      outside = true;
       continue;
     }
 
@@ -542,10 +545,12 @@ async function worktreesOfSession(
 
     if (match) {
       found.add(match.path);
+    } else {
+      outside = true;
     }
   }
 
-  return found;
+  return { matched: found, outside };
 }
 
 async function mapWithLimit<T, R>(
@@ -574,6 +579,12 @@ async function mapWithLimit<T, R>(
 export interface RexFindOptions {
   /** Absolute worktree paths to look for. */
   paths: string[];
+  /**
+   * Closing (D11): also leave out a session with any shell outside every given
+   * root, in a directory nothing asked about or one that could not be read.
+   * Off for "is it open?", which a single shell in the worktree answers.
+   */
+  everyShellInside?: boolean;
 }
 
 /**
@@ -599,6 +610,7 @@ export interface RexFindOptions {
  */
 export async function findRexSessions({
   paths,
+  everyShellInside = false,
 }: RexFindOptions): Promise<Map<string, string>> {
   const found = new Map<string, string>();
 
@@ -616,10 +628,17 @@ export async function findRexSessions({
   );
 
   sessionIds.forEach((sessionId, index) => {
-    const worktrees = perSession[index];
-    const [only] = worktrees ?? [];
+    const { matched: worktrees, outside } = perSession[index] ?? {
+      matched: new Set<string>(),
+      outside: false,
+    };
+    const [only] = worktrees;
 
-    if (worktrees?.size === 1 && only !== undefined && !found.has(only)) {
+    if (everyShellInside && outside) {
+      return;
+    }
+
+    if (worktrees.size === 1 && only !== undefined && !found.has(only)) {
       found.set(only, sessionId);
     }
   });

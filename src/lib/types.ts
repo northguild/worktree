@@ -288,5 +288,7 @@ export interface RemoveDocument {
   removed: { branch: string; path: string }[];
   /** The Herdr workspace ids that were closed. */
   herdrSpacesClosed: string[];
+  /** The Rex session ids that were killed. */
+  rexSessionsClosed: string[];
   warnings: string[];
 }

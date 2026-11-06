@@ -624,6 +624,75 @@ describe("findRexSessions (D6)", () => {
     ).resolves.toEqual(new Map());
   });
 
+  // D11: the caller passes the main checkout and the current worktree as roots
+  // beside the worktree to close, and a shell in either makes the session
+  // theirs. These two pin that the lookup, not the adapter, leaves it out.
+  it("leaves out a session with a shell in the main checkout as well as the worktree", async () => {
+    serve({
+      [LS]: sessionsAnswer(SESSION_A),
+      [blocksOf(SESSION_A)]: blocksAnswer(BLOCK_A, BLOCK_B),
+      [processOf(SESSION_A, BLOCK_A)]: processAnswer("/a/foo"),
+      [processOf(SESSION_A, BLOCK_B)]: processAnswer("/a/main/src"),
+    });
+
+    await expect(
+      findRexSessions({ paths: ["/a/foo", "/a/main"] }),
+    ).resolves.toEqual(new Map());
+  });
+
+  it("leaves out a session with a shell in the current worktree as well as the worktree", async () => {
+    serve({
+      [LS]: sessionsAnswer(SESSION_A),
+      [blocksOf(SESSION_A)]: blocksAnswer(BLOCK_A, BLOCK_B),
+      [processOf(SESSION_A, BLOCK_A)]: processAnswer("/a/foo"),
+      [processOf(SESSION_A, BLOCK_B)]: processAnswer("/a/here"),
+    });
+
+    await expect(
+      findRexSessions({ paths: ["/a/foo", "/a/here"] }),
+    ).resolves.toEqual(new Map());
+  });
+
+  // Closing (D11) is stricter than "is it open?": the same session is found by
+  // default and left out with everyShellInside.
+  it("closing: leaves out a session with one shell in the worktree and one in an unrelated directory", async () => {
+    serve({
+      [LS]: sessionsAnswer(SESSION_A),
+      [blocksOf(SESSION_A)]: blocksAnswer(BLOCK_A, BLOCK_B),
+      [processOf(SESSION_A, BLOCK_A)]: processAnswer("/a/foo"),
+      [processOf(SESSION_A, BLOCK_B)]: processAnswer("/home/baldur"),
+    });
+
+    await expect(
+      findRexSessions({ paths: ["/a/foo"], everyShellInside: true }),
+    ).resolves.toEqual(new Map());
+  });
+
+  it("closing: finds a session whose shells are all inside the worktree, a subdirectory included", async () => {
+    serve({
+      [LS]: sessionsAnswer(SESSION_A),
+      [blocksOf(SESSION_A)]: blocksAnswer(BLOCK_A, BLOCK_B),
+      [processOf(SESSION_A, BLOCK_A)]: processAnswer("/a/foo"),
+      [processOf(SESSION_A, BLOCK_B)]: processAnswer("/a/foo/src/lib"),
+    });
+
+    await expect(
+      findRexSessions({ paths: ["/a/foo"], everyShellInside: true }),
+    ).resolves.toEqual(new Map([["/a/foo", SESSION_A]]));
+  });
+
+  it("closing: still does not find a session whose shells all moved elsewhere", async () => {
+    serve({
+      [LS]: sessionsAnswer(SESSION_A),
+      [blocksOf(SESSION_A)]: blocksAnswer(BLOCK_A),
+      [processOf(SESSION_A, BLOCK_A)]: processAnswer("/home/baldur"),
+    });
+
+    await expect(
+      findRexSessions({ paths: ["/a/foo"], everyShellInside: true }),
+    ).resolves.toEqual(new Map());
+  });
+
   it("still finds a session that has one shell in the worktree and one elsewhere", async () => {
     serve({
       [LS]: sessionsAnswer(SESSION_A),
@@ -683,6 +752,22 @@ describe("findRexSessions (D6)", () => {
     await expect(findRexSessions({ paths: ["/a/foo"] })).resolves.toEqual(
       new Map([["/a/foo", SESSION_B]]),
     );
+  });
+
+  // §2 line 64: closing needs a positive identification. A shell whose
+  // directory Rex would not give is not known to be inside, so when closing
+  // the session is left open — the same case finds it by default (above).
+  it("closing: leaves out a session with a shell whose directory could not be read", async () => {
+    serve({
+      [LS]: sessionsAnswer(SESSION_A),
+      [blocksOf(SESSION_A)]: blocksAnswer(BLOCK_A, BLOCK_B),
+      [processOf(SESSION_A, BLOCK_A)]: fail(3, "Error: block target not found"),
+      [processOf(SESSION_A, BLOCK_B)]: processAnswer("/a/foo"),
+    });
+
+    await expect(
+      findRexSessions({ paths: ["/a/foo"], everyShellInside: true }),
+    ).resolves.toEqual(new Map());
   });
 
   it("rejects when Rex stops answering rather than reporting nothing found", async () => {
