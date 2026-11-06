@@ -258,7 +258,8 @@ long as the page is visible. The pointer pushes leaves near the art box.
   site base; a reload always plays it, since it keeps the old referrer (`internal-arrival.ts` is the tested form of that test;
   `Header.test.ts` runs the inline copy against it). No referrer, and northguild.dev itself, count as external. To see it: open the landing from a typed URL or `https://northguild.dev/`; reload it and it plays again; follow the
   header's "worktree" link from `/worktree/faq/` and it does not play. `pnpm docs:audit-dist` pins the marker, the inline script, the
-  query and the absence of any `opacity: 0` rule on a header item.
+  query, the absence of any `opacity: 0` rule on a header item, and which parts may fade (never the wordmark, GitHub or
+  Discord, or the search dialog's buttons).
 
 ## Scripts reference
 

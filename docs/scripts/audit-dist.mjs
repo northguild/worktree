@@ -58,7 +58,10 @@
  * landing's header and no other page's, and that header holds the internal-arrival script inline (no `src`); in the built
  * CSS the `header-entrance-*` keyframes, and every rule that animates them, sit under
  * `@media (prefers-reduced-motion: no-preference)` alone; and no rule outside a keyframe, and no `style` in the header,
- * gives a header item `opacity: 0`, so nothing waits hidden on a script.
+ * gives a header item `opacity: 0`, so nothing waits hidden on a script. Every rule that animates an entrance keyframe is
+ * scoped to `[data-landing-entrance]` and gated by `:not([data-entrance-off])`, with no `forwards` or `both` fill; the
+ * keyframes animate only opacity, transform and color; and the fade never targets `.wordmark`, `.title-wrapper` or
+ * `header-chip`, and on search only `site-search > button[data-open-modal]`.
  *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
