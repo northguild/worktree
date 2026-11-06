@@ -55,8 +55,14 @@ export const CHECKLIST_ITEMS: readonly ChecklistItem[] = [
   {
     id: "clickup",
     title: "ClickUp",
-    label: "ClickUp: your API token, workspace, and whether to start tasks",
-    keys: ["clickup.apiToken", "clickup.workspaceId", "clickup.autoStart"],
+    label:
+      "ClickUp: your API token, workspace, and whether to assign and start tasks",
+    keys: [
+      "clickup.apiToken",
+      "clickup.workspaceId",
+      "clickup.autoAssign",
+      "clickup.autoStart",
+    ],
   },
   {
     id: "opening",

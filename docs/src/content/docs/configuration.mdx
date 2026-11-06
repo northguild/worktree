@@ -38,6 +38,7 @@ config.
 - `linear.agentContext` (`true` or `false`, anything else is refused; `true` lets `worktree linear-listen` add the delegated issue's text to the agent's brief, fenced as untrusted and capped at 32 KiB, and unset means `false`; never asked for by `worktree config`, and a `linear.agentContext` in `.worktree.yml` is ignored with a warning)
 - `clickup.apiToken` (ClickUp personal API token, example: `pk_...`)
 - `clickup.workspaceId` (optional; your ClickUp Workspace id, a number, needed only for custom task ids like `DEV-123`)
+- `clickup.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
 - `clickup.autoStart` (`true` or `false`, unset means you are asked, or the task is moved to in progress when non-interactive)
 - `branchPrefix.feature` (example: `feature/`)
 - `branchPrefix.bugfix` (example: `fix/`)
@@ -288,6 +289,12 @@ worktree config linear.autoStart true
 - `worktree branch --clickup <task-id>` reads tasks from the ClickUp Workspace your token belongs to.
 - `clickup.apiToken` is required. `clickup.workspaceId` is optional and is needed only when you pass a custom task id
   such as `DEV-123`; a short id such as `9hx` never needs it. An empty answer to its prompt skips it.
+- `clickup.autoAssign` is optional and decides whether `--clickup` also assigns the task to you. It has three states, like `jira.autoAssign`: `true` always assigns, `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it assigns and saves nothing. It is a personal key: a `clickup.autoAssign` in `.worktree.yml` is ignored with a warning. To set it directly:
+
+```bash
+worktree config clickup.autoAssign true
+```
+
 - `clickup.autoStart` is optional and decides whether `--clickup` also moves the task to in progress once the worktree exists. It has three states, like `linear.autoStart`: `true` always moves it (a task already in progress, or done, closed or in any other status type, is left where it is, as it is when the List has no in-progress status), `false` never does, and leaving it **unset** means you are asked, once, and your answer is saved to this key. A non-interactive run does not ask: it moves the task, under the same rule, and saves nothing. Moving a task needs edit access to it; the [branch command](/worktree/commands/branch/#moving-the-clickup-task-to-in-progress) and the [ClickUp guide](/worktree/guides/clickup-integration/#moving-the-task-to-in-progress) say which statuses move. To set it directly:
 
 ```bash

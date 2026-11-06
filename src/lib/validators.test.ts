@@ -444,6 +444,31 @@ describe("isValidConfigValue — linear.agentContext", () => {
   });
 });
 
+describe("isValidConfigValue — clickup.autoAssign", () => {
+  // Same contract as the other autoAssign keys (D10): `isValidBoolean` accepts
+  // the lowercase words "true" and "false" and nothing else.
+  it.each`
+    value      | expected                         | description
+    ${"true"}  | ${true}                          | ${"always assign"}
+    ${"false"} | ${true}                          | ${"never assign"}
+    ${"maybe"} | ${"Value must be true or false"} | ${"a non-boolean value"}
+    ${"True"}  | ${"Value must be true or false"} | ${"a capitalised boolean"}
+  `(
+    'should return $expected for "$value" ($description)',
+    async ({ value, expected }) => {
+      expect(await isValidConfigValue("clickup.autoAssign", value)).toBe(
+        expected,
+      );
+    },
+  );
+
+  it("should throw InvalidConfigValueError for a non-boolean value", async () => {
+    await expect(
+      validateConfigValue("clickup.autoAssign", "maybe"),
+    ).rejects.toThrow(InvalidConfigValueError);
+  });
+});
+
 describe("isValidConfigValue — clickup.autoStart", () => {
   // Same contract as the autoAssign keys (D10): `isValidBoolean` accepts the
   // lowercase words "true" and "false" and nothing else.

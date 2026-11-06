@@ -22,6 +22,7 @@ worktree branch --linear <issue-id>
 worktree branch --linear <issue-id> --start
 worktree branch --linear <issue-id> --no-start
 worktree branch --clickup <task-id>
+worktree branch --clickup <task-id> --assign
 worktree branch --clickup <task-id> --start
 worktree branch --clickup <task-id> --no-start
 worktree branch --jira <issue-id> --dry-run
@@ -120,12 +121,13 @@ worktree: no default for a GitHub token; pass `worktree config github.token <tok
 ### Assigning the issue to yourself
 
 `--assign` assigns the issue to the authenticated user as part of creating the branch, and `--no-assign`
-skips it for that one run. It works with `--github` and `--jira`; `--linear` and `--clickup` do not assign
+skips it for that one run. It works with `--github`, `--jira` and `--clickup`; `--linear` does not assign
 yet. The decision is made in this order:
 
 1. `--assign` or `--no-assign`.
 2. The provider's key: [`github.autoAssign`](/worktree/configuration/#github-integration-notes) for `--github`,
-   `jira.autoAssign` for `--jira`. `true` assigns, `false` never does. The two keys are independent.
+   `jira.autoAssign` for `--jira`, `clickup.autoAssign` for `--clickup`. `true` assigns, `false` never does. The
+   keys are independent.
 3. A non-interactive run assigns. The default is not saved, so one unattended run does not settle the key.
 4. Otherwise you are asked once, and your answer is saved to the provider's key so the question is not repeated.
 
@@ -135,8 +137,10 @@ A configured `false` is respected in every mode; pass `--assign` to override it 
 worktree branch --github 42 --assign
 worktree branch --github 42 --no-assign
 worktree branch --jira DEV-123 --assign
+worktree branch --clickup 9hx --assign
 worktree config github.autoAssign true    # always assign, stop asking
 worktree config jira.autoAssign true
+worktree config clickup.autoAssign true
 ```
 
 - **For `--github`, assigning needs a token whose account has push access to the repository; a fine-grained token also
@@ -151,6 +155,12 @@ worktree config jira.autoAssign true
   yours is reported as such and nothing is written. Assigning in Jira needs the *Browse Projects* and
   *Assign Issues* permissions on the issue's project; without them `worktree` warns and carries on. See
   [Jira Issue Integration](/worktree/guides/jira-integration/#assigning-the-issue).
+- **A ClickUp assignment only adds you.** ClickUp keeps several assignees, so you join the task alongside whoever is
+  already on it and nobody is removed; a task that is already yours is reported as such and nothing is written.
+  Assigning needs permission to edit the task, so a token that can read it but not change it gets a warning: with
+  ClickUp's status line and that hint, or the authentication or not-found message when ClickUp answers 401, 403 or
+  404. See
+  [the ClickUp guide](/worktree/guides/clickup-integration/#assigning-the-task).
 - For `--github`, success is confirmed against the API response rather than assumed. If the issue comes back without you on
   it, `worktree` says so instead of reporting success — GitHub documents that it accepts an assignee change
   and ignores it when the account lacks push access. That case has not been tested against GitHub, and
@@ -158,11 +168,11 @@ worktree config jira.autoAssign true
 - **A failed assignment never stops the branch.** The worktree is created either way; you get a warning, not
   an error.
 - The assignment happens before the worktree is created, so the question is never buried behind creation
-  output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees, and a
-  Jira issue that is already yours is not written again — so retrying after a failed creation is harmless.
+  output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees, a
+  Jira issue that is already yours is not written again, and a ClickUp assignment only adds you and skips a task
+  that already lists you — so retrying after a failed creation is harmless.
 - `--assign` and `--no-assign` both require one of `--github`, `--jira`, `--linear` or `--clickup`; on their own there is no issue to act
-  on. `--assign --linear` and `--assign --clickup` warn that assignment is not supported for that provider yet
-  and carry on.
+  on. `--assign --linear` warns that assignment is not supported for Linear yet and carries on.
 
 ## Previewing a branch name
 
@@ -426,7 +436,7 @@ cannot be combined with `--github`, `--jira` or `--linear`. See the [ClickUp gui
 
 ClickUp authentication requires one configuration key, `northguild.worktree.clickup.apiToken`, your ClickUp personal
 API token. Without it the command offers to run `worktree config`, and when there is still no token (or the run is
-non-interactive) exits `2` with `missing_value`. Assigning the task is not supported yet; [moving it to in progress](#moving-the-clickup-task-to-in-progress) is.
+non-interactive) exits `2` with `missing_value`. [Assigning the task](#assigning-the-issue-to-yourself) and [moving it to in progress](#moving-the-clickup-task-to-in-progress) both work.
 
 ### Moving the ClickUp task to in progress
 
@@ -517,7 +527,7 @@ A run is non-interactive when stdin is not a terminal, `CI` is set (and is not e
 `--non-interactive` or `--yes` (`-y`) is given, or `--json` is given; every command accepts the two flags. It never prompts and never
 animates; progress goes to stderr as plain lines.
 
-- A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign` or `jira.autoAssign` assigns
+- A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign`, `jira.autoAssign` or `clickup.autoAssign` assigns
   the issue (without saving the key); `false` or `--no-assign` still skips it. An unset `linear.autoStart` moves a
   `--linear` issue to started the same way, an unset `clickup.autoStart` moves a `--clickup` task to in progress, and an unset
   `jira.autoStart` moves a `--jira` issue to in progress; `false` or `--no-start` still skips it.
@@ -536,7 +546,7 @@ With `--dry-run`, steps 2 to 10 do not happen: the command stops after naming, s
 
 1. Fetches from `origin` once, then reads the team's [`.worktree.yml`](/worktree/project-configuration/) from the
    default branch. A file that cannot be used stops the command here, with exit `2`, before anything is created.
-2. Assigns the issue to you, when creating from `--github` or `--jira` and assignment is enabled.
+2. Assigns the issue to you, when creating from `--github`, `--jira` or `--clickup` and assignment is enabled.
 3. Creates a branch from your configured source branch (`--source`, else your `defaultSourceBranch`, else the
    file's, else `origin/main`).
 4. Adds a worktree under `<repo>.worktrees/<branch-name>`.

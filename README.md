@@ -314,7 +314,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 | `--no-open` | `branch` | create the worktree and print its path; call neither Herdr nor the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
-| `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not (a Jira issue someone else holds is left alone) |
+| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not (a Jira issue someone else holds is left alone; a ClickUp task keeps its other assignees) |
 | `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its workflow's one in-progress transition, once the worktree exists, or not; only a backlog or unstarted Linear issue, an open-status ClickUp task and a Jira issue in the To Do category move (one already in progress is reported, a finished one is left alone, and a Jira workflow with no or several in-progress statuses is left alone with a warning), and it needs a key with the Write permission (Linear), edit access to the task (ClickUp) or the Transition Issues permission (Jira); a `--start` with no issue flag exits `2` |
 | `--linear` with no identifier | `branch` | list your own unstarted and started Linear issues (title and state, escaped) and pick one, then carry on as if you had typed its identifier; it needs a terminal, so `--json`, `--yes`, `--non-interactive`, CI, no terminal and `--dry-run` refuse with exit `2` and `missing_value` before any request |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
@@ -324,7 +324,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 
 - **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to 48 characters at the last dash.
   With no issue, the name is required.
-- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or `jira.autoAssign`, then assign. The default is never saved.
+- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`, `jira.autoAssign` or `clickup.autoAssign`, then assign. The default is never saved.
 - **Start (Linear, ClickUp, Jira):** `--start`/`--no-start`, then `linear.autoStart`, `clickup.autoStart` or `jira.autoStart`, then start: a non-interactive `--linear` run moves a backlog or unstarted issue to started, a non-interactive `--clickup` run moves an open-status task to the List's first in-progress status, and a non-interactive `--jira` run moves a To Do issue to its in-progress status, unless `--no-start` or the key is `false`. The default is never saved, and a failed move warns and changes no exit code.
 - **Install:** on. The command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml`, else
   inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). Steps from the
