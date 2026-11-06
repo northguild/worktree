@@ -13,6 +13,7 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/commands/list/",
   "/commands/open/",
   "/commands/remove/",
+  "/commands/rename/",
   "/configuration/",
   "/faq/",
   "/getting-started/",

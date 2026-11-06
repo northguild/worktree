@@ -39,3 +39,25 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file whol
   never happens; the real `feature/x → a/b/c` call is undeclared, so `afterEach` warns. Cosmetic.
 - `gitRenameWorktree(plan, repoRoot)` takes the root as a second parameter rather than the plan field §6.2's
   signature implied, and its spinner stops without `succeed`, leaving the ✔ line to the command (§4.3 step 4).
+
+## Phase 3 — `worktree rename` command, agent-mode cases and its docs (Gate 2, PASS WITH NOTES)
+
+- No args, non-interactive, *outside* a worktree gives §4.3 row 2's message (the worktree to rename), not
+  row 1's (the new branch name). More useful than the plan's wording, which now disagrees with the code
+  and with `rename.mdx`; §4.3 could be amended to match.
+- One arg in a terminal outside a worktree opens a picker where §4.3 row 2 says `missing_value`. Consistent
+  with how prompts behave elsewhere, but neither recorded in the plan nor tested.
+- Messages with no plan source and no test: `No worktrees under <root>/.`, and `Left <old> as it was.` on a
+  declined confirm. The `rename.mdx` case-only-rename caveat was traced but not run on a real filesystem.
+- Nothing asserts that a git refusal exits 1 end to end (D6). A spawned case with `git worktree lock` would
+  pin `code: "failed"` and `Could not rename feature/x:`.
+- `rename.test.ts`'s test "-f skips the question, interactive or not" only runs non-interactively.
+- `rename.test.ts`'s own `mockRun.mockClear()` in `afterEach` hides every unplanned subprocess call in the
+  file, not only `check-ref-format`; `expectCommands(...)` would keep the safety net.
+- Code shape: `remote: ""` invented to satisfy `WorktreeListEntry` for `hasLiveAgent`; `RenameDocument`
+  repeats `WorktreeRenameResult`'s fields (anti-patterns.md DTO duplication); `startedInside` has no
+  boolean prefix (naming.md).
+- README's agent-mode per-command page list (`:466-469`) does not link `rename`, which now has a JSON
+  section.
+- `rename.mdx` says Herdr spaces and Rex sessions are not renamed — phase 4 makes that untrue and carries
+  the page on its Files line.

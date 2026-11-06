@@ -19,8 +19,8 @@ import {
 
 // The audit is tested against a small compliant site built here, then broken one rule at a time. Expected
 // values come from plan §4.8 (what the audit asserts), D3 (URL form: https://northguild.dev/worktree/<path>/)
-// and D10 (which JSON-LD types go where) — never from the audit's own constants. The 27 paths are the 24 old
-// routes at 2633f3a, the two #238 added (5c741ee) and the Rex Sessions guide (#270) under D17 (2026-11-04): /docs becomes the landing at the root, /docs/getting-started becomes
+// and D10 (which JSON-LD types go where) — never from the audit's own constants. The 28 paths are the 24 old
+// routes at 2633f3a, the two #238 added (5c741ee), the Rex Sessions guide (#270) and the `rename` command page (#272) under D17 (2026-11-04): /docs becomes the landing at the root, /docs/getting-started becomes
 // /getting-started/, every other /docs/<p> becomes /<p>/.
 const ORIGIN = "https://northguild.dev/worktree/";
 const PATHS = [
@@ -35,6 +35,7 @@ const PATHS = [
   "commands/list",
   "commands/open",
   "commands/remove",
+  "commands/rename",
   "configuration",
   "faq",
   "getting-started",
@@ -744,7 +745,7 @@ describe("auditDist", () => {
     ).toBe(true);
   });
 
-  it("fails a sitemap that lacks /getting-started/ (27 URLs are expected, not 26)", async () => {
+  it("fails a sitemap that lacks /getting-started/ (28 URLs are expected, not 27)", async () => {
     await write(
       dist,
       "sitemap-0.xml",
@@ -832,7 +833,7 @@ describe("auditDist", () => {
     expect((await audit()).some((f) => /faq/.test(f))).toBe(true);
   });
 
-  // llms.txt (D13, plan §4.8): the same 27 URLs as the sitemap, each with a title and the page's description.
+  // llms.txt (D13, plan §4.8): the same 28 URLs as the sitemap, each with a title and the page's description.
   it("fails when llms.txt is missing", async () => {
     await rm(join(dist, "llms.txt"));
     expect((await audit()).some((f) => /llms\.txt/.test(f))).toBe(true);
@@ -927,7 +928,7 @@ describe("auditDist", () => {
     expect(await audit()).toEqual([]);
   });
 
-  // Phase 15 (the user, 2026-11-04): "ditch the footer" on the landing. The root is still one of the 27 pages, so
+  // Phase 15 (the user, 2026-11-04): "ditch the footer" on the landing. The root is still one of the 28 pages, so
   // the date rule turns around there: the footer that carried it is gone.
 
   it("fails a landing that carries a last-updated date", async () => {
@@ -1053,7 +1054,7 @@ describe("auditDist", () => {
     expect(await audit()).toEqual([]);
   });
 
-  it("does not require a date on 404.html (it is not one of the 27 pages)", async () => {
+  it("does not require a date on 404.html (it is not one of the 28 pages)", async () => {
     // beforeEach's 404.html has none, and the compliant site passes.
     expect(await audit()).toEqual([]);
   });

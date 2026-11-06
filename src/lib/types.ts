@@ -286,6 +286,14 @@ export interface WorktreeListDocument {
   worktrees: WorktreeListEntryDocument[];
 }
 
+export interface RenameDocument {
+  from: { branch: string; path: string };
+  to: { branch: string; path: string };
+  /** The branch's upstream after the rename, as `origin/<branch>`, or null. */
+  upstream: string | null;
+  warnings: string[];
+}
+
 export interface RemoveDocument {
   removed: { branch: string; path: string }[];
   /** The Herdr workspace ids that were closed. */

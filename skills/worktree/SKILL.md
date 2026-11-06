@@ -1,7 +1,7 @@
 ---
 name: worktree
 description: >
-  Use when creating, listing, opening, removing or cleaning up git worktrees
+  Use when creating, listing, opening, renaming, removing or cleaning up git worktrees
   with the `worktree` CLI (@northguild/worktree), including starting a
   worktree from a GitHub, Jira or Linear issue or a ClickUp task, handing a new worktree to a coding
   agent, opening worktrees as Herdr spaces or Rex sessions, and driving worktrees from a
@@ -288,7 +288,7 @@ that keeps its own session record: `claude --bg` (see `claude agents`), or
 
 ### Drive worktrees from a script or another agent (agent mode)
 
-`branch`, `list` and `remove` can run with nothing at the keyboard: from a
+`branch`, `list`, `remove` and `rename` can run with nothing at the keyboard: from a
 script, CI or another coding agent, handing back one JSON document to parse.
 Nothing in this mode prompts, animates or waits without a bound.
 
@@ -296,12 +296,13 @@ Nothing in this mode prompts, animates or waits without a bound.
 worktree branch --github 42 --json --agent-file brief.md   # one JSON document on stdout
 worktree list --agents --json                               # liveness: agent.live
 worktree remove feature/x -f --json                         # non-interactive remove needs -f
+worktree rename feature/x bugfix/y --json                   # worktree and branch, together
 ```
 
 A run is non-interactive when any of these hold: stdin is not a terminal, `CI`
 is set and is not empty, `0` or `false`, `--non-interactive` or `--yes` (`-y`)
-is given (every command accepts both), or `--json` is given on `branch`, `list`
-or `remove`. A prompt that has a default takes it. One that has none fails at
+is given (every command accepts both), or `--json` is given on `branch`, `list`,
+`remove` or `rename`. A prompt that has a default takes it. One that has none fails at
 once with exit `2` and a single stderr line,
 `worktree: no default for <value>; pass <flag>`.
 
@@ -309,7 +310,7 @@ Flags for agent mode:
 
 | Flag | On | Does |
 |---|---|---|
-| `--json` | `branch`, `list`, `remove` | one JSON document on stdout; everything for a person goes to stderr |
+| `--json` | `branch`, `list`, `remove`, `rename` | one JSON document on stdout; everything for a person goes to stderr |
 | `--agent <text>`, `--agent-file <path>`, `--agent-stdin` | `branch` (`checkout` takes `--agent`) | the brief for the agent, from a value, a file or piped stdin; mutually exclusive with each other and with `--no-agent`; read whole, empty is refused, at most 131,071 bytes |
 | `--no-open` | `branch` | create the worktree and print its path; call none of Herdr, Rex or the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
@@ -428,6 +429,11 @@ pane id (for example `w4P:p1`) when Herdr reports no name. `agent.name` in the
 `{"removed":[{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"}],"herdrSpacesClosed":["w5"],"rexSessionsClosed":[],"warnings":[]}`.
 Naming a branch and removing nothing is a failure, never a success.
 
+`rename --json` gives
+`{"from":{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"},"to":{"branch":"bugfix/y","path":"/abs/repo.worktrees/bugfix/y"},"upstream":"origin/feature/x","warnings":[]}`.
+`upstream` is `null` when the branch tracks nothing. A non-interactive run needs the new name, and `-f` when an
+agent session is working in the worktree (without it, exit `2` with `missing_value`).
+
 A failure prints `{"error":{"code","message"}}` on stdout, one line on stderr,
 and exits non-zero. A `missing_value` error also carries
 `details:{value,flag}` naming what was missing and the flag that supplies it.
@@ -499,6 +505,13 @@ worktree list --issues
 
 # Reopen a worktree in your editor
 worktree open feature/add-bulk-actions
+
+# Rename a worktree and its branch together (the directory follows the branch name)
+worktree rename feature/add-bulk-actions feature/bulk-actions
+worktree rename feature/bulk-actions            # one argument: rename the worktree you are in, then `cd` to the new path
+# Local only: the remote branch is left alone, and the branch still tracks it under its old name
+# (`git push origin HEAD:<old name>` updates it). Needs git 2.9 or newer. A running editor or
+# shell keeps the old path, and anything with absolute paths baked in (a Python venv) has to be recreated.
 
 # Remove a specific worktree
 worktree remove feature/add-bulk-actions
