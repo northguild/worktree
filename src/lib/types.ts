@@ -38,8 +38,10 @@ export interface OpenOutcome {
   rex?: {
     session: string;
     /**
-     * The session's first terminal, `null` for a session that was already open:
-     * the lookup that finds it reads shells, not the block `rex new` reported.
+     * The session's first terminal, as `rex new` reported it. `null` whenever
+     * the session was found by the lookup instead, which reads shells: one that
+     * was already open, or one whose `rex new` timed out and turned up after.
+     * Whether an agent started is `agent`'s to say, not this field's.
      */
     block: string | null;
   };

@@ -159,7 +159,9 @@ Two cases get special care, because opening twice would leave two sessions:
   `worktree` looks the session up instead. A session that is found counts as opened; one that is not is a failed
   open, and no detached agent is started beside a session that might exist.
 
-Nothing in these messages quotes the brief. It is named by its size.
+Nothing in these messages quotes the brief. It is named by its size. When a `rex new` that carries a brief
+fails, Rex's own message is withheld as well and only its exit code is shown, because Rex may repeat its
+arguments, and an echo that comes escaped or cut short cannot be told apart from the rest of its message.
 
 ## When the worktree goes
 

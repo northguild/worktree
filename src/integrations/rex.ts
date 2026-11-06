@@ -174,16 +174,27 @@ function describeCommand(args: string[]): string {
 }
 
 /**
- * Rex's own words, with the brief taken out in case it echoes its argv. The
- * brief is the last argument after `--` and comes after the program, so a
- * single trailing argument is a program's, not a brief.
+ * Whether the argv carries a brief: the last argument after `--`, after the
+ * program, so a single trailing argument is a program's, not a brief.
+ *
+ * Nothing Rex prints for such a call is passed on, its stderr included. Rex may
+ * echo its argv, and an echo can come quoted, escaped or cut short, none of
+ * which a match against the brief would find (#72).
  */
-function redactBrief(args: string[], text: string): string {
+function carriesBrief(args: string[]): boolean {
   const separator = args.indexOf("--");
-  const command = separator === -1 ? [] : args.slice(separator + 1);
-  const brief = command.length > 1 ? command[command.length - 1] : undefined;
+  return separator !== -1 && args.length - separator - 1 > 1;
+}
 
-  return brief ? text.replaceAll(brief, "<brief>") : text;
+/** What follows the exit code: Rex's own words, unless the call carried a brief. */
+function stderrDetail(args: string[], stderr: string): string {
+  if (!stderr) {
+    return "";
+  }
+
+  return carriesBrief(args)
+    ? "; Rex's message is withheld, because the command carried the brief"
+    : `: ${stderr}`;
 }
 
 /**
@@ -240,10 +251,8 @@ async function runRex(args: string[]): Promise<string> {
   }
 
   if (result.exitCode !== 0) {
-    const detail = result.stderr ? `: ${redactBrief(args, result.stderr)}` : "";
-
     throw new RexError(
-      `${describeCommand(args)} exited with code ${result.exitCode}${detail}`,
+      `${describeCommand(args)} exited with code ${result.exitCode}${stderrDetail(args, result.stderr)}`,
       { exitCode: result.exitCode },
     );
   }
@@ -259,7 +268,8 @@ async function runRexJson(args: string[]): Promise<unknown> {
   } catch (error) {
     throw new RexError(
       `${describeCommand(args)} did not answer with JSON (${stdout.length} characters).`,
-      { cause: error },
+      // V8's SyntaxError quotes a stretch of the input, which could be an echo.
+      carriesBrief(args) ? undefined : { cause: error },
     );
   }
 }

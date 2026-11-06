@@ -195,7 +195,8 @@ command is the step that failed, else the last that ran; steps are the ones
 that ran, in order; from is "git-config", "project" or "lockfile"
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
 rex: {session, block|null}, or null if no Rex session was opened (block is
-null for a session that was already open)
+null when the session was found rather than reported by rex new: one already
+open, or a timed-out new that turned up after; agent says if an agent started)
 agent: {name|null, kind|null, command[], prompted}, or null if none started
 agent.prompted is the delivery receipt for a brief. With Herdr it means the
 brief reached the agent; with Rex it means the session was created with the

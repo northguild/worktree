@@ -337,8 +337,16 @@ describe("openRexSession (D4, D7)", () => {
     expect(mockRunCapturing).toHaveBeenCalledTimes(1);
   });
 
-  it("never prints the brief when Rex fails, even if it echoes the argument", async () => {
-    mockRunCapturing.mockResolvedValue(fail(1, `Error: cannot run "${BRIEF}"`));
+  it.each([
+    ["verbatim", `Error: cannot run "${BRIEF}"`],
+    // Go's %q and JSON escape newlines, quotes and backslashes.
+    ["escaped", `Error: cannot run ${JSON.stringify(BRIEF)}`],
+    [
+      "escaped and cut short",
+      `Error: cannot run ${JSON.stringify(BRIEF).slice(0, 60)}…`,
+    ],
+  ])("never prints the brief when Rex fails, even if it echoes it %s", async (_name, stderr) => {
+    mockRunCapturing.mockResolvedValue(fail(1, stderr));
 
     const error = await openRexSession({
       path: "/a/foo",
@@ -347,10 +355,52 @@ describe("openRexSession (D4, D7)", () => {
     }).catch((caught: unknown) => caught);
 
     const message = (error as Error).message;
-    expect(message).toMatch(/exited with code 1/);
-    expect(message).not.toContain("second line");
-    expect(message).not.toContain(BRIEF);
+    expect((error as RexError).exitCode).toBe(1);
+    expect(message).toMatch(/exited with code 1; Rex's message is withheld/);
     expect(message).toMatch(/claude/);
+    // None of Rex's stderr, so no fragment of the brief in any form.
+    expect(message).not.toContain("cannot run");
+    expect(message).not.toContain("quote");
+    expect(message).not.toContain("second line");
+    expect(message).not.toContain("xxxxxxxxxx");
+  });
+
+  it("passes Rex's words through for a program with no brief after it", async () => {
+    mockRunCapturing.mockResolvedValue(fail(1, "Error: no client"));
+
+    const error = await openRexSession({
+      path: "/a/foo",
+      label: "x",
+      command: ["claude"],
+    }).catch((caught: unknown) => caught);
+
+    expect((error as Error).message).toMatch(
+      /exited with code 1: Error: no client$/,
+    );
+  });
+
+  it("keeps no parse error as the cause when stdout from a brief is not JSON", async () => {
+    mockRunCapturing.mockResolvedValue(ok(`cannot run ${BRIEF}`));
+
+    const error = await openRexSession({
+      path: "/a/foo",
+      label: "x",
+      command: ["claude", BRIEF],
+    }).catch((caught: unknown) => caught);
+
+    expect((error as Error).message).toMatch(/did not answer with JSON/);
+    // V8's SyntaxError message quotes a stretch of the input.
+    expect((error as Error).cause).toBeUndefined();
+  });
+
+  it("keeps the parse error as the cause when the call carried no brief", async () => {
+    mockRunCapturing.mockResolvedValue(ok("oops"));
+
+    const error = await openRexSession({ path: "/a/foo", label: "x" }).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect((error as Error).cause).toBeInstanceOf(SyntaxError);
   });
 
   it("never prints the brief when the child dies on a signal", async () => {

@@ -376,8 +376,10 @@ document:
 - `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), `null` when no assignment was attempted.
 - `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), `null` when none was attempted.
 - `herdr`, `rex` and `agent` are `null` when skipped. `rex` is `{session,block}`
-  for the Rex session that was opened, `block` `null` for one that was already
-  open. `agent.command` leaves the brief
+  for the Rex session that was opened, `block` `null` when the session was
+  found rather than reported by `rex new` (already open, or a timed-out `new`
+  that turned up after); `agent` says whether an agent started.
+  `agent.command` leaves the brief
   out. `agent.name` is `null` where this CLI named nothing: a detached
   start, or a Herdr kind other than `claude`. `agent.kind` is `null` on a
   detached start. `herdr.agent` is `null` when no agent was started in the

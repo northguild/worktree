@@ -1133,6 +1133,8 @@ export abstract class BaseCommand extends Command {
           mayExist = true;
           throw error;
         }
+        // Found by the lookup, which reads shells: `block` stays null, as for a
+        // session that was already open.
         session = late;
       }
 
