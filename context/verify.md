@@ -121,6 +121,8 @@ Phase 16 added, for the leaf-particle hero (D18): the root alone loads the hero 
 page, the 404 included, does or carries the hero's art box; no page loads the effect's chunks (`particles.*`) up front, whether by a script, a modulepreload or
 a static import, the loader reaching them only through a dynamic `import()`; the loader is at most 2 KB gzipped and the effect with everything it imports, together,
 at most 32 KB gzipped; and on the landing there is one canvas and one still SVG, each `aria-hidden="true"`.
+Added 2026-11-06 for #266, on every page and the 404: each `starlight-theme-select` (the header's and the mobile menu's; at least one) holding exactly one `<button>` (named, by the accessible-names rule above) and no `<select>`,
+and the theme provider's script (the override, not Starlight's, reading the `starlight-theme` key) inline in `<head>`; `theme-contrast.mjs` also measures the toggle's icon beside the GitHub and Discord icons.
 Added 2026-11-04 for #235 and run from the repo root of a worktree that day, exiting 0. CI runs `pnpm docs:build` then
 `pnpm docs:audit-dist` after `pnpm build`, and `docs-deploy.yml` runs the same pair before it deploys anything.
 

@@ -47,6 +47,10 @@
  * the file is. Every page's and the 404's `<title>` is its `og:title` and `og:site_name` joined by GMT's ` · ` (the user,
  * 2026-11-04, replacing Starlight's default ` | `), or its `og:title` alone where that already names the site.
  *
+ * Also (#266, the two-state theme toggle): every page and the 404 has `starlight-theme-select` (Starlight renders it in the
+ * header and in the mobile menu), each holding exactly one named `<button>` and no `<select>`, and the theme provider's script (the override, not Starlight's) is inline in `<head>`,
+ * so the theme is set before first paint and the button's icon is kept current.
+ *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
 
@@ -706,6 +710,53 @@ function visibleLabel(inner) {
   );
 }
 
+/**
+ * The theme control (#266, D1/D3): at least one `starlight-theme-select` (Starlight renders it in the header and in the
+ * mobile menu), each holding exactly one `<button>` and no `<select>`
+ * (the button's name is checked with every other button by `auditControls`), and the theme provider's script inline in
+ * `<head>`, so `data-theme` is set before first paint. The provider is recognised by the two things Starlight's own does
+ * not have: it defines `StarlightThemeProvider`, draws into `button.theme-toggle` and reads the `'starlight-theme'` key (D2), so a build that lost the
+ * override (and so has a button nothing updates) fails here.
+ */
+function auditThemeControl(html, where) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: ${rule}`);
+  const selects = [
+    ...html.matchAll(
+      /<starlight-theme-select\b[^>]*>([\s\S]*?)<\/starlight-theme-select>/g,
+    ),
+  ];
+  // Starlight renders the select twice, in the header and in the mobile menu, so "one" means one button per select.
+  if (selects.length === 0)
+    fail(
+      "0 starlight-theme-select elements, expected the header's and the mobile menu's",
+    );
+  for (const [, inner] of selects) {
+    const buttons = inner.match(/<button\b/g) ?? [];
+    if (buttons.length !== 1)
+      fail(
+        `the theme select holds ${buttons.length} <button> elements, expected exactly 1`,
+      );
+    if (/<select\b/.test(inner))
+      fail("the theme select holds a <select>, expected the two-state button");
+  }
+  const head = html.slice(0, Math.max(html.indexOf("</head>"), 0));
+  const inlineProvider = [
+    ...head.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g),
+  ].some(
+    ([, rawAttrs, source]) =>
+      attributes(rawAttrs).src === undefined &&
+      source.includes("StarlightThemeProvider") &&
+      source.includes("button.theme-toggle") &&
+      source.includes("'starlight-theme'"),
+  );
+  if (!inlineProvider)
+    fail(
+      "the theme provider script is not inline in <head> (expected the override, ThemeProvider.astro)",
+    );
+  return failures;
+}
+
 /** Failures in how a page's controls are named (WCAG 4.1.2 and 2.5.3) and in the chat launcher's announced shortcut. */
 function auditControls(html, where) {
   const failures = [];
@@ -1044,6 +1095,7 @@ async function auditPage(path, dist, descriptions, options) {
   for (const rule of await auditHero(html, dist, path === "")) fail(rule);
 
   failures.push(...auditControls(html, label(path)));
+  failures.push(...auditThemeControl(html, label(path)));
   failures.push(...auditHeader(html, label(path)));
   failures.push(...auditSvgs(html, label(path)));
 
@@ -1183,6 +1235,7 @@ async function auditLlms(dist, descriptions) {
 function auditNotFound(html) {
   const failures = [
     ...auditControls(html, "404.html"),
+    ...auditThemeControl(html, "404.html"),
     ...auditHeader(html, "404.html"),
     ...auditSvgs(html, "404.html"),
   ];

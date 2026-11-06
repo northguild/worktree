@@ -337,6 +337,8 @@ export const PAIRS = [
     "var(--sl-color-text-accent)",
     HEADER,
   ),
+  // The theme toggle's icon (#266) is the same chip as the two links above: `.header-chip` in custom.css.
+  shape("header: theme toggle icon", "var(--sl-color-text-accent)", HEADER),
   shape("chat launcher fill on the page", "var(--gmt-spring)", PAGE),
   shape("chat launcher border on the page", "var(--gmt-spring-ink)", PAGE),
   shape("chat launcher glyph on its fill", "var(--gmt-ink-fixed)", [

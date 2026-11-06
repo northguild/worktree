@@ -146,7 +146,9 @@ The site wears the NorthGuild theme. `src/styles/northguild/{tokens,tokens-light
 that commit's bytes, so **never edit them in place**. `src/styles/theme.css` is this site's own: it maps the
 `--gmt-*` tokens onto Starlight's `--sl-*` variables, repoints the `@font-face` at `/worktree/fonts/`
 (the vendored one looks for `./fonts/`) and sets the few rules Starlight has no variable for. Light or dark
-follows the visitor's system through Starlight's theme picker, which sets `data-theme` on `<html>`.
+follows the visitor's system until they press the header's theme button, a two-state toggle (system, or the opposite theme set
+explicitly; pressing it again returns to the system) that sets `data-theme` on `<html>` and stores only `light` or `dark` under
+Starlight's `starlight-theme` key (`src/components/ThemeSelect.astro`, `ThemeProvider.astro`, the logic in `src/lib/theme-toggle.ts`).
 The header's NorthGuild mark is `src/components/SiteTitle.astro`, copied the same way.
 
 ### The accent, and how a product picks its colour
@@ -173,8 +175,12 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 
 ### The header, the sidebar and the page details
 
-- **Header.** Starlight's own `Header` is kept, so search, the theme picker, the language select and the mobile menu are
-  untouched; two of the components it renders are overridden. `src/components/SiteTitle.astro` is the NorthGuild mark and
+- **Header.** Starlight's own `Header` is kept, so search, the language select and the mobile menu are untouched; three of
+  the components it renders (`SiteTitle`, `SocialIcons`, `ThemeSelect`) are overridden, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head. `src/components/ThemeSelect.astro` and `ThemeProvider.astro` make the theme
+  control a two-state button (ported from GMT's `apps/dox`, commit `b15b3899`; Starlight also renders the select in the mobile
+  menu); the provider's script stays inline so the theme is set before first paint, and replacing both is what keeps the
+  button's icon current. The button and the two links below share one chip, `.header-chip` in `src/styles/custom.css`.
+  `src/components/SiteTitle.astro` is the NorthGuild mark and
   "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home),
   then the CLI version (`cliVersion` from `src/lib/site-meta.ts`) in small grey text on the name's baseline, from 30rem up.
   `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, opening in a new tab and saying so in
@@ -233,7 +239,7 @@ long as the page is visible. The pointer pushes leaves near the art box.
   `data-hero` attribute (`live` or `still`) and CSS choose between the SVG and the canvas. A WebGL context the browser takes back
   later turns the box to the still for good. The hero's CSS is in the site's shared stylesheet; only its script is landing-only.
 - **Theme**: the leaves read the `--leaf-*` tokens, defined at the foot of `HeroLeaves.astro` (leaf 1 is `--gmt-spring`; the rest
-  are an invented palette), and re-tint when Starlight's theme picker changes `data-theme` on `<html>`.
+  are an invented palette), and re-tint when the header's theme toggle (`ThemeSelect.astro`, `ThemeProvider.astro`) changes `data-theme` on `<html>`.
 - **Drawing** pauses, with the clock, while the tab is hidden or the art box is off screen; the device pixel ratio is capped at 1.5.
 - Both the canvas and the SVG are `aria-hidden`: the heading and the link carry the meaning.
 

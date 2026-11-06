@@ -101,8 +101,12 @@ const LAUNCHER =
   '<button type="button" class="chat-launcher" aria-label="Open chat" aria-keyshortcuts="Alt+Shift+C" data-chat-launcher><svg aria-hidden="true"></svg></button>';
 const COPY_BUTTON =
   '<button title="Copy to clipboard" data-code="x"><div></div></button>';
+// #266: the theme control is a two-state toggle, one named button in one `starlight-theme-select`, and its provider's
+// script is inline in the head (no flash of the wrong theme). Both are what the build renders.
 const THEME_SELECT =
-  '<label><span class="sr-only">Select theme</span><select><option>Dark</option></select></label>';
+  '<starlight-theme-select><button type="button" class="theme-toggle header-chip" aria-label="Toggle color theme"><svg class="theme-icon" aria-hidden="true"></svg></button></starlight-theme-select>';
+const THEME_PROVIDER =
+  "<script>window.StarlightThemeProvider = (() => { localStorage.getItem('starlight-theme'); document.documentElement.dataset.theme = 'dark'; return { updatePickers() { document.querySelectorAll('starlight-theme-select button.theme-toggle'); } }; })();</script>";
 const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}${THEME_SELECT}${LAUNCHER}`;
 
 // Phase 13 (D17, northguild.dev's Header.astro at ade22a5): the header's two NorthGuild links and its two community
@@ -207,6 +211,7 @@ function page(path, overrides = {}) {
       : "";
   return [
     "<!doctype html><html><head>",
+    overrides.provider ?? THEME_PROVIDER,
     `<title>${titleOf(path)} · @northguild/worktree</title>`,
     `<link rel="canonical" href="${canonical}"/>`,
     `<meta property="og:title" content="${path || "Home"}"/>`,
@@ -229,7 +234,9 @@ function page(path, overrides = {}) {
 // it does not have: no canonical, no JSON-LD (so no BreadcrumbList to /worktree/404/).
 function notFoundPage(overrides = {}) {
   return [
-    "<!doctype html><html><head><title>Page not found · @northguild/worktree</title>",
+    "<!doctype html><html><head>",
+    overrides.provider ?? THEME_PROVIDER,
+    "<title>Page not found · @northguild/worktree</title>",
     overrides.og ??
       '<meta property="og:title" content="Page not found"/><meta property="og:site_name" content="@northguild/worktree"/>',
     overrides.icons ?? ICONS,
@@ -1043,7 +1050,9 @@ describe("auditDist", () => {
       write(
         dist,
         htmlPath(path),
-        page(path, { controls: `${SEARCH_BUTTON}${LAUNCHER}${controls}` }),
+        page(path, {
+          controls: `${SEARCH_BUTTON}${LAUNCHER}${THEME_SELECT}${controls}`,
+        }),
       );
 
     it("fails an icon-only button with no accessible name, naming the page", async () => {
@@ -1361,6 +1370,141 @@ describe("sourcePathOf", () => {
 // Phase 13. The header's expected links come from D17 (the mark and "NorthGuild" to https://northguild.dev/, "worktree" to
 // /worktree/) and from northguild.dev's Header.astro at ade22a5 (the GitHub and Discord hrefs, the new-tab wording). That a
 // name contains the visible text is WCAG 2.2 SC 2.5.3; that a control has a name at all is SC 4.1.2.
+describe("the theme toggle (#266)", () => {
+  const withControls = async (path, controls) => {
+    await write(dist, htmlPath(path), page(path, { controls }));
+    return audit();
+  };
+  const withProvider = async (provider) => {
+    await write(dist, htmlPath("faq"), page("faq", { provider }));
+    return audit();
+  };
+  const without = (html) => CONTROLS.replace(THEME_SELECT, html);
+
+  it("passes a named button in the starlight-theme-select and an inline provider", async () => {
+    expect(await audit()).toEqual([]);
+  });
+
+  it("fails a page with no starlight-theme-select", async () => {
+    const failures = await withControls("faq", without(""));
+    expect(failures.some((f) => /faq.*0 starlight-theme-select/.test(f))).toBe(
+      true,
+    );
+  });
+
+  // Starlight renders ThemeSelect in the header and again in the mobile menu, so two on a page is what the build has.
+  it("passes the header's and the mobile menu's theme select together", async () => {
+    expect(
+      await withControls("faq", without(THEME_SELECT + THEME_SELECT)),
+    ).toEqual([]);
+  });
+
+  it("fails the second theme select when it is the one without a button", async () => {
+    const failures = await withControls(
+      "faq",
+      without(
+        `${THEME_SELECT}<starlight-theme-select></starlight-theme-select>`,
+      ),
+    );
+    expect(failures.some((f) => /faq.*0 <button>/.test(f))).toBe(true);
+  });
+
+  it("fails a theme select that holds a <select>, as Starlight's own does", async () => {
+    const failures = await withControls(
+      "faq",
+      without(
+        '<starlight-theme-select><label><span class="sr-only">Select theme</span><select><option>Dark</option></select></label></starlight-theme-select>',
+      ),
+    );
+    expect(failures.some((f) => /faq.*<select>/.test(f))).toBe(true);
+  });
+
+  it("fails a theme select with no button", async () => {
+    const failures = await withControls(
+      "faq",
+      without("<starlight-theme-select></starlight-theme-select>"),
+    );
+    expect(failures.some((f) => /faq.*0 <button>/.test(f))).toBe(true);
+  });
+
+  it("fails a theme select with two buttons", async () => {
+    const button = THEME_SELECT.replace(/<\/?starlight-theme-select>/g, "");
+    const failures = await withControls(
+      "faq",
+      without(
+        `<starlight-theme-select>${button}${button}</starlight-theme-select>`,
+      ),
+    );
+    expect(failures.some((f) => /faq.*2 <button>/.test(f))).toBe(true);
+  });
+
+  it("fails a theme button with no accessible name", async () => {
+    const failures = await withControls(
+      "faq",
+      without(
+        '<starlight-theme-select><button type="button"><svg aria-hidden="true"></svg></button></starlight-theme-select>',
+      ),
+    );
+    expect(failures.some((f) => /faq.*no accessible name/.test(f))).toBe(true);
+  });
+
+  it("fails the 404 on the same rules", async () => {
+    await write(dist, "404.html", notFoundPage({ controls: without("") }));
+    expect(
+      (await audit()).some((f) =>
+        /404\.html.*0 starlight-theme-select/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a page whose provider script is missing from the head", async () => {
+    const failures = await withProvider("");
+    expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
+  });
+
+  it("fails a provider loaded as an external script rather than inline", async () => {
+    const failures = await withProvider(
+      '<script src="/worktree/_astro/provider.abc.js"></script>',
+    );
+    expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
+  });
+
+  it("fails a provider that only appears in the body, after first paint", async () => {
+    await write(
+      dist,
+      htmlPath("faq"),
+      page("faq", { provider: "", body: THEME_PROVIDER }),
+    );
+    expect((await audit()).some((f) => /faq.*theme provider/.test(f))).toBe(
+      true,
+    );
+  });
+
+  // Shaped like Starlight 0.42.8's own ThemeProvider.astro:7-31: defines window.StarlightThemeProvider and updates a
+  // <select> through picker.querySelector('select'), not a button. A build that lost the override has this.
+  it("fails Starlight's own provider, which updates a select and not the toggle", async () => {
+    const failures = await withProvider(
+      "<script>window.StarlightThemeProvider = (() => { const storedTheme = localStorage.getItem('starlight-theme'); return { updatePickers(theme) { document.querySelectorAll('starlight-theme-select').forEach((picker) => { const select = picker.querySelector('select'); if (select) select.value = theme; }); } }; })();</script>",
+    );
+    expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
+  });
+
+  // D2: the key is Starlight's `starlight-theme`; another key would reset every returning visitor's choice.
+  it("fails a provider that reads another storage key", async () => {
+    const failures = await withProvider(
+      THEME_PROVIDER.replace("'starlight-theme'", "'theme'"),
+    );
+    expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
+  });
+
+  it("fails the 404 when its provider is not inline in the head", async () => {
+    await write(dist, "404.html", notFoundPage({ provider: "" }));
+    expect(
+      (await audit()).some((f) => /404\.html.*theme provider/.test(f)),
+    ).toBe(true);
+  });
+});
+
 describe("the product header", () => {
   const withHeader = async (html) => {
     await write(dist, htmlPath("faq"), page("faq", { header: html }));

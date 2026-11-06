@@ -93,9 +93,13 @@ export default defineConfig({
       components: {
         // The product header (D17): SiteTitle is "mark NorthGuild / worktree" (two links); SocialIcons is the GitHub and
         // Discord pair. Starlight's Header renders both, and the mobile menu renders SocialIcons again, so search, the
-        // theme picker, the language select and the menu keep working untouched.
+        // language select and the menu keep working untouched.
         SiteTitle: "./src/components/SiteTitle.astro",
         SocialIcons: "./src/components/SocialIcons.astro",
+        // The theme control is a two-state toggle (#266, D1/D3): the button, and the provider that sets and draws it. Both
+        // are needed: Starlight's provider updates a <select>, which the button is not. The mobile menu renders ThemeSelect too.
+        ThemeSelect: "./src/components/ThemeSelect.astro",
+        ThemeProvider: "./src/components/ThemeProvider.astro",
         Footer: "./src/components/Footer.astro",
         Head: "./src/components/Head.astro",
         // The landing (D17) sets its copy beside the leaf-particle hero; every other splash page (the 404) keeps Starlight's Hero.

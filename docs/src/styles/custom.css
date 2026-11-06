@@ -10,6 +10,36 @@ starlight-tabs .tab > [role="tab"] {
 }
 
 /*
+ * The header's icon chip (plan #266, D4): the GitHub and Discord links (SocialIcons.astro) and the theme toggle
+ * (ThemeSelect.astro) share it, so the three controls are one size and cannot drift apart. A chip with the same reach as
+ * northguild.dev's icon button (0.5em of padding round a 1.25em glyph); the negative margin keeps the larger target from
+ * spreading the header row. Hover and focus are changes of colour and of the chip's fill and border, not of position, so
+ * there is no motion to reduce. The accent colour, not `.gmt-icon-button`'s cyan, which the audit forbids.
+ */
+.header-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5em;
+  margin: -0.25em;
+  border: 1px solid transparent;
+  border-radius: var(--gmt-radius-md);
+  background: transparent;
+  color: var(--sl-color-text-accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+.header-chip:hover {
+  color: var(--sl-color-white);
+  background: var(--gmt-fill-strong);
+  border-color: var(--gmt-border);
+}
+.header-chip svg {
+  inline-size: 1.25em;
+  block-size: 1.25em;
+}
+
+/*
  * The docs as a git repository (plan #235, phase 13, D17). Everything below is decoration drawn with CSS on
  * markup Starlight already renders: pseudo-elements with `content: ""`, so nothing is added to the DOM, nothing
  * decorative can take focus, and nothing is announced. Meaning stays in the existing markup: the links, the
