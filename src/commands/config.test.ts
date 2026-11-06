@@ -240,6 +240,7 @@ describe("config command", () => {
       expect(mockConsoleLog).toHaveBeenCalledWith("jira.autoAssign");
       expect(mockConsoleLog).toHaveBeenCalledWith("jira.autoStart");
       expect(mockConsoleLog).toHaveBeenCalledWith("linear.autoStart");
+      expect(mockConsoleLog).toHaveBeenCalledWith("clickup.autoAssign");
       expect(mockConsoleLog).toHaveBeenCalledWith("clickup.autoStart");
     });
 
@@ -1222,9 +1223,10 @@ describe("config command", () => {
 
     // Plan §4: with Jira on Cloud and Herdr installed, ticking all eight asks
     // the checklist 1, defaultSourceBranch 1, Jira 5, GitHub 2, Linear 2,
-    // ClickUp 3, opener and herdr.focus 2, agent.command and its Herdr confirm 2,
-    // prefixes 3 and postCreate 1: 22 questions (phase 4, D4).
-    it("asks 22 questions, with the two Herdr confirms, when all are ticked", async () => {
+    // ClickUp 4 (token, workspace id, assign, start), opener and herdr.focus 2,
+    // agent.command and its Herdr confirm 2, prefixes 3 and postCreate 1: 23
+    // questions (22 before clickup.autoAssign, plan #130 phase 2).
+    it("asks 23 questions, with the two Herdr confirms, when all are ticked", async () => {
       mockCheckbox.mockResolvedValue(ALL_ITEMS as never);
       mockInput.mockResolvedValue("value");
       // Herdr chosen (plan §4's count): `editor` would ask codeEditor in place
@@ -1248,17 +1250,17 @@ describe("config command", () => {
 
       await config.run();
 
-      // §4's 22: 1 checklist + 13 inputs (source branch, Jira 3, GitHub 1,
+      // §4's 22, plus clickup.autoAssign: 1 checklist + 13 inputs (source branch, Jira 3, GitHub 1,
       // Linear 1, ClickUp 1, agent.command, prefixes 3, postCreate; the rest of
-      // the 14 before phase 4 was the herdr.agent kind) + 6 selects + 2 confirms.
+      // the 14 before phase 4 was the herdr.agent kind) + 7 selects + 2 confirms.
       expect(
         1 +
           mockInput.mock.calls.length +
           mockSelect.mock.calls.length +
           mockConfirm.mock.calls.length,
-      ).toBe(22);
+      ).toBe(23);
       expect(mockInput).toHaveBeenCalledTimes(13);
-      expect(mockSelect).toHaveBeenCalledTimes(6);
+      expect(mockSelect).toHaveBeenCalledTimes(7);
       expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
         "Should opening a worktree focus its Herdr space?",
         "Start it in every new Herdr space, even without `--agent`?",
@@ -2693,6 +2695,157 @@ describe("config command", () => {
     });
   });
 
+  // Expected values: plan #130 phase 2 and D4/D10 — the select sits in the
+  // ClickUp group after the workspace id and before autoStart, offers the three
+  // choices Jira's does, and a stored `true`/`false` is preselected while anything else is
+  // "Ask me each time".
+  describe("clickup.autoAssign prompt (D4, D10)", () => {
+    const assignMessage = "Should `branch --clickup` assign the task to you?";
+    const withStored = (stored: string) =>
+      vi
+        .spyOn(gitConfig, "gitGetConfigValue")
+        .mockImplementation((key: string) => {
+          if (key === "has-called-config") return Promise.resolve("true");
+          if (key === "clickup.autoAssign") return Promise.resolve(stored);
+          return Promise.resolve("");
+        });
+    const parseRun = (flags: Record<string, unknown>) => {
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: {},
+        flags: {
+          list: false,
+          missing: false,
+          names: "clickup.autoAssign",
+          ...flags,
+        },
+      });
+    };
+
+    it.each([
+      ["true", "true"],
+      ["false", "false"],
+      ["", ""],
+      ["maybe", ""],
+    ])("should preselect the choice for a stored clickup.autoAssign of %j", async (stored, expected) => {
+      mockSelect.mockResolvedValue(expected);
+      withStored(stored);
+      parseRun({ yes: false });
+
+      await config.run();
+
+      // `--names clickup.autoAssign` prompts only this key: one select, no input.
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+      expect(mockSelect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: assignMessage,
+          choices: [
+            { name: "Yes, always", value: "true" },
+            { name: "No, never", value: "false" },
+            { name: "Ask me each time", value: "" },
+          ],
+          default: expected,
+        }),
+      );
+      expect(mockInput).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["Yes, always", "true"],
+      ["No, never", "false"],
+      ["Ask me each time", ""],
+    ])("should write the %s answer to clickup.autoAssign as %j", async (_label, answer) => {
+      mockSelect.mockResolvedValue(answer);
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      withStored(answer === "true" ? "false" : "true");
+      parseRun({ yes: false });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "clickup.autoAssign",
+        answer,
+      );
+    });
+
+    it.each([
+      ["false", "false"],
+      ["true", "true"],
+      ["", ""],
+    ])("should take a stored clickup.autoAssign of %j without exiting 2 when non-interactive", async (stored, expected) => {
+      setNonInteractive(true);
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      withStored(stored);
+      parseRun({ yes: true });
+
+      await config.run();
+
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "clickup.autoAssign",
+        expected,
+      );
+    });
+
+    it("should offer an unset clickup.autoAssign on a --missing run", async () => {
+      mockSelect.mockResolvedValue("");
+      vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+      parseRun({ missing: true, yes: false });
+
+      await config.run();
+
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not offer a settled clickup.autoAssign on a --missing run", async () => {
+      withStored("false");
+      parseRun({ missing: true, yes: false });
+
+      await config.run();
+
+      expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    it("should ask the token, the workspace id, then assign, then start in the ClickUp group", async () => {
+      mockCheckbox.mockResolvedValue(["clickup"] as never);
+      mockInput.mockImplementation(async ({ message }) =>
+        message === "ClickUp API token" ? "pk_x" : "12345",
+      );
+      mockSelect.mockResolvedValueOnce("true").mockResolvedValueOnce("false");
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      parseRun({ names: undefined });
+
+      await config.run();
+
+      // The first input is defaultSourceBranch, which a bare run asks first.
+      expect(mockInput.mock.calls[1][0].message).toBe("ClickUp API token");
+      expect(mockInput.mock.calls[2][0].message).toContain(
+        "ClickUp workspace id",
+      );
+      expect(mockSelect).toHaveBeenCalledTimes(2);
+      expect(mockInput.mock.invocationCallOrder[2]).toBeLessThan(
+        mockSelect.mock.invocationCallOrder[0],
+      );
+      expect(mockSelect.mock.calls[0][0].message).toBe(assignMessage);
+      expect(mockSelect.mock.calls[1][0].message).toContain(
+        "move the task to in progress",
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "clickup.autoAssign",
+        "true",
+      );
+      expect(mockSetConfigValue).toHaveBeenCalledWith(
+        "clickup.autoStart",
+        "false",
+      );
+    });
+  });
+
   // Expected values: plan #131 phase 2 "Done when" and D10 — the select sits in
   // the ClickUp group after the workspace id, offers the three choices Linear's
   // does, and a stored `true`/`false` is preselected while anything else is
@@ -2808,12 +2961,12 @@ describe("config command", () => {
       expect(mockSelect).not.toHaveBeenCalled();
     });
 
-    it("should ask the token, the workspace id and then the select in the ClickUp group", async () => {
+    it("should ask the token, the workspace id then the assign select, then the start select in the ClickUp group", async () => {
       mockCheckbox.mockResolvedValue(["clickup"] as never);
       mockInput.mockImplementation(async ({ message }) =>
         message === "ClickUp API token" ? "pk_x" : "12345",
       );
-      mockSelect.mockResolvedValueOnce("true");
+      mockSelect.mockResolvedValueOnce("false").mockResolvedValueOnce("true");
       const mockSetConfigValue = vi
         .spyOn(gitConfig, "gitSetConfigValue")
         .mockResolvedValue();
@@ -2826,13 +2979,11 @@ describe("config command", () => {
       expect(mockInput.mock.calls[2][0].message).toContain(
         "ClickUp workspace id",
       );
-      expect(mockSelect).toHaveBeenCalledTimes(1);
+      expect(mockSelect).toHaveBeenCalledTimes(2);
       expect(mockInput.mock.invocationCallOrder[2]).toBeLessThan(
         mockSelect.mock.invocationCallOrder[0],
       );
-      expect(mockSelect).toHaveBeenCalledWith(
-        expect.objectContaining({ message: startMessage }),
-      );
+      expect(mockSelect.mock.calls[1][0].message).toBe(startMessage);
       expect(mockSetConfigValue).toHaveBeenCalledWith(
         "clickup.autoStart",
         "true",
@@ -4289,6 +4440,7 @@ describe("config command", () => {
         "linear.autoStart": "true",
         "clickup.apiToken": "t",
         "clickup.workspaceId": "w",
+        "clickup.autoAssign": "true",
         "clickup.autoStart": "true",
         "agent.command": "claude",
         "branchPrefix.feature": "f/",

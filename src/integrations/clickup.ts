@@ -372,6 +372,28 @@ function parseListStatuses(
   return parsed;
 }
 
+type ClickUpRequestOptions = { method?: "GET" | "PUT"; body?: unknown };
+
+// D7: the timeout already reads `ClickUp:`; any other send failure (a network
+// error, or an undici header error that quotes the token) becomes a fixed
+// message that interpolates nothing from the error.
+async function sendClickUp(
+  path: string,
+  token: string,
+  options?: ClickUpRequestOptions,
+): Promise<Response> {
+  try {
+    return await fetchClickUp(path, token, options);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("ClickUp: ")) {
+      throw error;
+    }
+    throw new Error("ClickUp: the request could not be sent.", {
+      cause: error,
+    });
+  }
+}
+
 // ClickUp's own `err` text, when the refusal carries a string one.
 async function refusalDetail(response: Response): Promise<string> {
   const body = await readBody(response);
@@ -387,24 +409,8 @@ export async function startClickUpTask(typedId: string): Promise<ClickUpStart> {
   const parsed = parseClickUpTaskId(typedId);
   const token = await resolveClickUpToken();
 
-  // D7: the timeout already reads `ClickUp:`; any other send failure (a
-  // network error, or an undici header error that quotes the token) becomes a
-  // fixed message that interpolates nothing from the error.
-  async function send(
-    path: string,
-    options?: { method?: "GET" | "PUT"; body?: unknown },
-  ): Promise<Response> {
-    try {
-      return await fetchClickUp(path, token, options);
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("ClickUp: ")) {
-        throw error;
-      }
-      throw new Error("ClickUp: the request could not be sent.", {
-        cause: error,
-      });
-    }
-  }
+  const send = (path: string, options?: ClickUpRequestOptions) =>
+    sendClickUp(path, token, options);
 
   let query = "";
   if (parsed.kind === "custom") {
@@ -499,4 +505,148 @@ export async function startClickUpTask(typedId: string): Promise<ClickUpStart> {
   }
 
   return { outcome: "started", from: current.status, to: target.status };
+}
+
+export type ClickUpAssignment = {
+  outcome: "assigned" | "already-yours";
+  username: string;
+};
+
+// ClickUp's ids are integers in Get Authorized User and in a task's
+// `assignees[]` (developer.clickup.com/reference/getauthorizeduser, gettask).
+function isIntegerId(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
+// Get Authorized User's `user.id` and `user.username`, the only fields the
+// assignment reads.
+function parseCaller(
+  body: Record<string, unknown> | undefined,
+): { id: number; username: string } | undefined {
+  const user = body?.user;
+
+  if (
+    !isRecord(user) ||
+    !isIntegerId(user.id) ||
+    typeof user.username !== "string"
+  ) {
+    return undefined;
+  }
+
+  return { id: user.id, username: user.username };
+}
+
+// A task's `assignees[].id`; one malformed item makes the whole answer
+// unusable.
+function parseAssigneeIds(
+  body: Record<string, unknown> | undefined,
+): number[] | undefined {
+  const assignees = body?.assignees;
+
+  if (
+    !Array.isArray(assignees) ||
+    !assignees.every(
+      (assignee) => isRecord(assignee) && isIntegerId(assignee.id),
+    )
+  ) {
+    return undefined;
+  }
+
+  return assignees.map((assignee) => (assignee as { id: number }).id);
+}
+
+// D1, D2, D3, D7: read the caller and the task together, return
+// `already-yours` when the caller is among the assignees, otherwise add them
+// (nobody is removed) and confirm the answer echoes them. Every failure throws
+// a `ClickUp:` message; none holds the token.
+export async function assignClickUpTask(
+  typedId: string,
+): Promise<ClickUpAssignment> {
+  const parsed = parseClickUpTaskId(typedId);
+  const token = await resolveClickUpToken();
+
+  let query = "";
+  if (parsed.kind === "custom") {
+    const workspaceId = await resolveClickUpWorkspaceId();
+
+    if (!workspaceId) {
+      throw new MissingValueError(
+        "the ClickUp workspace id",
+        "`worktree config clickup.workspaceId <id>`",
+      );
+    }
+
+    query = `?custom_task_ids=true&team_id=${encodeURIComponent(workspaceId)}`;
+  }
+  const taskPath = `/task/${encodeURIComponent(parsed.id)}${query}`;
+  const unexpectedTask = `ClickUp: Unexpected response for task ${parsed.id}.`;
+
+  async function readCaller() {
+    const response = await sendClickUp("/user", token);
+    await rejectFailedResponse(response, {
+      notFound: "ClickUp: Unable to read the authorized user.",
+      failed: "ClickUp: Failed to read the authorized user.",
+    });
+    const caller = parseCaller(await readBody(response));
+
+    if (!caller) {
+      throw new Error("ClickUp: Unexpected response for the authorized user.");
+    }
+
+    return caller;
+  }
+
+  async function readAssigneeIds() {
+    const response = await sendClickUp(taskPath, token);
+    await rejectFailedResponse(response, {
+      notFound: `ClickUp: Unable to find task ${parsed.id}.`,
+      failed: `ClickUp: Failed to fetch task ${parsed.id}.`,
+    });
+    const ids = parseAssigneeIds(await readBody(response));
+
+    if (!ids) {
+      throw new Error(unexpectedTask);
+    }
+
+    return ids;
+  }
+
+  const [caller, assigneeIds] = await Promise.all([
+    readCaller(),
+    readAssigneeIds(),
+  ]);
+
+  if (assigneeIds.includes(caller.id)) {
+    return { outcome: "already-yours", username: caller.username };
+  }
+
+  const writeResponse = await sendClickUp(taskPath, token, {
+    method: "PUT",
+    // D1: `rem` is required by the schema and stays empty.
+    body: { assignees: { add: [caller.id], rem: [] } },
+  });
+  await rejectFailedResponse(
+    writeResponse,
+    {
+      notFound: `ClickUp: Unable to find task ${parsed.id}.`,
+      failed: `ClickUp: Failed to assign task ${parsed.id}.`,
+    },
+    async (response) =>
+      `${await refusalDetail(response)}. Assigning a task needs permission to edit it.`,
+  );
+
+  // D3: a 2xx is not enough; the answer must be a task that lists the caller.
+  const echoed = parseAssigneeIds(await readBody(writeResponse));
+
+  if (!echoed) {
+    throw new Error(unexpectedTask);
+  }
+
+  if (!echoed.includes(caller.id)) {
+    throw new Error(
+      `ClickUp: Task ${parsed.id} was not assigned to you; ClickUp did not list you as an assignee.`,
+    );
+  }
+
+  return { outcome: "assigned", username: caller.username };
 }

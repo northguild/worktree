@@ -16,6 +16,7 @@ export const CONFIG_NAMES = [
   "linear.agentContext",
   "clickup.apiToken",
   "clickup.workspaceId",
+  "clickup.autoAssign",
   "clickup.autoStart",
   "github.token",
   "github.autoAssign",

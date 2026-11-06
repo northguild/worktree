@@ -4,6 +4,7 @@ import * as git from "../lib/git.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import { expectCommands } from "../test-setup.js";
 import {
+  assignClickUpTask,
   fetchClickUpTask,
   getClickUpBranchNameFromTask,
   getClickUpBranchNaming,
@@ -37,6 +38,16 @@ function respond(status: number, body: unknown) {
     statusText: "",
     json: vi.fn().mockResolvedValue(body),
   };
+}
+
+function withAssigneesRaw(assignees: unknown[]) {
+  return respond(200, taskPayload({ assignees }));
+}
+
+function notJson() {
+  const answer = respond(200, null);
+  answer.json.mockRejectedValue(new SyntaxError("Unexpected token <"));
+  return answer;
 }
 
 function stubFetch(response: unknown) {
@@ -1336,6 +1347,355 @@ describe("the shared branchType list for ClickUp", () => {
           failure,
         );
         const error = await startClickUpTask("9hx").catch((e: Error) => e);
+
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain(TOKEN);
+        expect((error as Error).message).toMatch(/^ClickUp: /);
+      }
+    });
+  });
+  // Expected values come from ClickUp's published definitions
+  // (developer.clickup.com/reference/updatetask, getauthorizeduser, gettask):
+  // ids are integers, Update Task's `assignees` is {add: [], rem: []}.
+  describe("assignClickUpTask", () => {
+    const BASE = "https://api.clickup.com/api/v2";
+    const ME = 183;
+    const COLLEAGUE = 77;
+
+    const user = (id: unknown = ME, username: unknown = "ada") =>
+      respond(200, { user: { id, username } });
+    const withAssignees = (ids: unknown[]) =>
+      respond(200, taskPayload({ assignees: ids.map((id) => ({ id })) }));
+
+    // Answers by route, because the two reads run concurrently and their
+    // order is not part of the contract.
+    function stubRoutes(routes: {
+      user?: unknown;
+      get?: unknown;
+      put?: unknown;
+    }) {
+      const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+        if (url === `${BASE}/user`) {
+          return routes.user;
+        }
+        return init.method === "PUT" ? routes.put : routes.get;
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+      return fetchSpy;
+    }
+
+    function calls(fetchSpy: ReturnType<typeof vi.fn>) {
+      return fetchSpy.mock.calls.map(([url, init]) => [
+        (init as RequestInit).method,
+        url,
+      ]);
+    }
+
+    it("adds the caller with an empty rem and reports assigned", async () => {
+      stubToken();
+      const fetchSpy = stubRoutes({
+        user: user(),
+        get: withAssignees([]),
+        put: withAssignees([ME]),
+      });
+
+      await expect(assignClickUpTask("9hx")).resolves.toEqual({
+        outcome: "assigned",
+        username: "ada",
+      });
+
+      expect(calls(fetchSpy)).toEqual(
+        expect.arrayContaining([
+          ["GET", `${BASE}/user`],
+          ["GET", `${BASE}/task/9hx`],
+          ["PUT", `${BASE}/task/9hx`],
+        ]),
+      );
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      const put = fetchSpy.mock.calls.find(
+        ([, init]) => (init as RequestInit).method === "PUT",
+      ) as [string, RequestInit];
+      expect(put[1].body).toBe('{"assignees":{"add":[183],"rem":[]}}');
+      for (const [, init] of fetchSpy.mock.calls as [string, RequestInit][]) {
+        expect(init.headers).toEqual({
+          "Content-Type": "application/json",
+          Authorization: TOKEN,
+        });
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+      }
+    });
+
+    it("sends both reads before the write", async () => {
+      stubToken();
+      const fetchSpy = stubRoutes({
+        user: user(),
+        get: withAssignees([]),
+        put: withAssignees([ME]),
+      });
+
+      await assignClickUpTask("9hx");
+
+      expect(calls(fetchSpy).map(([method]) => method)).toEqual([
+        "GET",
+        "GET",
+        "PUT",
+      ]);
+    });
+
+    it("keeps a colleague: adds alongside them and removes nobody", async () => {
+      stubToken();
+      const fetchSpy = stubRoutes({
+        user: user(),
+        get: withAssignees([COLLEAGUE]),
+        put: withAssignees([COLLEAGUE, ME]),
+      });
+
+      await expect(assignClickUpTask("9hx")).resolves.toMatchObject({
+        outcome: "assigned",
+      });
+
+      const put = fetchSpy.mock.calls.find(
+        ([, init]) => (init as RequestInit).method === "PUT",
+      ) as [string, RequestInit];
+      expect(put[1].body).toBe('{"assignees":{"add":[183],"rem":[]}}');
+    });
+
+    it("reports already-yours and sends no PUT", async () => {
+      stubToken();
+      const fetchSpy = stubRoutes({
+        user: user(),
+        get: withAssignees([COLLEAGUE, ME]),
+      });
+
+      await expect(assignClickUpTask("9hx")).resolves.toEqual({
+        outcome: "already-yours",
+        username: "ada",
+      });
+
+      expect(calls(fetchSpy).map(([method]) => method)).not.toContain("PUT");
+    });
+
+    it("sends the custom-id query on Get Task and Update Task, not Get User", async () => {
+      stubTokenAndWorkspace("9012345");
+      const fetchSpy = stubRoutes({
+        user: user(),
+        get: withAssignees([]),
+        put: withAssignees([ME]),
+      });
+
+      await assignClickUpTask("DEV-123");
+
+      const query = "?custom_task_ids=true&team_id=9012345";
+      const sent = calls(fetchSpy);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          ["GET", `${BASE}/user`],
+          ["GET", `${BASE}/task/DEV-123${query}`],
+          ["PUT", `${BASE}/task/DEV-123${query}`],
+        ]),
+      );
+      expect(sent).toHaveLength(3);
+    });
+
+    it("needs the workspace id for a custom id and sends nothing without it", async () => {
+      stubTokenAndWorkspace("");
+      const fetchSpy = stubFetch(user());
+
+      await expect(assignClickUpTask("DEV-123")).rejects.toMatchObject({
+        name: "MissingValueError",
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid id before any request", async () => {
+      const fetchSpy = stubFetch(user());
+
+      await expect(assignClickUpTask("a b")).rejects.toMatchObject({
+        message: 'ClickUp: Invalid task id "a b".',
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    // Each request maps 401/403, 404 and 429 to the shared texts.
+    describe.each([
+      ["Get User", "user", "ClickUp: Unable to read the authorized user."],
+      ["Get Task", "get", "ClickUp: Unable to find task 9hx."],
+      ["Update Task", "put", "ClickUp: Unable to find task 9hx."],
+    ] as const)("a failing %s", (_name, route, notFound) => {
+      function routesFailing(failure: unknown) {
+        return stubRoutes({
+          user: user(),
+          get: withAssignees([]),
+          put: withAssignees([ME]),
+          [route]: failure,
+        });
+      }
+
+      it.each([
+        401, 403,
+      ])("reports authentication on HTTP %i", async (status) => {
+        stubToken();
+        routesFailing(respond(status, {}));
+
+        await expect(assignClickUpTask("9hx")).rejects.toThrow(
+          "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
+        );
+      });
+
+      it("reports not found on HTTP 404", async () => {
+        stubToken();
+        routesFailing(respond(404, { err: "not found" }));
+
+        await expect(assignClickUpTask("9hx")).rejects.toThrow(notFound);
+      });
+
+      it("says so on HTTP 429", async () => {
+        stubToken();
+        routesFailing(respond(429, {}));
+
+        await expect(assignClickUpTask("9hx")).rejects.toThrow(
+          "ClickUp: Rate limited. ClickUp limits requests per API token; wait a moment and try again.",
+        );
+      });
+
+      it("reports a timeout and names ClickUp, not the token", async () => {
+        stubToken();
+        const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+          const current =
+            url === `${BASE}/user`
+              ? "user"
+              : init.method === "PUT"
+                ? "put"
+                : "get";
+          if (current === route) {
+            throw new DOMException("timed out", "TimeoutError");
+          }
+          return current === "user"
+            ? user()
+            : current === "get"
+              ? withAssignees([])
+              : withAssignees([ME]);
+        });
+        vi.stubGlobal("fetch", fetchSpy);
+
+        const failure = assignClickUpTask("9hx");
+
+        await expect(failure).rejects.toThrow(
+          "ClickUp: the request did not answer within 15s.",
+        );
+        await expect(failure).rejects.not.toThrow(/pk_/);
+      });
+    });
+
+    it("turns a non-timeout fetch failure into a fixed ClickUp message", async () => {
+      stubToken();
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockRejectedValue(
+            new TypeError(`Headers.append: "${TOKEN}\nX" is invalid`),
+          ),
+      );
+
+      const failure = assignClickUpTask("9hx");
+
+      await expect(failure).rejects.toThrow(
+        "ClickUp: the request could not be sent.",
+      );
+      await expect(failure).rejects.not.toThrow(TOKEN);
+    });
+
+    it("carries the status line, ClickUp's err and the edit-permission hint when the write is refused", async () => {
+      stubToken();
+      const refused = respond(400, { err: "Cannot assign" });
+      refused.statusText = "Bad Request";
+      stubRoutes({ user: user(), get: withAssignees([]), put: refused });
+
+      await expect(assignClickUpTask("9hx")).rejects.toThrow(
+        /^ClickUp: Failed to assign task 9hx\. 400 Bad Request: Cannot assign\. Assigning a task needs permission to edit it\.$/,
+      );
+    });
+
+    it("still gives the hint when the refusal has no err", async () => {
+      stubToken();
+      stubRoutes({
+        user: user(),
+        get: withAssignees([]),
+        put: respond(500, "<html>"),
+      });
+
+      await expect(assignClickUpTask("9hx")).rejects.toThrow(
+        /500.*Assigning a task needs permission to edit it\./,
+      );
+    });
+
+    it("fails when a 200 echo does not list the caller", async () => {
+      stubToken();
+      stubRoutes({
+        user: user(),
+        get: withAssignees([]),
+        put: withAssignees([COLLEAGUE]),
+      });
+
+      await expect(assignClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Task 9hx was not assigned to you; ClickUp did not list you as an assignee.",
+      );
+    });
+
+    it("fails when a 2xx write answer is not a task", async () => {
+      stubToken();
+      stubRoutes({
+        user: user(),
+        get: withAssignees([]),
+        put: respond(200, { ok: true }),
+      });
+
+      await expect(assignClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Unexpected response for task 9hx.",
+      );
+    });
+
+    it.each([
+      ["a body that is not an object", respond(200, null)],
+      ["no user", respond(200, {})],
+      ["a string id", user("183")],
+      ["a fractional id", user(1.5)],
+      ["no username", respond(200, { user: { id: ME } })],
+    ])("reports %s on Get User as an unexpected response", async (_name, answer) => {
+      stubToken();
+      stubRoutes({ user: answer, get: withAssignees([]) });
+
+      await expect(assignClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Unexpected response for the authorized user.",
+      );
+    });
+
+    it.each([
+      ["no assignees", respond(200, taskPayload())],
+      ["assignees that is not an array", respond(200, { assignees: "me" })],
+      ["a string assignee id", withAssigneesRaw([{ id: "183" }])],
+      ["an assignee that is not an object", withAssigneesRaw(["183"])],
+      ["a body that is not JSON", notJson()],
+    ])("reports %s on Get Task as an unexpected response", async (_name, answer) => {
+      stubToken();
+      stubRoutes({ user: user(), get: answer });
+
+      await expect(assignClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Unexpected response for task 9hx.",
+      );
+    });
+
+    it("never puts the token in a thrown message", async () => {
+      for (const failure of [
+        respond(401, {}),
+        respond(404, {}),
+        respond(429, {}),
+        respond(500, { err: "boom" }),
+      ]) {
+        stubToken();
+        stubRoutes({ user: user(), get: withAssignees([]), put: failure });
+        const error = await assignClickUpTask("9hx").catch((e: Error) => e);
 
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).not.toContain(TOKEN);

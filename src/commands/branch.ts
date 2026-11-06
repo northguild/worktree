@@ -1,5 +1,6 @@
 import { Args, Flags } from "@oclif/core";
 import {
+  assignClickUpTask,
   fetchClickUpTask,
   getClickUpBranchNaming,
   startClickUpTask,
@@ -147,8 +148,9 @@ export default class Branch extends BaseCommand {
   // the `--json` shape and exit codes, kept to key names and nullability.
   static override description = `Create a worktree branch
 
---assign (or github.autoAssign / jira.autoAssign) assigns a --github or --jira
-issue to you; a Jira issue someone else holds is left alone.
+--assign (or github.autoAssign / jira.autoAssign / clickup.autoAssign) assigns a
+--github, --jira or --clickup issue to you; a Jira issue someone else holds is
+left alone, and a ClickUp task keeps its other assignees (you are added).
 
 --start (or linear.autoStart) moves a --linear issue in a backlog or unstarted
 state to its team's first started state once the worktree exists; other states
@@ -181,8 +183,9 @@ herdr, rex, agent, warnings
 issue: {provider:"github", number, url|null}, {provider:"jira", key,
 url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
 url|null} or null
-assigned: true if the issue is yours after the run, false if it is not (held
-by someone else, or the attempt failed), null if none was attempted
+assigned: true if the issue is yours after the run (assigned or already yours),
+false if it is not (held by someone else, or the attempt failed), null if none
+was attempted
 started: true if the Linear issue, ClickUp task or Jira issue is in a started
 state after the run (moved or already there), false if it is not (left alone,
 no started state to move to, or the attempt failed), null if none was attempted
@@ -284,7 +287,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     assign: Flags.boolean({
       allowNo: true,
       description:
-        "Assign the issue to you when creating a branch from --github or --jira (not supported for --linear or --clickup yet)",
+        "Assign the issue to you when creating a branch from --github, --jira or --clickup (not supported for --linear yet)",
     }),
     // Source-agnostic like `--assign` (D4), so #125 and #131 add no flag. Unset
     // is meaningful (the key, then the mode), so there is no `default`.
@@ -805,6 +808,33 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       this.recordWarning(message);
     }
     return false;
+  }
+
+  /**
+   * Same contract as `assignJiraIssue`: nothing here aborts `branch` (D7).
+   * `assignClickUpTask` throws a `ClickUp:` error on every failure, including a
+   * custom id with no workspace id, so each becomes a warning and `false`.
+   * ClickUp keeps several assignees, so there is no "held by someone else"
+   * outcome (D1). Messages never carry a header or the token.
+   */
+  private async assignClickUpTask(taskIdFlag: string): Promise<boolean> {
+    const taskKey = taskIdFlag.trim();
+    const spinner = createSpinner(`Assigning ClickUp task ${taskKey}`).start();
+
+    try {
+      const result = await assignClickUpTask(taskIdFlag);
+      spinner.succeed(
+        result.outcome === "assigned"
+          ? `Assigned ${taskKey} to ${showVisibly(redactSecrets(result.username))}`
+          : `${taskKey} is already assigned to you`,
+      );
+      return true;
+    } catch (error) {
+      const message = `Could not assign ${taskKey}. ${showVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`;
+      spinner.warn(message);
+      this.recordWarning(message);
+      return false;
+    }
   }
 
   /**
@@ -1455,8 +1485,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     let assigned: boolean | null = null;
     if (flags.linear && flags.assign) {
       this.warn("Assignment is not supported for Linear issues yet.");
-    } else if (flags.clickup && flags.assign) {
-      this.warn("Assignment is not supported for ClickUp tasks yet.");
+    } else if (flags.clickup) {
+      if (await this.shouldAssignIssue("clickup.autoAssign", flags.assign)) {
+        assigned = await this.assignClickUpTask(flags.clickup);
+      }
     } else if (flags.github) {
       if (await this.shouldAssignIssue("github.autoAssign", flags.assign)) {
         assigned = await this.assignGithubIssue(flags.github);

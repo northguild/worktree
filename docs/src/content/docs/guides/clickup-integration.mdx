@@ -15,10 +15,8 @@ worktree branch -c 9hx
 
 The generated branch name is shown as the default in the prompt, so you can accept it or edit it before creation.
 
-`--clickup` cannot be combined with `--github`, `--jira` or `--linear`. `--assign` does not work with `--clickup`:
-assigning a ClickUp task is not supported yet, so the flag warns `Assignment is not supported for ClickUp tasks yet.`
-and the worktree is still created. `--start` does work: it [moves the task to in progress](#moving-the-task-to-in-progress)
-once the worktree exists.
+`--clickup` cannot be combined with `--github`, `--jira` or `--linear`. `--assign` [assigns the task to you](#assigning-the-task),
+and `--start` [moves the task to in progress](#moving-the-task-to-in-progress) once the worktree exists.
 
 ## Task Ids
 
@@ -76,7 +74,39 @@ When the task is moved to in progress (below), `worktree` also reads the task's 
 statuses, with their type and position. That is all it reads for the move; the description and comments are still
 never requested.
 
+When the task is assigned to you (below), `worktree` also reads who you are, as the authorized user's id and username,
+and the ids of the task's assignees. The username appears only in the line that reports the assignment, never in the
+`--json` document. That is all it reads for the assignment; the description and comments are still never requested.
+
 Requests to ClickUp are cut off after 15 seconds.
+
+## Assigning the Task
+
+`--assign` adds you to the task's assignees once the branch name is settled and before the worktree is created, and
+`--no-assign` skips it for that one run. Without either,
+[`clickup.autoAssign`](/worktree/configuration/#clickup-integration-notes) decides: `true` assigns, `false` never
+does, and unset asks once in a terminal and saves the answer under that key. **A non-interactive run with the key
+unset assigns** and saves nothing, so pass `--no-assign` or set the key to `false` if a script must not write to
+ClickUp. The full order is in the [branch command](/worktree/commands/branch/#assigning-the-issue-to-yourself).
+
+```bash
+worktree branch --clickup 9hx --assign
+worktree branch --clickup 9hx --no-assign
+worktree config clickup.autoAssign true
+```
+
+Up to three requests follow, each cut off after 15 seconds: who you are and the task's assignees, read together, and
+then the update.
+
+- The update only adds you (`{"assignees":{"add":[<your id>],"rem":[]}}`). **Nobody is removed**, so a task with
+  other assignees ends with you alongside them.
+- A task that already lists you is not written to, and the document's `assigned` is `true`.
+- The assignment counts only when ClickUp's answer lists you among the assignees. Any failure is a warning,
+  `assigned` is `false`, and the worktree and exit code are unaffected.
+- Assigning needs permission to edit the task. A write ClickUp refuses gets a warning with its status line and that
+  hint; a 401 or 403 reads as the authentication message, a 404 as the not-found message and a 429 as the
+  rate-limit message.
+- The task's description and comments are never requested.
 
 ## Moving the Task to In Progress
 
@@ -164,8 +194,11 @@ are assumptions:
   in-progress status and nothing is moved.
 - Whether the first `custom` status is the one your team means by in progress. It is the first one by position, so
   a List that starts with Backlog or Ready moves tasks there.
+- The ids the assignment compares. It assumes ClickUp gives your id and the task's assignee ids as integers, and that
+  its answer to the update is the task with its `assignees`. If either is otherwise, the assignment warns, even when
+  ClickUp did add you.
 
-ClickUp's answer to a write your token may not make is also unconfirmed: it may be a 401, a 403, a 404 or another
+ClickUp's answer to a write your token may not make, a move or an assignment, is also unconfirmed: it may be a 401, a 403, a 404 or another
 status, and a 401, 403 or 404 reads as that status's own message, without the edit-access hint.
 
 ClickUp's exact status for a task your token cannot see is also unconfirmed, so a 401 and a 403 both report

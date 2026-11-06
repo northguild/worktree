@@ -254,6 +254,7 @@ const PERSONAL_KEYS = new Set([
   "linear.autoStart",
   "linear.agentAllow",
   "linear.agentContext",
+  "clickup.autoAssign",
   "clickup.autoStart",
 ]);
 const PERSONAL_SECTIONS = new Set(["herdr", "rex", "agent"]);

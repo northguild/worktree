@@ -142,6 +142,13 @@ describe("branch command", () => {
       outcome: "assigned",
       displayName: "Ada Lovelace",
     });
+    // An unset `clickup.autoAssign` attempts an assignment (D4), so a --clickup
+    // case that is not about assigning must not reach ClickUp's API. Stubbed
+    // here rather than the key set to `false`, which would hide that default.
+    vi.spyOn(clickupIntegration, "assignClickUpTask").mockResolvedValue({
+      outcome: "assigned",
+      username: "Ada Lovelace",
+    });
     // An unset `jira.autoStart` attempts a move (D9), so a --jira case that is
     // not about starting must not reach Jira's API.
     vi.spyOn(jiraIntegration, "startJiraIssue").mockResolvedValue({
@@ -2905,7 +2912,9 @@ jira:
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
       (branch as any).parse = vi.fn().mockResolvedValue({
         args: {},
-        flags: { clickup: "9hx" },
+        // --no-assign: these cases are about the document's `issue`, and an
+        // unset key would now attempt (and report) an assignment (D4).
+        flags: { clickup: "9hx", assign: false },
       });
 
       const document = await branch.run();
@@ -2990,31 +2999,258 @@ jira:
       ]);
     });
 
-    it("warns and carries on for --assign", async () => {
-      stubConfig();
-      vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
-        shortTask,
-      );
-      const mockAssign = vi.spyOn(githubIntegration, "assignGitHubIssue");
-      const mockWarn = vi
-        .spyOn(branch, "warn")
-        .mockImplementation((input: any) => input);
-      mockInput.mockImplementation(async (config: any) => config.default);
-      const create = vi
-        .spyOn(git, "gitCreateWorktree")
-        .mockResolvedValue("/path/to/worktree");
-      (branch as any).parse = vi.fn().mockResolvedValue({
-        args: {},
-        flags: { clickup: "9hx", assign: true },
+    describe("assigning the task", () => {
+      // Expected values come from the plan, not from the code: precedence from
+      // D4 (flag, then clickup.autoAssign, then non-interactive true and not
+      // saved, then a saved prompt naming the key), the write before creation
+      // from D6, every failure a warning with the exit code unchanged from D7,
+      // and `assigned` from D8 (true for assigned or already yours, false for a
+      // failed attempt, null for none attempted). Spinner text is §4's.
+      const assignedToMe = {
+        outcome: "assigned",
+        username: "Ada Lovelace",
+      } as const;
+      const lastSpinner = () => vi.mocked(ora).mock.results.at(-1)?.value;
+      let mockAssign: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        stubConfig();
+        vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+          shortTask,
+        );
+        mockInput.mockImplementation(async (c: any) => c.default);
+        vi.spyOn(git, "gitCreateWorktree").mockResolvedValue(
+          "/path/to/worktree",
+        );
+        mockAssign = vi
+          .spyOn(clickupIntegration, "assignClickUpTask")
+          .mockResolvedValue(assignedToMe);
+        vi.spyOn(branch, "warn").mockImplementation((input: any) => input);
       });
 
-      await branch.run();
+      async function go(flags: Record<string, unknown>) {
+        (branch as any).parse = vi.fn().mockResolvedValue({
+          args: {},
+          flags: { clickup: "9hx", start: false, ...flags },
+        });
+        return branch.run();
+      }
 
-      expect(mockWarn).toHaveBeenCalledWith(
-        "Assignment is not supported for ClickUp tasks yet.",
-      );
-      expect(mockAssign).not.toHaveBeenCalled();
-      expect(create).toHaveBeenCalled();
+      it("--assign assigns, outranking a configured false, and reports assigned: true", async () => {
+        stubConfig({ "clickup.autoAssign": "false" });
+
+        const document = await go({ assign: true });
+
+        expect(mockAssign).toHaveBeenCalledWith("9hx");
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(document?.assigned).toBe(true);
+        expect(lastSpinner().succeed).toHaveBeenCalledWith(
+          "Assigned 9hx to Ada Lovelace",
+        );
+        expect(branch.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining("not supported for ClickUp"),
+        );
+      });
+
+      it("reports already-yours as success, with assigned: true", async () => {
+        mockAssign.mockResolvedValue({
+          outcome: "already-yours",
+          username: "Ada Lovelace",
+        });
+
+        const document = await go({ assign: true });
+
+        expect(document?.assigned).toBe(true);
+        expect(lastSpinner().succeed).toHaveBeenCalledWith(
+          "9hx is already assigned to you",
+        );
+      });
+
+      it("--no-assign asks for no write and reports assigned: null, outranking a true key", async () => {
+        stubConfig({ "clickup.autoAssign": "true" });
+
+        const document = await go({ assign: false });
+
+        expect(mockAssign).not.toHaveBeenCalled();
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(document?.assigned).toBeNull();
+      });
+
+      it("clickup.autoAssign true assigns without asking", async () => {
+        stubConfig({ "clickup.autoAssign": "true" });
+
+        await go({});
+
+        expect(mockAssign).toHaveBeenCalledWith("9hx");
+        expect(mockConfirm).not.toHaveBeenCalled();
+      });
+
+      it("an explicit clickup.autoAssign false never assigns, even non-interactively", async () => {
+        stubConfig({ "clickup.autoAssign": "false" });
+        setNonInteractive(true);
+
+        const document = await go({});
+
+        expect(mockAssign).not.toHaveBeenCalled();
+        expect(document?.assigned).toBeNull();
+      });
+
+      it("ignores jira.autoAssign and github.autoAssign", async () => {
+        stubConfig({
+          "clickup.autoAssign": "false",
+          "jira.autoAssign": "true",
+          "github.autoAssign": "true",
+        });
+
+        await go({});
+
+        expect(mockAssign).not.toHaveBeenCalled();
+      });
+
+      it("asks when the key is unset, assigns on yes and saves it under clickup.autoAssign", async () => {
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
+        mockConfirm.mockResolvedValue(true);
+
+        await go({});
+
+        expect(mockConfirm).toHaveBeenCalledWith({
+          message:
+            "Assign this issue to you? (saved as clickup.autoAssign; change it later with `worktree config clickup.autoAssign <true|false>`)",
+        });
+        expect(mockAssign).toHaveBeenCalledWith("9hx");
+        expect(mockSet).toHaveBeenCalledWith("clickup.autoAssign", "true");
+      });
+
+      it("assigns without asking or saving when non-interactive and unset", async () => {
+        const mockSet = vi
+          .spyOn(gitConfig, "gitSetConfigValue")
+          .mockResolvedValue();
+        setNonInteractive(true);
+
+        await go({});
+
+        expect(mockAssign).toHaveBeenCalledWith("9hx");
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockSet).not.toHaveBeenCalledWith(
+          "clickup.autoAssign",
+          expect.anything(),
+        );
+      });
+
+      it("a custom id is passed as typed", async () => {
+        vi.spyOn(clickupIntegration, "fetchClickUpTask").mockResolvedValue(
+          customTask,
+        );
+
+        await go({ clickup: "DEV-123", assign: true });
+
+        expect(mockAssign).toHaveBeenCalledWith("DEV-123");
+        expect(lastSpinner().succeed).toHaveBeenCalledWith(
+          "Assigned DEV-123 to Ada Lovelace",
+        );
+      });
+
+      it.each([
+        ["a refused write", "ClickUp: ClickUp answered 403 Forbidden."],
+        [
+          "a custom id with no workspace id",
+          "ClickUp: a custom task id needs a workspace id (clickup.workspaceId).",
+        ],
+      ])("%s warns, records it, reports assigned: false and still creates the worktree", async (_label, reason) => {
+        mockAssign.mockRejectedValue(new Error(reason));
+        const originalExitCode = process.exitCode;
+        process.exitCode = undefined;
+
+        try {
+          const document = await go({ assign: true });
+
+          expect(document?.path).toBe("/path/to/worktree");
+          expect(document?.assigned).toBe(false);
+          expect(git.gitCreateWorktree).toHaveBeenCalled();
+          expect(lastSpinner().warn).toHaveBeenCalledWith(
+            `Could not assign 9hx. ${reason}`,
+          );
+          expect(lastSpinner().fail).not.toHaveBeenCalled();
+          expect(document?.warnings).toContain(
+            `Could not assign 9hx. ${reason}`,
+          );
+          expect(process.exitCode).toBeUndefined();
+        } finally {
+          process.exitCode = originalExitCode;
+        }
+      });
+
+      it("never lets a token reach the warning", async () => {
+        mockAssign.mockRejectedValue(
+          new Error("ClickUp: rejected pk_12345678_ABCDEFGHIJKLMNOP"),
+        );
+
+        const document = await go({ assign: true });
+
+        expect(document?.warnings?.join("\n")).not.toContain(
+          "pk_12345678_ABCDEFGHIJKLMNOP",
+        );
+      });
+
+      it("shows control characters in the username and in a failure visibly (#228)", async () => {
+        mockAssign.mockResolvedValue({
+          outcome: "assigned",
+          username: "Ada\u001b[2J",
+        });
+        await go({ assign: true });
+        expect(lastSpinner().succeed).toHaveBeenCalledWith(
+          "Assigned 9hx to Ada\\x1b[2J",
+        );
+
+        mockAssign.mockRejectedValue(new Error("ClickUp: denied\u001b[2J"));
+        await go({ assign: true });
+        expect(lastSpinner().warn).toHaveBeenCalledWith(
+          "Could not assign 9hx. ClickUp: denied\\x1b[2J",
+        );
+      });
+
+      it("assigns before the worktree is created", async () => {
+        const calls: string[] = [];
+        mockAssign.mockImplementation(async () => {
+          calls.push("assign");
+          return assignedToMe;
+        });
+        vi.spyOn(git, "gitCreateWorktree").mockImplementation(async () => {
+          calls.push("create");
+          return "/path/to/worktree";
+        });
+
+        await go({ assign: true });
+
+        expect(calls).toEqual(["assign", "create"]);
+      });
+
+      it("a dry run never assigns and never asks", async () => {
+        const dryRun = vi
+          .spyOn(branch as any, "reportDryRun")
+          .mockReturnValue(undefined);
+
+        await go({ "dry-run": true, assign: true });
+
+        expect(dryRun).toHaveBeenCalled();
+        expect(mockAssign).not.toHaveBeenCalled();
+        expect(mockConfirm).not.toHaveBeenCalled();
+      });
+
+      it("does not assign when the branch already has a worktree", async () => {
+        vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue({
+          path: "/repo.worktrees/feature/CU-9hx-add-dark-mode",
+          pathExists: true,
+          inWorktreesRoot: true,
+        });
+
+        const result = await go({ assign: true });
+
+        expect(result).toBeUndefined();
+        expect(mockAssign).not.toHaveBeenCalled();
+      });
     });
 
     describe("starting the task", () => {
@@ -3059,10 +3295,12 @@ jira:
         vi.spyOn(branch, "warn").mockImplementation((input: any) => input);
       });
 
+      // --no-assign by default: these cases are about starting, and an unset
+      // `clickup.autoAssign` would add its own prompt (D4).
       async function go(flags: Record<string, unknown>) {
         (branch as any).parse = vi.fn().mockResolvedValue({
           args: {},
-          flags: { clickup: "9hx", ...flags },
+          flags: { clickup: "9hx", assign: false, ...flags },
         });
         return branch.run();
       }
@@ -3404,7 +3642,8 @@ jira:
           "/path/to/worktree",
         );
 
-        await runJson({ clickup: "9hx" });
+        // --no-assign: an unset key would attempt an assignment (D4).
+        await runJson({ clickup: "9hx", assign: false });
 
         expect(output.document()).toMatchObject({
           branch: "feature/CU-9hx-add-dark-mode",

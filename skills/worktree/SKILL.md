@@ -107,6 +107,10 @@ worktree branch --jira dev-123
 # Assign Issues on the project. --no-assign skips it for one run.
 worktree branch --jira DEV-123 --assign
 
+# Assign a ClickUp task to yourself; the task keeps its other assignees.
+# Needs permission to edit the task. --no-assign skips it for one run.
+worktree branch --clickup 9hx --assign
+
 # Move a To Do Jira issue to its in-progress status once the worktree exists.
 # Needs Transition Issues on the project. --no-start skips it for one run.
 worktree branch --jira DEV-123 --start
@@ -138,9 +142,9 @@ worktree branch --clickup 9hx --no-start
 ```
 
 `--github`, `--jira`, `--linear` and `--clickup` are mutually exclusive. `--assign` and
-`--no-assign` need one of the four; `--assign --linear` (as `--assign --clickup`)
-skips the assignment with a warning, because assignment is not supported for
-them yet. `--linear` alone warns nothing about assignment.
+`--no-assign` need one of the four; `--assign --linear` skips the assignment
+with a warning, because assignment is not supported for Linear yet. `--linear`
+alone warns nothing about assignment.
 
 `--start` and `--no-start` also need one of the four (exit `2` otherwise), and `--linear`,
 `--clickup` and `--jira` act on them: `--start` with `--github` warns that it is not supported
@@ -173,16 +177,17 @@ transition or several leading to different statuses, is left where it is, a warn
 `started` is `false`. Needs the Transition Issues permission, and happens at the same point as the
 Linear move.
 
-With neither flag, `github.autoAssign` (for `--github`) or `jira.autoAssign`
-(for `--jira`) decides whether the issue is assigned: `true` always, `false`
+With neither flag, `github.autoAssign` (for `--github`), `jira.autoAssign`
+(for `--jira`) or `clickup.autoAssign` (for `--clickup`) decides whether the issue is assigned: `true` always, `false`
 never, and unset means you are asked once and the answer is saved to the key
 (a non-interactive run assigns instead, and saves nothing). A failed
 assignment warns and the worktree is still created. A Jira issue that
-someone else holds is never reassigned, even with `--assign`.
+someone else holds is never reassigned, even with `--assign`; a ClickUp task
+keeps its other assignees and you are added.
 
 The generated branch name is pre-filled in an interactive prompt and
 editable before confirmation. A non-interactive run takes the pre-filled name
-without asking. With `github.autoAssign` or `jira.autoAssign` unset it assigns the issue and does
+without asking. With `github.autoAssign`, `jira.autoAssign` or `clickup.autoAssign` unset it assigns the issue and does
 not save the key; `false` or `--no-assign` skips assignment. With `jira.autoStart` unset a `--jira`
 run also moves the issue to in progress, and `--no-start` or `false` skips that. Branch prefixes are applied when configured:
 - `Feature` / `Story` → `branchPrefix.feature`
@@ -228,7 +233,7 @@ live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) 
 **Issue content is used for the branch name and nothing else, with two exceptions: the Linear menu and the opt-in Linear listener context.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
 `--jira`, `--linear` and `--clickup` read the issue's number or key (`--github`, `--jira` and `--linear` also accept a pasted issue URL, refused with exit `2` if it names another repository, GitHub host, Jira site (its base: the host and any context path) or Linear workspace), its title (Jira:
 summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
-workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--jira` with a start also reads the issue's status and the transitions Jira offers from it (never the description or comments); `--github` also reads whether the
+workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--clickup` with an assignment also reads the authorized user's id and username and the ids of the task's assignees; `--jira` with a start also reads the issue's status and the transitions Jira offers from it (never the description or comments); `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
 refused, naming `worktree checkout <branch>` when its branch is on `origin`
 and its name is only letters, digits, `_`, `.`, `/` and `-`, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
@@ -309,7 +314,7 @@ Flags for agent mode:
 | `--no-open` | `branch` | create the worktree and print its path; call none of Herdr, Rex or the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
-| `--assign` / `--no-assign` | `branch` | assign the `--github` or `--jira` issue to you, or not |
+| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not |
 | `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its one in-progress transition, once the worktree exists, or not; only a backlog or unstarted issue (Linear), an open-status task (ClickUp) or a To Do-category issue (Jira) moves, and a `--start` with no issue flag exits `2` |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
@@ -318,8 +323,8 @@ Defaults when non-interactive:
 
 - **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to
   48 characters at the last dash. With no issue, the branch name is required.
-- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign` or
-  `jira.autoAssign`, then assign. The default is never saved.
+- **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`,
+  `jira.autoAssign` or `clickup.autoAssign`, then assign. The default is never saved.
 - **Start (Linear, ClickUp, Jira):** `--start`/`--no-start`, then `linear.autoStart`,
   `clickup.autoStart` or `jira.autoStart`, then start: a non-interactive `--linear` run moves a
   backlog or unstarted issue to started, a non-interactive `--clickup` run moves an open-status task
@@ -646,6 +651,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `linear.agentContext` | `true` | whether `linear-listen` adds the delegated issue's text to the agent's brief, fenced as untrusted and capped at 32 KiB; only `true` or `false` is accepted, unset means `false`; `worktree config` never asks for it, and `.worktree.yml` cannot set it (a `linear.agentContext` there is ignored with a warning) |
 | `clickup.apiToken` | `pk_...` | `--clickup` flag |
 | `clickup.workspaceId` | `12345678` | optional; only a custom task id (`--clickup DEV-123`) needs it |
+| `clickup.autoAssign` | `true` or `false` | whether `--clickup` assigns the task to you; unset means ask (assign when non-interactive) |
 | `clickup.autoStart` | `true` or `false` | whether `--clickup` moves the task to in progress once the worktree exists; unset means ask (move when non-interactive); moving needs edit access to the task |
 | `branchPrefix.feature` | `feature/` | auto-prefix on Feature issues, on Linear issues with no bug, chore or maintenance label, and on ClickUp tasks with no such tag |
 | `branchPrefix.bugfix` | `fix/` | auto-prefix on Bug issues, on Linear issues labelled `bug`, and on ClickUp tasks tagged `bug` |
