@@ -40,6 +40,17 @@ import { CHAT_SHORTCUT_ARIA } from "../chat/shortcut";
 
   const root = document.querySelector<HTMLElement>("[data-chat-launcher-root]");
   if (root) {
+    // Out of the page pane (#266 D11): Footer renders this inside Starlight's `.main-pane`, which is `isolation: isolate`,
+    // so on a wide page the right sidebar painted over the button whatever its z-index. At the end of <body> the z-index
+    // applies against the whole page. Before the launcher starts, so everything attaches to the element where it stays.
+    document.body.append(root);
+    // Starlight traps focus in the open mobile menu by making the page pane inert on the sidebar popover's `toggle`
+    // (PageFrame.astro). Out of the pane, the launcher follows the same event, or Tab would reach it behind the menu.
+    document
+      .getElementById("starlight__sidebar")
+      ?.addEventListener("toggle", (event) =>
+        root.toggleAttribute("inert", (event as ToggleEvent).newState === "open"),
+      );
     // A dynamic import: the chat (React, Base UI, the stream client) is a separate chunk nothing references until now.
     initChatLauncher(root, () => import("../chat/components/Chat"));
   }

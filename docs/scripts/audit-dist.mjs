@@ -47,6 +47,22 @@
  * the file is. Every page's and the 404's `<title>` is its `og:title` and `og:site_name` joined by GMT's ` · ` (the user,
  * 2026-11-04, replacing Starlight's default ` | `), or its `og:title` alone where that already names the site.
  *
+ * Also (#266, the two-state theme toggle): every page and the 404 has `starlight-theme-select` (Header.astro renders it in the
+ * header and Starlight in the mobile menu), each holding exactly one named `<button>` and no `<select>`, and the theme provider's script (the override, not Starlight's) is inline in `<head>`,
+ * so the theme is set before first paint and the button's icon is kept current.
+ *
+ * Also (#266 phase 2, D5): in every page's and the 404's `<header>` the theme toggle (the header's own) comes before the
+ * GitHub link, which comes before the Discord link.
+ *
+ * Also (#266 phase 3, D6-D9, the landing header's entrance): the entrance marker (`data-landing-entrance`) is on the
+ * landing's header and no other page's, and that header holds the internal-arrival script inline (no `src`); in the built
+ * CSS the `header-entrance-*` keyframes, and every rule that animates them, sit under
+ * `@media (prefers-reduced-motion: no-preference)` alone; and no rule outside a keyframe, and no `style` in the header,
+ * gives a header item `opacity: 0`, so nothing waits hidden on a script. Every rule that animates an entrance keyframe is
+ * scoped to `[data-landing-entrance]` and gated by `:not([data-entrance-off])`, with no `forwards` or `both` fill; the
+ * keyframes animate only opacity, transform and color; and the fade never targets `.wordmark`, `.title-wrapper` or
+ * `header-chip`, and on search only `site-search > button[data-open-modal]`.
+ *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
 
@@ -333,7 +349,8 @@ function auditHeader(html, where) {
     return failures;
   }
   const links = [...header.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map(
-    ([, rawAttrs, inner]) => ({
+    ([whole, rawAttrs, inner]) => ({
+      at: header.indexOf(whole),
       attrs: attributes(rawAttrs),
       visible: linkVisibleText(inner),
       inner,
@@ -382,6 +399,23 @@ function auditHeader(html, where) {
     if (!/\bnoopener\b/.test(link.attrs.rel ?? ""))
       fail(`the ${names} link has no rel="noopener"`);
   }
+
+  // #266 phase 2, D5: the reading and keyboard order is the theme toggle, then GitHub, then Discord. The toggle must be
+  // the header's own (the mobile menu's is outside `<header>`), which the page-wide theme rule does not require.
+  const toggleAt = header.search(
+    /<starlight-theme-select\b[^>]*>[\s\S]*?<button\b[^>]*\btheme-toggle\b/,
+  );
+  const githubAt = links.find(
+    (l) => l.attrs.href === COMMUNITY_LINKS[0].href,
+  )?.at;
+  const discordAt = links.find(
+    (l) => l.attrs.href === COMMUNITY_LINKS[1].href,
+  )?.at;
+  if (toggleAt === -1) fail("no theme toggle in the header");
+  else if (githubAt !== undefined && toggleAt > githubAt)
+    fail("the theme toggle comes after the GitHub link, expected it before");
+  if (githubAt !== undefined && discordAt !== undefined && githubAt > discordAt)
+    fail("the GitHub link comes after the Discord link, expected it before");
   return failures;
 }
 
@@ -522,7 +556,7 @@ export function parseStylesheet(
     const body = source.slice(open + 1, close);
     i = close + 1;
     if (prelude.startsWith("@keyframes") || /^@-\w+-keyframes/.test(prelude))
-      out.keyframes.push({ name: prelude.split(/\s+/)[1], body });
+      out.keyframes.push({ name: prelude.split(/\s+/)[1], body, chain });
     else if (prelude.startsWith("@font-face")) continue;
     else if (prelude.startsWith("@"))
       parseStylesheet(body, [...chain, prelude], out);
@@ -704,6 +738,190 @@ function visibleLabel(inner) {
       srOnly,
     ),
   );
+}
+
+/**
+ * The theme control (#266, D1/D3): at least one `starlight-theme-select` (Header.astro renders it in the header and Starlight in the
+ * mobile menu), each holding exactly one `<button>` and no `<select>`
+ * (the button's name is checked with every other button by `auditControls`), and the theme provider's script inline in
+ * `<head>`, so `data-theme` is set before first paint. The provider is recognised by the two things Starlight's own does
+ * not have: it defines `StarlightThemeProvider`, draws into `button.theme-toggle` and reads the `'starlight-theme'` key (D2), so a build that lost the
+ * override (and so has a button nothing updates) fails here.
+ */
+function auditThemeControl(html, where) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: ${rule}`);
+  const selects = [
+    ...html.matchAll(
+      /<starlight-theme-select\b[^>]*>([\s\S]*?)<\/starlight-theme-select>/g,
+    ),
+  ];
+  // Starlight renders the select twice, in the header and in the mobile menu, so "one" means one button per select.
+  if (selects.length === 0)
+    fail(
+      "0 starlight-theme-select elements, expected the header's and the mobile menu's",
+    );
+  for (const [, inner] of selects) {
+    const buttons = inner.match(/<button\b/g) ?? [];
+    if (buttons.length !== 1)
+      fail(
+        `the theme select holds ${buttons.length} <button> elements, expected exactly 1`,
+      );
+    if (/<select\b/.test(inner))
+      fail("the theme select holds a <select>, expected the two-state button");
+  }
+  const head = html.slice(0, Math.max(html.indexOf("</head>"), 0));
+  const inlineProvider = [
+    ...head.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g),
+  ].some(
+    ([, rawAttrs, source]) =>
+      attributes(rawAttrs).src === undefined &&
+      source.includes("StarlightThemeProvider") &&
+      source.includes("button.theme-toggle") &&
+      source.includes("'starlight-theme'"),
+  );
+  if (!inlineProvider)
+    fail(
+      "the theme provider script is not inline in <head> (expected the override, ThemeProvider.astro)",
+    );
+  return failures;
+}
+
+/** The attribute on the landing header's root that switches the entrance on (Header.astro). */
+const ENTRANCE_MARKER = "data-landing-entrance";
+const ENTRANCE_KEYFRAMES = /^header-entrance-/;
+const NO_PREFERENCE = "@media(prefers-reduced-motion:no-preference)";
+const underNoPreference = (chain) =>
+  chain.length === 1 && chain[0].replace(/\s+/g, "") === NO_PREFERENCE;
+/** A selector that names something in the header: its root, title, search, theme button, chips or right group. */
+const HEADER_ITEM =
+  /\.(?:header|title-wrapper|theme-toggle|social-icons|right-group)(?![\w-])|\.header-chip(?![\w-])|(?:^|[\s>+~,(])header(?![\w-])|\[data-landing-entrance/;
+
+/**
+ * The entrance's markup (#266 phase 3): the marker is on the landing's header and nowhere else, the landing's header
+ * holds the internal-arrival script inline, and no header element is hidden by an inline style.
+ */
+function auditEntranceMarkup(html, where, landing) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: ${rule}`);
+  const head = headerOf(html);
+  const marked = new RegExp(`\\s${ENTRANCE_MARKER}(?=[\\s>=/])`).test(head);
+  if (landing && !marked)
+    fail(`the header has no entrance marker (${ENTRANCE_MARKER})`);
+  if (!landing && marked)
+    fail(
+      `the header carries the entrance marker, which only the landing's may`,
+    );
+  if (landing) {
+    const inline = [
+      ...head.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g),
+    ].some(
+      ([, attrs, source]) =>
+        attributes(attrs).src === undefined &&
+        source.includes("document.referrer") &&
+        source.includes("data-entrance-off"),
+    );
+    if (!inline)
+      fail(
+        "the header holds no inline internal-arrival script (one reading document.referrer and setting data-entrance-off)",
+      );
+  }
+  for (const [, style] of head.matchAll(/\sstyle="([^"]*)"/g))
+    if (/(^|;)\s*opacity\s*:\s*0(?:\.0*)?%?\s*(;|!|$)/i.test(decode(style)))
+      fail(`a header element has style="${style}", hidden until a script runs`);
+  return failures;
+}
+
+/**
+ * The entrance's built CSS (#266 phase 3), over every stylesheet and `<style>`: the `header-entrance-*` keyframes exist,
+ * each sits under the no-preference query alone, so does every rule that names one in an animation, and no rule gives a
+ * header item `opacity: 0` (a keyframe may; it is not a rule).
+ */
+export async function entranceCssFindings(dist) {
+  const findings = [];
+  const sheets = [];
+  for (const file of await filesUnder(dist)) {
+    const origin = file.slice(dist.length + 1);
+    if (file.endsWith(".css"))
+      sheets.push({ origin, css: await readFile(file, "utf8") });
+    else if (file.endsWith(".html"))
+      for (const [, css] of (await readFile(file, "utf8")).matchAll(
+        /<style\b[^>]*>([\s\S]*?)<\/style>/g,
+      ))
+        sheets.push({ origin: `${origin} <style>`, css });
+  }
+  let keyframes = 0;
+  for (const { origin, css } of sheets) {
+    const parsed = parseStylesheet(css);
+    for (const k of parsed.keyframes) {
+      if (!ENTRANCE_KEYFRAMES.test(k.name)) continue;
+      keyframes++;
+      if (!underNoPreference(k.chain))
+        findings.push(
+          `${origin}: @keyframes ${k.name} is not only under @media (prefers-reduced-motion: no-preference)`,
+        );
+      // Only opacity, transform and colour animate (D6, D8): nothing that repaints or relays out.
+      for (const [, property] of k.body.matchAll(/(?:^|[{;\s])([a-z-]+)\s*:/g))
+        if (!["opacity", "transform", "color"].includes(property))
+          findings.push(
+            `${origin}: @keyframes ${k.name} animates ${property}, expected only opacity, transform and color`,
+          );
+    }
+    for (const { chain, selector, declarations } of parsed.rules) {
+      for (const [property, value] of declarations) {
+        if (
+          /^animation(-name)?$/.test(property) &&
+          /(^|[\s,])header-entrance-/.test(value)
+        ) {
+          const where = `${origin}: ${selector} { ${property}: ${value} }`;
+          if (!selector.includes("[data-landing-entrance]"))
+            findings.push(`${where} is not scoped to [data-landing-entrance]`);
+          if (
+            !selector.replace(/\s+/g, "").includes(":not([data-entrance-off])")
+          )
+            findings.push(`${where} is not gated by :not([data-entrance-off])`);
+          if (/\b(forwards|both)\b/.test(value))
+            findings.push(
+              `${where} keeps an end state (forwards/both), expected backwards`,
+            );
+          if (value.includes("header-entrance-fade")) {
+            // The shield and wordmark are static, GitHub and Discord do not fade, and the search fade is the open
+            // button alone (the dialog inside <site-search> holds buttons that would replay each time it opens).
+            if (/\.wordmark|\.title-wrapper|header-chip/.test(selector))
+              findings.push(
+                `${where} fades the wordmark, the title wrapper or a header chip`,
+              );
+            if (
+              /site-search/.test(selector) &&
+              !/>\s*button\[data-open-modal\]\s*$/.test(selector)
+            )
+              findings.push(
+                `${where} fades more than the search open button (expected site-search > button[data-open-modal])`,
+              );
+          }
+        }
+        if (
+          /^animation(-name)?$/.test(property) &&
+          /(^|[\s,])header-entrance-/.test(value) &&
+          !underNoPreference(chain)
+        )
+          findings.push(
+            `${origin}: ${selector} { ${property}: ${value} } animates the entrance outside @media (prefers-reduced-motion: no-preference)`,
+          );
+        if (
+          property === "opacity" &&
+          /^0(\.0*)?%?(\s*!important)?$/.test(value.trim()) &&
+          HEADER_ITEM.test(selector)
+        )
+          findings.push(
+            `${origin}: ${selector} { opacity: 0 } hides a header item outside a keyframe`,
+          );
+      }
+    }
+  }
+  if (keyframes === 0)
+    findings.push("no header-entrance-* keyframes in the build's CSS");
+  return findings;
 }
 
 /** Failures in how a page's controls are named (WCAG 4.1.2 and 2.5.3) and in the chat launcher's announced shortcut. */
@@ -1044,7 +1262,9 @@ async function auditPage(path, dist, descriptions, options) {
   for (const rule of await auditHero(html, dist, path === "")) fail(rule);
 
   failures.push(...auditControls(html, label(path)));
+  failures.push(...auditThemeControl(html, label(path)));
   failures.push(...auditHeader(html, label(path)));
+  failures.push(...auditEntranceMarkup(html, label(path), path === ""));
   failures.push(...auditSvgs(html, label(path)));
 
   // Ids are unique in a document (HTML Living Standard, "the id attribute"); the header's and the footer's marks each
@@ -1183,6 +1403,7 @@ async function auditLlms(dist, descriptions) {
 function auditNotFound(html) {
   const failures = [
     ...auditControls(html, "404.html"),
+    ...auditThemeControl(html, "404.html"),
     ...auditHeader(html, "404.html"),
     ...auditSvgs(html, "404.html"),
   ];
@@ -1238,11 +1459,14 @@ async function auditSite(dist) {
       failures.push(`404.html: ${rule}`);
     for (const rule of await auditHero(notFound, dist, false))
       failures.push(`404.html: ${rule}`);
+    for (const rule of auditEntranceMarkup(notFound, "404.html", false))
+      failures.push(rule);
   } catch {
     failures.push("404.html is missing");
   }
 
   failures.push(...(await cyanFindings(dist)));
+  failures.push(...(await entranceCssFindings(dist)));
 
   const heights = [];
   for (const file of await filesUnder(dist)) {
