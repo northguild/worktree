@@ -119,7 +119,7 @@ const community = (href, name, extra = "") =>
 const GITHUB_LINK = community("https://github.com/northguild", "GitHub");
 const DISCORD_LINK = community("https://discord.gg/TdvQdP3t5a", "Discord");
 const header = (parts = {}) =>
-  `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
+  `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.theme ?? THEME_SELECT}${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
 const HEADER = header();
 
 // Phase 15 (the user, 2026-11-04): the landing is the hero alone, with no footer, so it carries no date; every other
@@ -1371,8 +1371,18 @@ describe("sourcePathOf", () => {
 // /worktree/) and from northguild.dev's Header.astro at ade22a5 (the GitHub and Discord hrefs, the new-tab wording). That a
 // name contains the visible text is WCAG 2.2 SC 2.5.3; that a control has a name at all is SC 4.1.2.
 describe("the theme toggle (#266)", () => {
+  // The header carries a toggle of its own, so a page "with no theme select" has neither it nor the menu's.
   const withControls = async (path, controls) => {
-    await write(dist, htmlPath(path), page(path, { controls }));
+    await write(
+      dist,
+      htmlPath(path),
+      page(path, {
+        controls,
+        header: controls.includes("starlight-theme-select")
+          ? HEADER
+          : header({ theme: "" }),
+      }),
+    );
     return audit();
   };
   const withProvider = async (provider) => {
@@ -1449,7 +1459,11 @@ describe("the theme toggle (#266)", () => {
   });
 
   it("fails the 404 on the same rules", async () => {
-    await write(dist, "404.html", notFoundPage({ controls: without("") }));
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({ controls: without(""), header: header({ theme: "" }) }),
+    );
     expect(
       (await audit()).some((f) =>
         /404\.html.*0 starlight-theme-select/.test(f),
@@ -1641,6 +1655,47 @@ describe("the product header", () => {
     );
     expect(
       failures.some((f) => /GitHub link has no rel="noopener"/.test(f)),
+    ).toBe(true);
+  });
+
+  // #266 phase 2, D5: the order theme, GitHub, Discord is the reading and keyboard order. The expected order is the
+  // issue's acceptance criterion (the user: "theme, GitHub, Discord"), not anything the build was observed to emit.
+  it("fails a header whose GitHub link comes before the theme toggle", async () => {
+    const failures = await withHeader(
+      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${GITHUB_LINK}${THEME_SELECT}${DISCORD_LINK}</header>`,
+    );
+    expect(
+      failures.some((f) => /faq.*header:.*theme toggle.*GitHub/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a header whose Discord link comes before the GitHub link", async () => {
+    const failures = await withHeader(
+      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${THEME_SELECT}${DISCORD_LINK}${GITHUB_LINK}</header>`,
+    );
+    expect(failures.some((f) => /faq.*header:.*GitHub.*Discord/.test(f))).toBe(
+      true,
+    );
+  });
+
+  // The page-wide rule needs only one toggle (the mobile menu's counts); this one needs the header's own.
+  it("fails a header with no theme toggle even when the page has one elsewhere", async () => {
+    const failures = await withHeader(header({ theme: "" }));
+    expect(failures.some((f) => /faq.*header:.*no theme toggle/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("checks the order on 404.html too", async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({
+        header: `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${GITHUB_LINK}${THEME_SELECT}${DISCORD_LINK}</header>`,
+      }),
+    );
+    expect(
+      (await audit()).some((f) => /404\.html: header:.*theme toggle/.test(f)),
     ).toBe(true);
   });
 

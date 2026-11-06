@@ -175,8 +175,10 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 
 ### The header, the sidebar and the page details
 
-- **Header.** Starlight's own `Header` is kept, so search, the language select and the mobile menu are untouched; three of
-  the components it renders (`SiteTitle`, `SocialIcons`, `ThemeSelect`) are overridden, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head. `src/components/ThemeSelect.astro` and `ThemeProvider.astro` make the theme
+- **Header.** `src/components/Header.astro` overrides Starlight's `Header` (copied from Starlight 0.42.8, with the right group from GMT's `apps/dox`, commit `b15b3899`):
+  the right group is the theme button, the language select, then GitHub and Discord, as three controls of one size in one row with one gap and no divider,
+  and `scripts/audit-dist.mjs` fails a page whose header orders them otherwise. The three direct children of `.header` (title, search, right group) keep their order, because `theme.css` selects them by position.
+  The components it renders (`SiteTitle`, `SocialIcons`, `ThemeSelect`) are overridden too, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head. `src/components/ThemeSelect.astro` and `ThemeProvider.astro` make the theme
   control a two-state button (ported from GMT's `apps/dox`, commit `b15b3899`; Starlight also renders the select in the mobile
   menu); the provider's script stays inline so the theme is set before first paint, and replacing both is what keeps the
   button's icon current. The button and the two links below share one chip, `.header-chip` in `src/styles/custom.css`.
@@ -185,7 +187,7 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
   then the CLI version (`cliVersion` from `src/lib/site-meta.ts`) in small grey text on the name's baseline, from 30rem up.
   `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, opening in a new tab and saying so in
   their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only),
-  and so is the wide header's grid: the search box keeps to the right, beside the GitHub link, on every page, where Starlight
+  and so is the wide header's grid: the search box keeps to the right, beside the theme button, on every page, where Starlight
   would start it at the main column's edge (which moves with the sidebar and the table of contents).
 - **Sidebar as a git graph, and the leaf list markers (a smaller, paler leaf for a nested item), and the growing link underline.** All in `src/styles/custom.css`, as
   CSS on Starlight's own markup: pseudo-elements with empty content, so nothing is added to the page, nothing decorative can take

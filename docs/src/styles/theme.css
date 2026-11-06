@@ -155,7 +155,7 @@ header.header {
   border-block-end-color: var(--gmt-border);
 }
 
-/* The search box sits at the right, beside the GitHub link, on every page (the user, 2026-11-04: it "seems to dance
+/* The search box sits at the right, beside the theme button, on every page (the user, 2026-11-04: it "seems to dance
    around"). Starlight's wide header starts it at the main column's left edge, which moves with the sidebar and the
    table of contents and is absent on the landing; here the middle column is all the free space and the box keeps to
    its end, at Starlight's own 22rem at most. */

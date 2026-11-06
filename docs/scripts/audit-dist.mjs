@@ -47,9 +47,12 @@
  * the file is. Every page's and the 404's `<title>` is its `og:title` and `og:site_name` joined by GMT's ` · ` (the user,
  * 2026-11-04, replacing Starlight's default ` | `), or its `og:title` alone where that already names the site.
  *
- * Also (#266, the two-state theme toggle): every page and the 404 has `starlight-theme-select` (Starlight renders it in the
- * header and in the mobile menu), each holding exactly one named `<button>` and no `<select>`, and the theme provider's script (the override, not Starlight's) is inline in `<head>`,
+ * Also (#266, the two-state theme toggle): every page and the 404 has `starlight-theme-select` (Header.astro renders it in the
+ * header and Starlight in the mobile menu), each holding exactly one named `<button>` and no `<select>`, and the theme provider's script (the override, not Starlight's) is inline in `<head>`,
  * so the theme is set before first paint and the button's icon is kept current.
+ *
+ * Also (#266 phase 2, D5): in every page's and the 404's `<header>` the theme toggle (the header's own) comes before the
+ * GitHub link, which comes before the Discord link.
  *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
@@ -337,7 +340,8 @@ function auditHeader(html, where) {
     return failures;
   }
   const links = [...header.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map(
-    ([, rawAttrs, inner]) => ({
+    ([whole, rawAttrs, inner]) => ({
+      at: header.indexOf(whole),
       attrs: attributes(rawAttrs),
       visible: linkVisibleText(inner),
       inner,
@@ -386,6 +390,23 @@ function auditHeader(html, where) {
     if (!/\bnoopener\b/.test(link.attrs.rel ?? ""))
       fail(`the ${names} link has no rel="noopener"`);
   }
+
+  // #266 phase 2, D5: the reading and keyboard order is the theme toggle, then GitHub, then Discord. The toggle must be
+  // the header's own (the mobile menu's is outside `<header>`), which the page-wide theme rule does not require.
+  const toggleAt = header.search(
+    /<starlight-theme-select\b[^>]*>[\s\S]*?<button\b[^>]*\btheme-toggle\b/,
+  );
+  const githubAt = links.find(
+    (l) => l.attrs.href === COMMUNITY_LINKS[0].href,
+  )?.at;
+  const discordAt = links.find(
+    (l) => l.attrs.href === COMMUNITY_LINKS[1].href,
+  )?.at;
+  if (toggleAt === -1) fail("no theme toggle in the header");
+  else if (githubAt !== undefined && toggleAt > githubAt)
+    fail("the theme toggle comes after the GitHub link, expected it before");
+  if (githubAt !== undefined && discordAt !== undefined && githubAt > discordAt)
+    fail("the GitHub link comes after the Discord link, expected it before");
   return failures;
 }
 
@@ -711,7 +732,7 @@ function visibleLabel(inner) {
 }
 
 /**
- * The theme control (#266, D1/D3): at least one `starlight-theme-select` (Starlight renders it in the header and in the
+ * The theme control (#266, D1/D3): at least one `starlight-theme-select` (Header.astro renders it in the header and Starlight in the
  * mobile menu), each holding exactly one `<button>` and no `<select>`
  * (the button's name is checked with every other button by `auditControls`), and the theme provider's script inline in
  * `<head>`, so `data-theme` is set before first paint. The provider is recognised by the two things Starlight's own does

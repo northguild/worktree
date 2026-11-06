@@ -1,0 +1,108 @@
+---
+/**
+ * Starlight's Header, overridden so the right group reads theme, language select, GitHub, Discord (plan #266, D5): the
+ * three controls sit in one row at one size with one gap and no divider, as on northguild.dev and GMT's docs.
+ *
+ * Structure copied from @astrojs/starlight 0.42.8, dist/components/Header.astro, and the right group from GMT's
+ * apps/dox/src/components/Header.astro at commit b15b3899 (without its Dox link, which is GMT's alone). What differs
+ * from Starlight's: one `social-icons` group holding ThemeSelect, LanguageSelect and SocialIcons in that order, no
+ * `.social-icons::after` divider, and `starlight-theme-select` as a flex box so the toggle shares the row's centre line.
+ *
+ * Keep the three direct children of `.header` in this order (title, search, right group): theme.css selects them by
+ * position to keep the search box at the right. The NorthGuild wordmark is SiteTitle.astro's.
+ */
+
+import LanguageSelect from "virtual:starlight/components/LanguageSelect";
+import Search from "virtual:starlight/components/Search";
+import SiteTitle from "virtual:starlight/components/SiteTitle";
+import SocialIcons from "virtual:starlight/components/SocialIcons";
+import ThemeSelect from "virtual:starlight/components/ThemeSelect";
+import config from "virtual:starlight/user-config";
+
+/**
+ * Render the `Search` component if Pagefind is enabled or the default search component has been overridden.
+ */
+const shouldRenderSearch =
+  config.pagefind ||
+  config.components.Search !== "@astrojs/starlight/components/Search.astro";
+---
+
+<div class="header">
+  <div class="title-wrapper sl-flex">
+    <SiteTitle />
+  </div>
+  <div class="sl-flex print:hidden">
+    {shouldRenderSearch && <Search />}
+  </div>
+  <div class="sl-hidden md:sl-flex print:hidden right-group">
+    <div class="sl-flex social-icons">
+      <ThemeSelect />
+      <LanguageSelect />
+      <SocialIcons />
+    </div>
+  </div>
+</div>
+
+<style>
+  @layer starlight.core {
+    .header {
+      display: flex;
+      gap: var(--sl-nav-gap);
+      justify-content: space-between;
+      align-items: center;
+      height: 100%;
+    }
+
+    .title-wrapper {
+      /* Prevent long titles overflowing and covering the search and menu buttons on narrow viewports. */
+      overflow: clip;
+      /* Avoid clipping focus ring around link inside title wrapper. */
+      padding: 0.25rem;
+      margin: -0.25rem;
+      min-width: 0;
+    }
+
+    .right-group,
+    .social-icons {
+      gap: 1rem;
+      align-items: center;
+    }
+
+    /* The toggle's wrapper is an inline element, which sets the button on the text baseline, 2px off the row's
+       centre. As a flex box it centres like its neighbours (as in GMT's Header.astro). */
+    .social-icons > :global(starlight-theme-select) {
+      display: flex;
+    }
+
+    @media (min-width: 50rem) {
+      :global(:root[data-has-sidebar]) {
+        --__sidebar-pad: calc(2 * var(--sl-nav-pad-x));
+      }
+      :global(:root:not([data-has-toc])) {
+        --__toc-width: 0rem;
+      }
+      .header {
+        --__sidebar-width: max(0rem, var(--sl-content-inline-start, 0rem) - var(--sl-nav-pad-x));
+        --__main-column-fr: calc(
+          (
+              100% + var(--__sidebar-pad, 0rem) - var(--__toc-width, var(--sl-sidebar-width)) -
+                (2 * var(--__toc-width, var(--sl-nav-pad-x))) - var(--sl-content-inline-start, 0rem) -
+                var(--sl-content-width)
+            ) / 2
+        );
+        display: grid;
+        grid-template-columns:
+          /* 1 (site title): runs up until the main content column's left edge or the width of the title, whichever is the largest  */
+          minmax(
+            calc(var(--__sidebar-width) + max(0rem, var(--__main-column-fr) - var(--sl-nav-gap))),
+            auto
+          )
+          /* 2 (search box): all free space that is available. */
+          1fr
+          /* 3 (right items): use the space that these need. */
+          auto;
+        align-content: center;
+      }
+    }
+  }
+</style>
