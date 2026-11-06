@@ -1060,6 +1060,127 @@ export async function gitPlanWorktreeRename(
   };
 }
 
+export interface WorktreeRenameResult {
+  from: { branch: string; path: string };
+  to: { branch: string; path: string };
+  /** The branch's upstream after the rename, as `origin/<branch>`, or null. */
+  upstream: string | null;
+}
+
+// Removes directories this run created, deepest first. `rmdirSync` only ever
+// removes an empty directory, so a parent that gained content in the meantime
+// stays; a failure leaves an empty directory behind and is not worth masking
+// the error the caller is about to report.
+function removeCreatedParents(parents: string[]): void {
+  for (const dir of [...parents].reverse()) {
+    try {
+      fs.rmdirSync(dir);
+    } catch {
+      // Best effort: see above.
+    }
+  }
+}
+
+// D10: from the old path's parent upward, remove each directory that is empty,
+// and stop at the first that is not, at `<root>.worktrees` itself, or at a
+// directory that cannot be removed. Never recursive.
+function tidyEmptyParents(fromPath: string, worktreesRoot: string): void {
+  for (
+    let dir = path.dirname(fromPath);
+    dir.startsWith(`${worktreesRoot}${path.sep}`);
+    dir = path.dirname(dir)
+  ) {
+    try {
+      if (fs.readdirSync(dir).length > 0) {
+        return;
+      }
+      fs.rmdirSync(dir);
+    } catch {
+      // Leftover empty directories are cosmetic; the rename itself succeeded.
+      return;
+    }
+  }
+}
+
+/**
+ * Carries out a planned rename (WORKTREE-RENAME plan §4.3 step 3, D4): create
+ * the missing parents, `git worktree move`, then `git branch -m`, then tidy the
+ * emptied old parents and read the upstream. Local only: the remote is never
+ * touched (D5), and `move -f -f` is never passed (D6).
+ *
+ * `repoRoot` is the main checkout, resolved by the caller before anything
+ * moves (D8): every git call runs from there, because the process may be
+ * standing in the directory that is about to move.
+ *
+ * A failed move changed nothing apart from the parents created for it, which
+ * are removed again. A failed branch rename moves the worktree back and removes
+ * the parents; if that fails too the error names the half-renamed state and the
+ * command that finishes it. Each error carries git's reason and the original
+ * error as its cause.
+ */
+export async function gitRenameWorktree(
+  plan: WorktreeRenamePlan,
+  repoRoot: string,
+): Promise<WorktreeRenameResult> {
+  const { fromBranch, toBranch, fromPath, toPath, parentsToCreate } = plan;
+  const spinner = createSpinner(`Renaming worktree ${fromBranch}`).start();
+  const git = (args: string[]) => run("git", args, { cwd: repoRoot });
+
+  try {
+    if (parentsToCreate.length > 0) {
+      fs.mkdirSync(path.dirname(toPath), { recursive: true });
+    }
+
+    try {
+      await git(["worktree", "move", fromPath, toPath]);
+    } catch (error) {
+      removeCreatedParents(parentsToCreate);
+      throw new Error(`Could not rename ${fromBranch}: ${toGitReason(error)}`, {
+        cause: error,
+      });
+    }
+
+    try {
+      await git(["branch", "-m", fromBranch, toBranch]);
+    } catch (error) {
+      const refused = `Could not rename the branch ${fromBranch}: ${toGitReason(error)}`;
+      try {
+        await git(["worktree", "move", toPath, fromPath]);
+      } catch (moveBackError) {
+        throw new Error(
+          `${refused} and moving it back failed: ${toGitReason(moveBackError)}. The worktree is at ${toPath} on branch ${fromBranch}; finish with \`git branch -m ${fromBranch} ${toBranch}\`.`,
+          { cause: error },
+        );
+      }
+      removeCreatedParents(parentsToCreate);
+      throw new Error(
+        `${refused}. The worktree was moved back to ${fromPath}; nothing changed.`,
+        { cause: error },
+      );
+    }
+
+    tidyEmptyParents(fromPath, `${repoRoot}.worktrees`);
+
+    // git moved `branch.<name>.*`, so the upstream is what the old name had.
+    // Only a hint for the caller's output: a failure to read it must not turn
+    // a finished rename into an error.
+    const upstream = await git([
+      "for-each-ref",
+      "--format=%(upstream:short)",
+      `refs/heads/${toBranch}`,
+    ]).catch(() => "");
+
+    return {
+      from: { branch: fromBranch, path: fromPath },
+      to: { branch: toBranch, path: toPath },
+      upstream: upstream || null,
+    };
+  } finally {
+    // The command prints the result line; a second one from here would repeat it.
+    spinner.stop();
+  }
+}
+
 /**
  * Removes a worktree, or throws with git's reason for not doing so. The
  * worktree is removed by its path; the branch name only labels the messages and

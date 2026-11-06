@@ -22,3 +22,20 @@ Branch-local, advisory, read by nothing. `/feature-close` deletes this file whol
   does not pin `check-ref-format` as the only subprocess (`toHaveBeenCalledTimes(1)`).
 - On a case-insensitive filesystem (macOS), a case-only rename (`feature/x → feature/X`) is refused as
   "already exists" for the worktree's own directory. A docs caveat candidate.
+
+## Phase 2 — Move, rename and roll back in `git.ts` (Gate 2, PASS WITH NOTES)
+
+- `gitRenameWorktree`'s `mkdirSync` of the new parents runs outside the try: a failure surfaces raw
+  (`EACCES: … mkdir …`) with no "Could not rename" prefix, and a failure part-way through a recursive
+  mkdir leaves the shallower directories behind. Untested.
+- A failed upstream read (`for-each-ref`) is swallowed to `upstream: null`, so the push hint silently
+  disappears. Untested; §4.4's `warnings` is where phase 3 could surface it.
+- When the move-back fails, only its reason survives (in the message); `cause` is the branch-rename error,
+  and the move-back error object is dropped.
+- No phase 2 test pins that git's refusals are exit 1 (not an `InvalidValueError`); phase 3's exit-code
+  tests are where that lands.
+- `removeCreatedParents` ignores rmdir failures with no test showing it cannot replace the git error.
+- `git.test.ts` declares `git worktree move <trees>/a/b/c <trees>/a/b/c` in `expectCommands`, a call that
+  never happens; the real `feature/x → a/b/c` call is undeclared, so `afterEach` warns. Cosmetic.
+- `gitRenameWorktree(plan, repoRoot)` takes the root as a second parameter rather than the plan field §6.2's
+  signature implied, and its spinner stops without `succeed`, leaving the ✔ line to the command (§4.3 step 4).
