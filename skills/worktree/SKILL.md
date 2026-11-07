@@ -655,8 +655,8 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
-| `opener` | `editor`, `herdr`, `rex`, `auto` or `none` | where a worktree opens; `auto` picks Herdr or Rex from the terminal the command runs in (Herdr first if both, since Herdr can run inside Rex but not the reverse) when that CLI is installed, else the editor, and a shell that outlived its Herdr or Rex keeps its variables, so a fixed value is the escape; and for `herdr` and `rex` where its space or session is closed on removal; `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
-| `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
+| `opener` | `editor`, `herdr`, `rex`, `auto` or `none` | where a worktree opens; `auto` picks Herdr or Rex from the terminal the command runs in (Herdr first if both, since Herdr can run inside Rex but not the reverse) when that CLI is installed, else the editor, and a shell that outlived its Herdr or Rex keeps its variables, so a fixed value is the escape; and for `herdr`, `rex` and `auto` where its space or session is closed on removal (`auto` asks every installed tool); `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
+| `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor`, or `auto` falls back to it |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `rex.focus` | `true` or `false` | whether the app is brought to a new Rex session; defaults to `true`, only `false` turns it off |

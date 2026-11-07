@@ -177,8 +177,8 @@ status they give has to say idle or done. A session that is working, one that is
 one whose status is not recognised, and one that reports no status at all still hold the worktree back.
 Where a worktree holds several sessions, one that is working holds it back whatever the rest are doing.
 An idle session does not excuse anything else: uncommitted changes and unpushed commits hold the
-worktree back as before. With [`opener`](/worktree/configuration/) set to `herdr` or `rex`, the idle pane closes
-with the worktree's space or session.
+worktree back as before. With [`opener`](/worktree/configuration/) set to `herdr`, `rex` or `auto`, the idle pane
+closes with the worktree's space or session.
 
 `--force` does **not** override this. It answers the confirmation prompt, not the safety
 verdict. To sweep a worktree anyway, pass `--ignore-agents`. It still looks up the sessions, but
@@ -194,7 +194,7 @@ Removing 1 worktree branch despite a live agent session:
 It has no short alias on purpose: overruling this one is worth spelling out.
 
 `--ignore-agents` costs more than it used to. With [`opener`](/worktree/configuration/) set to
-`herdr` or `rex`, a worktree removed this way also has its Herdr space or Rex session closed — which takes down the
+`herdr`, `rex` or `auto`, a worktree removed this way also has its Herdr space or Rex session closed — which takes down the
 panes the agent is working in, not just the directory underneath it. Before spaces were
 closed, an overruled agent at least kept its output on screen.
 
