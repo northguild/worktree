@@ -1,6 +1,6 @@
 // Generated file. Do not edit directly.
 
-export const cliVersion = "2.1.2";
+export const cliVersion = "3.0.0";
 export const projectName = "Worktree";
 export const projectDescription =
   "A CLI tool for managing git worktrees with enhanced workflow features";
