@@ -73,8 +73,10 @@ export const JIRA_DEPLOYMENTS = ["cloud", "datacenter"] as const;
 // Accepted values for the `opener` config key: which destination a worktree is
 // handed to once it exists. Unset means `editor`, which is what every install
 // did before the key existed. `none` opens nothing: the path is printed and the
-// command stops, for scripts and agents that have no use for a window.
-export const OPENER_KINDS = ["editor", "herdr", "rex", "none"] as const;
+// command stops, for scripts and agents that have no use for a window. `auto`
+// picks Herdr or Rex from the terminal the command runs in, else the editor;
+// it is never the default (#271 D1).
+export const OPENER_KINDS = ["editor", "herdr", "rex", "auto", "none"] as const;
 
 // The keys that only mean something when Herdr is installed. `worktree config`
 // hides them when it is not, so the feature is invisible to everyone else.

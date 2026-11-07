@@ -12,3 +12,10 @@ Branch-local and advisory; `/feature-close` deletes this file. See `context/work
   the source for the detector's inputs. The expected `[]` is unaffected.
 - `TerminalHost = "herdr" | "rex"` restates a subset of `OpenerKind`; `Extract<OpenerKind, "herdr" | "rex">`
   would keep one source of truth.
+
+## Phase 2 — `auto` as an opener value
+
+- Two of the four `--missing` + `auto` tests in `config.test.ts` assert only that `mockCheckbox` was called
+  once, not which item it listed — copied from the existing `editor` test's pattern.
+- Exact-order assertions (`"editor, herdr, rex, auto or none"`, the choice arrays) pin `OPENER_KINDS`'s order,
+  which the plan never named; membership is what phase 2's Done-when asked for.

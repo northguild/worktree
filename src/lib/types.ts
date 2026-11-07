@@ -11,6 +11,9 @@ export type JiraDeployment = (typeof JIRA_DEPLOYMENTS)[number];
 
 export type OpenerKind = (typeof OPENER_KINDS)[number];
 
+/** What a run opens with: `auto` is resolved to one of the others before it acts (#271 D6). */
+export type ResolvedOpener = Exclude<OpenerKind, "auto">;
+
 /** An agent the open started. */
 export interface OpenedAgent {
   /** The runtime session name; `null` where this CLI named nothing (D12). */
@@ -28,7 +31,7 @@ export interface OpenedAgent {
 
 /** What `openWorktreePath` opened and started. */
 export interface OpenOutcome {
-  opener: OpenerKind;
+  opener: ResolvedOpener;
   herdr?: {
     space: string;
     pane: string;

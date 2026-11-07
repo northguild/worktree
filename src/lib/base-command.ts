@@ -50,8 +50,8 @@ import type {
   JsonErrorCode,
   JsonErrorDocument,
   OpenedAgent,
-  OpenerKind,
   OpenOutcome,
+  ResolvedOpener,
 } from "./types.js";
 import { splitCommandValue } from "./utils.js";
 
@@ -532,7 +532,7 @@ export abstract class BaseCommand extends Command {
   }
 
   /** The opener this run uses: the flag first, then the `opener` key. */
-  private async resolveOpener(open: boolean): Promise<OpenerKind> {
+  private async resolveOpener(open: boolean): Promise<ResolvedOpener> {
     const configured = await gitGetConfigValue("opener");
 
     return !open || configured === "none"
