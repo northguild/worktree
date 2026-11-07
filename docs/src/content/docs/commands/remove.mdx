@@ -110,12 +110,18 @@ that was built around it, so the space does not outlive the checkout. With `rex`
 instead, but only one whose every shell is in that worktree; see
 [Rex Sessions](/worktree/guides/rex-sessions/#when-the-worktree-goes).
 
+With `opener` set to `auto`, `remove` asks every installed tool, not only the one it would open in today: a
+worktree Herdr opened still has its space closed when you run `remove` from a plain terminal, or from inside
+Rex. Both lookups run at once, a tool that is not installed is not asked, and one tool failing to answer is a
+warning that does not stop the other from closing what it holds.
+
 Only a worktree that was actually removed has its space closed. A branch that was not found, a
 confirmation you declined and a removal that failed all leave the space alone — their checkouts are
 still on disk. A failed close is a warning and the command still exits `0`: by then the worktree is
 already gone, so there is nothing to retry.
 
-With `opener` unset, `editor` or `none`, nothing here applies and no Herdr or Rex process is started. See
+With `opener` unset, `editor` or `none`, nothing here applies and no Herdr or Rex process is started. A fixed
+`herdr` or `rex` asks that tool only. See
 [Herdr Spaces](/worktree/guides/herdr-spaces/#when-the-worktree-goes).
 
 ## JSON output
@@ -135,8 +141,8 @@ worktree remove feature/add-bulk-actions --force --json
 | Key | Value |
 | --- | --- |
 | `removed` | the worktrees that were removed, each with its `branch` and `path` |
-| `herdrSpacesClosed` | the Herdr workspace ids that were closed; `[]` when `opener` is not `herdr` or nothing was open |
-| `rexSessionsClosed` | the Rex session ids that were killed; `[]` when `opener` is not `rex` or nothing was open |
+| `herdrSpacesClosed` | the Herdr workspace ids that were closed; `[]` when `opener` is neither `herdr` nor `auto`, or nothing was open |
+| `rexSessionsClosed` | the Rex session ids that were killed; `[]` when `opener` is neither `rex` nor `auto`, or nothing was open |
 | `warnings` | what went wrong without stopping the run, such as a Herdr space or Rex session that would not close |
 
 The spinner lines and warnings go to stderr. A failure prints `{"error":{"code","message"}}` on stdout instead

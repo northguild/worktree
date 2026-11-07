@@ -116,7 +116,8 @@ With a brief (`--agent`, `--agent-file` or `--agent-stdin`):
 ## When the worktree goes
 
 `worktree remove` and `worktree cleanup` delete a checkout. With `opener herdr` they also close the
-Herdr space that was built around it, so a space does not outlive the worktree it belongs to.
+Herdr space that was built around it, so a space does not outlive the worktree it belongs to. With `opener auto`, both commands ask every installed
+tool and close the space wherever it is held, whatever terminal they run from.
 
 ```bash
 worktree remove feature/add-bulk-actions

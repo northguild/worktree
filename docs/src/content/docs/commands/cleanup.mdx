@@ -207,11 +207,15 @@ With [`opener`](/worktree/configuration/) set to `herdr`, every worktree `cleanu
 Herdr space closed. With `rex`, its Rex session is killed instead, but only a session whose every shell is in
 that worktree; see [Rex Sessions](/worktree/guides/rex-sessions/#when-the-worktree-goes).
 
+With `auto`, `cleanup` asks every installed tool, not only the one it would open in today, so a space or
+session closes wherever it lives. A tool that is not installed is not asked, and one tool failing to answer is
+a warning that does not stop the other.
+
 Only the ones it actually removed. A worktree held back — for uncommitted changes, a live agent,
 unpushed commits it could not count, or a canceled issue's commits it could not confirm on the
 remote — keeps its space, because its checkout is still there — `cleanup` closes what it deleted, never what
 it merely looked at. Each space is closed independently, so one failure does not stop the rest, and
 a failed close is a warning that leaves the exit code at `0`.
 
-With `opener` unset, `editor` or `none`, no Herdr or Rex process is started. See
+With `opener` unset, `editor` or `none`, no Herdr or Rex process is started, and a fixed `herdr` or `rex` asks that tool only. See
 [Herdr Spaces](/worktree/guides/herdr-spaces/#when-the-worktree-goes).

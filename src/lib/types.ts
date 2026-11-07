@@ -14,6 +14,16 @@ export type OpenerKind = (typeof OPENER_KINDS)[number];
 /** What a run opens with: `auto` is resolved to one of the others before it acts (#271 D6). */
 export type ResolvedOpener = Exclude<OpenerKind, "auto">;
 
+/**
+ * The ids a closer closed, per tool (#271 D9). A fixed opener fills one key and
+ * leaves the other empty; `auto` can fill both. `remove` reports each under its
+ * own `--json` key.
+ */
+export interface ClosedSpaces {
+  herdr: string[];
+  rex: string[];
+}
+
 /** An agent the open started. */
 export interface OpenedAgent {
   /** The runtime session name; `null` where this CLI named nothing (D12). */

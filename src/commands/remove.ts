@@ -11,7 +11,11 @@ import {
 } from "../lib/git.js";
 import { createSpinner } from "../lib/progress.js";
 import { askCheckbox, askConfirm, Separator } from "../lib/prompt.js";
-import type { RemoveDocument, WorktreeListEntry } from "../lib/types.js";
+import type {
+  ClosedSpaces,
+  RemoveDocument,
+  WorktreeListEntry,
+} from "../lib/types.js";
 import { worktreeListEntryToListName } from "../lib/utils.js";
 
 export default class Delete extends BaseCommand {
@@ -83,7 +87,7 @@ Exit codes:
     // reporting a success that removed nothing.
     if (worktrees.length === 0 && !(this.jsonEnabled() && args.branchName)) {
       this.log("No worktree branches found.");
-      return this.toDocument([], []);
+      return this.toDocument([]);
     }
 
     if (args.branchName) {
@@ -147,7 +151,7 @@ Exit codes:
     );
 
     if (selected.length === 0) {
-      return this.toDocument([], []);
+      return this.toDocument([]);
     }
 
     if (selected.some((wt) => !wt.safeToRemove) && !flags.force) {
@@ -160,7 +164,7 @@ Exit codes:
         { value: "removing branches that are not safe to delete", flag: "-f" },
       );
       if (!confirmDelete) {
-        return this.toDocument([], []);
+        return this.toDocument([]);
       }
     }
 
@@ -195,17 +199,15 @@ Exit codes:
 
   private toDocument(
     removed: WorktreeListEntry[],
-    closed: string[],
+    closed: ClosedSpaces = { herdr: [], rex: [] },
   ): RemoveDocument {
-    const rex = this.closedSpacesOf === "rex";
-
     return {
       removed: removed.map(({ branchName, path }) => ({
         branch: branchName,
         path,
       })),
-      herdrSpacesClosed: rex ? [] : closed,
-      rexSessionsClosed: rex ? closed : [],
+      herdrSpacesClosed: closed.herdr,
+      rexSessionsClosed: closed.rex,
       warnings: this.warnings,
     };
   }

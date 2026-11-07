@@ -210,7 +210,8 @@ worktree config branchPrefix.chore chore/
   opens nothing: the command prints `Worktree created at <path>` (`Worktree already exists at <path>` when it reopens an existing worktree) and stops. `auto` picks Herdr or Rex
   from the terminal the command runs in, when that tool's CLI is installed: Herdr first if the
   terminal is inside both, otherwise the editor. A fixed value always overrides it, and unset still
-  means `editor`, so `auto` is something you opt into.
+  means `editor`, so `auto` is something you opt into. `remove` and `cleanup` close the space or session
+  under `auto` too: they ask every installed tool and close it wherever it is held, whatever terminal they run from.
 - `codeEditor` is used by the `editor` opener, and by `auto` as its fallback — see [Editor Command](#editor-command) above and
   the [Editor Integration](/worktree/guides/editor-integration/) guide.
 - `herdr.focus` and `herdr.agent` apply only when `opener` is `herdr`, or `auto` picks it. See

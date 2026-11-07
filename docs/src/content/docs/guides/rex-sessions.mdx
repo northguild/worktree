@@ -174,7 +174,8 @@ arguments, and an echo that comes escaped or cut short cannot be told apart from
 
 With `opener` set to `rex`, [`remove`](/worktree/commands/remove/) and [`cleanup`](/worktree/commands/cleanup/)
 kill the Rex session that was opened for each worktree they delete (`rex kill`), so a session does not outlive
-its checkout. Only a worktree that was actually removed has its session closed. A branch that was not found, a
+its checkout. With `opener auto`, both commands ask every installed tool and close the session wherever it is
+held, whatever terminal they run from. Only a worktree that was actually removed has its session closed. A branch that was not found, a
 declined confirmation, a failed removal and a worktree `cleanup` held back all leave the session alone, because
 their checkouts are still on disk. `remove --json` lists the ids under `rexSessionsClosed`, and `[]` when
 nothing was open.

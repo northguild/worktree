@@ -925,7 +925,7 @@ describe("remove command — --json", () => {
     (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
     (command as any).parsed = true;
     vi.spyOn(command as any, "resolveSpaceCloser").mockResolvedValue(
-      async () => closed,
+      async () => ({ herdr: closed, rex: [] }),
     );
     await (command as any)._run();
   }
@@ -1168,7 +1168,7 @@ describe("remove command — agent sessions", () => {
     (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
     (command as any).parsed = true;
     vi.spyOn(command as any, "resolveSpaceCloser").mockResolvedValue(
-      async () => [],
+      async () => ({ herdr: [], rex: [] }),
     );
     // `_run` resolves the run as non-interactive (stdin is not a TTY here) and
     // would skip every prompt; only `--json` is meant to, so the human path

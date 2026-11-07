@@ -28,3 +28,15 @@ Branch-local and advisory; `/feature-close` deletes this file. See `context/work
   (`expectCommands` only warns); `expect(mockRun).toHaveBeenCalledTimes(1)` would.
 - `open.mdx`, `getting-started.mdx` and `branch.mdx` step 9 state what `auto` does without the guess and
   stale-variable caveats; the Herdr and Rex guides, the FAQ, README and the skill carry them.
+
+## Phase 4 — Closing under `auto`
+
+- The `auto` spinner text "Finding Herdr spaces and Rex sessions" is the coder's wording; the plan names
+  none, so its test pins the code to itself. Accepted as decided.
+- `resolveSpaceCloser` now runs `gitGetRootPath` beside `gitGetAbsoluteWorktreesPath` and `findSpaces`
+  after it, where `findSpaces` used to run beside the worktrees-path lookup. Same commands on success, one
+  warning on failure either way.
+- No `remove`-level test has `auto` fill both JSON keys in one document; each key's pass-through is
+  pinned separately (remove.test.ts 862-869 and 947-951).
+- `SKILL.md`'s "`remove --json` lists the killed ids as `rexSessionsClosed`" now follows the `auto`
+  sentence and says nothing of `herdrSpacesClosed`; still true, since it is about Rex ids.

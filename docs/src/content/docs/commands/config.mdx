@@ -149,8 +149,8 @@ everyone in a `.worktree.yml` file, which your own value overrides; see
 
 ## Opener Keys
 
-- `opener` selects where a finished worktree opens, and for `herdr` and `rex` where its space or
-  session is closed again when the worktree is removed: `editor` (default), `herdr`, `rex`, `auto` or `none`. `auto` picks Herdr or Rex from the terminal the command runs in, else the editor. With `none` nothing is opened:
+- `opener` selects where a finished worktree opens, and for `herdr`, `rex` and `auto` where its space or
+  session is closed again when the worktree is removed: `editor` (default), `herdr`, `rex`, `auto` or `none`. `auto` picks Herdr or Rex from the terminal the command runs in, else the editor, and on removal closes the worktree's space in whichever installed tool holds it. With `none` nothing is opened:
   the command prints `Worktree created at <path>` (`Worktree already exists at <path>` when it reopens an existing worktree) and stops. An unknown value fails with exit `2`.
 - `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`, and by `auto` as its fallback.
 - `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`. Applies when `opener` is `herdr`, or `auto` picks it.

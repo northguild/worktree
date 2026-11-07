@@ -212,7 +212,7 @@ Aliases are also available:
 worktree rm feature/add-bulk-actions
 ```
 
-With `opener` set to `herdr` or `rex`, removing a worktree also closes the Herdr space or Rex session it was opened as. Rex only closes a session whose every shell is in that worktree; one with a shell anywhere else is left open.
+With `opener` set to `herdr`, `rex` or `auto`, removing a worktree also closes the Herdr space or Rex session it was opened as. `auto` asks every installed tool, so a space closes wherever it lives; a fixed value asks its own tool only. Rex only closes a session whose every shell is in that worktree; one with a shell anywhere else is left open.
 
 ### Clean up stale worktrees
 
@@ -226,7 +226,7 @@ A worktree whose Linear issue is canceled is removed too, when it tracks a live 
 
 A worktree that an agent session is working in is held back and reported as skipped. A session that is only idle does not hold anything back. That includes a session Herdr started for you, found through `herdr agent list`, as well as one in your own terminal. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
 
-With `opener` set to `herdr` or `rex`, every worktree removed here also has its Herdr space or Rex session closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space or session, taking its panes down with the directory.
+With `opener` set to `herdr`, `rex` or `auto`, every worktree removed here also has its Herdr space or Rex session closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space or session, taking its panes down with the directory.
 
 ### Start worktrees from Linear agent delegations
 

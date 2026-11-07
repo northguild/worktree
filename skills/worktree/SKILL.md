@@ -552,12 +552,15 @@ the worktree was opened as, so a space does not outlive its checkout. With
 `rex` they kill its Rex session instead, but only one whose every shell is in
 that worktree: a shell in the main checkout, the current worktree or another
 worktree leaves it open, and so does the session the CLI runs in
-(`REX_SESSION`). `remove --json` lists the killed ids as `rexSessionsClosed`. Only
+(`REX_SESSION`). With `auto` they ask every installed tool, not only the one
+that would open now, so a space or session closes wherever it lives; the two
+lookups run at once, and one tool failing to answer is a warning that does not
+stop the other. `remove --json` lists the killed ids as `rexSessionsClosed`. Only
 worktrees that were actually removed: a branch that was not found, a declined
 confirmation, a failed removal and anything `cleanup` held back all keep their
 spaces and sessions, because those checkouts are still on disk. A failed close is a warning
 and the command still exits `0` — by then the worktree is already gone. With
-`opener` unset, `editor` or `none`, no Herdr or Rex process is started by either command.
+`opener` unset, `editor` or `none`, no Herdr or Rex process is started by either command, and a fixed `herdr` or `rex` asks that tool only.
 
 Note that `--ignore-agents` now closes a live agent's space or session too, taking down the
 panes it is working in along with the directory.
