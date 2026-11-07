@@ -30,6 +30,7 @@ import { isNonInteractive, setNonInteractive } from "./interaction.js";
 import { resetProjectConfigCache } from "./project-config.js";
 import { InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
+import * as terminalHost from "./terminal-host.js";
 import type { ConfigName } from "./types.js";
 
 // openWorktreePath is the only method covered here that draws a spinner. Mock it
@@ -81,10 +82,6 @@ class TestCommand extends BaseCommand {
 
   renamer() {
     return this.resolveSpaceRenamer();
-  }
-
-  get renamedSpacesOf() {
-    return this.closedSpacesOf;
   }
 
   assertBrief(options: OpenWorktreeOptions) {
@@ -2011,7 +2008,10 @@ describe("resolveSpaceCloser", () => {
 
       const closeSpaces = await command.closer();
 
-      await expect(closeSpaces([onePath, twoPath])).resolves.toEqual(["wR"]);
+      await expect(closeSpaces([onePath, twoPath])).resolves.toEqual({
+        herdr: ["wR"],
+        rex: [],
+      });
       expect(spinnerMocks.warn).toHaveBeenCalledWith(
         "Herdr: workspace wQ not found (workspace_not_found)",
       );
@@ -2027,7 +2027,10 @@ describe("resolveSpaceCloser", () => {
 
       const closeSpaces = await command.closer();
 
-      await expect(closeSpaces([onePath, twoPath])).resolves.toEqual([]);
+      await expect(closeSpaces([onePath, twoPath])).resolves.toEqual({
+        herdr: [],
+        rex: [],
+      });
       expect(spinnerMocks.warn).toHaveBeenCalledTimes(1);
       expect(mockClose).not.toHaveBeenCalled();
     });
@@ -2038,19 +2041,26 @@ describe("resolveSpaceCloser", () => {
       // what actually happened.
       mockList.mockRejectedValue(new Error("herdr did not answer"));
       const afterFailedLookup = await command.closer();
-      await expect(afterFailedLookup([onePath])).resolves.toEqual([]);
+      await expect(afterFailedLookup([onePath])).resolves.toEqual({
+        herdr: [],
+        rex: [],
+      });
 
       listResolves();
       mockClose.mockRejectedValue(new Error("herdr did not answer"));
       const afterFailedClose = await command.closer();
 
-      await expect(afterFailedClose([onePath])).resolves.toEqual([]);
+      await expect(afterFailedClose([onePath])).resolves.toEqual({
+        herdr: [],
+        rex: [],
+      });
     });
   });
 });
 
-// #272 D12: the same lookup as the closer, the same opener gate, and a relabel
-// in place of the close. Expected labels come from `toSpaceLabel`'s rule: the
+// #272 D12: the same lookup as the closer, the same opener gate (one tool for
+// a fixed opener, every installed one under `auto`, #271 D7), and a relabel in
+// place of the close. Expected labels come from `toSpaceLabel`'s rule: the
 // path under `<root>.worktrees/` is the label, slashes and all.
 describe("resolveSpaceRenamer", () => {
   const gitRootPath = "/repo/project";
@@ -2100,7 +2110,10 @@ describe("resolveSpaceRenamer", () => {
     setConfig({ opener });
 
     const renameSpace = await command.renamer();
-    await expect(renameSpace(oldPath, newPath)).resolves.toEqual([]);
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
 
     expect(mockInstalled).not.toHaveBeenCalled();
     expect(mockList).not.toHaveBeenCalled();
@@ -2114,7 +2127,10 @@ describe("resolveSpaceRenamer", () => {
     expect(mockList).toHaveBeenCalledWith({ gitRootPath });
     expect(mockRename).not.toHaveBeenCalled();
 
-    await expect(renameSpace(oldPath, newPath)).resolves.toEqual(["wQ"]);
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+      herdr: ["wQ"],
+      rex: [],
+    });
     expect(mockRename).toHaveBeenCalledWith("wQ", "bugfix/one");
     expect(spinnerMocks.succeed).toHaveBeenCalledWith(
       "Renamed Herdr space feature/one to bugfix/one",
@@ -2124,7 +2140,10 @@ describe("resolveSpaceRenamer", () => {
   it("relabels nothing, and says nothing, for a worktree with no space", async () => {
     const renameSpace = await command.renamer();
 
-    await expect(renameSpace(noSpacePath, newPath)).resolves.toEqual([]);
+    await expect(renameSpace(noSpacePath, newPath)).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
     expect(mockRename).not.toHaveBeenCalled();
     expect(spinnerMocks.warn).not.toHaveBeenCalled();
   });
@@ -2147,10 +2166,84 @@ describe("resolveSpaceRenamer", () => {
 
     const renameSpace = await command.renamer();
 
-    await expect(renameSpace(oldPath, newPath)).resolves.toEqual(["session:Q"]);
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+      herdr: [],
+      rex: ["session:Q"],
+    });
     expect(mockRexRename).toHaveBeenCalledWith("session:Q", "bugfix/one");
     expect(mockRename).not.toHaveBeenCalled();
-    expect(command.renamedSpacesOf).toBe("rex");
+  });
+
+  describe("under opener auto", () => {
+    let mockRexRename: ReturnType<typeof vi.spyOn>;
+    let mockRexFind: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      setConfig({ opener: "auto" });
+      vi.spyOn(rex, "isRexInstalled").mockResolvedValue(true);
+      vi.spyOn(git, "gitGetWorktrees").mockResolvedValue([
+        {
+          path: oldPath,
+          branchName: "feature/one",
+          pathExists: true,
+          isCurrent: false,
+        },
+      ]);
+      mockRexFind = vi
+        .spyOn(rex, "findRexSessions")
+        .mockResolvedValue(new Map([[oldPath, "session:Q"]]));
+      mockRexRename = vi.spyOn(rex, "renameRexSession").mockResolvedValue();
+    });
+
+    it("relabels the worktree's space in every installed tool", async () => {
+      const renameSpace = await command.renamer();
+
+      await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+        herdr: ["wQ"],
+        rex: ["session:Q"],
+      });
+      expect(mockRename).toHaveBeenCalledWith("wQ", "bugfix/one");
+      expect(mockRexRename).toHaveBeenCalledWith("session:Q", "bugfix/one");
+    });
+
+    it("still relabels in one tool when the other's lookup rejects", async () => {
+      mockList.mockRejectedValue(new Error("herdr did not answer"));
+
+      const renameSpace = await command.renamer();
+
+      await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+        herdr: [],
+        rex: ["session:Q"],
+      });
+      expect(command.recordedWarnings).toEqual(["herdr did not answer"]);
+      expect(mockRename).not.toHaveBeenCalled();
+      expect(mockRexRename).toHaveBeenCalledWith("session:Q", "bugfix/one");
+    });
+
+    it("still relabels in one tool when the other's relabel throws", async () => {
+      mockRexRename.mockRejectedValue(new Error("rex refused"));
+
+      const renameSpace = await command.renamer();
+
+      await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+        herdr: ["wQ"],
+        rex: [],
+      });
+      expect(command.recordedWarnings).toEqual(["rex refused"]);
+    });
+
+    it("asks no tool that is not installed", async () => {
+      mockInstalled.mockResolvedValue(false);
+
+      const renameSpace = await command.renamer();
+
+      await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+        herdr: [],
+        rex: ["session:Q"],
+      });
+      expect(mockList).not.toHaveBeenCalled();
+      expect(mockRexFind).toHaveBeenCalled();
+    });
   });
 
   it("warns, records the warning and relabels nothing when the relabel throws", async () => {
@@ -2160,7 +2253,10 @@ describe("resolveSpaceRenamer", () => {
 
     const renameSpace = await command.renamer();
 
-    await expect(renameSpace(oldPath, newPath)).resolves.toEqual([]);
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
     expect(spinnerMocks.warn).toHaveBeenCalledWith(
       "Herdr: workspace wQ not found (workspace_not_found)",
     );
@@ -2174,7 +2270,10 @@ describe("resolveSpaceRenamer", () => {
 
     const renameSpace = await command.renamer();
 
-    await expect(renameSpace(oldPath, newPath)).resolves.toEqual([]);
+    await expect(renameSpace(oldPath, newPath)).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
     expect(command.recordedWarnings).toEqual(["herdr did not answer"]);
     expect(mockRename).not.toHaveBeenCalled();
   });
@@ -2265,7 +2364,10 @@ describe("resolveSpaceCloser — the Rex opener", () => {
     expect(mockFind).toHaveBeenCalledTimes(1);
     expect(mockClose).not.toHaveBeenCalled();
 
-    await expect(closeSpaces([onePath])).resolves.toEqual(["session:Q"]);
+    await expect(closeSpaces([onePath])).resolves.toEqual({
+      herdr: [],
+      rex: ["session:Q"],
+    });
     expect(mockClose).toHaveBeenCalledTimes(1);
     expect(mockClose).toHaveBeenCalledWith("session:Q");
   });
@@ -2290,9 +2392,10 @@ describe("resolveSpaceCloser — the Rex opener", () => {
 
     const closeSpaces = await command.closer();
 
-    await expect(closeSpaces([onePath, twoPath])).resolves.toEqual([
-      "session:R",
-    ]);
+    await expect(closeSpaces([onePath, twoPath])).resolves.toEqual({
+      herdr: [],
+      rex: ["session:R"],
+    });
     expect(mockClose).not.toHaveBeenCalledWith("session:Q");
   });
 
@@ -2301,9 +2404,10 @@ describe("resolveSpaceCloser — the Rex opener", () => {
 
     const closeSpaces = await command.closer();
 
-    await expect(closeSpaces([onePath, twoPath])).resolves.toEqual([
-      "session:R",
-    ]);
+    await expect(closeSpaces([onePath, twoPath])).resolves.toEqual({
+      herdr: [],
+      rex: ["session:R"],
+    });
     expect(spinnerMocks.warn).toHaveBeenCalledWith("Rex: no such session");
     expect(mockClose).toHaveBeenCalledWith("session:R");
   });
@@ -2313,7 +2417,10 @@ describe("resolveSpaceCloser — the Rex opener", () => {
 
     const closeSpaces = await command.closer();
 
-    await expect(closeSpaces([onePath])).resolves.toEqual([]);
+    await expect(closeSpaces([onePath])).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
     expect(spinnerMocks.warn).toHaveBeenCalledTimes(1);
     expect(mockClose).not.toHaveBeenCalled();
   });
@@ -2323,8 +2430,283 @@ describe("resolveSpaceCloser — the Rex opener", () => {
 
     const closeSpaces = await command.closer();
 
-    await expect(closeSpaces([onePath])).resolves.toEqual([]);
+    await expect(closeSpaces([onePath])).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
     expect(mockClose).not.toHaveBeenCalled();
+  });
+});
+
+// `opener auto` closes in whichever installed tool holds the space (#271 D7).
+// Every call into the two integrations is stubbed, and the closer reads only the
+// `opener` key, never the environment, so the suite means the same inside a
+// Herdr or Rex terminal.
+describe("resolveSpaceCloser — the auto opener", () => {
+  const gitRootPath = "/repo/project";
+  const worktreesRootPath = `${gitRootPath}.worktrees`;
+  const herdrPath = `${worktreesRootPath}/feature/in-herdr`;
+  const rexPath = `${worktreesRootPath}/feature/in-rex`;
+  const nowherePath = `${worktreesRootPath}/feature/nowhere`;
+
+  const ownSession = process.env.REX_SESSION;
+
+  let command: TestCommand;
+  let herdrInstalled: ReturnType<typeof vi.spyOn>;
+  let rexInstalled: ReturnType<typeof vi.spyOn>;
+  let herdrList: ReturnType<typeof vi.spyOn>;
+  let rexFind: ReturnType<typeof vi.spyOn>;
+  let herdrClose: ReturnType<typeof vi.spyOn>;
+  let rexClose: ReturnType<typeof vi.spyOn>;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.REX_SESSION;
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    vi.spyOn(command, "log").mockImplementation(() => {});
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      worktreesRootPath,
+    );
+    // Rex has no worktree listing: its multiplexer reads them from git.
+    vi.spyOn(git, "gitGetWorktrees").mockResolvedValue([
+      {
+        path: rexPath,
+        branchName: "feature/in-rex",
+        pathExists: true,
+        isCurrent: false,
+      },
+    ]);
+    herdrInstalled = vi
+      .spyOn(herdr, "isHerdrInstalled")
+      .mockResolvedValue(true);
+    rexInstalled = vi.spyOn(rex, "isRexInstalled").mockResolvedValue(true);
+    herdrList = vi.spyOn(herdr, "listHerdrWorktrees").mockResolvedValue({
+      sourceWorkspaceId: "w5",
+      worktrees: [
+        { path: gitRootPath, workspaceId: "w5" },
+        { path: herdrPath, workspaceId: "wQ" },
+      ],
+    });
+    rexFind = vi
+      .spyOn(rex, "findRexSessions")
+      .mockResolvedValue(new Map([[rexPath, "session:R"]]));
+    herdrClose = vi.spyOn(herdr, "closeHerdrWorkspace").mockResolvedValue();
+    rexClose = vi.spyOn(rex, "closeRexSession").mockResolvedValue();
+    setConfig({ opener: "auto" });
+  });
+
+  afterEach(() => {
+    if (ownSession === undefined) {
+      delete process.env.REX_SESSION;
+    } else {
+      process.env.REX_SESSION = ownSession;
+    }
+  });
+
+  it("closes a Herdr space and a Rex session in one run, each id under its own tool (D7, D9)", async () => {
+    const closeSpaces = await command.closer();
+
+    await expect(
+      closeSpaces([herdrPath, rexPath, nowherePath]),
+    ).resolves.toEqual({ herdr: ["wQ"], rex: ["session:R"] });
+    expect(herdrClose).toHaveBeenCalledExactlyOnceWith("wQ");
+    expect(rexClose).toHaveBeenCalledExactlyOnceWith("session:R");
+  });
+
+  it("asks both tools for their spaces before anything is closed, and each once", async () => {
+    const closeSpaces = await command.closer();
+
+    expect(herdrList).toHaveBeenCalledTimes(1);
+    expect(rexFind).toHaveBeenCalledTimes(1);
+    expect(herdrClose).not.toHaveBeenCalled();
+    expect(rexClose).not.toHaveBeenCalled();
+
+    await closeSpaces([herdrPath]);
+  });
+
+  it("runs the two lookups concurrently (D8)", async () => {
+    // Neither lookup can settle until the other has started: a sequential
+    // implementation never starts the second, and the closer never resolves.
+    let release!: () => void;
+    const bothStarted = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = 0;
+    const meet = async () => {
+      started += 1;
+      if (started === 2) {
+        release();
+      }
+      await bothStarted;
+    };
+    herdrList.mockImplementation(async () => {
+      await meet();
+      return { sourceWorkspaceId: "w5", worktrees: [] };
+    });
+    rexFind.mockImplementation(async () => {
+      await meet();
+      return new Map();
+    });
+
+    await command.closer();
+
+    expect(started).toBe(2);
+  });
+
+  it("still closes in Rex, and warns, when Herdr's lookup rejects (D8)", async () => {
+    herdrList.mockRejectedValue(new Error("Herdr: socket gone"));
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([herdrPath, rexPath])).resolves.toEqual({
+      herdr: [],
+      rex: ["session:R"],
+    });
+    expect(spinnerMocks.warn).toHaveBeenCalledExactlyOnceWith(
+      "Herdr: socket gone",
+    );
+    expect(command.recordedWarnings).toEqual(["Herdr: socket gone"]);
+  });
+
+  it("still closes in Herdr, and warns, when Rex's lookup rejects (D8)", async () => {
+    rexFind.mockRejectedValue(new Error("Rex: down"));
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([herdrPath, rexPath])).resolves.toEqual({
+      herdr: ["wQ"],
+      rex: [],
+    });
+    expect(command.recordedWarnings).toEqual(["Rex: down"]);
+    expect(rexClose).not.toHaveBeenCalled();
+  });
+
+  it("records a warning for each tool when both lookups reject, and closes nothing", async () => {
+    herdrList.mockRejectedValue(new Error("Herdr: socket gone"));
+    rexFind.mockRejectedValue(new Error("Rex: down"));
+    // The second failure cannot reuse the one spinner, so it goes through the
+    // command's own warn, which prints to stderr.
+    const output = captureOutput();
+
+    const closeSpaces = await command.closer();
+    output.restore();
+
+    await expect(closeSpaces([herdrPath, rexPath])).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
+    expect(spinnerMocks.warn).toHaveBeenCalledExactlyOnceWith(
+      "Herdr: socket gone",
+    );
+    expect(output.stderr()).toContain("Rex: down");
+    expect(command.recordedWarnings).toEqual([
+      "Herdr: socket gone",
+      "Rex: down",
+    ]);
+  });
+
+  it("keeps a failed close to its own catch and carries on in the other tool (D8)", async () => {
+    herdrClose.mockRejectedValue(new Error("Herdr: no such workspace"));
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([herdrPath, rexPath])).resolves.toEqual({
+      herdr: [],
+      rex: ["session:R"],
+    });
+    expect(spinnerMocks.warn).toHaveBeenCalledWith("Herdr: no such workspace");
+  });
+
+  it("spawns nothing for a tool that is not installed, and closes in the other (D7)", async () => {
+    herdrInstalled.mockResolvedValue(false);
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([herdrPath, rexPath])).resolves.toEqual({
+      herdr: [],
+      rex: ["session:R"],
+    });
+    expect(herdrList).not.toHaveBeenCalled();
+    expect(herdrClose).not.toHaveBeenCalled();
+  });
+
+  it("spawns nothing at all when neither tool is installed", async () => {
+    herdrInstalled.mockResolvedValue(false);
+    rexInstalled.mockResolvedValue(false);
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([herdrPath, rexPath])).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
+    expect(herdrList).not.toHaveBeenCalled();
+    expect(rexFind).not.toHaveBeenCalled();
+    expect(mockRunCapturing).not.toHaveBeenCalled();
+    expect(spinnerMocks.warn).not.toHaveBeenCalled();
+  });
+
+  it("answers an empty result without a close when neither tool has a space open", async () => {
+    herdrList.mockResolvedValue({
+      sourceWorkspaceId: undefined,
+      worktrees: [],
+    });
+    rexFind.mockResolvedValue(new Map());
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([herdrPath, rexPath])).resolves.toEqual({
+      herdr: [],
+      rex: [],
+    });
+    expect(herdrClose).not.toHaveBeenCalled();
+    expect(rexClose).not.toHaveBeenCalled();
+  });
+
+  it("words one lookup spinner for both tools", async () => {
+    await command.closer();
+
+    expect(spinnerMocks.oraFactory).toHaveBeenCalledExactlyOnceWith(
+      "Finding Herdr spaces and Rex sessions",
+    );
+  });
+
+  // #270 D9, kept for fixed values: a fixed opener consults its own tool only.
+  it.each([
+    ["herdr", { herdr: ["wQ"], rex: [] }],
+    ["rex", { herdr: [], rex: ["session:R"] }],
+  ] as const)("a fixed %s opener consults only its own tool", async (opener, expected) => {
+    setConfig({ opener });
+
+    const closeSpaces = await command.closer();
+
+    await expect(closeSpaces([herdrPath, rexPath])).resolves.toEqual(expected);
+    expect(
+      opener === "herdr" ? rexInstalled : herdrInstalled,
+    ).not.toHaveBeenCalled();
+    expect(opener === "herdr" ? rexFind : herdrList).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "",
+    "editor",
+    "none",
+  ])("an opener of %o spawns neither tool", async (opener) => {
+    setConfig({ opener });
+
+    const closeSpaces = await command.closer();
+    await closeSpaces([herdrPath, rexPath]);
+
+    expect(herdrInstalled).not.toHaveBeenCalled();
+    expect(rexInstalled).not.toHaveBeenCalled();
+    expect(mockRunCapturing).not.toHaveBeenCalled();
   });
 });
 
@@ -2870,5 +3252,211 @@ describe("redactSecrets", () => {
       "git@github.com:acme/demo.git",
     );
     expect(redactSecrets("plain text")).toBe("plain text");
+  });
+});
+
+// `opener auto` (#271 phase 3). The detector is stubbed, never the real shell's
+// env: this suite runs inside Herdr, so HERDR_* is set in process.env.
+// Expected values: D3 (Herdr before Rex), D5 (a detected tool counts only when
+// its CLI is installed; else editor), D6 (resolved once, per run), and the
+// `--no-open` constraint (§2).
+describe("openWorktreePath — the auto opener", () => {
+  const gitRootPath = "/tmp/a b";
+  const worktreePath = `${gitRootPath}.worktrees/feature/a thing`;
+  let command: TestCommand;
+  let mockDetect: ReturnType<typeof vi.spyOn>;
+  let mockHerdrInstalled: ReturnType<typeof vi.spyOn>;
+  let mockRexInstalled: ReturnType<typeof vi.spyOn>;
+  let mockOpenHerdr: ReturnType<typeof vi.spyOn>;
+  let mockOpenRex: ReturnType<typeof vi.spyOn>;
+  const originalExitCode = process.exitCode;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    vi.spyOn(command, "log").mockImplementation(() => {});
+    vi.spyOn(command, "logToStderr").mockImplementation(() => {});
+    vi.spyOn(command, "warn").mockImplementation((input) => input);
+    process.exitCode = undefined;
+    mockRun.mockResolvedValue("");
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      `${gitRootPath}.worktrees`,
+    );
+    mockDetect = vi
+      .spyOn(terminalHost, "detectTerminalHosts")
+      .mockReturnValue([]);
+    mockHerdrInstalled = vi
+      .spyOn(herdr, "isHerdrInstalled")
+      .mockResolvedValue(true);
+    mockRexInstalled = vi.spyOn(rex, "isRexInstalled").mockResolvedValue(true);
+    mockOpenHerdr = vi.spyOn(herdr, "openHerdrWorktree").mockResolvedValue({
+      workspaceId: "wF",
+      paneId: "pF1",
+      alreadyOpen: false,
+    });
+    vi.spyOn(rex, "findRexSessions").mockResolvedValue(new Map());
+    mockOpenRex = vi
+      .spyOn(rex, "openRexSession")
+      .mockResolvedValue({ sessionId: "session:new", blockId: "block:one" });
+    vi.spyOn(rex, "selectRexSession").mockResolvedValue();
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+    vi.restoreAllMocks();
+  });
+
+  it("opens a Herdr space in a Herdr environment with Herdr installed", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["herdr"]);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenHerdr).toHaveBeenCalledTimes(1);
+    expect(mockOpenRex).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("herdr");
+  });
+
+  it("opens a Rex session in a Rex environment", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["rex"]);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenRex).toHaveBeenCalledTimes(1);
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("rex");
+  });
+
+  it("prefers Herdr when both are detected (D3)", async () => {
+    setConfig({ opener: "auto" });
+    mockDetect.mockReturnValue(["herdr", "rex"]);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenHerdr).toHaveBeenCalledTimes(1);
+    expect(mockOpenRex).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("herdr");
+  });
+
+  it("falls to the editor when the detected Herdr is not installed (D5)", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["herdr"]);
+    mockHerdrInstalled.mockResolvedValue(false);
+    expectCommands(`code "${worktreePath}"`);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("editor");
+  });
+
+  it("moves on to Rex when Herdr is detected but not installed (D5)", async () => {
+    setConfig({ opener: "auto" });
+    mockDetect.mockReturnValue(["herdr", "rex"]);
+    mockHerdrInstalled.mockResolvedValue(false);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenRex).toHaveBeenCalledTimes(1);
+    expect(outcome.opener).toBe("rex");
+  });
+
+  it("opens the editor in a plain environment", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    expectCommands(`code "${worktreePath}"`);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(mockOpenRex).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("editor");
+  });
+
+  it("is none with --no-open, however the environment reads", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["herdr", "rex"]);
+
+    const outcome = await command.open(worktreePath, { open: false });
+
+    expect(outcome.opener).toBe("none");
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(mockOpenRex).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it("resolves once: the tool a brief was preflighted for is the tool that opens (D6)", async () => {
+    setConfig({ opener: "auto", "agent.command": "claude" });
+    // The environment "changes" between the two uses; only one read counts.
+    mockDetect.mockReturnValueOnce(["rex"]).mockReturnValue(["herdr"]);
+
+    await command.assertBrief({ brief: "do it" });
+    const outcome = await command.open(worktreePath, { brief: "do it" });
+
+    expect(mockDetect).toHaveBeenCalledTimes(1);
+    expect(mockOpenRex).toHaveBeenCalledTimes(1);
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("rex");
+  });
+
+  it("applies the Rex request limit to a brief when auto resolves to Rex", async () => {
+    setConfig({ opener: "auto", "agent.command": "claude" });
+    mockDetect.mockReturnValue(["rex"]);
+
+    await expect(
+      command.assertBrief({ brief: "a".repeat(100_000) }),
+    ).rejects.toThrow(InvalidValueError);
+  });
+
+  it.each([
+    "herdr",
+    "rex",
+    "editor",
+    "none",
+    "",
+  ] as const)("never reads the detector for the fixed value %o (D1)", async (opener) => {
+    setConfig({ opener, codeEditor: "code" });
+    expectCommands(`code "${worktreePath}"`);
+
+    await command.open(worktreePath);
+
+    expect(mockDetect).not.toHaveBeenCalled();
+  });
+
+  // §2: these values start no Herdr or Rex process.
+  it.each([
+    "editor",
+    "none",
+    "",
+  ] as const)("checks for neither Herdr nor Rex for %o (§2)", async (opener) => {
+    setConfig({ opener, codeEditor: "code" });
+    expectCommands(`code "${worktreePath}"`);
+
+    await command.open(worktreePath);
+
+    expect(mockHerdrInstalled).not.toHaveBeenCalled();
+    expect(mockRexInstalled).not.toHaveBeenCalled();
+  });
+
+  it("keeps a detected tool's failure on the fixed opener's policy (D5)", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["herdr"]);
+    mockOpenHerdr.mockRejectedValue(
+      new herdr.HerdrError("worktree_not_found", "worktree not found"),
+    );
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("herdr");
+    expect(process.exitCode).toBeUndefined();
   });
 });

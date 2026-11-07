@@ -819,6 +819,21 @@ describe("config command", () => {
       );
     });
 
+    it("should accept auto as an opener and store it", async () => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      const mockSetConfigValue = vi
+        .spyOn(gitConfig, "gitSetConfigValue")
+        .mockResolvedValue();
+      (config as any).parse = vi.fn().mockResolvedValue({
+        args: { name: "opener", value: "auto" },
+        flags: {},
+      });
+
+      await config.run();
+
+      expect(mockSetConfigValue).toHaveBeenCalledWith("opener", "auto");
+    });
+
     it("should accept rex as an opener and store it", async () => {
       vi.spyOn(validators, "validateConfigValue").mockRestore();
       const mockSetConfigValue = vi
@@ -864,7 +879,9 @@ describe("config command", () => {
         flags: {},
       });
 
-      await expect(config.run()).rejects.toThrow("editor, herdr, rex or none");
+      await expect(config.run()).rejects.toThrow(
+        "editor, herdr, rex, auto or none",
+      );
       expect(mockSetConfigValue).not.toHaveBeenCalledWith(
         "opener",
         expect.anything(),
@@ -2036,6 +2053,7 @@ describe("config command", () => {
             { name: "editor", value: "editor" },
             { name: "herdr", value: "herdr" },
             { name: "rex", value: "rex" },
+            { name: "auto", value: "auto" },
             { name: "none", value: "none" },
           ],
         }),
@@ -4322,7 +4340,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(openerChoices()).toEqual(["editor", "herdr", "none"]);
+      expect(openerChoices()).toEqual(["editor", "herdr", "auto", "none"]);
     });
 
     it("offers only editor and none with the binary absent and nothing stored", async () => {
@@ -4343,7 +4361,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(openerChoices()).toEqual(["editor", "herdr", "none"]);
+      expect(openerChoices()).toEqual(["editor", "herdr", "auto", "none"]);
       expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
         FOCUS_MESSAGE,
       ]);
@@ -4360,7 +4378,7 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(openerChoices()).toEqual(["editor", "herdr", "none"]);
+      expect(openerChoices()).toEqual(["editor", "herdr", "auto", "none"]);
       expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
         FOCUS_MESSAGE,
       ]);
@@ -4382,7 +4400,7 @@ describe("config command", () => {
         await config.run();
 
         // Herdr is absent here and Rex found: each is offered on its own test.
-        expect(openerChoices()).toEqual(["editor", "rex", "none"]);
+        expect(openerChoices()).toEqual(["editor", "rex", "auto", "none"]);
         expect(mockConfirm.mock.calls.map(([o]) => o.message)).toEqual([
           REX_FOCUS_MESSAGE,
         ]);
@@ -4485,6 +4503,37 @@ describe("config command", () => {
         expect(mockCheckbox).toHaveBeenCalledTimes(1);
       });
 
+      // D10: auto keeps codeEditor and every offered tool's key.
+      it("still asks codeEditor for opener=auto with codeEditor unset", async () => {
+        await run({ opener: "auto", codeEditor: "" });
+
+        expect(mockCheckbox).toHaveBeenCalledTimes(1);
+      });
+
+      it("still asks herdr.focus for opener=auto with herdr.focus unset", async () => {
+        await run({ opener: "auto", "herdr.focus": "" });
+
+        expect(mockCheckbox).toHaveBeenCalledTimes(1);
+      });
+
+      it("does not list Coding agent for opener=auto with herdr.agent unset", async () => {
+        await run({ opener: "auto", "herdr.agent": "" });
+
+        expect(mockCheckbox).not.toHaveBeenCalled();
+        expect(mockConsoleLog).toHaveBeenCalledWith("No missing config found.");
+      });
+
+      it("lists How worktrees open for opener=auto with only rex.focus unset and Rex found", async () => {
+        vi.mocked(rex.isRexInstalled).mockResolvedValue(true);
+        mockCheckbox.mockResolvedValue([] as never);
+        await run({ opener: "auto", "rex.focus": "" });
+
+        const ids = (
+          mockCheckbox.mock.calls[0]?.[0].choices as { value: string }[]
+        ).map((c) => c.value);
+        expect(ids).toEqual(["opening"]);
+      });
+
       // Phase 4: herdr.agent is listed with the Coding agent item, so an unset
       // one lists that item (not "How worktrees open") and asks only the
       // confirm, from the stored command.
@@ -4513,7 +4562,7 @@ describe("config command", () => {
       });
     });
 
-    it("offers all four choices for --names opener, without probing for herdr or rex", async () => {
+    it("offers all five choices for --names opener, without probing for herdr or rex", async () => {
       const exists = vi.spyOn(cli, "commandExists").mockResolvedValue(false);
       const rexFound = vi.mocked(rex.isRexInstalled);
       answerOpener("editor");
@@ -4521,7 +4570,13 @@ describe("config command", () => {
 
       await config.run();
 
-      expect(openerChoices()).toEqual(["editor", "herdr", "rex", "none"]);
+      expect(openerChoices()).toEqual([
+        "editor",
+        "herdr",
+        "rex",
+        "auto",
+        "none",
+      ]);
       expect(exists).not.toHaveBeenCalled();
       expect(rexFound).not.toHaveBeenCalled();
       expect(mockCheckbox).not.toHaveBeenCalled();

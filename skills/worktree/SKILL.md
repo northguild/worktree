@@ -29,12 +29,14 @@ worktree config
 # the questions of each ticked item. Items already set up start ticked; unticking
 # clears nothing. `--names <keys>` skips the checklist. A ticked "how worktrees
 # open" asks opener, and its answer decides what follows: editor asks codeEditor,
-# herdr asks herdr.focus, rex asks rex.focus, none asks nothing. A ticked coding agent asks
+# herdr asks herdr.focus, rex asks rex.focus, auto asks codeEditor and the focus
+# key of each offered tool, none asks nothing. A ticked coding agent asks
 # agent.command once (empty: no agent) and, with opener herdr, one yes/no that
 # sets herdr.agent from the command's first word. The Herdr keys, and
 # herdr as an opener answer, are offered only when `herdr` is on PATH (or opener
 # is already herdr, or a Herdr key holds a value); opener itself is always
-# offered, and `--names opener` offers all four answers. rex.focus, and rex as an
+# offered, and `--names opener` offers all five answers. auto is offered where
+# herdr or rex is, and never preselected unless already stored. rex.focus, and rex as an
 # opener answer, follow the same rule for the `rex` CLI (found on PATH, in
 # $REX_BIN_DIR or in the Rex app bundle).
 # `worktree config <key>` prints one value, for scripts.
@@ -61,7 +63,9 @@ copies the gitignored env files from the root worktree (plus any gitignored
 file the project's `.worktree.yml` lists under `copy`, which `checkout` copies
 too), and opens the directory
 in the configured `codeEditor` — or, when `opener` is `herdr`, as a Herdr space,
-or, when it is `rex`, as a Rex session, labelled with the branch name.
+or, when it is `rex`, as a Rex session, labelled with the branch name. With
+`opener` `auto` it opens in the Herdr or Rex the command runs inside (Herdr
+first if both, and only when that CLI is installed), else in `codeEditor`.
 
 ### Check out an existing remote branch as a worktree
 
@@ -253,7 +257,7 @@ leave it off for a shared workspace.
 ### Hand a new worktree to a coding agent
 
 ```bash
-# Detached (non-Herdr) runs need agent.command, e.g. claude --bg; with opener herdr, herdr.agent alone is enough; opener rex needs agent.command
+# Detached (non-Herdr) runs need agent.command, e.g. claude --bg; with opener herdr, herdr.agent alone is enough; opener rex needs agent.command; opener auto follows whichever it resolves to
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 worktree branch --github 42 --agent-file brief.md   # or --agent-stdin; exclusive, max 131,071 bytes
 worktree branch feature/x --no-agent                # open, but start no agent
@@ -280,7 +284,7 @@ brief, not that the agent read it, and a worktree whose session is already open
 gets no second agent (exit `1`, brief not delivered). A brief too long for Rex (it
 refuses a request over 65,536 encoded bytes; about 62,000 bytes of plain text,
 less with quotes, backslashes, newlines, `<`, `>` or `&`) exits `2` before anything is created.
-Otherwise `agent.command` is
+With `opener` `auto` the tool it resolves to takes the brief as above. Otherwise `agent.command` is
 launched detached and left running, so `worktree` does not wait for it and its
 output does not appear here. That output is discarded, not kept, so name an agent
 that keeps its own session record: `claude --bg` (see `claude agents`), or
@@ -432,7 +436,7 @@ Naming a branch and removing nothing is a failure, never a success.
 `rename --json` gives
 `{"from":{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"},"to":{"branch":"bugfix/y","path":"/abs/repo.worktrees/bugfix/y"},"upstream":"origin/feature/x","herdrSpacesRenamed":["w5"],"rexSessionsRenamed":[],"warnings":[]}`.
 `upstream` is `null` when the branch tracks nothing. The `*Renamed` keys list the ids of a Herdr space or Rex session
-(whichever `opener` names) that was relabelled to follow the rename; a failed relabel is a warning, not an error. A non-interactive run needs the new name, and `-f` when an
+(whichever `opener` names; under `auto`, either installed tool's) that was relabelled to follow the rename; a failed relabel is a warning, not an error. A non-interactive run needs the new name, and `-f` when an
 agent session is working in the worktree (without it, exit `2` with `missing_value`).
 
 A failure prints `{"error":{"code","message"}}` on stdout, one line on stderr,
@@ -562,15 +566,18 @@ the worktree was opened as, so a space does not outlive its checkout. With
 `rex` they kill its Rex session instead, but only one whose every shell is in
 that worktree: a shell in the main checkout, the current worktree or another
 worktree leaves it open, and so does the session the CLI runs in
-(`REX_SESSION`). `remove --json` lists the killed ids as `rexSessionsClosed`. Only
+(`REX_SESSION`). With `auto` they ask every installed tool, not only the one
+that would open now, so a space or session closes wherever it lives; the two
+lookups run at once, and one tool failing to answer is a warning that does not
+stop the other. `remove --json` lists the killed ids as `rexSessionsClosed`. Only
 worktrees that were actually removed: a branch that was not found, a declined
 confirmation, a failed removal and anything `cleanup` held back all keep their
 spaces and sessions, because those checkouts are still on disk. A failed close is a warning
 and the command still exits `0` — by then the worktree is already gone. With
-`opener` unset, `editor` or `none`, no Herdr or Rex process is started by either command.
+`opener` unset, `editor` or `none`, no Herdr or Rex process is started by either command, and a fixed `herdr` or `rex` asks that tool only.
 
-`rename` does not close a space: with `opener` `herdr` or `rex` it relabels the one open in the
-worktree to the new name (`herdr workspace rename`, `rex session rename`), looked up before the move and applied
+`rename` does not close a space: with `opener` `herdr`, `rex` or `auto` (asking the same tools `remove`
+asks) it relabels the one open in the worktree to the new name (`herdr workspace rename`, `rex session rename`), looked up before the move and applied
 only after the move and the branch rename both succeed. A failed lookup or relabel is a warning and the
 command still exits `0`; `rename --json` lists the ids as `herdrSpacesRenamed` and `rexSessionsRenamed`. The Herdr
 agent name and a Claude `--name` session keep the old branch name. The Rex relabel is unverified against a live Rex.
@@ -648,8 +655,8 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | Key | Example value | Required for |
 |---|---|---|
 | `defaultSourceBranch` | `origin/main` | `worktree branch` without `--source`; also the fallback base for unpushed-commit counts when `origin/HEAD` is unset |
-| `opener` | `editor`, `herdr`, `rex` or `none` | where a worktree opens, and for `herdr` and `rex` where its space or session is closed on removal; `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
-| `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor` |
+| `opener` | `editor`, `herdr`, `rex`, `auto` or `none` | where a worktree opens; `auto` picks Herdr or Rex from the terminal the command runs in (Herdr first if both, since Herdr can run inside Rex but not the reverse) when that CLI is installed, else the editor, and a shell that outlived its Herdr or Rex keeps its variables, so a fixed value is the escape; and for `herdr`, `rex` and `auto` where its space or session is closed on removal (`auto` asks every installed tool); `none` opens nothing and prints `Worktree created at <path>` (`Worktree already exists at <path>` on a reopen); defaults to `editor` |
+| `codeEditor` | `code` | auto-opening worktrees when `opener` is `editor`, or `auto` falls back to it |
 | `herdr.focus` | `true` or `false` | whether a new Herdr space is focused; defaults to `true` |
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `rex.focus` | `true` or `false` | whether the app is brought to a new Rex session; defaults to `true`, only `false` turns it off |
@@ -762,7 +769,7 @@ worktree branch feature/x
 Without `defaultSourceBranch` set, `branch` offers to run `config` in a
 terminal and uses `origin/main` when non-interactive, with a warning naming the
 missing key. Without `codeEditor`, the
-worktree is created but not opened — unless `opener` is `herdr` or `rex`, which
+worktree is created but not opened — unless `opener` is `herdr` or `rex` (or `auto` resolving to one), which
 ignore `codeEditor` and open a Herdr space or a Rex session instead, or `none`, which opens nothing.
 
 Source: `src/commands/branch.ts`
@@ -862,7 +869,7 @@ worktree branch feature/x --agent "add bulk actions to the table"
 
 A brief with no agent configured to take it exits `2` before any worktree is
 created, naming the missing key: `worktree config agent.command "<command>"` for
-the detached start (editor or `none` opener, `--no-open`, or Herdr not installed) and
+the detached start (editor or `none` opener, `auto` with neither tool to open in, `--no-open`, or Herdr not installed) and
 for `opener rex`, or
 `worktree config herdr.agent <kind>` on the Herdr path, where `herdr.agent`
 alone is enough (`branch` and `checkout` both). Set the key first, or check

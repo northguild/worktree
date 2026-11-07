@@ -59,6 +59,16 @@ worktree config opener rex
 
 See [Rex Sessions](/worktree/guides/rex-sessions/).
 
+Or set it to `auto` to open each worktree in the Herdr or Rex the command runs inside (Herdr first if it is
+inside both, and only when that tool's CLI is installed), and in your editor otherwise:
+
+```bash
+worktree config opener auto
+```
+
+A shell that outlived its Herdr or Rex keeps that tool's variables, so `auto` can pick one that is gone; set
+a fixed `opener` then.
+
 To open it nowhere, set `opener` to `none`. The command prints `Worktree created at <path>` (`Worktree already exists at <path>` when it reopens an existing worktree) and stops,
 without starting an editor, Herdr or Rex.
 
@@ -82,7 +92,8 @@ See [When the worktree goes](/worktree/guides/herdr-spaces/#when-the-worktree-go
 
 It is relabelled to the new name and stays open. `worktree rename` looks the space up before the directory
 moves and, once the move and the branch rename have both succeeded, renames it with `herdr workspace rename`
-or `rex session rename`, whichever your `opener` names. A failure is a warning and the command still exits `0`.
+or `rex session rename`, whichever your `opener` names; under `auto`, each installed tool that has one open. A
+failure is a warning and the command still exits `0`.
 The agent running in the space keeps the old branch name, and so does a Claude `--name` session. The Rex relabel
 has not been verified against a live Rex.
 

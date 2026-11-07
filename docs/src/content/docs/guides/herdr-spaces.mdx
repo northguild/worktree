@@ -30,8 +30,16 @@ worktree config --missing --names opener          # prompts for it regardless
 worktree config opener herdr
 ```
 
-`opener` accepts `editor`, `herdr`, `rex` or `none`. Unset means `editor`, so nothing changes for anyone who
+`opener` accepts `editor`, `herdr`, `rex`, `auto` or `none`. Unset means `editor`, so nothing changes for anyone who
 does not set it.
+
+`auto` opens the worktree where the command runs: as a Herdr space when the shell is inside a Herdr pane
+and the `herdr` CLI is installed, as a Rex session when it is inside Rex and `rex` is installed, otherwise
+in your editor. A tool whose CLI is not found is skipped, not an error. If the shell is inside both, Herdr
+wins: Herdr can run inside Rex but Rex does not run inside Herdr, so Herdr is the inner one. A fixed
+`opener` overrides it. A shell started in a Herdr pane keeps its `HERDR_*` variables after Herdr quits, so `auto`
+can pick a Herdr that is no longer running: the open then fails with a warning and the worktree path, as
+it would for `opener` `herdr`. Set `opener` to a fixed value to avoid that.
 
 The key is stored in local Git config under `northguild.worktree.opener`, so it applies to one
 repository. Set it again in each repository you want it in.
@@ -108,7 +116,8 @@ With a brief (`--agent`, `--agent-file` or `--agent-stdin`):
 ## When the worktree goes
 
 `worktree remove` and `worktree cleanup` delete a checkout. With `opener herdr` they also close the
-Herdr space that was built around it, so a space does not outlive the worktree it belongs to.
+Herdr space that was built around it, so a space does not outlive the worktree it belongs to. With `opener auto`, both commands ask every installed
+tool and close the space wherever it is held, whatever terminal they run from.
 
 ```bash
 worktree remove feature/add-bulk-actions
@@ -141,7 +150,7 @@ working holds its worktree back, and its space with it. One that is only idle do
 ## When the worktree is renamed
 
 [`worktree rename`](/worktree/commands/rename/) moves a worktree's directory and renames its branch. With
-`opener herdr` the space follows: Herdr lists a worktree's space from git's worktrees, so it is found at the new
+`opener herdr`, or `opener auto` with Herdr installed, the space follows: Herdr lists a worktree's space from git's worktrees, so it is found at the new
 path with the same id and panes, and `worktree` relabels it to the new name with `herdr workspace rename`.
 
 ```
@@ -210,6 +219,6 @@ closed — the removals still happen.
 
 | Key | Values | Default |
 |---|---|---|
-| `opener` | `editor`, `herdr`, `rex` or `none` | `editor` |
+| `opener` | `editor`, `herdr`, `rex`, `auto` or `none` | `editor` |
 | `herdr.focus` | `true` or `false` | `true` |
 | `herdr.agent` | an agent kind, such as `claude` | unset — no agent |

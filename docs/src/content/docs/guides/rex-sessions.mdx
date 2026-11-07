@@ -30,8 +30,15 @@ worktree config --missing --names opener          # prompts for it regardless
 worktree config opener rex
 ```
 
-`opener` accepts `editor`, `herdr`, `rex` or `none`. Unset means `editor`, so nothing changes for anyone who
+`opener` accepts `editor`, `herdr`, `rex`, `auto` or `none`. Unset means `editor`, so nothing changes for anyone who
 does not set it. The key is stored in local Git config, so it applies to one repository.
+
+`auto` opens the worktree where the command runs: as a Herdr space when the shell is inside a Herdr pane
+and the `herdr` CLI is installed, as a Rex session when it is inside Rex and `rex` is installed, otherwise
+in your editor. A tool whose CLI is not found is skipped, not an error. If the shell is inside both, Herdr
+wins: Herdr can run inside Rex but Rex does not run inside Herdr, so Herdr is the inner one. A fixed
+`opener` overrides it. A shell that outlives the tool it was started in keeps that tool's variables, so `auto` can detect a tool that is no longer running: the open then fails with a warning
+and the worktree path, as it would for `opener` `rex`. Set `opener` to a fixed value to avoid that.
 
 Now `worktree branch`, `worktree checkout` and `worktree open` all hand the finished worktree to Rex:
 
@@ -167,7 +174,8 @@ arguments, and an echo that comes escaped or cut short cannot be told apart from
 
 With `opener` set to `rex`, [`remove`](/worktree/commands/remove/) and [`cleanup`](/worktree/commands/cleanup/)
 kill the Rex session that was opened for each worktree they delete (`rex kill`), so a session does not outlive
-its checkout. Only a worktree that was actually removed has its session closed. A branch that was not found, a
+its checkout. With `opener auto`, both commands ask every installed tool and close the session wherever it is
+held, whatever terminal they run from. Only a worktree that was actually removed has its session closed. A branch that was not found, a
 declined confirmation, a failed removal and a worktree `cleanup` held back all leave the session alone, because
 their checkouts are still on disk. `remove --json` lists the ids under `rexSessionsClosed`, and `[]` when
 nothing was open.
@@ -193,7 +201,7 @@ One gap is known: if two sessions are open in the same worktree, only the first 
 ## When the worktree is renamed
 
 [`worktree rename`](/worktree/commands/rename/) moves a worktree's directory and renames its branch. With
-`opener` set to `rex`, the session open in it is relabelled to the new name with `rex session rename`, found the
+`opener` set to `rex`, or to `auto` with Rex installed, the session open in it is relabelled to the new name with `rex session rename`, found the
 same way `remove` finds it: by where its shells are, looked up before the directory moves. The session is
 relabelled only once both the move and the branch rename have succeeded, a worktree with no session prints
 nothing, and a failed relabel is a warning with exit `0`. `rename --json` lists the id under `rexSessionsRenamed`.
@@ -208,7 +216,7 @@ and a shell's directory follows the directory when it moves, but the behaviour i
 
 | Key | Values | Default |
 |---|---|---|
-| `opener` | `editor`, `herdr`, `rex` or `none` | `editor` |
+| `opener` | `editor`, `herdr`, `rex`, `auto` or `none` | `editor` |
 | `rex.focus` | `true` or `false` | `true` |
 | `agent.command` | a command line, such as `claude --model sonnet` | unset |
 

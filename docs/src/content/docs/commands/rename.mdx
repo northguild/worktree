@@ -108,8 +108,8 @@ A session that is only idle does not count. A plain rename with nobody in the wo
 
 ## Herdr spaces and Rex sessions
 
-With `opener` set to `herdr` or `rex`, a space or session open in the worktree follows the rename: it is
-relabelled to the new name, the way `open` would have labelled it, and keeps its panes and its id. Nothing is
+With `opener` set to `herdr`, `rex` or `auto`, a space or session open in the worktree follows the rename: it
+is relabelled to the new name, the way `open` would have labelled it, and keeps its panes and its id. Nothing is
 closed and reopened.
 
 ```
@@ -120,8 +120,10 @@ closed and reopened.
 - The space is looked up before the directory moves, because both tools list it from git's worktrees, and
   relabelled only after the directory and the branch have both been renamed. A rename that fails relabels
   nothing.
-- Only the tool `opener` names is asked, as `remove` does. With `opener` unset, `editor` or `none`, no `herdr` or
-  `rex` process is started.
+- The tools asked are the ones `remove` asks: a fixed `herdr` or `rex` asks that tool only, and `auto` asks
+  every installed one, so a space Herdr opened is relabelled even when you rename from a plain terminal or from
+  inside Rex. One tool failing to answer does not stop the other relabelling. With `opener` unset, `editor` or
+  `none`, no `herdr` or `rex` process is started.
 - A worktree with no space open prints nothing.
 - If the tool cannot be reached or refuses the new label, that is a warning, in the human output and in the
   `warnings` array of `--json`, and the command still exits `0`: the rename has happened and cannot be undone.

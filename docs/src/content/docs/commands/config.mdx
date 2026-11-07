@@ -124,6 +124,7 @@ worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
 worktree config opener herdr
 worktree config opener rex
+worktree config opener auto
 worktree config opener none
 worktree config opener
 worktree config agent.command "claude --bg"
@@ -148,25 +149,25 @@ everyone in a `.worktree.yml` file, which your own value overrides; see
 
 ## Opener Keys
 
-- `opener` selects where a finished worktree opens, and for `herdr` and `rex` where its space or
-  session is closed again when the worktree is removed: `editor` (default), `herdr`, `rex` or `none`. With `none` nothing is opened:
+- `opener` selects where a finished worktree opens, and for `herdr`, `rex` and `auto` where its space or
+  session is closed again when the worktree is removed: `editor` (default), `herdr`, `rex`, `auto` or `none`. `auto` picks Herdr or Rex from the terminal the command runs in, else the editor, and on removal closes the worktree's space in whichever installed tool holds it. With `none` nothing is opened:
   the command prints `Worktree created at <path>` (`Worktree already exists at <path>` when it reopens an existing worktree) and stops. An unknown value fails with exit `2`.
-- `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`.
-- `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`.
+- `codeEditor` the editor executable plus any arguments, used when `opener` is `editor`, and by `auto` as its fallback.
+- `herdr.focus` whether a new Herdr space comes to the front. Defaults to `true`. Applies when `opener` is `herdr`, or `auto` picks it.
 - `herdr.agent` the agent kind that starts in every newly opened Herdr space, with or without a brief. Unset means no agent, unless `branch` or `checkout` is given a brief (`--agent`), in which case the program `agent.command` names is used.
-- `rex.focus` whether a Rex session's app is brought to it when the worktree opens. Defaults to `true`; only `false` turns it off. Applies when `opener` is `rex`. See [Rex Sessions](/worktree/guides/rex-sessions/).
+- `rex.focus` whether a Rex session's app is brought to it when the worktree opens. Defaults to `true`; only `false` turns it off. Applies when `opener` is `rex`, or `auto` picks it. See [Rex Sessions](/worktree/guides/rex-sessions/).
 
 `opener` and `codeEditor` are always listed. When you tick how worktrees open, the wizard asks `opener`
-first and its answer decides what follows: `editor` asks `codeEditor`, `herdr` asks `herdr.focus`, `rex` asks `rex.focus`, and
-`none` asks nothing more. `herdr.agent` is not asked here: it follows the coding agent's question, described
+first and its answer decides what follows: `editor` asks `codeEditor`, `herdr` asks `herdr.focus`, `rex` asks `rex.focus`, `auto` asks `codeEditor` and the focus key of each of Herdr and Rex that is offered, and
+`none` asks nothing more. `auto` picks Herdr or Rex from the terminal the command runs in, when that tool's CLI is installed (Herdr first if both), and falls back to the editor; unset still means `editor`, and `auto` is offered where `herdr` or `rex` is, but preselected only when it is already your opener. `herdr.agent` is not asked here: it follows the coding agent's question, described
 under [Agent Key](#agent-key). `herdr.focus` and `herdr.agent` are listed, and `herdr` is among
 the opener's choices, only when the `herdr` CLI is on your `PATH`, or when one of them already has a value (or
 `opener` is `herdr`). `rex.focus` and `rex` as a choice follow the same rule for the `rex` CLI: listed and offered
 only when it can be found (on `PATH`, in `$REX_BIN_DIR`, or in the Rex app bundle), or when `rex.focus` has a value or
-`opener` is `rex`. Without those, the wizard offers `editor` and `none` only. Once `herdr` is offered,
+`opener` is `rex`. Without those, the wizard offers `editor` and `none` only (`auto` has nothing to pick between, unless it is already stored). Once `herdr` is offered,
 choosing it asks `herdr.focus` (and, with a coding agent, the Herdr yes/no below) even if the CLI has since gone missing, and `rex` likewise asks `rex.focus`. `--names` and a direct
 `worktree config <key> <value>` always work regardless, so a machine can be configured before Herdr or Rex is
-installed: `--names opener` offers all four choices, and each named key is asked on its own. With `--missing` and `opener` already set, the stored opener decides the follow-ups: a `codeEditor` is only asked under `editor`, and the Herdr keys only under `herdr` and `rex.focus` only under `rex`.
+installed: `--names opener` offers all five choices, and each named key is asked on its own. With `--missing` and `opener` already set, the stored opener decides the follow-ups: a `codeEditor` is only asked under `editor` or `auto`, and `herdr.focus` only under `herdr` or `auto` (`herdr.agent` only under `herdr`) and `rex.focus` only under `rex` or `auto`.
 
 ## GitHub Integration Keys
 

@@ -53,7 +53,7 @@ Without <branchName> the worktree you are in is renamed.
 
 --json prints one document on stdout:
 {from: {branch, path}, to: {branch, path}, upstream: string|null, herdrSpacesRenamed: [string], rexSessionsRenamed: [string], warnings: [string]}
-An open Herdr space or Rex session (whichever the opener setting names) is relabelled to the new name; a failure there is a warning, not an error.
+An open Herdr space or Rex session (whichever the opener setting names; under auto, either installed tool's) is relabelled to the new name; a failure there is a warning, not an error.
 On failure: {error:{code, message, details?}} on stdout.
 A non-interactive run needs <newName>, and --force when an agent session is working in the worktree.
 
@@ -133,14 +133,12 @@ Exit codes:
       this.log(`cd ${result.to.path}`);
     }
 
-    const rex = this.closedSpacesOf === "rex";
-
     return {
       from: result.from,
       to: result.to,
       upstream: result.upstream,
-      herdrSpacesRenamed: rex ? [] : renamedSpaces,
-      rexSessionsRenamed: rex ? renamedSpaces : [],
+      herdrSpacesRenamed: renamedSpaces.herdr,
+      rexSessionsRenamed: renamedSpaces.rex,
       warnings: this.warnings,
     };
   }

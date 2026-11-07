@@ -313,11 +313,16 @@ export default class Config extends BaseCommand {
       configNames = configNames.filter(
         (name) =>
           !(
-            (name === "codeEditor" && opener !== "editor") ||
+            (name === "codeEditor" &&
+              opener !== "editor" &&
+              opener !== "auto") ||
             ((HERDR_CONFIG_NAMES as readonly string[]).includes(name) &&
-              opener !== "herdr") ||
+              opener !== "herdr" &&
+              // `auto` asks only herdr.focus; herdr.agent is the agent item's.
+              !(opener === "auto" && name === "herdr.focus")) ||
             ((REX_CONFIG_NAMES as readonly string[]).includes(name) &&
-              opener !== "rex")
+              opener !== "rex" &&
+              opener !== "auto")
           ),
       );
     }

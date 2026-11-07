@@ -11,6 +11,26 @@ export type JiraDeployment = (typeof JIRA_DEPLOYMENTS)[number];
 
 export type OpenerKind = (typeof OPENER_KINDS)[number];
 
+/** What a run opens with: `auto` is resolved to one of the others before it acts (#271 D6). */
+export type ResolvedOpener = Exclude<OpenerKind, "auto">;
+
+/**
+ * The ids a closer closed, per tool (#271 D9). A fixed opener fills one key and
+ * leaves the other empty; `auto` can fill both. `remove` reports each under its
+ * own `--json` key.
+ */
+export interface ClosedSpaces {
+  herdr: string[];
+  rex: string[];
+}
+
+/**
+ * The ids a renamer relabelled, per tool, in the same shape as `ClosedSpaces`
+ * and for the same reason: under `auto` both tools can have a space open in
+ * one worktree. `rename` reports each under its own `--json` key.
+ */
+export type RenamedSpaces = ClosedSpaces;
+
 /** An agent the open started. */
 export interface OpenedAgent {
   /** The runtime session name; `null` where this CLI named nothing (D12). */
@@ -28,7 +48,7 @@ export interface OpenedAgent {
 
 /** What `openWorktreePath` opened and started. */
 export interface OpenOutcome {
-  opener: OpenerKind;
+  opener: ResolvedOpener;
   herdr?: {
     space: string;
     pane: string;

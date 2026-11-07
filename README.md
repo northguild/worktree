@@ -90,7 +90,7 @@ The setup flow can configure:
 
 - `defaultSourceBranch` for new worktrees, such as `origin/main`
 - `codeEditor` for automatically opening a worktree, such as `code`
-- `opener` for where a worktree opens — `editor` (default), `herdr`, `rex` or `none`
+- `opener` for where a worktree opens — `editor` (default), `herdr`, `rex`, `auto` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
 - `linear.agentToken`, `linear.webhookSecret`, `linear.agentAllow` and `linear.agentContext` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`), the Linear user ids allowed to delegate an issue to it, and `true` to also hand the issue's text to the agent (off by default). `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
@@ -114,7 +114,7 @@ That will:
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
 3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc` — and any gitignored file `.worktree.yml` lists under `copy`
 4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml` (run in order, after you approve them: checked before anything is created, asked on a terminal, exit `2` with `missing_value` when nothing can be asked, so approve with `worktree config --approve` or skip with `--no-install`), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); a failure stops the remaining steps, keeps the worktree, opens nothing and exits `1`
-5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`, or as a Rex session when it is `rex`
+5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`, or as a Rex session when it is `rex`; with `auto`, in the Herdr or Rex the command runs inside, else the editor
 
 ## Common Workflows
 
@@ -152,7 +152,7 @@ worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
 
 The agent starts with the new worktree as its working directory and the flag's value as its prompt, so it works inside `<repo>.worktrees` alongside everything else. `worktree checkout` takes `--agent` too.
 
-There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. With `opener` set to `rex`, the session is created with the program `agent.command` names as its command and the prompt as that command's last argument, so no `herdr.agent` is needed; a prompt over what Rex accepts (about 62,000 bytes of plain text, less when it is full of quotes, backslashes, newlines, `<`, `>` or `&`) exits `2` before creating anything, and `agent.prompted` there means the session was created with the prompt, not that the agent has read it. Otherwise `agent.command` is launched detached. A brief with no agent to take it exits `2` before creating anything. Without a brief, only `herdr.agent` starts an agent.
+There is one agent per worktree. With `opener` set to `herdr`, Herdr starts it in the new space and the prompt is submitted to it afterwards (a `claude` agent is named `<repo>-<branch>`, printed on stderr); the kind is `herdr.agent`, or the program `agent.command` names. With `opener` set to `rex`, the session is created with the program `agent.command` names as its command and the prompt as that command's last argument, so no `herdr.agent` is needed; a prompt over what Rex accepts (about 62,000 bytes of plain text, less when it is full of quotes, backslashes, newlines, `<`, `>` or `&`) exits `2` before creating anything, and `agent.prompted` there means the session was created with the prompt, not that the agent has read it. With `opener` set to `auto`, whichever of the two it resolves to takes the brief the same way. Otherwise `agent.command` is launched detached. A brief with no agent to take it exits `2` before creating anything. Without a brief, only `herdr.agent` starts an agent.
 
 For a long prompt, `--agent-file <path>` or `--agent-stdin` reads it whole (at most 131,071 bytes, the most one argument can carry on Linux; the three are mutually exclusive). `--no-agent` opens the worktree without an agent, and `--no-open` creates it and prints its path without opening anything.
 
@@ -212,7 +212,7 @@ Aliases are also available:
 worktree rm feature/add-bulk-actions
 ```
 
-With `opener` set to `herdr` or `rex`, removing a worktree also closes the Herdr space or Rex session it was opened as. Rex only closes a session whose every shell is in that worktree; one with a shell anywhere else is left open.
+With `opener` set to `herdr`, `rex` or `auto`, removing a worktree also closes the Herdr space or Rex session it was opened as. `auto` asks every installed tool, so a space closes wherever it lives; a fixed value asks its own tool only. Rex only closes a session whose every shell is in that worktree; one with a shell anywhere else is left open.
 
 ### Clean up stale worktrees
 
@@ -226,7 +226,7 @@ A worktree whose Linear issue is canceled is removed too, when it tracks a live 
 
 A worktree that an agent session is working in is held back and reported as skipped. A session that is only idle does not hold anything back. That includes a session Herdr started for you, found through `herdr agent list`, as well as one in your own terminal. `--force` does not override that, because it answers the confirmation prompt rather than the safety verdict; `--ignore-agents` is the flag that does.
 
-With `opener` set to `herdr` or `rex`, every worktree removed here also has its Herdr space or Rex session closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space or session, taking its panes down with the directory.
+With `opener` set to `herdr`, `rex` or `auto`, every worktree removed here also has its Herdr space or Rex session closed. The ones held back keep theirs — `cleanup` closes what it deleted, not what it looked at. Note that `--ignore-agents` therefore also closes a live agent's space or session, taking its panes down with the directory.
 
 ### Start worktrees from Linear agent delegations
 
@@ -275,6 +275,7 @@ worktree config defaultSourceBranch origin/main
 worktree config codeEditor code
 worktree config opener herdr
 worktree config opener rex
+worktree config opener auto
 worktree config agent.command "claude --bg"
 worktree config --list
 worktree config --missing
@@ -287,7 +288,10 @@ worktree config --project
 value prints the stored value. Set `opener` to `herdr` to open worktrees as
 [Herdr](https://herdr.dev) spaces instead of editor windows — and to close those spaces again when
 `remove` or `cleanup` deletes the worktree; `herdr.focus` and `herdr.agent` tune that. Set it to `rex` to open
-them as Rex sessions instead; `rex.focus` turns off bringing the app to the session. See the
+them as Rex sessions instead; `rex.focus` turns off bringing the app to the session. Set it to `auto` to open in
+the Herdr or Rex the command runs inside (Herdr first if both, and only when that CLI is installed), and in the
+editor otherwise; unset still means `editor`. Herdr wins because Herdr can run inside Rex but not the other
+way round. A shell that outlived its Herdr or Rex keeps its variables, so a fixed value is the escape. See the
 [configuration docs](https://northguild.dev/worktree/configuration/).
 
 ## Agent mode
@@ -396,7 +400,7 @@ answered Yes to "Quit now?".
 
 ### One agent per worktree
 
-With `opener` `herdr`, Herdr starts the agent in the new space and the brief is submitted afterwards with
+With `opener` `herdr` (or `auto` resolving to Herdr), Herdr starts the agent in the new space and the brief is submitted afterwards with
 `herdr agent prompt`, never inside the start command, so no shell sees it. The agent kind is `herdr.agent`;
 when a brief is given and that is unset, the program `agent.command` names. `agent.command`'s arguments are
 reused without `--bg`, and a `claude` agent gets `--name <repo>-<branch>`, lowercased and never truncated.
@@ -501,7 +505,7 @@ Merging a pull request publishes nothing. A release is a deliberate release pull
 
 If you want automatic editor launching, make sure your editor command is available on your `PATH`, for example `code` for Visual Studio Code.
 
-If you want worktrees to open as Herdr spaces, make sure the `herdr` CLI is on your `PATH` and its server is running.
+If you want worktrees to open as Herdr spaces (`opener` `herdr`, or `auto` inside a Herdr terminal), make sure the `herdr` CLI is on your `PATH` and its server is running.
 
 ## License
 

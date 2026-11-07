@@ -164,18 +164,64 @@ describe("the opener decides its follow-ups", () => {
     });
   });
 
+  describe("the auto opener", () => {
+    // D10: choosing auto asks codeEditor (the fallback needs it) and
+    // herdr.focus / rex.focus for each tool that is offered.
+    it("asks codeEditor and the focus key of each offered tool", async () => {
+      answerOpener("auto");
+
+      await configureOpening(
+        context({
+          rexOffered: true,
+          configNames: [...OPENING_KEYS, "rex.focus"],
+        }),
+      );
+
+      expect(written()).toEqual([
+        "opener",
+        "codeEditor",
+        "herdr.focus",
+        "rex.focus",
+      ]);
+    });
+
+    it("asks no key for a tool that is not offered", async () => {
+      answerOpener("auto");
+
+      await configureOpening(
+        context({ herdrOffered: false, rexOffered: true }),
+      );
+
+      expect(written()).toEqual(["opener", "codeEditor", "rex.focus"]);
+    });
+
+    it("keeps codeEditor and every key listed when opener is stored and not asked", async () => {
+      stored.opener = "auto";
+
+      await configureOpening(
+        context({
+          rexOffered: true,
+          configNames: ["codeEditor", "herdr.focus", "rex.focus"],
+        }),
+      );
+
+      expect(askSelect).not.toHaveBeenCalled();
+      expect(written()).toEqual(["codeEditor", "herdr.focus", "rex.focus"]);
+    });
+  });
+
   describe("the opener's choices", () => {
     const choices = () =>
       (
         askSelect.mock.calls[0]?.[0] as { choices: { value: string }[] }
       ).choices.map((c) => c.value);
 
-    it("offers editor, herdr and none where Herdr is offered", async () => {
+    it("offers editor, herdr, auto and none where Herdr is offered", async () => {
       answerOpener("editor");
 
       await configureOpener(context());
 
-      expect(choices()).toEqual(["editor", "herdr", "none"]);
+      expect(choices()).toEqual(["editor", "herdr", "auto", "none"]);
     });
 
     it("offers rex only where the Rex CLI is found", async () => {
@@ -183,15 +229,50 @@ describe("the opener decides its follow-ups", () => {
 
       await configureOpener(context({ rexOffered: true }));
 
-      expect(choices()).toEqual(["editor", "herdr", "rex", "none"]);
+      expect(choices()).toEqual(["editor", "herdr", "rex", "auto", "none"]);
     });
 
-    it("offers editor and none only where it is not", async () => {
+    it("offers auto with only Rex offered (D10: at least one of the two)", async () => {
+      answerOpener("editor");
+
+      await configureOpener(context({ herdrOffered: false, rexOffered: true }));
+
+      expect(choices()).toEqual(["editor", "rex", "auto", "none"]);
+    });
+
+    it("offers editor and none only, no auto, where neither tool is offered", async () => {
       answerOpener("editor");
 
       await configureOpener(context({ herdrOffered: false }));
 
       expect(choices()).toEqual(["editor", "none"]);
+    });
+
+    it("never defaults to auto when nothing is stored (D10: the default is the stored value, else editor)", async () => {
+      answerOpener("editor");
+
+      await configureOpener(context({ rexOffered: true }));
+
+      expect(askSelect.mock.calls[0]?.[0]).toMatchObject({ default: "editor" });
+    });
+
+    it("defaults to a stored auto when it is offered", async () => {
+      stored.opener = "auto";
+      answerOpener("auto");
+
+      await configureOpener(context());
+
+      expect(askSelect.mock.calls[0]?.[0]).toMatchObject({ default: "auto" });
+    });
+
+    it("keeps a stored auto offered, and the default, when neither tool is offered (D10: the default stays the stored value)", async () => {
+      stored.opener = "auto";
+      answerOpener("auto");
+
+      await configureOpener(context({ herdrOffered: false }));
+
+      expect(choices()).toEqual(["editor", "auto", "none"]);
+      expect(askSelect.mock.calls[0]?.[0]).toMatchObject({ default: "auto" });
     });
 
     it("defaults to the stored opener when that is a choice", async () => {

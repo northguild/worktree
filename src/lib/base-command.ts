@@ -45,19 +45,22 @@ import {
 } from "./project-config.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
+import { detectTerminalHosts } from "./terminal-host.js";
 import type {
+  ClosedSpaces,
   ConfigName,
   JsonErrorCode,
   JsonErrorDocument,
   OpenedAgent,
-  OpenerKind,
   OpenOutcome,
+  RenamedSpaces,
+  ResolvedOpener,
 } from "./types.js";
 import { splitCommandValue } from "./utils.js";
 
 /**
- * Closes the Herdr spaces of the worktrees whose paths it is given, and answers
- * with the ids of the ones it closed.
+ * Closes the Herdr spaces and Rex sessions of the worktrees whose paths it is
+ * given, and answers with the ids of the ones it closed.
  *
  * The seam hands one of these back rather than exposing a close method,
  * because the lookup it closes over has to happen *before* the worktrees are
@@ -66,7 +69,48 @@ import { splitCommandValue } from "./utils.js";
  * first — where two methods would leave a caller free to get it backwards and
  * find the spaces already gone from Herdr's listing.
  */
-type SpaceCloser = (worktreePaths: string[]) => Promise<string[]>;
+type SpaceCloser = (worktreePaths: string[]) => Promise<ClosedSpaces>;
+
+/**
+ * What `opener auto` opens in (#271 D5): the first multiplexer the shell sits
+ * in whose CLI is installed, else the editor. A detected tool that cannot be
+ * run is skipped, not an error: `auto` is a guess, and a guess that cannot be
+ * acted on must not cost the open. Order is the detector's, Herdr then Rex.
+ */
+async function detectInstalledTerminalHost(): Promise<ResolvedOpener> {
+  for (const host of detectTerminalHosts()) {
+    if (host === "herdr" ? await isHerdrInstalled() : await isRexInstalled()) {
+      return host;
+    }
+  }
+
+  return "editor";
+}
+
+interface ToolToClose {
+  key: keyof ClosedSpaces;
+  multiplexer: Multiplexer;
+}
+
+/**
+ * Which tools the closer may ask for a configured `opener`. A fixed value names
+ * its own tool (#270 D9), `auto` names both (#271 D7), and anything else names
+ * none — `editor`, `none` and unset spawn nothing.
+ */
+function toolsToClose(opener: string): ToolToClose[] {
+  const herdr: ToolToClose = { key: "herdr", multiplexer: herdrMultiplexer };
+  const rex: ToolToClose = { key: "rex", multiplexer: rexMultiplexer };
+
+  if (opener === "herdr") {
+    return [herdr];
+  }
+
+  if (opener === "rex") {
+    return [rex];
+  }
+
+  return opener === "auto" ? [herdr, rex] : [];
+}
 
 /**
  * Relabels the space open in a worktree that has just moved, and answers with
@@ -74,16 +118,19 @@ type SpaceCloser = (worktreePaths: string[]) => Promise<string[]>;
  * move for the same reason: the lookup reads git's worktrees, and once the
  * directory has moved the old path is no longer in them (#272 D12).
  */
-type SpaceRenamer = (fromPath: string, toPath: string) => Promise<string[]>;
+type SpaceRenamer = (
+  fromPath: string,
+  toPath: string,
+) => Promise<RenamedSpaces>;
 
 /** Does nothing, for every path where there is nothing to close. */
-async function closeNothing(): Promise<string[]> {
-  return [];
+async function closeNothing(): Promise<ClosedSpaces> {
+  return { herdr: [], rex: [] };
 }
 
 /** Does nothing, for every path where there is nothing to relabel. */
-async function renameNothing(): Promise<string[]> {
-  return [];
+async function renameNothing(): Promise<RenamedSpaces> {
+  return { herdr: [], rex: [] };
 }
 
 const JSON_ERROR_CODES: readonly JsonErrorCode[] = [
@@ -544,15 +591,29 @@ export abstract class BaseCommand extends Command {
     }
   }
 
+  /**
+   * `auto`'s answer, kept for the run (#271 D6): `assertBriefHasAnAgent`
+   * decides before the tree exists and `openWithHandoff` acts after it, and
+   * two detections could disagree.
+   */
+  private autoOpener: ResolvedOpener | undefined;
+
   /** The opener this run uses: the flag first, then the `opener` key. */
-  private async resolveOpener(open: boolean): Promise<OpenerKind> {
+  private async resolveOpener(open: boolean): Promise<ResolvedOpener> {
     const configured = await gitGetConfigValue("opener");
 
-    return !open || configured === "none"
-      ? "none"
-      : configured === "herdr" || configured === "rex"
-        ? configured
-        : "editor";
+    if (!open || configured === "none") {
+      return "none";
+    }
+    if (configured === "herdr" || configured === "rex") {
+      return configured;
+    }
+    if (configured === "auto") {
+      this.autoOpener ??= await detectInstalledTerminalHost();
+      return this.autoOpener;
+    }
+
+    return "editor";
   }
 
   /**
@@ -746,13 +807,6 @@ export abstract class BaseCommand extends Command {
   }
 
   /**
-   * Whose ids the closer and the renamer return, so a command can report them
-   * under the right key. Set by the lookup both start from; Herdr's until it
-   * says otherwise.
-   */
-  protected closedSpacesOf: "herdr" | "rex" = "herdr";
-
-  /**
    * Reads which Herdr space or Rex session each of this repository's worktrees is open in, and
    * answers with the function that closes them once they have been removed.
    *
@@ -763,49 +817,58 @@ export abstract class BaseCommand extends Command {
    * `cleanup` removes a set and a lookup per worktree would be N subprocesses
    * where one does.
    *
+   * A fixed `herdr` or `rex` consults that tool only (#270 D9). `auto` consults
+   * every installed tool, not the detected one (#271 D7): a worktree Herdr
+   * opened must still close when `remove` runs from a plain terminal or from
+   * Rex. The lookups run concurrently and one failing is a warning that leaves
+   * the other's result intact (D8).
+   *
    * Everything that means "there is nothing to close" answers with the same
    * no-op, and none of them spawns a Herdr or Rex process: an `opener` that is
-   * neither `herdr` nor `rex`, the opener's tool not on PATH, or a repository
+   * none of `herdr`, `rex` and `auto`, a tool not on PATH, or a repository
    * with no open spaces. The second of those is deliberately silent rather than a warning — someone
    * whose `opener` says `herdr` but who has no Herdr installed was already told
    * so, loudly, when the open failed, and a warning on every `remove`
    * afterwards is noise about something they cannot act on here.
    */
   protected async resolveSpaceCloser(): Promise<SpaceCloser> {
-    const found = await this.findOpenSpaces();
+    const lookup = await this.findOpenSpaces();
 
-    if (!found) {
+    if (!lookup) {
       return closeNothing;
     }
 
-    const { multiplexer, spaces, worktreesRootPath } = found;
+    const { found, worktreesRootPath } = lookup;
 
     return async (worktreePaths: string[]) => {
-      const closed: string[] = [];
+      const closed: ClosedSpaces = { herdr: [], rex: [] };
 
       for (const worktreePath of worktreePaths) {
-        const workspaceId = spaces.get(worktreePath);
+        for (const { tool, spaces } of found) {
+          const workspaceId = spaces.get(worktreePath);
 
-        // Three ways to get here, and none of them says anything. Two were
-        // settled when the map was built: the worktree had no space open (D9),
-        // or it is one this run must not touch (D7). The third is a path Herdr
-        // never listed, or listed in a different string form — which is the
-        // orphan this feature exists to prevent, passing silently. Both sides
-        // of the comparison come from git's own worktree records and were
-        // verified byte-identical, so it stays silent rather than warning on
-        // every worktree that legitimately has no space.
-        if (!workspaceId) {
-          continue;
-        }
+          // Three ways to get here, and none of them says anything. Two were
+          // settled when the map was built: the worktree had no space open
+          // (D9), or it is one this run must not touch (D7). The third is a
+          // path the tool never listed, or listed in a different string form —
+          // which is the orphan this feature exists to prevent, passing
+          // silently. Both sides of the comparison come from git's own
+          // worktree records and were verified byte-identical, so it stays
+          // silent rather than warning on every worktree that legitimately has
+          // no space.
+          if (!workspaceId) {
+            continue;
+          }
 
-        if (
-          await this.closeSpace(
-            multiplexer,
-            workspaceId,
-            toSpaceLabel(worktreePath, worktreesRootPath),
-          )
-        ) {
-          closed.push(workspaceId);
+          if (
+            await this.closeSpace(
+              tool.multiplexer,
+              workspaceId,
+              toSpaceLabel(worktreePath, worktreesRootPath),
+            )
+          ) {
+            closed[tool.key].push(workspaceId);
+          }
         }
       }
 
@@ -815,60 +878,76 @@ export abstract class BaseCommand extends Command {
 
   /**
    * The lookup both `resolveSpaceCloser` and `resolveSpaceRenamer` start from:
-   * the configured opener's tool, and the id of the space open in each of this
-   * repository's worktrees. `undefined` is every way of having nothing to act
-   * on — see `resolveSpaceCloser` for the list — and a failed lookup is a
-   * recorded warning, never a throw.
+   * every tool the configured opener names (one for `herdr` or `rex`, both for
+   * `auto`, #271 D7) that is installed, each with the id of the space open in
+   * each of this repository's worktrees. `undefined` is every way of having
+   * nothing to act on — see `resolveSpaceCloser` for the list. A failed lookup
+   * is a recorded warning, never a throw, and costs only its own tool (D8).
    */
   private async findOpenSpaces(): Promise<
     | {
-        multiplexer: Multiplexer;
-        spaces: Map<string, string>;
+        found: { tool: ToolToClose; spaces: Map<string, string> }[];
         worktreesRootPath: string;
       }
     | undefined
   > {
-    // D9 (#270): only the configured opener's tool is consulted. `editor`,
-    // `none` and anything else close nothing and spawn nothing.
     const opener = await gitGetConfigValue("opener");
+    const tools = toolsToClose(opener);
 
-    if (opener !== "herdr" && opener !== "rex") {
+    if (tools.length === 0) {
       return undefined;
     }
 
-    this.closedSpacesOf = opener;
-    const multiplexer = opener === "rex" ? rexMultiplexer : herdrMultiplexer;
+    const installed = (
+      await Promise.all(
+        tools.map(async (tool) =>
+          (await tool.multiplexer.isInstalled()) ? tool : undefined,
+        ),
+      )
+    ).filter((tool) => tool !== undefined);
 
-    if (!(await multiplexer.isInstalled())) {
+    if (installed.length === 0) {
       return undefined;
     }
 
     const spinner = createSpinner(
-      `Finding ${multiplexer.displayName} ${multiplexer.spaceNoun}s`,
+      `Finding ${installed
+        .map(
+          ({ multiplexer }) =>
+            `${multiplexer.displayName} ${multiplexer.spaceNoun}s`,
+        )
+        .join(" and ")}`,
     ).start();
-    let spaces: Map<string, string>;
+    let lookups: PromiseSettledResult<Map<string, string>>[];
     let worktreesRootPath: string;
 
     try {
-      const [found, worktreesPath] = await Promise.all([
-        multiplexer.findSpaces(await gitGetRootPath()),
+      const [settled, worktreesPath] = await Promise.all([
+        (async () => {
+          const gitRootPath = await gitGetRootPath();
+
+          return Promise.allSettled(
+            installed.map(({ multiplexer }) =>
+              multiplexer.findSpaces(gitRootPath),
+            ),
+          );
+        })(),
         gitGetAbsoluteWorktreesPath(),
       ]);
 
       worktreesRootPath = `${worktreesPath}/`;
-      spaces = found;
-      spinner.stop();
+      lookups = settled;
     } catch (error) {
-      // Deliberately wider than the Herdr call: the two git lookups above share
-      // this catch, so nothing this seam needs can cost the user the removal
-      // they actually asked for. Every message it can print names its own
-      // source — Herdr's are prefixed `Herdr: `, and gitGetRootPath's says it
-      // cannot find the root — so the breadth costs no diagnostic detail.
+      // Deliberately wider than the tool calls: the two git lookups above are
+      // shared by every tool, so nothing this seam needs can cost the user the
+      // removal they actually asked for. Every message it can print names its
+      // own source — Herdr's are prefixed `Herdr: `, and gitGetRootPath's says
+      // it cannot find the root — so the breadth costs no diagnostic detail.
       //
-      // The lookup itself is all-or-nothing by construction: without it there
-      // is no path-to-space mapping, so there is nothing any number of closes
-      // could act on. Decided here deliberately rather than inherited (F-056) —
-      // the run continues and the removals still happen, because by the time a
+      // Each lookup is all-or-nothing by construction: without it there is no
+      // path-to-space mapping, so there is nothing any number of closes could
+      // act on. Decided here deliberately rather than inherited (F-056) — the
+      // run continues and the removals still happen, because by the time a
       // caller holds this closure the user has already asked for them.
       const message = error instanceof Error ? error.message : String(error);
       spinner.warn(message);
@@ -876,63 +955,103 @@ export abstract class BaseCommand extends Command {
       return undefined;
     }
 
-    if (spaces.size === 0) {
+    // One spinner covers both lookups, because two live spinners would fight
+    // over the same line. The first failure uses it; any other is a plain
+    // warning, so every failure is still printed and recorded (D8).
+    const found: { tool: ToolToClose; spaces: Map<string, string> }[] = [];
+    let spinnerSettled = false;
+
+    lookups.forEach((lookup, index) => {
+      if (lookup.status === "fulfilled") {
+        if (lookup.value.size > 0) {
+          found.push({ tool: installed[index], spaces: lookup.value });
+        }
+        return;
+      }
+
+      const message =
+        lookup.reason instanceof Error
+          ? lookup.reason.message
+          : String(lookup.reason);
+
+      if (spinnerSettled) {
+        this.warn(message);
+        return;
+      }
+
+      spinnerSettled = true;
+      spinner.warn(message);
+      this.recordWarning(message);
+    });
+
+    if (!spinnerSettled) {
+      spinner.stop();
+    }
+
+    if (found.length === 0) {
       return undefined;
     }
 
-    return { multiplexer, spaces, worktreesRootPath };
+    return { found, worktreesRootPath };
   }
 
   /**
    * Reads which space is open in each worktree and answers with the function
-   * that relabels one of them once its worktree has moved (#272 D12).
+   * that relabels it once its worktree has moved (#272 D12).
    *
    * **Call this before moving anything**, for the reason `resolveSpaceCloser`
-   * gives: the listing is derived from git's worktrees. Only the configured
-   * opener's tool is asked (#270 D9), and everything that means "nothing to
-   * relabel" answers with a no-op that spawns nothing. A failed lookup or
-   * relabel is a recorded warning and never a throw: by the time the closure
-   * runs the rename has succeeded and cannot be undone.
+   * gives: the listing is derived from git's worktrees. The tools asked are the
+   * closer's — the configured opener's (#270 D9), or every installed one under
+   * `auto` (#271 D7) — and everything that means "nothing to relabel" answers
+   * with a no-op that spawns nothing. A failed lookup or relabel is a recorded
+   * warning and never a throw: by the time the closure runs the rename has
+   * succeeded and cannot be undone.
    */
   protected async resolveSpaceRenamer(): Promise<SpaceRenamer> {
-    const found = await this.findOpenSpaces();
+    const lookup = await this.findOpenSpaces();
 
-    if (!found) {
+    if (!lookup) {
       return renameNothing;
     }
 
-    const { multiplexer, spaces, worktreesRootPath } = found;
-    const { renameSpace } = multiplexer;
-
-    if (!renameSpace) {
-      return renameNothing;
-    }
+    const { found, worktreesRootPath } = lookup;
 
     return async (fromPath, toPath) => {
-      const spaceId = spaces.get(fromPath);
-
-      // No space open in the worktree is not an error and is not worth a line.
-      if (!spaceId) {
-        return [];
-      }
-
-      const { displayName, spaceNoun } = multiplexer;
+      const renamed: RenamedSpaces = { herdr: [], rex: [] };
       const from = toSpaceLabel(fromPath, worktreesRootPath);
       const to = toSpaceLabel(toPath, worktreesRootPath);
-      const spinner = createSpinner(
-        `Renaming ${displayName} ${spaceNoun} ${from} to ${to}`,
-      ).start();
 
-      try {
-        await renameSpace.call(multiplexer, spaceId, to);
-        spinner.succeed(`Renamed ${displayName} ${spaceNoun} ${from} to ${to}`);
-        return [spaceId];
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        spinner.warn(message);
-        this.recordWarning(message);
-        return [];
+      for (const { tool, spaces } of found) {
+        const { multiplexer } = tool;
+        const spaceId = spaces.get(fromPath);
+        const { renameSpace } = multiplexer;
+
+        // No space open in the worktree is not an error and is not worth a
+        // line, and a tool that cannot relabel is left as it is.
+        if (!spaceId || !renameSpace) {
+          continue;
+        }
+
+        const { displayName, spaceNoun } = multiplexer;
+        const spinner = createSpinner(
+          `Renaming ${displayName} ${spaceNoun} ${from} to ${to}`,
+        ).start();
+
+        try {
+          await renameSpace.call(multiplexer, spaceId, to);
+          spinner.succeed(
+            `Renamed ${displayName} ${spaceNoun} ${from} to ${to}`,
+          );
+          renamed[tool.key].push(spaceId);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          spinner.warn(message);
+          this.recordWarning(message);
+        }
       }
+
+      return renamed;
     };
   }
 

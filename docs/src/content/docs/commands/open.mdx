@@ -1,10 +1,12 @@
 ---
 title: "worktree open: reopen a git worktree"
-description: "worktree open reopens an existing git worktree in your editor or a Herdr space by branch name, or from an interactive picker."
+description: "worktree open reopens an existing git worktree in your editor, a Herdr space or a Rex session by branch name, or from an interactive picker."
 ---
 
-Open an existing worktree in your configured editor, or as a Herdr space when `opener` is set to
-`herdr`. With `opener` set to `none`, nothing is opened and `Worktree already exists at <path>` is printed.
+Open an existing worktree in your configured editor, as a Herdr space when `opener` is set to
+`herdr`, or as a Rex session when it is `rex`. With `opener` set to `auto`, it opens in the Herdr or Rex
+the command runs inside (Herdr first if both), else in the editor. With `opener` set to `none`, nothing is
+opened and `Worktree already exists at <path>` is printed.
 
 ## Usage
 
