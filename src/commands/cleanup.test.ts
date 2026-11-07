@@ -1843,3 +1843,74 @@ describe("cleanup command — the herdr closer", () => {
     expect(mockRunCapturing).not.toHaveBeenCalled();
   });
 });
+
+describe("cleanup command — locale-aware counts", () => {
+  // The runtime default locale is fixed when Node starts, so a test cannot set
+  // it from inside the process. Supply de-DE wherever formatCount asks for the
+  // default, which leaves the real Intl.NumberFormat doing the formatting.
+  // de-DE groups with "." (CLDR), so "12.345" cannot be mistaken for the raw
+  // number, and the test does not depend on the machine's own locale.
+  const RealNumberFormat = Intl.NumberFormat;
+  const count = 12345;
+  const formatted = "12.345";
+
+  const makeEntries = (overrides: Partial<WorktreeListEntry>) =>
+    Array.from({ length: count }, (_, i) => ({
+      path: `/path/to/project.worktrees/feature/w${i}`,
+      branchName: `feature/w${i}`,
+      remote: `origin/feature/w${i}`,
+      ahead: 0,
+      behind: 0,
+      remoteExists: false,
+      pathExists: true,
+      uncommittedChanges: 0,
+      safeToRemove: true,
+      ...overrides,
+    })) as WorktreeListEntry[];
+
+  let cleanup: Cleanup;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(Intl, "NumberFormat").mockImplementation(function (
+      locale?: any,
+      options?: any,
+    ) {
+      return new RealNumberFormat(locale ?? "de-DE", options);
+    } as any);
+    cleanup = new Cleanup([], { runCommand: vi.fn() } as any);
+    vi.spyOn(config, "gitGetConfigValue").mockResolvedValue("");
+    (cleanup as any).parse = vi.fn().mockResolvedValue({
+      flags: { force: false },
+    });
+  });
+
+  afterEach(() => {
+    vi.mocked(Intl.NumberFormat).mockRestore();
+  });
+
+  it("groups the count in the found heading under the pinned locale", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue(makeEntries({}));
+    vi.spyOn(cleanup, "log").mockImplementation(() => {});
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    await cleanup.run();
+
+    expect(spinnerMocks.info).toHaveBeenCalledWith(
+      `Found ${formatted} worktree branches that are marked safe to remove.`,
+    );
+  });
+
+  it("groups the count in a skipped heading under the pinned locale", async () => {
+    vi.spyOn(git, "gitGetWorktreeList").mockResolvedValue(
+      makeEntries({ uncommittedChanges: 1, safeToRemove: false }),
+    );
+    const logSpy = vi.spyOn(cleanup, "log").mockImplementation(() => {});
+
+    await cleanup.run();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      `Skipped ${formatted} worktree branches that have uncommitted changes:`,
+    );
+  });
+});
