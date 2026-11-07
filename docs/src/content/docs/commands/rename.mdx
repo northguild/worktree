@@ -1,0 +1,211 @@
+---
+title: "worktree rename: rename a worktree and its branch"
+description: "worktree rename moves a worktree's directory and renames its branch in one step, locally, so neither keeps pointing at the old name."
+---
+
+Rename a worktree and its branch together.
+
+A worktree is named twice: by its branch, and by its directory, `<repo>.worktrees/<branch>`.
+`git branch -m` renames only the branch and leaves the directory under the old name, which is
+also the name `worktree branch` would find on disk the next time. `worktree rename` moves the
+directory to `<repo>.worktrees/<new name>` and renames the branch, so neither is left behind.
+
+## Usage
+
+```bash
+worktree rename [branch] <newName>
+worktree rename <newName>
+worktree rename <branch> <newName> --force --json
+```
+
+The usage line oclif prints reads `worktree rename [BRANCHNAME] [NEWNAME]`, because both
+arguments are optional. It follows `git branch -m`:
+
+- **Two arguments:** the first names the worktree, by branch or by path the way
+  [`remove`](/worktree/commands/remove/) takes it, and the second is the new name.
+- **One argument:** it is the new name, for the worktree you are standing in. This is the
+  common case, an agent's own worktree included.
+- **No argument:** a terminal picks a worktree and asks for the new name. A
+  [non-interactive run](/worktree/commands/branch/#non-interactive-runs) cannot answer, so it
+  exits `2` with `worktree: no default for the new branch name; pass <newName>` (inside a
+  worktree) or `worktree: no default for the worktree to rename; pass <branchName> <newName>`
+  (anywhere else).
+
+## Examples
+
+```bash
+worktree rename feature/add-bulk-actions feature/bulk-actions
+worktree rename feature/bulk-actions
+worktree rename /abs/repo.worktrees/feature/x bugfix/y
+```
+
+Only worktrees under `<repo>.worktrees/` can be renamed, the set [`list`](/worktree/commands/list/),
+[`open`](/worktree/commands/open/) and `remove` see. The main checkout cannot be moved.
+
+## What it does
+
+1. Checks everything it can before changing anything (see [Refusals](#refusals)).
+2. Creates the missing parent directories, so `feature/x` to `bugfix/y` makes `bugfix/`.
+3. Moves the directory with `git worktree move`, then renames the branch with `git branch -m`.
+   If git refuses the second step, the directory is moved back and nothing has changed.
+4. Removes the old parent directories this left empty, such as `feature/`, one empty
+   directory at a time. It never touches a directory that still holds something, nor
+   `<repo>.worktrees` itself.
+
+Uncommitted and untracked files move with the directory. Everything keyed on the branch name
+follows it, because git moves the branch's whole `branch.<name>.*` section: the upstream
+settings and the Linear issue link `branch --linear` records, which
+[`list --issues`](/worktree/commands/list/) and [`cleanup`](/worktree/commands/cleanup/) read.
+
+No fetch is made, so the command works offline.
+
+It needs **git 2.9 or newer**. Before that, `git branch -m` renamed a branch checked out in
+another worktree without updating that worktree's `HEAD`.
+
+On success it prints one line, and the way to push when the branch still tracks its old name on a remote:
+
+```text
+✔ Renamed feature/x to bugfix/y; the worktree is at /abs/repo.worktrees/bugfix/y
+It still tracks origin/feature/x: `git push origin HEAD:feature/x` updates it, `git push -u origin bugfix/y` publishes the new name.
+```
+
+A branch that tracks anything else, such as a local `main` or `origin/main`, gets no push hint: the rename did
+not change how it pushes, and no command printed here should push onto another branch. `upstream` in
+[`--json`](#json-output) still says what it tracks.
+
+When you ran it from inside the worktree it just renamed, the last line is
+`cd /abs/repo.worktrees/bugfix/y`: your shell is still on the old path.
+
+## The remote is left alone
+
+The rename is local. The remote branch is never renamed, pushed or deleted, and the branch keeps
+tracking it under its old name, so with git's default `push.default=simple` a plain `git push` is
+refused until you decide. Two ways out, both printed above:
+
+- `git push origin HEAD:feature/x` keeps updating the old remote branch.
+- `git push -u origin bugfix/y` publishes the new name and moves the upstream to it. The old
+  remote branch stays until you delete it.
+
+`worktree rename` does neither for you, because GitHub closes an open pull request when its head
+branch is renamed, and publishing the new name and deleting the old one closes it too. An open
+pull request keeps pointing at the old remote branch. The upstream is also left in place on
+purpose: [`cleanup`](/worktree/commands/cleanup/) relies on a tracked remote branch that has gone
+to find the worktree after its pull request merges.
+
+## When an agent is working in the worktree
+
+A running agent holds absolute paths to the old directory. If an agent session is working in the
+worktree you name, a terminal is asked first, defaulting to no:
+
+```text
+An agent session (feature-one-1f) is working in feature/x. Rename it anyway?
+```
+
+`-f` (`--force`) skips the question. A non-interactive run without `-f` exits `2` with
+`worktree: no default for confirmation to rename <branch> while an agent session (<name>) is working in it; pass -f`.
+A session that is only idle does not count. A plain rename with nobody in the worktree asks nothing and has no
+`--dry-run`, because nothing is lost and every refusal below is checked before anything moves.
+
+## Herdr spaces and Rex sessions
+
+With `opener` set to `herdr`, `rex` or `auto`, a space or session open in the worktree follows the rename: it
+is relabelled to the new name, the way `open` would have labelled it, and keeps its panes and its id. Nothing is
+closed and reopened.
+
+```
+✔ Renamed feature/x to bugfix/y; the worktree is at /abs/repo.worktrees/bugfix/y
+✔ Renamed Herdr space feature/x to bugfix/y
+```
+
+- The space is looked up before the directory moves, because both tools list it from git's worktrees, and
+  relabelled only after the directory and the branch have both been renamed. A rename that fails relabels
+  nothing.
+- The tools asked are the ones `remove` asks: a fixed `herdr` or `rex` asks that tool only, and `auto` asks
+  every installed one, so a space Herdr opened is relabelled even when you rename from a plain terminal or from
+  inside Rex. One tool failing to answer does not stop the other relabelling. With `opener` unset, `editor` or
+  `none`, no `herdr` or `rex` process is started.
+- A worktree with no space open prints nothing.
+- If the tool cannot be reached or refuses the new label, that is a warning, in the human output and in the
+  `warnings` array of `--json`, and the command still exits `0`: the rename has happened and cannot be undone.
+  Relabel it by hand (`herdr workspace rename <id> <label>`, `rex session rename <session> <label>`) or close it
+  and `worktree open` the new name.
+- Herdr follows the moved directory by itself, so `worktree remove <new name>` still finds and closes the
+  relabelled space (checked on Herdr 0.9.0). The Rex session is not yet verified against a live Rex.
+- Rex sessions are matched as `remove` matches them, by where their shells are. The session `worktree` runs in,
+  and any session of the worktree you run the command from, are not relabelled.
+
+`--json` lists the ids under `herdrSpacesRenamed` and `rexSessionsRenamed`, and `[]` when nothing was relabelled.
+
+## Caveats
+
+Renaming moves a directory out from under whatever is using it. Those are not handled:
+
+- **A live editor or shell.** An editor window open on the old folder shows it as deleted, and a
+  shell's prompt keeps showing the old path. Reopen the folder with
+  [`worktree open <new name>`](/worktree/commands/open/) and `cd` to the new path.
+- **Absolute paths baked into the tree.** A Python virtual environment is
+  [inherently non-portable](https://docs.python.org/3/library/venv.html), and some caches and
+  build outputs record the old path too. Scripts that use them fail after the rename; recreate
+  the environment.
+- **The remote and open pull requests**, as above.
+- **Case-only renames on a case-insensitive filesystem**, such as macOS's default, are refused as
+  `already exists`: the new directory name is the old one as far as the filesystem can tell.
+  Rename through another name first.
+- **A Herdr agent's name and a Claude session's `--name`** are set when the agent starts and keep the
+  old branch name. Neither tool has a way to rename a running agent.
+
+## Refusals
+
+Every refusal below is checked before anything changes, and exits `2` with `invalid_value` unless
+noted:
+
+| Case | Message |
+| --- | --- |
+| detached HEAD | `The worktree at <path> is on a detached HEAD, so it has no branch to rename.` |
+| directory missing | ``The worktree directory <path> is missing. Run `worktree remove <old>` instead.`` |
+| same name | `"<old>" already has that name.` |
+| invalid name | the same rules [`branch`](/worktree/commands/branch/) applies, or git's `'<name>' is not a valid branch name` |
+| branch exists | `A branch named "<new>" already exists.` |
+| name clashes with another branch's prefix | `"<new>" clashes with the existing branch "<other>".` |
+| directory exists | `<newPath> already exists.` |
+| the two names nest | `"<new>" and "<old>" nest inside each other, so the directory cannot move between them. Rename through another name first.` |
+| no worktree found (`not_found`) | `No worktree for "<old>" under <repo>.worktrees/.` |
+
+What git itself refuses, such as a locked worktree or one with submodules, exits `1` with git's
+reason: `Could not rename <old>: <git reason>`. A refused branch rename moves the directory back and says so.
+If moving it back fails too, the message names both states and the command that finishes the job.
+`worktree rename` never passes `-f -f` to unlock a worktree.
+
+## JSON output
+
+`--json` prints **exactly one JSON document** on stdout, on one line, and implies a
+[non-interactive run](/worktree/commands/branch/#non-interactive-runs): nothing is asked, so it needs the new name,
+and `-f` when an agent session is working in the worktree.
+
+```bash
+worktree rename feature/x bugfix/y --json
+```
+
+```json
+{"from":{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"},"to":{"branch":"bugfix/y","path":"/abs/repo.worktrees/bugfix/y"},"upstream":"origin/feature/x","herdrSpacesRenamed":[],"rexSessionsRenamed":[],"warnings":[]}
+```
+
+| Key | Value |
+| --- | --- |
+| `from` | the branch and path the worktree had |
+| `to` | the branch and path it has now |
+| `upstream` | what the branch still tracks, as git shortens it, such as `origin/feature/x` or `main`; `null` when it tracks nothing |
+| `herdrSpacesRenamed` | the ids of the [Herdr spaces](#herdr-spaces-and-rex-sessions) relabelled to the new name; `[]` when none was |
+| `rexSessionsRenamed` | the ids of the Rex sessions relabelled to the new name; `[]` when none was |
+| `warnings` | what went wrong without stopping the run, such as a space that could not be relabelled |
+
+The result line and the push hint go to stderr. A failure prints `{"error":{"code","message"}}` on stdout instead and
+exits non-zero; the codes are listed under [`branch`](/worktree/commands/branch/#json-output).
+
+## Exit codes
+
+| Code | Means |
+| --- | --- |
+| `0` | the worktree and branch were renamed (or you answered no to the agent question) |
+| `1` | failure, such as git refusing the move or the branch rename |
+| `2` | usage: an argument is missing, the worktree was not found, or the new name is refused |

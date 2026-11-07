@@ -120,4 +120,10 @@ describe("rexMultiplexer", () => {
 
     expect(rex.closeRexSession).toHaveBeenCalledWith("session:A");
   });
+
+  it("relabels a space with rex session rename", async () => {
+    await rexMultiplexer.renameSpace?.("session:A", "bugfix/y");
+
+    expect(rex.renameRexSession).toHaveBeenCalledWith("session:A", "bugfix/y");
+  });
 });

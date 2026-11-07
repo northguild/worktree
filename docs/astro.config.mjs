@@ -40,6 +40,7 @@ export default defineConfig({
             { label: "list", slug: "commands/list" },
             { label: "open", slug: "commands/open" },
             { label: "remove", slug: "commands/remove" },
+            { label: "rename", slug: "commands/rename" },
             { label: "cleanup", slug: "commands/cleanup" },
             { label: "linear-listen", slug: "commands/linear-listen" },
           ],

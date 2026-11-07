@@ -7,6 +7,7 @@ import {
   listHerdrWorktrees,
   openHerdrWorktree,
   promptHerdrAgent,
+  renameHerdrWorkspace,
   startHerdrAgent,
   toAgentSessionName,
   toHerdrAgentName,
@@ -827,6 +828,51 @@ describe("closeHerdrWorkspace", () => {
       "message",
       "Herdr: workspace wQ not found (workspace_not_found)",
     );
+  });
+});
+
+describe("renameHerdrWorkspace", () => {
+  // The answer shape was observed on Herdr 0.9.0 in the #272 probe:
+  // `herdr workspace rename <id> <label>` returns a `workspace_info` result
+  // carrying the new label. Nothing is read from it; the exit code decides.
+  const renamed = JSON.stringify({
+    id: "cli:workspace:rename",
+    result: { type: "workspace_info", workspace: { label: "bugfix/y" } },
+  });
+
+  it("passes the id and the label as two positionals", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: renamed,
+      stderr: "",
+      exitCode: 0,
+    });
+
+    await expect(
+      renameHerdrWorkspace("wQ", "bugfix/y"),
+    ).resolves.toBeUndefined();
+    expect(mockRunCapturing).toHaveBeenCalledWith(
+      "herdr",
+      ["workspace", "rename", "wQ", "bugfix/y"],
+      { timeout: expect.any(Number) },
+    );
+  });
+
+  it("surfaces a stderr error envelope as a HerdrError carrying the code", async () => {
+    mockRunCapturing.mockResolvedValue({
+      stdout: "",
+      stderr: makeErrorEnvelope(
+        "workspace_not_found",
+        "workspace wQ not found",
+      ),
+      exitCode: 1,
+    });
+
+    const error = await renameHerdrWorkspace("wQ", "bugfix/y").catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(HerdrError);
+    expect(error).toMatchObject({ code: "workspace_not_found" });
   });
 });
 

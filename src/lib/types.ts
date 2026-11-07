@@ -24,6 +24,13 @@ export interface ClosedSpaces {
   rex: string[];
 }
 
+/**
+ * The ids a renamer relabelled, per tool, in the same shape as `ClosedSpaces`
+ * and for the same reason: under `auto` both tools can have a space open in
+ * one worktree. `rename` reports each under its own `--json` key.
+ */
+export type RenamedSpaces = ClosedSpaces;
+
 /** An agent the open started. */
 export interface OpenedAgent {
   /** The runtime session name; `null` where this CLI named nothing (D12). */
@@ -297,6 +304,18 @@ export interface WorktreeListEntryDocument {
 
 export interface WorktreeListDocument {
   worktrees: WorktreeListEntryDocument[];
+}
+
+export interface RenameDocument {
+  from: { branch: string; path: string };
+  to: { branch: string; path: string };
+  /** The branch's upstream after the rename, as git shortens it (`origin/feature/x`, `main`), or null. */
+  upstream: string | null;
+  /** The Herdr workspace ids that were relabelled to follow the rename. */
+  herdrSpacesRenamed: string[];
+  /** The Rex session ids that were relabelled to follow the rename. */
+  rexSessionsRenamed: string[];
+  warnings: string[];
 }
 
 export interface RemoveDocument {

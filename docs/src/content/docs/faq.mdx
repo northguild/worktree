@@ -88,6 +88,17 @@ worktree is already gone.
 
 See [When the worktree goes](/worktree/guides/herdr-spaces/#when-the-worktree-goes).
 
+## What happens to a Herdr space or Rex session when I rename the worktree?
+
+It is relabelled to the new name and stays open. `worktree rename` looks the space up before the directory
+moves and, once the move and the branch rename have both succeeded, renames it with `herdr workspace rename`
+or `rex session rename`, whichever your `opener` names; under `auto`, each installed tool that has one open. A
+failure is a warning and the command still exits `0`.
+The agent running in the space keeps the old branch name, and so does a Claude `--name` session. The Rex relabel
+has not been verified against a live Rex.
+
+See [`worktree rename`](/worktree/commands/rename/#herdr-spaces-and-rex-sessions).
+
 ## Does `worktree` run on Windows?
 
 It is developed and tested on macOS and Linux only. Windows is not supported.

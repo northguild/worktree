@@ -53,6 +53,7 @@ import type {
   JsonErrorDocument,
   OpenedAgent,
   OpenOutcome,
+  RenamedSpaces,
   ResolvedOpener,
 } from "./types.js";
 import { splitCommandValue } from "./utils.js";
@@ -111,8 +112,24 @@ function toolsToClose(opener: string): ToolToClose[] {
   return opener === "auto" ? [herdr, rex] : [];
 }
 
+/**
+ * Relabels the space open in a worktree that has just moved, and answers with
+ * the ids it relabelled. The mirror of `SpaceCloser`, and resolved before the
+ * move for the same reason: the lookup reads git's worktrees, and once the
+ * directory has moved the old path is no longer in them (#272 D12).
+ */
+type SpaceRenamer = (
+  fromPath: string,
+  toPath: string,
+) => Promise<RenamedSpaces>;
+
 /** Does nothing, for every path where there is nothing to close. */
 async function closeNothing(): Promise<ClosedSpaces> {
+  return { herdr: [], rex: [] };
+}
+
+/** Does nothing, for every path where there is nothing to relabel. */
+async function renameNothing(): Promise<RenamedSpaces> {
   return { herdr: [], rex: [] };
 }
 
@@ -815,11 +832,70 @@ export abstract class BaseCommand extends Command {
    * afterwards is noise about something they cannot act on here.
    */
   protected async resolveSpaceCloser(): Promise<SpaceCloser> {
+    const lookup = await this.findOpenSpaces();
+
+    if (!lookup) {
+      return closeNothing;
+    }
+
+    const { found, worktreesRootPath } = lookup;
+
+    return async (worktreePaths: string[]) => {
+      const closed: ClosedSpaces = { herdr: [], rex: [] };
+
+      for (const worktreePath of worktreePaths) {
+        for (const { tool, spaces } of found) {
+          const workspaceId = spaces.get(worktreePath);
+
+          // Three ways to get here, and none of them says anything. Two were
+          // settled when the map was built: the worktree had no space open
+          // (D9), or it is one this run must not touch (D7). The third is a
+          // path the tool never listed, or listed in a different string form —
+          // which is the orphan this feature exists to prevent, passing
+          // silently. Both sides of the comparison come from git's own
+          // worktree records and were verified byte-identical, so it stays
+          // silent rather than warning on every worktree that legitimately has
+          // no space.
+          if (!workspaceId) {
+            continue;
+          }
+
+          if (
+            await this.closeSpace(
+              tool.multiplexer,
+              workspaceId,
+              toSpaceLabel(worktreePath, worktreesRootPath),
+            )
+          ) {
+            closed[tool.key].push(workspaceId);
+          }
+        }
+      }
+
+      return closed;
+    };
+  }
+
+  /**
+   * The lookup both `resolveSpaceCloser` and `resolveSpaceRenamer` start from:
+   * every tool the configured opener names (one for `herdr` or `rex`, both for
+   * `auto`, #271 D7) that is installed, each with the id of the space open in
+   * each of this repository's worktrees. `undefined` is every way of having
+   * nothing to act on — see `resolveSpaceCloser` for the list. A failed lookup
+   * is a recorded warning, never a throw, and costs only its own tool (D8).
+   */
+  private async findOpenSpaces(): Promise<
+    | {
+        found: { tool: ToolToClose; spaces: Map<string, string> }[];
+        worktreesRootPath: string;
+      }
+    | undefined
+  > {
     const opener = await gitGetConfigValue("opener");
     const tools = toolsToClose(opener);
 
     if (tools.length === 0) {
-      return closeNothing;
+      return undefined;
     }
 
     const installed = (
@@ -831,7 +907,7 @@ export abstract class BaseCommand extends Command {
     ).filter((tool) => tool !== undefined);
 
     if (installed.length === 0) {
-      return closeNothing;
+      return undefined;
     }
 
     const spinner = createSpinner(
@@ -876,7 +952,7 @@ export abstract class BaseCommand extends Command {
       const message = error instanceof Error ? error.message : String(error);
       spinner.warn(message);
       this.recordWarning(message);
-      return closeNothing;
+      return undefined;
     }
 
     // One spinner covers both lookups, because two live spinners would fight
@@ -913,42 +989,69 @@ export abstract class BaseCommand extends Command {
     }
 
     if (found.length === 0) {
-      return closeNothing;
+      return undefined;
     }
 
-    return async (worktreePaths: string[]) => {
-      const closed: ClosedSpaces = { herdr: [], rex: [] };
+    return { found, worktreesRootPath };
+  }
 
-      for (const worktreePath of worktreePaths) {
-        for (const { tool, spaces } of found) {
-          const workspaceId = spaces.get(worktreePath);
+  /**
+   * Reads which space is open in each worktree and answers with the function
+   * that relabels it once its worktree has moved (#272 D12).
+   *
+   * **Call this before moving anything**, for the reason `resolveSpaceCloser`
+   * gives: the listing is derived from git's worktrees. The tools asked are the
+   * closer's — the configured opener's (#270 D9), or every installed one under
+   * `auto` (#271 D7) — and everything that means "nothing to relabel" answers
+   * with a no-op that spawns nothing. A failed lookup or relabel is a recorded
+   * warning and never a throw: by the time the closure runs the rename has
+   * succeeded and cannot be undone.
+   */
+  protected async resolveSpaceRenamer(): Promise<SpaceRenamer> {
+    const lookup = await this.findOpenSpaces();
 
-          // Three ways to get here, and none of them says anything. Two were
-          // settled when the map was built: the worktree had no space open
-          // (D9), or it is one this run must not touch (D7). The third is a
-          // path the tool never listed, or listed in a different string form —
-          // which is the orphan this feature exists to prevent, passing
-          // silently. Both sides of the comparison come from git's own
-          // worktree records and were verified byte-identical, so it stays
-          // silent rather than warning on every worktree that legitimately has
-          // no space.
-          if (!workspaceId) {
-            continue;
-          }
+    if (!lookup) {
+      return renameNothing;
+    }
 
-          if (
-            await this.closeSpace(
-              tool.multiplexer,
-              workspaceId,
-              toSpaceLabel(worktreePath, worktreesRootPath),
-            )
-          ) {
-            closed[tool.key].push(workspaceId);
-          }
+    const { found, worktreesRootPath } = lookup;
+
+    return async (fromPath, toPath) => {
+      const renamed: RenamedSpaces = { herdr: [], rex: [] };
+      const from = toSpaceLabel(fromPath, worktreesRootPath);
+      const to = toSpaceLabel(toPath, worktreesRootPath);
+
+      for (const { tool, spaces } of found) {
+        const { multiplexer } = tool;
+        const spaceId = spaces.get(fromPath);
+        const { renameSpace } = multiplexer;
+
+        // No space open in the worktree is not an error and is not worth a
+        // line, and a tool that cannot relabel is left as it is.
+        if (!spaceId || !renameSpace) {
+          continue;
+        }
+
+        const { displayName, spaceNoun } = multiplexer;
+        const spinner = createSpinner(
+          `Renaming ${displayName} ${spaceNoun} ${from} to ${to}`,
+        ).start();
+
+        try {
+          await renameSpace.call(multiplexer, spaceId, to);
+          spinner.succeed(
+            `Renamed ${displayName} ${spaceNoun} ${from} to ${to}`,
+          );
+          renamed[tool.key].push(spaceId);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          spinner.warn(message);
+          this.recordWarning(message);
         }
       }
 
-      return closed;
+      return renamed;
     };
   }
 
