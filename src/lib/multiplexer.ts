@@ -19,4 +19,11 @@ export interface Multiplexer {
   findSpaces(gitRootPath: string): Promise<Map<string, string>>;
   /** Closes one space by the id `findSpaces` gave. Rejects when it cannot. */
   closeSpace(spaceId: string): Promise<void>;
+  /**
+   * Relabels one space by the id `findSpaces` gave, so a renamed worktree does
+   * not keep a space named for a branch that no longer exists (#272 D12).
+   * Optional: a tool that cannot relabel simply leaves its spaces alone.
+   * Rejects when it cannot.
+   */
+  renameSpace?(spaceId: string, label: string): Promise<void>;
 }

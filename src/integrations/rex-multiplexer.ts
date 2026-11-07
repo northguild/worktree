@@ -1,6 +1,11 @@
 import { gitGetWorktrees } from "../lib/git.js";
 import type { Multiplexer } from "../lib/multiplexer.js";
-import { closeRexSession, findRexSessions, isRexInstalled } from "./rex.js";
+import {
+  closeRexSession,
+  findRexSessions,
+  isRexInstalled,
+  renameRexSession,
+} from "./rex.js";
 
 export const rexMultiplexer: Multiplexer = {
   displayName: "Rex",
@@ -39,4 +44,5 @@ export const rexMultiplexer: Multiplexer = {
     );
   },
   closeSpace: (spaceId) => closeRexSession(spaceId),
+  renameSpace: (spaceId, label) => renameRexSession(spaceId, label),
 };

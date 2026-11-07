@@ -35,3 +35,11 @@ describe("herdrMultiplexer.findSpaces", () => {
     );
   });
 });
+
+describe("herdrMultiplexer.renameSpace", () => {
+  it("relabels a space with herdr workspace rename", async () => {
+    await herdrMultiplexer.renameSpace?.("wA", "bugfix/y");
+
+    expect(herdr.renameHerdrWorkspace).toHaveBeenCalledWith("wA", "bugfix/y");
+  });
+});

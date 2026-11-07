@@ -10,6 +10,7 @@ import {
   locateRexExecutable,
   openRexSession,
   RexError,
+  renameRexSession,
   selectRexSession,
 } from "./rex.js";
 
@@ -538,6 +539,41 @@ describe("closeRexSession (D8)", () => {
 
   it("refuses an id that would read as an option", async () => {
     await expect(closeRexSession("--all")).rejects.toThrow(/session id/);
+    expect(mockRunCapturing).not.toHaveBeenCalled();
+  });
+});
+
+describe("renameRexSession (#272 D12)", () => {
+  // D12 quotes `rex session rename [SESSION] LABEL` from Rex Beta's --help.
+  it("renames the session by id", async () => {
+    await renameRexSession(SESSION_A, "bugfix/y");
+
+    expect(mockRunCapturing).toHaveBeenCalledWith(
+      rexPath,
+      ["session", "rename", SESSION_A, "bugfix/y"],
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
+
+  it("rejects when Rex cannot find the session", async () => {
+    mockRunCapturing.mockResolvedValue(
+      fail(3, `Error: session target "${SESSION_A}" not found`),
+    );
+
+    const error = await renameRexSession(SESSION_A, "bugfix/y").catch(
+      (caught: unknown) => caught,
+    );
+
+    expect((error as RexError).exitCode).toBe(3);
+  });
+
+  it.each([
+    ["an id that would read as an option", "--all", "bugfix/y"],
+    ["an empty id", "", "bugfix/y"],
+    ["a label that would read as an option", SESSION_A, "--all"],
+    ["an empty label", SESSION_A, ""],
+  ])("refuses %s", async (_name, id, label) => {
+    await expect(renameRexSession(id, label)).rejects.toThrow(RexError);
     expect(mockRunCapturing).not.toHaveBeenCalled();
   });
 });

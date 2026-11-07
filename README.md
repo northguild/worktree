@@ -11,7 +11,7 @@ It wraps the most common worktree tasks into a small workflow-oriented tool:
 - copy local env files into the new worktree
 - open the result in your editor automatically
 - hand the new worktree straight to a coding agent
-- list, reopen, remove, and clean up worktrees later
+- list, reopen, rename, remove, and clean up worktrees later
 
 This README focuses on the fast path. The documentation website will cover deeper examples, advanced workflows, integrations, and troubleshooting.
 
@@ -248,6 +248,7 @@ Only the owner of `linear.apiKey` (or the ids in `linear.agentAllow`) can start 
 | `worktree checkout <remote-branch>` | Check out an existing remote branch into a worktree |
 | `worktree list`                     | List known worktrees                                |
 | `worktree open [branch]`            | Open an existing worktree in your editor            |
+| `worktree rename [branch] <name>`   | Rename a worktree and its branch together           |
 | `worktree remove [branch]`          | Remove one or more worktrees                        |
 | `worktree cleanup`                  | Remove stale worktrees that are safe to delete      |
 | `worktree linear-listen`            | Start a worktree for each Linear agent delegation   |
@@ -302,7 +303,7 @@ A run is non-interactive when any of these hold:
 - stdin is not a terminal
 - `CI` is set and is not empty, `0` or `false`
 - `--non-interactive` or `--yes` (`-y`) is given — every command accepts both
-- `--json` is given, on `branch`, `list` or `remove`
+- `--json` is given, on `branch`, `list`, `remove` or `rename`
 
 A prompt that has a default takes it. One that has none fails at once with exit `2` and a single stderr
 line, `worktree: no default for <value>; pass <flag>`.
@@ -311,7 +312,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 
 | Flag | On | Does |
 | --- | --- | --- |
-| `--json` | `branch`, `list`, `remove` | one JSON document on stdout; everything for a person goes to stderr |
+| `--json` | `branch`, `list`, `remove`, `rename` | one JSON document on stdout; everything for a person goes to stderr |
 | `--agent <text>`, `--agent-file <path>`, `--agent-stdin` | `branch` (`checkout` takes `--agent`) | the brief for the agent, from a value, a file or piped stdin; mutually exclusive with each other and with `--no-agent`, read whole, empty is refused, at most 131,071 bytes |
 | `--no-open` | `branch` | create the worktree and print its path; call none of Herdr, Rex or the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
@@ -376,6 +377,8 @@ With `--issues`, each entry also has `issue`: `null` when no Linear issue is rec
 
 `remove --json` gives `{"removed":[{branch,path}],"herdrSpacesClosed":[…],"rexSessionsClosed":[…],"warnings":[]}`. Nothing removed is
 never reported as a success.
+
+`rename --json` gives `{"from":{branch,path},"to":{branch,path},"upstream":string|null,"herdrSpacesRenamed":[],"rexSessionsRenamed":[],"warnings":[]}`. `herdrSpacesRenamed` and `rexSessionsRenamed` list the ids of a Herdr space or Rex session relabelled to follow the rename. `upstream` is what the branch still tracks, such as `origin/feature/x`: the remote branch is left alone. A non-interactive run needs `<newName>`, and `-f` when an agent session is working in the worktree.
 
 A failure prints `{"error":{"code","message",…}}` on stdout, one line on stderr, and exits non-zero:
 
@@ -491,7 +494,7 @@ Merging a pull request publishes nothing. A release is a deliberate release pull
 
 ## Requirements
 
-- Git installed and available on your `PATH`
+- Git installed and available on your `PATH` (2.9 or newer for `worktree rename`)
 - Node.js `^22.13.0` or `>=23.5.0` (the range `@inquirer/prompts` and `@oclif/core` 5 both support; Node 20 and 21 are not)
 - an existing Git repository where you want to manage worktrees
 - macOS or Linux — Windows is not supported

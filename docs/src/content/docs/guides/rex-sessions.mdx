@@ -190,6 +190,20 @@ to retry), and the next session is still closed.
 One gap is known: if two sessions are open in the same worktree, only the first one Rex lists that qualifies is closed. With
 `opener` unset, `editor` or `none`, no `rex` process is started.
 
+## When the worktree is renamed
+
+[`worktree rename`](/worktree/commands/rename/) moves a worktree's directory and renames its branch. With
+`opener` set to `rex`, the session open in it is relabelled to the new name with `rex session rename`, found the
+same way `remove` finds it: by where its shells are, looked up before the directory moves. The session is
+relabelled only once both the move and the branch rename have succeeded, a worktree with no session prints
+nothing, and a failed relabel is a warning with exit `0`. `rename --json` lists the id under `rexSessionsRenamed`.
+
+The session `worktree` itself runs in is not relabelled, and neither is any session of the worktree you run the
+command from.
+
+This relabel has not been verified against a live Rex: the command is the one `rex session rename --help` shows,
+and a shell's directory follows the directory when it moves, but the behaviour is untested end to end.
+
 ## Configuration reference
 
 | Key | Values | Default |

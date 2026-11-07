@@ -48,6 +48,8 @@ interface Scenario {
   /** Every `pnpm` invocation, as `<cwd> <arguments>`. */
   installCalls: () => string[];
   run: (args: string[]) => Promise<CliResult>;
+  /** Like `run`, from another directory, such as inside a worktree. */
+  runIn: (cwd: string, args: string[]) => Promise<CliResult>;
   /** Where a worktree for `branch` lands. */
   worktreePath: (branch: string) => string;
 }
@@ -86,10 +88,11 @@ function parseDocument(stdout: string): Record<string, unknown> {
 }
 
 async function git(cwd: string, ...args: string[]) {
-  await execFileAsync("git", args, {
+  const { stdout } = await execFileAsync("git", args, {
     cwd,
     env: { ...gitEnv(), PATH: basePath },
   });
+  return stdout;
 }
 
 // No user or system git config: signing, hooks, includeIf and aliases of the
@@ -226,6 +229,7 @@ async function createScenario(
     herdrCalls: () => readLines(herdrLog),
     installCalls: () => readLines(installLog),
     run: (args) => spawnCli(args, repo, env),
+    runIn: (cwd, args) => spawnCli(args, cwd, env),
     worktreePath: (branch) => path.join(`${repo}.worktrees`, branch),
   };
 }
@@ -805,6 +809,221 @@ describe("agent mode, spawned", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  describe("rename", () => {
+    // A worktree on `feature/x`, created the way `branch` lays it out, with
+    // the Linear link key on the branch (what a rename has to carry along).
+    async function withWorktree(scenario: Scenario, branch = "feature/x") {
+      await git(
+        scenario.repo,
+        "worktree",
+        "add",
+        "-b",
+        branch,
+        scenario.worktreePath(branch),
+      );
+      await git(
+        scenario.repo,
+        "config",
+        `branch.${branch}.worktreeIssue`,
+        "linear:ENG-12",
+      );
+    }
+
+    it(
+      "rename feature/x bugfix/y --json moves the directory and the branch, and prints one document",
+      async () => {
+        const scenario = await createScenario();
+        await withWorktree(scenario);
+        // git lists real paths (macOS puts /private in front of the temp dir).
+        const realRoot = fs.realpathSync(`${scenario.repo}.worktrees`);
+
+        const result = await scenario.run([
+          "rename",
+          "feature/x",
+          "bugfix/y",
+          "--json",
+        ]);
+
+        expect(result.exitCode).toBe(0);
+        // The shape is plan §4.4; no upstream was set, so it is null.
+        expect(parseDocument(result.stdout)).toEqual({
+          from: {
+            branch: "feature/x",
+            path: path.join(realRoot, "feature/x"),
+          },
+          to: {
+            branch: "bugfix/y",
+            path: path.join(realRoot, "bugfix/y"),
+          },
+          upstream: null,
+          // §4.4: no opener is configured in this repository, so no tool is asked.
+          herdrSpacesRenamed: [],
+          rexSessionsRenamed: [],
+          warnings: [],
+        });
+        expect(fs.existsSync(scenario.worktreePath("bugfix/y"))).toBe(true);
+        // The emptied `feature/` directory is tidied away (D10).
+        expect(
+          fs.existsSync(path.join(`${scenario.repo}.worktrees`, "feature")),
+        ).toBe(false);
+        const branches = await git(
+          scenario.repo,
+          "branch",
+          "--list",
+          "--format=%(refname:short)",
+        );
+        expect(branches.split("\n")).toContain("bugfix/y");
+        expect(branches.split("\n")).not.toContain("feature/x");
+        // git moved the branch's config section, the Linear link with it.
+        const links = await git(
+          scenario.repo,
+          "config",
+          "--get-regexp",
+          "^branch\\..*\\.worktreeissue$",
+        );
+        expect(links.trim()).toBe(
+          "branch.bugfix/y.worktreeissue linear:ENG-12",
+        );
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "rename with one argument from inside the worktree renames it and ends with the cd hint",
+      async () => {
+        const scenario = await createScenario();
+        await withWorktree(scenario);
+        fs.writeFileSync(
+          path.join(scenario.worktreePath("feature/x"), "untracked.txt"),
+          "carried along\n",
+        );
+
+        const result = await scenario.runIn(
+          scenario.worktreePath("feature/x"),
+          ["rename", "bugfix/y"],
+        );
+
+        expect(result.exitCode).toBe(0);
+        const newPath = scenario.worktreePath("bugfix/y");
+        expect(
+          fs.readFileSync(path.join(newPath, "untracked.txt"), "utf8"),
+        ).toBe("carried along\n");
+        const lines = result.stdout.trimEnd().split("\n");
+        expect(lines[0]).toMatch(
+          /^✔ Renamed feature\/x to bugfix\/y; the worktree is at .*\/bugfix\/y$/,
+        );
+        expect(lines.at(-1)).toMatch(/^cd .*\/bugfix\/y$/);
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    // Review of #276: the push hint is printed only when the branch tracks its
+    // old name on a remote. Before, a branch tracking `main` was told to
+    // `git push mai HEAD:main`, and one tracking `origin/main` to push onto main.
+    it.each([
+      {
+        tracks: "local main",
+        remote: ".",
+        merge: "refs/heads/main",
+        hint: [],
+      },
+      {
+        tracks: "origin/main",
+        remote: "origin",
+        merge: "refs/heads/main",
+        hint: [],
+      },
+      {
+        tracks: "its old name on origin",
+        remote: "origin",
+        merge: "refs/heads/feature/x",
+        hint: [
+          "It still tracks origin/feature/x: `git push origin HEAD:feature/x` updates it, `git push -u origin bugfix/y` publishes the new name.",
+        ],
+      },
+    ])(
+      "rename of a branch tracking $tracks prints the push hint only for its old name",
+      async ({ remote, merge, hint }) => {
+        const scenario = await createScenario();
+        await withWorktree(scenario);
+        await git(scenario.repo, "config", "branch.feature/x.remote", remote);
+        await git(scenario.repo, "config", "branch.feature/x.merge", merge);
+
+        const result = await scenario.run(["rename", "feature/x", "bugfix/y"]);
+
+        expect(result.exitCode).toBe(0);
+        const lines = result.stdout.trimEnd().split("\n");
+        expect(lines[0]).toMatch(/^✔ Renamed feature\/x to bugfix\/y;/);
+        expect(lines.slice(1)).toEqual(hint);
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "rename onto an existing branch exits 2 with invalid_value and changes nothing",
+      async () => {
+        const scenario = await createScenario();
+        await withWorktree(scenario);
+        await git(scenario.repo, "branch", "taken");
+
+        const result = await scenario.run([
+          "rename",
+          "feature/x",
+          "taken",
+          "--json",
+        ]);
+
+        expect(result.exitCode).toBe(2);
+        expect(parseDocument(result.stdout)).toMatchObject({
+          error: {
+            code: "invalid_value",
+            message: 'A branch named "taken" already exists.',
+          },
+        });
+        expect(fs.existsSync(scenario.worktreePath("feature/x"))).toBe(true);
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "rename with no arguments exits 2 with missing_value on stdout and one stderr line",
+      async () => {
+        const scenario = await createScenario();
+
+        const result = await scenario.run(["rename", "--json"]);
+
+        expect(result.exitCode).toBe(2);
+        expect(parseDocument(result.stdout)).toMatchObject({
+          error: { code: "missing_value" },
+        });
+        expect(result.stderr.trimEnd().split("\n")).toEqual([
+          expect.stringMatching(/^worktree: no default for /),
+        ]);
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "rename of a branch no worktree has exits 2 with not_found",
+      async () => {
+        const scenario = await createScenario();
+
+        const result = await scenario.run([
+          "rename",
+          "nope",
+          "other",
+          "--json",
+        ]);
+
+        expect(result.exitCode).toBe(2);
+        expect(parseDocument(result.stdout)).toMatchObject({
+          error: { code: "not_found" },
+        });
+      },
+      TEST_TIMEOUT_MS,
+    );
+  });
 
   // The E2 regression (`columns` 0 under a pty completes) is not repeated here:
   // it is the Phase 2 unit test in src/lib/progress.test.ts.

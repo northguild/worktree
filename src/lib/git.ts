@@ -16,7 +16,7 @@ import { gitGetConfigValue } from "./config.js";
 import { isNonInteractive } from "./interaction.js";
 import { gatherIssueLinks } from "./issue-link.js";
 import { createSpinner, isProgressEnabled } from "./progress.js";
-import { askConfirm } from "./prompt.js";
+import { askConfirm, InvalidValueError } from "./prompt.js";
 import {
   createRemovalWatcher,
   measureAbsentTree,
@@ -942,6 +942,260 @@ function toGitReason(error: unknown): string {
     .join(" ");
 
   return reason || (error instanceof Error ? error.message : String(error));
+}
+
+export interface WorktreeRenamePlan {
+  fromBranch: string;
+  toBranch: string;
+  fromPath: string;
+  toPath: string;
+  /** Missing directories between the worktrees root and `toPath`, shallowest first. */
+  parentsToCreate: string[];
+}
+
+// Two names nest when one is a path prefix of the other (`x`, `x/y`): the
+// directory cannot move into or out of itself. Compared on whole components,
+// so `feature/x` and `feature/xy` do not nest.
+function namesNest(a: string, b: string): boolean {
+  return a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+/**
+ * Every refusal `worktree rename` can know about before anything changes
+ * (WORKTREE-RENAME plan §4.3, D6), or the plan for the move. Local only, no
+ * fetch (D9): `localBranches` comes from gitGetLocalBranches. The checks are
+ * the plan's order: what the worktree is, then the name (the validator, then
+ * git's own check-ref-format, D3), then what the name collides with.
+ *
+ * `validateName` is `isValidBranchName` (validators.ts), passed in because
+ * validators.ts imports this module and a direct import would be a runtime
+ * cycle, which scripts/import-cycles.test.mjs forbids.
+ */
+export async function gitPlanWorktreeRename(
+  worktree: WorktreeListBaseEntry,
+  newName: string,
+  localBranches: string[],
+  worktreesRoot: string,
+  validateName: (name: string) => true | string,
+): Promise<WorktreeRenamePlan> {
+  const { path: fromPath, branchName: fromBranch } = worktree;
+
+  if (fromBranch === DETACHED_LABEL) {
+    throw new InvalidValueError(
+      `The worktree at ${fromPath} is on a detached HEAD, so it has no branch to rename.`,
+    );
+  }
+  if (worktree.pathExists === false) {
+    throw new InvalidValueError(
+      `The worktree directory ${fromPath} is missing. Run \`worktree remove ${fromBranch}\` instead.`,
+    );
+  }
+  if (newName === fromBranch) {
+    throw new InvalidValueError(`"${fromBranch}" already has that name.`);
+  }
+
+  const verdict = validateName(newName);
+  if (verdict !== true) {
+    throw new InvalidValueError(verdict);
+  }
+  try {
+    await run("git", ["check-ref-format", "--branch", newName], {
+      cwd: fromPath,
+    });
+  } catch (error) {
+    // Only git's own refusal (exit 128, "fatal: '<name>' is not a valid branch
+    // name") is a bad name; a spawn error or a timeout is not, and passes on.
+    if (toGitReason(error).includes("is not a valid branch name")) {
+      throw new InvalidValueError(`'${newName}' is not a valid branch name`);
+    }
+    throw error;
+  }
+
+  const toPath = path.resolve(worktreesRoot, newName);
+  if (!toPath.startsWith(`${worktreesRoot}${path.sep}`)) {
+    throw new InvalidValueError(
+      `"${newName}" would put the worktree outside ${worktreesRoot}/.`,
+    );
+  }
+
+  const others = localBranches.filter((branch) => branch !== fromBranch);
+  if (others.includes(newName)) {
+    throw new InvalidValueError(`A branch named "${newName}" already exists.`);
+  }
+  const clash = others.find((branch) => namesNest(branch, newName));
+  if (clash) {
+    throw new InvalidValueError(
+      `"${newName}" clashes with the existing branch "${clash}".`,
+    );
+  }
+
+  // Before the existence check: `a/b` -> `a` lands on `a/b`'s own parent.
+  if (namesNest(newName, fromBranch)) {
+    throw new InvalidValueError(
+      `"${newName}" and "${fromBranch}" nest inside each other, so the directory cannot move between them. Rename through another name first.`,
+    );
+  }
+  // git moves a worktree *into* an existing directory instead of refusing (§4.1).
+  if (fs.existsSync(toPath)) {
+    throw new InvalidValueError(`${toPath} already exists.`);
+  }
+
+  const parentsToCreate: string[] = [];
+  for (
+    let dir = path.dirname(toPath);
+    dir !== worktreesRoot;
+    dir = path.dirname(dir)
+  ) {
+    if (!fs.existsSync(dir)) {
+      parentsToCreate.unshift(dir);
+    }
+  }
+
+  return {
+    fromBranch,
+    toBranch: newName,
+    fromPath,
+    toPath,
+    parentsToCreate,
+  };
+}
+
+export interface WorktreeRenameResult {
+  from: { branch: string; path: string };
+  to: { branch: string; path: string };
+  /** The branch's upstream after the rename, as git shortens it (`origin/feature/x`, `main`), or null. */
+  upstream: string | null;
+  /**
+   * The remote the branch still tracks its old name on, or null when the
+   * upstream is anything else: a local branch, another branch such as
+   * `origin/main`, or none. Only this case gets a push hint, and the name is
+   * git's `%(upstream:remotename)`, because a remote's name may hold a slash.
+   */
+  oldNameRemote: string | null;
+}
+
+// Removes directories this run created, deepest first. `rmdirSync` only ever
+// removes an empty directory, so a parent that gained content in the meantime
+// stays; a failure leaves an empty directory behind and is not worth masking
+// the error the caller is about to report.
+function removeCreatedParents(parents: string[]): void {
+  for (const dir of [...parents].reverse()) {
+    try {
+      fs.rmdirSync(dir);
+    } catch {
+      // Best effort: see above.
+    }
+  }
+}
+
+// D10: from the old path's parent upward, remove each directory that is empty,
+// and stop at the first that is not, at `<root>.worktrees` itself, or at a
+// directory that cannot be removed. Never recursive.
+function tidyEmptyParents(fromPath: string, worktreesRoot: string): void {
+  for (
+    let dir = path.dirname(fromPath);
+    dir.startsWith(`${worktreesRoot}${path.sep}`);
+    dir = path.dirname(dir)
+  ) {
+    try {
+      if (fs.readdirSync(dir).length > 0) {
+        return;
+      }
+      fs.rmdirSync(dir);
+    } catch {
+      // Leftover empty directories are cosmetic; the rename itself succeeded.
+      return;
+    }
+  }
+}
+
+/**
+ * Carries out a planned rename (WORKTREE-RENAME plan §4.3 step 3, D4): create
+ * the missing parents, `git worktree move`, then `git branch -m`, then tidy the
+ * emptied old parents and read the upstream. Local only: the remote is never
+ * touched (D5), and `move -f -f` is never passed (D6).
+ *
+ * `repoRoot` is the main checkout, resolved by the caller before anything
+ * moves (D8): every git call runs from there, because the process may be
+ * standing in the directory that is about to move.
+ *
+ * A failed move changed nothing apart from the parents created for it, which
+ * are removed again. A failed branch rename moves the worktree back and removes
+ * the parents; if that fails too the error names the half-renamed state and the
+ * command that finishes it. Each error carries git's reason and the original
+ * error as its cause.
+ */
+export async function gitRenameWorktree(
+  plan: WorktreeRenamePlan,
+  repoRoot: string,
+): Promise<WorktreeRenameResult> {
+  const { fromBranch, toBranch, fromPath, toPath, parentsToCreate } = plan;
+  const spinner = createSpinner(`Renaming worktree ${fromBranch}`).start();
+  const git = (args: string[]) => run("git", args, { cwd: repoRoot });
+
+  try {
+    if (parentsToCreate.length > 0) {
+      fs.mkdirSync(path.dirname(toPath), { recursive: true });
+    }
+
+    try {
+      await git(["worktree", "move", fromPath, toPath]);
+    } catch (error) {
+      removeCreatedParents(parentsToCreate);
+      throw new Error(`Could not rename ${fromBranch}: ${toGitReason(error)}`, {
+        cause: error,
+      });
+    }
+
+    try {
+      await git(["branch", "-m", fromBranch, toBranch]);
+    } catch (error) {
+      const refused = `Could not rename the branch ${fromBranch}: ${toGitReason(error)}`;
+      try {
+        await git(["worktree", "move", toPath, fromPath]);
+      } catch (moveBackError) {
+        throw new Error(
+          `${refused} and moving it back failed: ${toGitReason(moveBackError)}. The worktree is at ${toPath} on branch ${fromBranch}; finish with \`git branch -m ${fromBranch} ${toBranch}\`.`,
+          { cause: error },
+        );
+      }
+      removeCreatedParents(parentsToCreate);
+      throw new Error(
+        `${refused}. The worktree was moved back to ${fromPath}; nothing changed.`,
+        { cause: error },
+      );
+    }
+
+    tidyEmptyParents(fromPath, `${repoRoot}.worktrees`);
+
+    // git moved `branch.<name>.*`, so the upstream is what the old name had.
+    // Only a hint for the caller's output: a failure to read it must not turn
+    // a finished rename into an error. The fields are `%00`-separated, as
+    // issue-link's `readUpstreams` reads them; all three are empty without an
+    // upstream.
+    const [upstream = "", remote = "", remoteRef = ""] = (
+      await git([
+        "for-each-ref",
+        "--format=%(upstream:short)%00%(upstream:remotename)%00%(upstream:remoteref)",
+        `refs/heads/${toBranch}`,
+      ]).catch(() => "")
+    ).split("\0");
+    // `.` is the remote git records for a local upstream such as `main`.
+    const tracksOldName =
+      remote !== "" &&
+      remote !== "." &&
+      remoteRef === `refs/heads/${fromBranch}`;
+
+    return {
+      from: { branch: fromBranch, path: fromPath },
+      to: { branch: toBranch, path: toPath },
+      upstream: upstream || null,
+      oldNameRemote: tracksOldName ? remote : null,
+    };
+  } finally {
+    // The command prints the result line; a second one from here would repeat it.
+    spinner.stop();
+  }
 }
 
 /**

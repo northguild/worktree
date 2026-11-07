@@ -384,6 +384,26 @@ export async function closeRexSession(sessionId: string): Promise<void> {
   await runRex(["kill", sessionId]);
 }
 
+/**
+ * Relabels one session by the id `findRexSessions` gave:
+ * `rex session rename [SESSION] LABEL` (Rex Beta `--help`; not run against a
+ * live Rex when written). Both arguments reach argv bare, so neither may read
+ * as an option, and an empty label would leave an unlabelled session.
+ */
+export async function renameRexSession(
+  sessionId: string,
+  label: string,
+): Promise<void> {
+  if (!nonEmptyString(sessionId) || sessionId.startsWith("-")) {
+    throw new RexError("a session id must not be empty or start with `-`.");
+  }
+  if (!nonEmptyString(label) || label.startsWith("-")) {
+    throw new RexError("a session label must not be empty or start with `-`.");
+  }
+
+  await runRex(["session", "rename", sessionId, label]);
+}
+
 // --- Finding a worktree's session (D6) ---------------------------------------
 
 function readSessionIds(result: unknown): string[] {

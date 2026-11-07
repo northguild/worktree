@@ -286,6 +286,18 @@ export interface WorktreeListDocument {
   worktrees: WorktreeListEntryDocument[];
 }
 
+export interface RenameDocument {
+  from: { branch: string; path: string };
+  to: { branch: string; path: string };
+  /** The branch's upstream after the rename, as git shortens it (`origin/feature/x`, `main`), or null. */
+  upstream: string | null;
+  /** The Herdr workspace ids that were relabelled to follow the rename. */
+  herdrSpacesRenamed: string[];
+  /** The Rex session ids that were relabelled to follow the rename. */
+  rexSessionsRenamed: string[];
+  warnings: string[];
+}
+
 export interface RemoveDocument {
   removed: { branch: string; path: string }[];
   /** The Herdr workspace ids that were closed. */
