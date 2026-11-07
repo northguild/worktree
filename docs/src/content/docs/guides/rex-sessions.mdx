@@ -30,8 +30,15 @@ worktree config --missing --names opener          # prompts for it regardless
 worktree config opener rex
 ```
 
-`opener` accepts `editor`, `herdr`, `rex` or `none`. Unset means `editor`, so nothing changes for anyone who
+`opener` accepts `editor`, `herdr`, `rex`, `auto` or `none`. Unset means `editor`, so nothing changes for anyone who
 does not set it. The key is stored in local Git config, so it applies to one repository.
+
+`auto` opens the worktree where the command runs: as a Herdr space when the shell is inside a Herdr pane
+and the `herdr` CLI is installed, as a Rex session when it is inside Rex and `rex` is installed, otherwise
+in your editor. A tool whose CLI is not found is skipped, not an error. If the shell is inside both, Herdr
+wins; the environment cannot say which is the inner one, so that order is a guess, and a fixed `opener`
+overrides it. A shell that outlives the tool it was started in keeps that tool's variables, so `auto` can detect a tool that is no longer running: the open then fails with a warning
+and the worktree path, as it would for `opener` `rex`. Set `opener` to a fixed value to avoid that.
 
 Now `worktree branch`, `worktree checkout` and `worktree open` all hand the finished worktree to Rex:
 
@@ -194,7 +201,7 @@ One gap is known: if two sessions are open in the same worktree, only the first 
 
 | Key | Values | Default |
 |---|---|---|
-| `opener` | `editor`, `herdr`, `rex` or `none` | `editor` |
+| `opener` | `editor`, `herdr`, `rex`, `auto` or `none` | `editor` |
 | `rex.focus` | `true` or `false` | `true` |
 | `agent.command` | a command line, such as `claude --model sonnet` | unset |
 

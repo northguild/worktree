@@ -488,7 +488,7 @@ interprets it.
 
 There is **one agent per worktree**, started one of three ways:
 
-- **When the worktree opens as a Herdr space** (`opener` `herdr`), the agent is started in the space's pane
+- **When the worktree opens as a Herdr space** (`opener` `herdr`, or `auto` in a Herdr terminal with `herdr` installed), the agent is started in the space's pane
   with `herdr agent start`, and the brief is then submitted to it with `herdr agent prompt`, once, after the
   agent is ready. The brief is never part of the start command.
   - The agent kind is [`herdr.agent`](/worktree/guides/herdr-spaces/#start-an-agent-with-the-space), or else the program
@@ -502,7 +502,7 @@ There is **one agent per worktree**, started one of three ways:
     stderr. Herdr's own handle for the agent is separate and capped at 32 characters.
   - If starting the agent fails, or the brief cannot be delivered, a warning says so (a failed delivery names the brief by its size, never its text), the worktree and
     space are kept, and the run exits `1`.
-- **When the worktree opens as a Rex session** (`opener` `rex`, with the `rex` CLI found), the agent is the session's
+- **When the worktree opens as a Rex session** (`opener` `rex` with the `rex` CLI found, or `auto` in a Rex terminal with `rex` installed and no Herdr taking it first), the agent is the session's
   own command: `rex new` is given the program [`agent.command`](/worktree/configuration/#agent-command) names, its
   arguments, and the brief as the **last argument**, so nothing is typed into a prompt and no ready signal is
   waited for. Without a brief the session is a plain shell.
@@ -520,7 +520,7 @@ There is **one agent per worktree**, started one of three ways:
     run exits `1` with a warning that the brief was not delivered.
   - `agent.prompted` is `true` when the session was **created with** the command and the brief. Rex reports
     nothing that says the agent read it.
-- **Otherwise** (editor opener, `opener` `none`, or Herdr or Rex failing to open) `agent.command` is launched
+- **Otherwise** (editor opener, `auto` with nothing to open in, `opener` `none`, or Herdr or Rex failing to open) `agent.command` is launched
   detached with the brief as its last argument and the new worktree as its working directory. It is started
   and left running; `worktree` does not wait for it and its output does not appear here. That output is not
   kept anywhere either, so name an agent that keeps its own session record, such as `claude --bg`
@@ -582,7 +582,7 @@ With `--dry-run`, steps 2 to 10 do not happen: the command stops after naming, s
    under `copy` — see [Environment Files](/worktree/guides/env-files/) and
    [Copy files](/worktree/project-configuration/#copy-files).
 8. Installs dependencies in it, when [enabled](#installing-dependencies). A failure stops here with exit `1`.
-9. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`, or as a Rex session when it is `rex`; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
+9. Opens the worktree in your configured editor (if configured), or as a Herdr space when `opener` is `herdr`, or as a Rex session when it is `rex`; with `auto`, in the Herdr or Rex the command runs inside (Herdr first if both, and only when its CLI is installed), else the editor; with `opener` `none` or `--no-open`, opens nothing and prints `Worktree created at <path>`.
 10. Starts the coding agent and delivers the brief (with `--agent`, `--agent-file` or `--agent-stdin`), unless `--no-agent` — see [Agent Dispatch](#agent-dispatch).
 
 ## A branch name that is already taken
@@ -600,7 +600,7 @@ tells them apart:
 
 Opening an existing worktree creates nothing, so it copies no env files, installs nothing and assigns or moves no
 issue, and `--source`, `--assign`, `--start` and `--install` are ignored. It passes `--no-open`, `--no-agent` and any
-brief through to the same opener as a new worktree. Where that opener opens nothing (`--no-open`, `opener` `none`, or no `codeEditor`), the last line says the worktree already exists rather than that it was created — `Worktree already exists at <path>`, or `✔ Worktree already exists at <path>` with no `codeEditor` — and still ends on the path. With a brief, the question says that `y` starts a new
+brief through to the same opener as a new worktree. Where that opener opens nothing (`--no-open`, `opener` `none`, or no `codeEditor`; `auto` is resolved the same way as for a new worktree), the last line says the worktree already exists rather than that it was created — `Worktree already exists at <path>`, or `✔ Worktree already exists at <path>` with no `codeEditor` — and still ends on the path. With a brief, the question says that `y` starts a new
 agent there, beside any agent already running in it. It prints no [JSON document](#json-output); a
 non-interactive run refuses instead, so `--json` never reaches it.
 

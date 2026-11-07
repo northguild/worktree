@@ -19,3 +19,12 @@ Branch-local and advisory; `/feature-close` deletes this file. See `context/work
   once, not which item it listed — copied from the existing `editor` test's pattern.
 - Exact-order assertions (`"editor, herdr, rex, auto or none"`, the choice arrays) pin `OPENER_KINDS`'s order,
   which the plan never named; membership is what phase 2's Done-when asked for.
+
+## Phase 3 — Opening under `auto`
+
+- "keeps a detected tool's failure on the fixed opener's policy (D5)" asserts no editor launch and exit 0, but
+  not the warning or the printed path D5 also requires under `auto`; the fixed-`herdr` tests pin those.
+- The two editor-fallback tests assert `outcome.opener === "editor"` but not that the editor was launched
+  (`expectCommands` only warns); `expect(mockRun).toHaveBeenCalledTimes(1)` would.
+- `open.mdx`, `getting-started.mdx` and `branch.mdx` step 9 state what `auto` does without the guess and
+  stale-variable caveats; the Herdr and Rex guides, the FAQ, README and the skill carry them.

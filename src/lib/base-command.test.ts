@@ -30,6 +30,7 @@ import { isNonInteractive, setNonInteractive } from "./interaction.js";
 import { resetProjectConfigCache } from "./project-config.js";
 import { InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
+import * as terminalHost from "./terminal-host.js";
 import type { ConfigName } from "./types.js";
 
 // openWorktreePath is the only method covered here that draws a spinner. Mock it
@@ -2731,5 +2732,211 @@ describe("redactSecrets", () => {
       "git@github.com:acme/demo.git",
     );
     expect(redactSecrets("plain text")).toBe("plain text");
+  });
+});
+
+// `opener auto` (#271 phase 3). The detector is stubbed, never the real shell's
+// env: this suite runs inside Herdr, so HERDR_* is set in process.env.
+// Expected values: D3 (Herdr before Rex), D5 (a detected tool counts only when
+// its CLI is installed; else editor), D6 (resolved once, per run), and the
+// `--no-open` constraint (§2).
+describe("openWorktreePath — the auto opener", () => {
+  const gitRootPath = "/tmp/a b";
+  const worktreePath = `${gitRootPath}.worktrees/feature/a thing`;
+  let command: TestCommand;
+  let mockDetect: ReturnType<typeof vi.spyOn>;
+  let mockHerdrInstalled: ReturnType<typeof vi.spyOn>;
+  let mockRexInstalled: ReturnType<typeof vi.spyOn>;
+  let mockOpenHerdr: ReturnType<typeof vi.spyOn>;
+  let mockOpenRex: ReturnType<typeof vi.spyOn>;
+  const originalExitCode = process.exitCode;
+
+  function setConfig(values: Partial<Record<ConfigName, string>>) {
+    vi.spyOn(config, "gitGetConfigValue").mockImplementation(
+      async (name: ConfigName) => values[name] ?? "",
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    command = new TestCommand([], { runCommand: vi.fn() } as any);
+    vi.spyOn(command, "log").mockImplementation(() => {});
+    vi.spyOn(command, "logToStderr").mockImplementation(() => {});
+    vi.spyOn(command, "warn").mockImplementation((input) => input);
+    process.exitCode = undefined;
+    mockRun.mockResolvedValue("");
+    vi.spyOn(git, "gitGetRootPath").mockResolvedValue(gitRootPath);
+    vi.spyOn(git, "gitGetAbsoluteWorktreesPath").mockResolvedValue(
+      `${gitRootPath}.worktrees`,
+    );
+    mockDetect = vi
+      .spyOn(terminalHost, "detectTerminalHosts")
+      .mockReturnValue([]);
+    mockHerdrInstalled = vi
+      .spyOn(herdr, "isHerdrInstalled")
+      .mockResolvedValue(true);
+    mockRexInstalled = vi.spyOn(rex, "isRexInstalled").mockResolvedValue(true);
+    mockOpenHerdr = vi.spyOn(herdr, "openHerdrWorktree").mockResolvedValue({
+      workspaceId: "wF",
+      paneId: "pF1",
+      alreadyOpen: false,
+    });
+    vi.spyOn(rex, "findRexSessions").mockResolvedValue(new Map());
+    mockOpenRex = vi
+      .spyOn(rex, "openRexSession")
+      .mockResolvedValue({ sessionId: "session:new", blockId: "block:one" });
+    vi.spyOn(rex, "selectRexSession").mockResolvedValue();
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+    vi.restoreAllMocks();
+  });
+
+  it("opens a Herdr space in a Herdr environment with Herdr installed", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["herdr"]);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenHerdr).toHaveBeenCalledTimes(1);
+    expect(mockOpenRex).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("herdr");
+  });
+
+  it("opens a Rex session in a Rex environment", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["rex"]);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenRex).toHaveBeenCalledTimes(1);
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("rex");
+  });
+
+  it("prefers Herdr when both are detected (D3)", async () => {
+    setConfig({ opener: "auto" });
+    mockDetect.mockReturnValue(["herdr", "rex"]);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenHerdr).toHaveBeenCalledTimes(1);
+    expect(mockOpenRex).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("herdr");
+  });
+
+  it("falls to the editor when the detected Herdr is not installed (D5)", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["herdr"]);
+    mockHerdrInstalled.mockResolvedValue(false);
+    expectCommands(`code "${worktreePath}"`);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("editor");
+  });
+
+  it("moves on to Rex when Herdr is detected but not installed (D5)", async () => {
+    setConfig({ opener: "auto" });
+    mockDetect.mockReturnValue(["herdr", "rex"]);
+    mockHerdrInstalled.mockResolvedValue(false);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenRex).toHaveBeenCalledTimes(1);
+    expect(outcome.opener).toBe("rex");
+  });
+
+  it("opens the editor in a plain environment", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    expectCommands(`code "${worktreePath}"`);
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(mockOpenRex).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("editor");
+  });
+
+  it("is none with --no-open, however the environment reads", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["herdr", "rex"]);
+
+    const outcome = await command.open(worktreePath, { open: false });
+
+    expect(outcome.opener).toBe("none");
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(mockOpenRex).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it("resolves once: the tool a brief was preflighted for is the tool that opens (D6)", async () => {
+    setConfig({ opener: "auto", "agent.command": "claude" });
+    // The environment "changes" between the two uses; only one read counts.
+    mockDetect.mockReturnValueOnce(["rex"]).mockReturnValue(["herdr"]);
+
+    await command.assertBrief({ brief: "do it" });
+    const outcome = await command.open(worktreePath, { brief: "do it" });
+
+    expect(mockDetect).toHaveBeenCalledTimes(1);
+    expect(mockOpenRex).toHaveBeenCalledTimes(1);
+    expect(mockOpenHerdr).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("rex");
+  });
+
+  it("applies the Rex request limit to a brief when auto resolves to Rex", async () => {
+    setConfig({ opener: "auto", "agent.command": "claude" });
+    mockDetect.mockReturnValue(["rex"]);
+
+    await expect(
+      command.assertBrief({ brief: "a".repeat(100_000) }),
+    ).rejects.toThrow(InvalidValueError);
+  });
+
+  it.each([
+    "herdr",
+    "rex",
+    "editor",
+    "none",
+    "",
+  ] as const)("never reads the detector for the fixed value %o (D1)", async (opener) => {
+    setConfig({ opener, codeEditor: "code" });
+    expectCommands(`code "${worktreePath}"`);
+
+    await command.open(worktreePath);
+
+    expect(mockDetect).not.toHaveBeenCalled();
+  });
+
+  // §2: these values start no Herdr or Rex process.
+  it.each([
+    "editor",
+    "none",
+    "",
+  ] as const)("checks for neither Herdr nor Rex for %o (§2)", async (opener) => {
+    setConfig({ opener, codeEditor: "code" });
+    expectCommands(`code "${worktreePath}"`);
+
+    await command.open(worktreePath);
+
+    expect(mockHerdrInstalled).not.toHaveBeenCalled();
+    expect(mockRexInstalled).not.toHaveBeenCalled();
+  });
+
+  it("keeps a detected tool's failure on the fixed opener's policy (D5)", async () => {
+    setConfig({ opener: "auto", codeEditor: "code" });
+    mockDetect.mockReturnValue(["herdr"]);
+    mockOpenHerdr.mockRejectedValue(
+      new herdr.HerdrError("worktree_not_found", "worktree not found"),
+    );
+
+    const outcome = await command.open(worktreePath);
+
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(outcome.opener).toBe("herdr");
+    expect(process.exitCode).toBeUndefined();
   });
 });

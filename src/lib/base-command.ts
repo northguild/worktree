@@ -45,6 +45,7 @@ import {
 } from "./project-config.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
+import { detectTerminalHosts } from "./terminal-host.js";
 import type {
   ConfigName,
   JsonErrorCode,
@@ -67,6 +68,22 @@ import { splitCommandValue } from "./utils.js";
  * find the spaces already gone from Herdr's listing.
  */
 type SpaceCloser = (worktreePaths: string[]) => Promise<string[]>;
+
+/**
+ * What `opener auto` opens in (#271 D5): the first multiplexer the shell sits
+ * in whose CLI is installed, else the editor. A detected tool that cannot be
+ * run is skipped, not an error: `auto` is a guess, and a guess that cannot be
+ * acted on must not cost the open. Order is the detector's, Herdr then Rex.
+ */
+async function detectInstalledTerminalHost(): Promise<ResolvedOpener> {
+  for (const host of detectTerminalHosts()) {
+    if (host === "herdr" ? await isHerdrInstalled() : await isRexInstalled()) {
+      return host;
+    }
+  }
+
+  return "editor";
+}
 
 /** Does nothing, for every path where there is nothing to close. */
 async function closeNothing(): Promise<string[]> {
@@ -531,15 +548,29 @@ export abstract class BaseCommand extends Command {
     }
   }
 
+  /**
+   * `auto`'s answer, kept for the run (#271 D6): `assertBriefHasAnAgent`
+   * decides before the tree exists and `openWithHandoff` acts after it, and
+   * two detections could disagree.
+   */
+  private autoOpener: ResolvedOpener | undefined;
+
   /** The opener this run uses: the flag first, then the `opener` key. */
   private async resolveOpener(open: boolean): Promise<ResolvedOpener> {
     const configured = await gitGetConfigValue("opener");
 
-    return !open || configured === "none"
-      ? "none"
-      : configured === "herdr" || configured === "rex"
-        ? configured
-        : "editor";
+    if (!open || configured === "none") {
+      return "none";
+    }
+    if (configured === "herdr" || configured === "rex") {
+      return configured;
+    }
+    if (configured === "auto") {
+      this.autoOpener ??= await detectInstalledTerminalHost();
+      return this.autoOpener;
+    }
+
+    return "editor";
   }
 
   /**

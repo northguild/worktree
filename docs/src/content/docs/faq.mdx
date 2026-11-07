@@ -59,6 +59,16 @@ worktree config opener rex
 
 See [Rex Sessions](/worktree/guides/rex-sessions/).
 
+Or set it to `auto` to open each worktree in the Herdr or Rex the command runs inside (Herdr first if it is
+inside both, and only when that tool's CLI is installed), and in your editor otherwise:
+
+```bash
+worktree config opener auto
+```
+
+A shell that outlived its Herdr or Rex keeps that tool's variables, so `auto` can pick one that is gone; set
+a fixed `opener` then.
+
 To open it nowhere, set `opener` to `none`. The command prints `Worktree created at <path>` (`Worktree already exists at <path>` when it reopens an existing worktree) and stops,
 without starting an editor, Herdr or Rex.
 
