@@ -1,6 +1,7 @@
 import type { WorktreeAgent, WorktreeListEntry } from "./types.js";
 import {
   conjoin,
+  formatCount,
   slugifyBranchTitle,
   splitCommandValue,
   worktreeListEntryToListName,
@@ -676,5 +677,29 @@ describe("worktreeListEntryToListName issue details", () => {
     expect(
       worktreeListEntryToListName(entry(), "gray", { issues: true }),
     ).not.toContain("Linear");
+  });
+});
+
+describe("formatCount", () => {
+  // Group separators per CLDR: en-US ",", de-DE ".", is-IS "." (is-IS also
+  // groups a four-digit number, unlike some locales that skip 1000).
+  it.each([
+    ["en-US", 0, "0"],
+    ["en-US", 1, "1"],
+    ["en-US", 999, "999"],
+    ["en-US", 1000, "1,000"],
+    ["en-US", 12345, "12,345"],
+    ["de-DE", 0, "0"],
+    ["de-DE", 1, "1"],
+    ["de-DE", 999, "999"],
+    ["de-DE", 1000, "1.000"],
+    ["de-DE", 12345, "12.345"],
+    ["is-IS", 0, "0"],
+    ["is-IS", 1, "1"],
+    ["is-IS", 999, "999"],
+    ["is-IS", 1000, "1.000"],
+    ["is-IS", 12345, "12.345"],
+  ])("formats %s %d as %s", (locale, n, expected) => {
+    expect(formatCount(n, locale)).toBe(expected);
   });
 });
