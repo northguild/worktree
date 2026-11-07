@@ -26,7 +26,7 @@ Branch-local and advisory; `/feature-close` deletes this file. See `context/work
   not the warning or the printed path D5 also requires under `auto`; the fixed-`herdr` tests pin those.
 - The two editor-fallback tests assert `outcome.opener === "editor"` but not that the editor was launched
   (`expectCommands` only warns); `expect(mockRun).toHaveBeenCalledTimes(1)` would.
-- `open.mdx`, `getting-started.mdx` and `branch.mdx` step 9 state what `auto` does without the guess and
+- `open.mdx`, `getting-started.mdx` and `branch.mdx` step 9 state what `auto` does without the nesting-order and
   stale-variable caveats; the Herdr and Rex guides, the FAQ, README and the skill carry them.
 
 ## Phase 4 — Closing under `auto`

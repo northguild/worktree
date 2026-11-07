@@ -289,8 +289,8 @@ value prints the stored value. Set `opener` to `herdr` to open worktrees as
 `remove` or `cleanup` deletes the worktree; `herdr.focus` and `herdr.agent` tune that. Set it to `rex` to open
 them as Rex sessions instead; `rex.focus` turns off bringing the app to the session. Set it to `auto` to open in
 the Herdr or Rex the command runs inside (Herdr first if both, and only when that CLI is installed), and in the
-editor otherwise; unset still means `editor`. The nesting order is a guess, and a shell that outlived its Herdr
-or Rex keeps its variables, so a fixed value is the escape for either. See the
+editor otherwise; unset still means `editor`. Herdr wins because Herdr can run inside Rex but not the other
+way round. A shell that outlived its Herdr or Rex keeps its variables, so a fixed value is the escape. See the
 [configuration docs](https://northguild.dev/worktree/configuration/).
 
 ## Agent mode

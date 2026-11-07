@@ -36,8 +36,8 @@ does not set it. The key is stored in local Git config, so it applies to one rep
 `auto` opens the worktree where the command runs: as a Herdr space when the shell is inside a Herdr pane
 and the `herdr` CLI is installed, as a Rex session when it is inside Rex and `rex` is installed, otherwise
 in your editor. A tool whose CLI is not found is skipped, not an error. If the shell is inside both, Herdr
-wins; the environment cannot say which is the inner one, so that order is a guess, and a fixed `opener`
-overrides it. A shell that outlives the tool it was started in keeps that tool's variables, so `auto` can detect a tool that is no longer running: the open then fails with a warning
+wins: Herdr can run inside Rex but Rex does not run inside Herdr, so Herdr is the inner one. A fixed
+`opener` overrides it. A shell that outlives the tool it was started in keeps that tool's variables, so `auto` can detect a tool that is no longer running: the open then fails with a warning
 and the worktree path, as it would for `opener` `rex`. Set `opener` to a fixed value to avoid that.
 
 Now `worktree branch`, `worktree checkout` and `worktree open` all hand the finished worktree to Rex:

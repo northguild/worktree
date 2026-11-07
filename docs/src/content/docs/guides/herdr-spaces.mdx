@@ -36,8 +36,8 @@ does not set it.
 `auto` opens the worktree where the command runs: as a Herdr space when the shell is inside a Herdr pane
 and the `herdr` CLI is installed, as a Rex session when it is inside Rex and `rex` is installed, otherwise
 in your editor. A tool whose CLI is not found is skipped, not an error. If the shell is inside both, Herdr
-wins; the environment cannot say which is the inner one, so that order is a guess, and a fixed `opener`
-overrides it. A shell started in a Herdr pane keeps its `HERDR_*` variables after Herdr quits, so `auto`
+wins: Herdr can run inside Rex but Rex does not run inside Herdr, so Herdr is the inner one. A fixed
+`opener` overrides it. A shell started in a Herdr pane keeps its `HERDR_*` variables after Herdr quits, so `auto`
 can pick a Herdr that is no longer running: the open then fails with a warning and the worktree path, as
 it would for `opener` `herdr`. Set `opener` to a fixed value to avoid that.
 

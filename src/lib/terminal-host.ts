@@ -14,9 +14,10 @@ const REX_SESSION_PREFIX = "session:";
  * editor host and no host at all both give `[]`.
  *
  * The order is fixed, Herdr then Rex (D3). Both multiplexers' variables are
- * inherited by anything started inside them, so the environment cannot say
- * which one is the inner one when both are set. Herdr first is a guess, not a
- * fact about nesting; a fixed `opener` overrides it.
+ * inherited by anything started inside them, so the environment alone cannot
+ * say which one is inner when both are set. The tools can: Herdr runs inside
+ * Rex, but Rex does not run inside Herdr, so with both set Herdr is the inner
+ * one (#271 §9 Q1, confirmed by the maintainer). A fixed `opener` overrides it.
  */
 export function detectTerminalHosts(
   env: NodeJS.ProcessEnv = process.env,
