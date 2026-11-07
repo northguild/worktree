@@ -1063,8 +1063,15 @@ export async function gitPlanWorktreeRename(
 export interface WorktreeRenameResult {
   from: { branch: string; path: string };
   to: { branch: string; path: string };
-  /** The branch's upstream after the rename, as `origin/<branch>`, or null. */
+  /** The branch's upstream after the rename, as git shortens it (`origin/feature/x`, `main`), or null. */
   upstream: string | null;
+  /**
+   * The remote the branch still tracks its old name on, or null when the
+   * upstream is anything else: a local branch, another branch such as
+   * `origin/main`, or none. Only this case gets a push hint, and the name is
+   * git's `%(upstream:remotename)`, because a remote's name may hold a slash.
+   */
+  oldNameRemote: string | null;
 }
 
 // Removes directories this run created, deepest first. `rmdirSync` only ever
@@ -1163,17 +1170,27 @@ export async function gitRenameWorktree(
 
     // git moved `branch.<name>.*`, so the upstream is what the old name had.
     // Only a hint for the caller's output: a failure to read it must not turn
-    // a finished rename into an error.
-    const upstream = await git([
-      "for-each-ref",
-      "--format=%(upstream:short)",
-      `refs/heads/${toBranch}`,
-    ]).catch(() => "");
+    // a finished rename into an error. The fields are `%00`-separated, as
+    // issue-link's `readUpstreams` reads them; all three are empty without an
+    // upstream.
+    const [upstream = "", remote = "", remoteRef = ""] = (
+      await git([
+        "for-each-ref",
+        "--format=%(upstream:short)%00%(upstream:remotename)%00%(upstream:remoteref)",
+        `refs/heads/${toBranch}`,
+      ]).catch(() => "")
+    ).split("\0");
+    // `.` is the remote git records for a local upstream such as `main`.
+    const tracksOldName =
+      remote !== "" &&
+      remote !== "." &&
+      remoteRef === `refs/heads/${fromBranch}`;
 
     return {
       from: { branch: fromBranch, path: fromPath },
       to: { branch: toBranch, path: toPath },
       upstream: upstream || null,
+      oldNameRemote: tracksOldName ? remote : null,
     };
   } finally {
     // The command prints the result line; a second one from here would repeat it.

@@ -289,7 +289,7 @@ export interface WorktreeListDocument {
 export interface RenameDocument {
   from: { branch: string; path: string };
   to: { branch: string; path: string };
-  /** The branch's upstream after the rename, as `origin/<branch>`, or null. */
+  /** The branch's upstream after the rename, as git shortens it (`origin/feature/x`, `main`), or null. */
   upstream: string | null;
   /** The Herdr workspace ids that were relabelled to follow the rename. */
   herdrSpacesRenamed: string[];

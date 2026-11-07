@@ -86,6 +86,7 @@ describe("rename command", () => {
         from: { branch: plan.fromBranch, path: plan.fromPath },
         to: { branch: plan.toBranch, path: plan.toPath },
         upstream: null,
+        oldNameRemote: null,
       }));
     logSpy = vi.spyOn(rename, "log").mockImplementation(() => {});
     vi.spyOn(process, "cwd").mockReturnValue("/somewhere/else");
@@ -369,6 +370,7 @@ describe("rename command", () => {
         from: { branch: "feature/x", path: featureX.path },
         to: { branch: "bugfix/y", path: `${WORKTREES}/bugfix/y` },
         upstream: "origin/feature/x",
+        oldNameRemote: "origin",
       });
 
       const doc = await rename.run();
@@ -380,9 +382,67 @@ describe("rename command", () => {
       expect(doc?.upstream).toBe("origin/feature/x");
     });
 
+    // Review of #276: the remote is the one git names, not the upstream's
+    // first path segment.
+    it("names a remote whose name holds a slash whole in the push hint", async () => {
+      givenWorktrees(featureX);
+      givenArgs({ branchName: "feature/x", newName: "bugfix/y" });
+      renameSpy.mockResolvedValue({
+        from: { branch: "feature/x", path: featureX.path },
+        to: { branch: "bugfix/y", path: `${WORKTREES}/bugfix/y` },
+        upstream: "my/fork/feature/x",
+        oldNameRemote: "my/fork",
+      });
+
+      await rename.run();
+
+      expect(lines()[1]).toBe(
+        "It still tracks my/fork/feature/x: `git push my/fork HEAD:feature/x` updates it, `git push -u my/fork bugfix/y` publishes the new name.",
+      );
+    });
+
+    // Review of #276: `main` used to come out as `git push mai HEAD:main`, and
+    // `origin/main` as a push of feature work onto main.
+    it.each([
+      "main",
+      "origin/main",
+    ])("gives no push hint when the branch tracks %s rather than its old name", async (upstream) => {
+      givenWorktrees(featureX);
+      givenArgs({ branchName: "feature/x", newName: "bugfix/y" });
+      renameSpy.mockResolvedValue({
+        from: { branch: "feature/x", path: featureX.path },
+        to: { branch: "bugfix/y", path: `${WORKTREES}/bugfix/y` },
+        upstream,
+        oldNameRemote: null,
+      });
+
+      const doc = await rename.run();
+
+      expect(lines()).toEqual([
+        `✔ Renamed feature/x to bugfix/y; the worktree is at ${WORKTREES}/bugfix/y`,
+      ]);
+      // The JSON still says what it tracks; only the advice is withheld.
+      expect(doc?.upstream).toBe(upstream);
+    });
+
     it("ends with a cd hint when it ran inside the renamed worktree (D8)", async () => {
       givenWorktrees({ ...featureX, isCurrent: true });
       vi.spyOn(process, "cwd").mockReturnValue(`${featureX.path}/src`);
+      givenArgs({ branchName: "bugfix/y" });
+
+      await rename.run();
+
+      expect(lines().at(-1)).toBe(`cd ${WORKTREES}/bugfix/y`);
+    });
+
+    // Review of #276: git records the path it was given, while a shell's cwd is
+    // the real one, as under macOS's /tmp → /private/tmp.
+    it("ends with a cd hint when the worktree's recorded path is behind a symlink", async () => {
+      givenWorktrees({ ...featureX, isCurrent: true });
+      vi.spyOn(agent, "toRealPath").mockImplementation(async (p: string) =>
+        p.startsWith("/path/") ? `/private${p}` : p,
+      );
+      vi.spyOn(process, "cwd").mockReturnValue(`/private${featureX.path}/src`);
       givenArgs({ branchName: "bugfix/y" });
 
       await rename.run();
@@ -447,6 +507,7 @@ describe("rename command", () => {
         from: { branch: plan.fromBranch, path: plan.fromPath },
         to: { branch: plan.toBranch, path: plan.toPath },
         upstream: "origin/feature/x",
+        oldNameRemote: "origin",
       }));
       vi.spyOn(process, "cwd").mockReturnValue(featureX.path);
       const succeed = vi.mocked(ora)("probe").succeed as unknown as {

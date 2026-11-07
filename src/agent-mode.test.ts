@@ -918,6 +918,48 @@ describe("agent mode, spawned", () => {
       TEST_TIMEOUT_MS,
     );
 
+    // Review of #276: the push hint is printed only when the branch tracks its
+    // old name on a remote. Before, a branch tracking `main` was told to
+    // `git push mai HEAD:main`, and one tracking `origin/main` to push onto main.
+    it.each([
+      {
+        tracks: "local main",
+        remote: ".",
+        merge: "refs/heads/main",
+        hint: [],
+      },
+      {
+        tracks: "origin/main",
+        remote: "origin",
+        merge: "refs/heads/main",
+        hint: [],
+      },
+      {
+        tracks: "its old name on origin",
+        remote: "origin",
+        merge: "refs/heads/feature/x",
+        hint: [
+          "It still tracks origin/feature/x: `git push origin HEAD:feature/x` updates it, `git push -u origin bugfix/y` publishes the new name.",
+        ],
+      },
+    ])(
+      "rename of a branch tracking $tracks prints the push hint only for its old name",
+      async ({ remote, merge, hint }) => {
+        const scenario = await createScenario();
+        await withWorktree(scenario);
+        await git(scenario.repo, "config", "branch.feature/x.remote", remote);
+        await git(scenario.repo, "config", "branch.feature/x.merge", merge);
+
+        const result = await scenario.run(["rename", "feature/x", "bugfix/y"]);
+
+        expect(result.exitCode).toBe(0);
+        const lines = result.stdout.trimEnd().split("\n");
+        expect(lines[0]).toMatch(/^✔ Renamed feature\/x to bugfix\/y;/);
+        expect(lines.slice(1)).toEqual(hint);
+      },
+      TEST_TIMEOUT_MS,
+    );
+
     it(
       "rename onto an existing branch exits 2 with invalid_value and changes nothing",
       async () => {

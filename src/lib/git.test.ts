@@ -3927,7 +3927,12 @@ describe("gitRenameWorktree", () => {
   const moveForward = `git worktree move ${plan.fromPath} ${plan.toPath} (cwd: ${root})`;
   const moveBack = `git worktree move ${plan.toPath} ${plan.fromPath} (cwd: ${root})`;
   const rename = `git branch -m feature/x bugfix/y (cwd: ${root})`;
-  const readUpstream = `git for-each-ref --format=%(upstream:short) refs/heads/bugfix/y (cwd: ${root})`;
+  const upstreamFormat =
+    "--format=%(upstream:short)%00%(upstream:remotename)%00%(upstream:remoteref)";
+  const readUpstream = `git for-each-ref ${upstreamFormat} refs/heads/bugfix/y (cwd: ${root})`;
+  // What git 2.56.0 printed for that format in a scratch repository, trimmed
+  // as run() trims it: short name, remote, remote ref.
+  const upstreamLine = (...fields: string[]) => fields.join("\0");
 
   // A small model of the directories on disk, and everything that happened to
   // them and to git, in order. `git worktree move` is modelled as moving a
@@ -3955,7 +3960,7 @@ describe("gitRenameWorktree", () => {
     dirs = new Set([trees, `${trees}/feature`, plan.fromPath]);
     events = [];
     gitFails = {};
-    upstreamOutput = "";
+    upstreamOutput = upstreamLine("", "", "");
     expectCommands(
       moveForward,
       moveBack,
@@ -3963,7 +3968,7 @@ describe("gitRenameWorktree", () => {
       readUpstream,
       `git worktree move ${trees}/a/b/c ${trees}/z (cwd: ${root})`,
       `git branch -m a/b/c z (cwd: ${root})`,
-      `git for-each-ref --format=%(upstream:short) refs/heads/z (cwd: ${root})`,
+      `git for-each-ref ${upstreamFormat} refs/heads/z (cwd: ${root})`,
       `git worktree move ${trees}/a/b/c ${trees}/a/b/c (cwd: ${root})`,
     );
 
@@ -4016,7 +4021,11 @@ describe("gitRenameWorktree", () => {
   }
 
   it("creates the parent, moves, renames the branch, tidies and reads the upstream, in that order", async () => {
-    upstreamOutput = "origin/feature/x";
+    upstreamOutput = upstreamLine(
+      "origin/feature/x",
+      "origin",
+      "refs/heads/feature/x",
+    );
 
     const result = await gitRenameWorktree(plan, root);
 
@@ -4032,6 +4041,7 @@ describe("gitRenameWorktree", () => {
       from: { branch: "feature/x", path: plan.fromPath },
       to: { branch: "bugfix/y", path: plan.toPath },
       upstream: "origin/feature/x",
+      oldNameRemote: "origin",
     });
   });
 
@@ -4043,10 +4053,56 @@ describe("gitRenameWorktree", () => {
       ["git", ["branch", "-m", "feature/x", "bugfix/y"], { cwd: root }],
       [
         "git",
-        ["for-each-ref", "--format=%(upstream:short)", "refs/heads/bugfix/y"],
+        ["for-each-ref", upstreamFormat, "refs/heads/bugfix/y"],
         { cwd: root },
       ],
     ]);
+  });
+
+  // Review of #276: the push hint is only right when the branch tracks its old
+  // name on a real remote. The fields are what git 2.56.0 printed in a scratch
+  // repository for each kind of upstream.
+  it.each([
+    {
+      kind: "its old name on origin",
+      upstream: "origin/feature/x",
+      remote: "origin",
+      merge: "refs/heads/feature/x",
+      expected: "origin",
+    },
+    {
+      kind: "its old name on a remote whose name holds a slash",
+      upstream: "my/fork/feature/x",
+      remote: "my/fork",
+      merge: "refs/heads/feature/x",
+      expected: "my/fork",
+    },
+    {
+      kind: "a local branch such as main",
+      upstream: "main",
+      remote: ".",
+      merge: "refs/heads/main",
+      expected: null,
+    },
+    {
+      kind: "another remote branch such as origin/main",
+      upstream: "origin/main",
+      remote: "origin",
+      merge: "refs/heads/main",
+      expected: null,
+    },
+  ])("names the old-name remote only when the branch tracks $kind", async ({
+    upstream,
+    remote,
+    merge,
+    expected,
+  }) => {
+    upstreamOutput = upstreamLine(upstream, remote, merge);
+
+    await expect(gitRenameWorktree(plan, root)).resolves.toMatchObject({
+      upstream,
+      oldNameRemote: expected,
+    });
   });
 
   it("never forces the move, and never talks to the remote (D5, D6)", async () => {
@@ -4073,10 +4129,20 @@ describe("gitRenameWorktree", () => {
   });
 
   it("answers null when the renamed branch has no upstream", async () => {
-    upstreamOutput = "";
+    upstreamOutput = upstreamLine("", "", "");
 
     await expect(gitRenameWorktree(plan, root)).resolves.toMatchObject({
       upstream: null,
+      oldNameRemote: null,
+    });
+  });
+
+  it("answers null, and still succeeds, when the upstream cannot be read", async () => {
+    gitFails[readUpstream] = gitError("fatal: bad object");
+
+    await expect(gitRenameWorktree(plan, root)).resolves.toMatchObject({
+      upstream: null,
+      oldNameRemote: null,
     });
   });
 

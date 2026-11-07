@@ -62,12 +62,16 @@ No fetch is made, so the command works offline.
 It needs **git 2.9 or newer**. Before that, `git branch -m` renamed a branch checked out in
 another worktree without updating that worktree's `HEAD`.
 
-On success it prints one line, and the way to push when the branch tracks a remote branch:
+On success it prints one line, and the way to push when the branch still tracks its old name on a remote:
 
 ```text
 ✔ Renamed feature/x to bugfix/y; the worktree is at /abs/repo.worktrees/bugfix/y
 It still tracks origin/feature/x: `git push origin HEAD:feature/x` updates it, `git push -u origin bugfix/y` publishes the new name.
 ```
+
+A branch that tracks anything else, such as a local `main` or `origin/main`, gets no push hint: the rename did
+not change how it pushes, and no command printed here should push onto another branch. `upstream` in
+[`--json`](#json-output) still says what it tracks.
 
 When you ran it from inside the worktree it just renamed, the last line is
 `cd /abs/repo.worktrees/bugfix/y`: your shell is still on the old path.
@@ -181,15 +185,17 @@ worktree rename feature/x bugfix/y --json
 ```
 
 ```json
-{"from":{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"},"to":{"branch":"bugfix/y","path":"/abs/repo.worktrees/bugfix/y"},"upstream":"origin/feature/x","warnings":[]}
+{"from":{"branch":"feature/x","path":"/abs/repo.worktrees/feature/x"},"to":{"branch":"bugfix/y","path":"/abs/repo.worktrees/bugfix/y"},"upstream":"origin/feature/x","herdrSpacesRenamed":[],"rexSessionsRenamed":[],"warnings":[]}
 ```
 
 | Key | Value |
 | --- | --- |
 | `from` | the branch and path the worktree had |
 | `to` | the branch and path it has now |
-| `upstream` | what the branch still tracks, such as `origin/feature/x`; `null` when it tracks nothing |
-| `warnings` | what went wrong without stopping the run |
+| `upstream` | what the branch still tracks, as git shortens it, such as `origin/feature/x` or `main`; `null` when it tracks nothing |
+| `herdrSpacesRenamed` | the ids of the [Herdr spaces](#herdr-spaces-and-rex-sessions) relabelled to the new name; `[]` when none was |
+| `rexSessionsRenamed` | the ids of the Rex sessions relabelled to the new name; `[]` when none was |
+| `warnings` | what went wrong without stopping the run, such as a space that could not be relabelled |
 
 The result line and the push hint go to stderr. A failure prints `{"error":{"code","message"}}` on stdout instead and
 exits non-zero; the codes are listed under [`branch`](/worktree/commands/branch/#json-output).

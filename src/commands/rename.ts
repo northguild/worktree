@@ -115,8 +115,15 @@ Exit codes:
     this.log(
       `${chalk.green("✔")} Renamed ${result.from.branch} to ${result.to.branch}; the worktree is at ${result.to.path}`,
     );
-    if (result.upstream) {
-      this.log(pushHint(result.upstream, result.to.branch));
+    if (result.upstream && result.oldNameRemote) {
+      this.log(
+        pushHint(
+          result.upstream,
+          result.oldNameRemote,
+          result.from.branch,
+          result.to.branch,
+        ),
+      );
     }
     // D4: only reached once both git steps have succeeded. A failure inside is
     // a recorded warning, so the rename stays a success. Reported after the
@@ -248,17 +255,28 @@ Exit codes:
   }
 }
 
-/** D5: the branch keeps tracking its old remote name; git's own refusal quotes `HEAD:<old>`. */
-function pushHint(upstream: string, newBranch: string): string {
-  const slash = upstream.indexOf("/");
-  const remote = upstream.slice(0, slash);
-  const remoteBranch = upstream.slice(slash + 1);
-  return `It still tracks ${upstream}: \`git push ${remote} HEAD:${remoteBranch}\` updates it, \`git push -u ${remote} ${newBranch}\` publishes the new name.`;
+/**
+ * D5: the branch keeps tracking its old name on `remote`; git's own refusal
+ * quotes `HEAD:<old>`. Only called when the upstream is exactly that, so the
+ * command it prints never pushes onto some other branch.
+ */
+function pushHint(
+  upstream: string,
+  remote: string,
+  oldBranch: string,
+  newBranch: string,
+): string {
+  return `It still tracks ${upstream}: \`git push ${remote} HEAD:${oldBranch}\` updates it, \`git push -u ${remote} ${newBranch}\` publishes the new name.`;
 }
 
+// Both sides are resolved: git records the path it was given, and a shell's
+// working directory can sit behind a symlink such as macOS's /tmp.
 async function isInside(directory: string, candidate: string) {
-  const real = await toRealPath(candidate);
-  const relative = path.relative(directory, real);
+  const [realDirectory, real] = await Promise.all([
+    toRealPath(directory),
+    toRealPath(candidate),
+  ]);
+  const relative = path.relative(realDirectory, real);
   return (
     relative === "" ||
     (relative !== ".." &&
