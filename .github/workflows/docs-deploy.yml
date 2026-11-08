@@ -4,17 +4,13 @@ name: Deploy Docs
 #   site          - the Astro build, as a Worker with static assets on northguild.dev/worktree* (docs/wrangler.jsonc)
 #   legacy-pages  - the generated bundle on https://northguild.github.io/worktree/: the schema file plus a
 #                   redirect stub per old route
-# publish.yml calls this workflow (workflow_call) after it publishes a stable version, passing the two Cloudflare
-# secrets; the deploy builds the release commit. Nothing else triggers it except workflow_dispatch, the manual
-# route for a docs fix that cannot wait. Run it from main: from any other ref the `site` job's guard skips it, and
-# legacy-pages with it, so nothing deploys.
+# publish.yml calls this workflow (workflow_call) after it publishes a stable version; the deploy builds the
+# release commit. Nothing else triggers it except workflow_dispatch, the manual route for a docs fix that cannot
+# wait. Run it from main: from any other ref the `site` job's guard skips it, and legacy-pages with it, so nothing
+# deploys. The Cloudflare secrets are not passed in: they are the `cloudflare-production` environment's, which the
+# `site` job reads for itself and which admits only main (#253).
 on:
   workflow_call:
-    secrets:
-      CLOUDFLARE_API_TOKEN:
-        required: true
-      CLOUDFLARE_ACCOUNT_ID:
-        required: true
   workflow_dispatch:
 
 permissions:
@@ -25,8 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     # A manual run from any other branch deploys nothing (#243); legacy-pages needs this job, so it skips too.
     # The same guard publish.yml's `guard` job uses. A workflow_call sees the caller's ref, and publish.yml runs
-    # only on main, so the release deploy passes it.
+    # only on main, so the release deploy passes it. The guard only skips early: workflow_dispatch runs the selected
+    # branch's copy of this file, so a branch can drop it. The environment below is what enforces main-only (#253).
     if: github.ref == 'refs/heads/main'
+    # Holds CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, and its deployment-branch policy admits only main, so a
+    # run from any other ref is refused before a step runs. The same environment worker-deploy.yml's `deploy` job
+    # uses. A workflow_call run is checked against the caller's ref, which is main.
+    environment: cloudflare-production
     # Both jobs set their own timeout: the publish.yml job that calls this workflow cannot set one, and while they
     # run they hold its `publish` concurrency group, so a hang would hold back the next release.
     timeout-minutes: 20
