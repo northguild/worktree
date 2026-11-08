@@ -42,3 +42,12 @@ Non-blocking observations from the gates, for a person. Branch-local; `/feature-
   had no web access to compare it word for word. The meaning matches D9 either way.
 - Biome reports the new `LLMS_TXT_URL` import in `Head.astro` as unused (the 35th `pnpm check` warning): it
   cannot see the Astro template, the same false positive as the file's two older `noUnusedVariables`.
+
+## Phase 4 — Page-size gate
+
+- `PAGE_SIZE_LIMIT` sits directly above its own rule (`pageSizeFailures`), not beside `HERO_LOADER_BUDGET` as
+  plan §4.4 says — the same colocation `HERO_LOADER_BUDGET` itself follows.
+- That the rule counts bytes rather than characters is pinned only because the fixture title's `·` is two
+  bytes; a multibyte padding character in the boundary tests would pin it on purpose.
+- TN3156 says "1 MB" without saying 10^6 or 2^20 bytes; D10's 1,048,576 is kept (plan §9 Q4). The largest
+  page today is `commands/branch/` at 178,908 bytes, so both readings pass.

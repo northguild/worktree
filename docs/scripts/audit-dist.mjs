@@ -1660,6 +1660,25 @@ async function hashedNameFailures(dist) {
     );
 }
 
+// Apple TN3156 (developer.apple.com/documentation/technotes/tn3156-create-rich-previews-for-messages): "The main
+// resource located at the previewed link is limited to 1 MB." Read as 1 MiB = 1,048,576 bytes (plan 287, D10),
+// uncompressed, the bytes on disk. TN3156 does not say whether its MB is 10^6 or 2^20 bytes.
+export const PAGE_SIZE_LIMIT = 1024 * 1024;
+
+async function pageSizeFailures(dist) {
+  return (await filesUnder(dist))
+    .filter((file) => /(^|\/)(index|404)\.html$/.test(file))
+    .map((file) => ({
+      name: file.slice(dist.length + 1),
+      size: statSync(file).size,
+    }))
+    .filter(({ size }) => size > PAGE_SIZE_LIMIT)
+    .map(
+      ({ name, size }) =>
+        `${name}: ${size} bytes, over the ${PAGE_SIZE_LIMIT}-byte page limit`,
+    );
+}
+
 /** Every failed rule across the build in `dist`, one line each; an empty array is a pass. */
 export async function auditDist(dist = DEFAULT_DIST, overrides = {}) {
   const options = {
@@ -1673,6 +1692,7 @@ export async function auditDist(dist = DEFAULT_DIST, overrides = {}) {
   failures.push(...(await auditSite(dist)));
   failures.push(...(await auditLlms(dist, descriptions)));
   failures.push(...(await hashedNameFailures(dist)));
+  failures.push(...(await pageSizeFailures(dist)));
   return failures;
 }
 

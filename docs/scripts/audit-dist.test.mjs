@@ -879,6 +879,36 @@ describe("auditDist", () => {
     expect(await hashFailures()).toEqual([]);
   });
 
+  // Page size (plan 287, D10): Apple TN3156 says "The main resource located at the previewed link is limited to 1 MB."
+  // The plan reads 1 MB as 1,048,576 bytes, so the boundary values are 1,048,576 (passes) and 1,048,577 (fails),
+  // by arithmetic: 1024 * 1024 = 1,048,576. Sizes are the bytes on disk, not characters.
+  const sizeFailures = async () =>
+    (await audit()).filter((f) => /bytes/.test(f));
+  const padTo = (html, bytes) =>
+    html + " ".repeat(bytes - Buffer.byteLength(html));
+
+  it("fails a page of 1,048,577 bytes, naming the page and its size", async () => {
+    await write(dist, "faq/index.html", padTo(page("faq"), 1_048_577));
+    const failures = await sizeFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("faq/index.html");
+    expect(failures[0]).toContain("1048577 bytes");
+  });
+
+  it("passes a page of exactly 1,048,576 bytes", async () => {
+    await write(dist, "faq/index.html", padTo(page("faq"), 1_048_576));
+    expect(await sizeFailures()).toEqual([]);
+  });
+
+  it("fails the landing and the 404 over the limit, naming each", async () => {
+    await write(dist, "index.html", padTo(page(""), 1_048_577));
+    await write(dist, "404.html", padTo(notFoundPage(), 1_048_577));
+    const failures = await sizeFailures();
+    expect(failures).toHaveLength(2);
+    expect(failures.some((f) => f.startsWith("index.html:"))).toBe(true);
+    expect(failures.some((f) => f.startsWith("404.html:"))).toBe(true);
+  });
+
   it("fails a sitemap with an extra URL", async () => {
     await write(dist, "sitemap-0.xml", sitemap([...PATHS, "extra"]));
     expect(
