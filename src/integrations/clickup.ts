@@ -35,6 +35,10 @@ const CLICKUP_REQUEST_TIMEOUT_MS = 15_000;
 const AUTH_FAILED_MESSAGE =
   "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.";
 
+// The ECODEs ClickUp answers 401 with when it is the token that is refused:
+// "Token invalid" and "Oauth token not found" (a `Bearer` prefix).
+const TOKEN_REJECTED_CODES = new Set(["OAUTH_019", "OAUTH_025"]);
+
 // D3: a custom id is PREFIX-<digits>, shaped like a Jira key; a short id is
 // alphanumeric with no hyphen. Short ids are case-sensitive, so the case the
 // user typed is kept.
@@ -153,6 +157,10 @@ function parseClickUpTask(
 
 interface FailureMessages {
   notFound: string;
+  // What a read says when ClickUp answers 401 for something other than the
+  // token: "<thing>", as in "could not find <thing>, or this token cannot see
+  // it". A call without it keeps the authentication message for every 401.
+  unreachable?: string;
   // The sentence a generic non-2xx answer continues: "<failed> <status> <text>".
   failed: string;
 }
@@ -164,9 +172,28 @@ async function rejectFailedResponse(
   messages: FailureMessages,
   detail?: (response: Response) => Promise<string>,
 ): Promise<void> {
-  // D11: ClickUp's status for a task the token cannot see is unconfirmed, so
-  // 401 and 403 share the authentication message.
+  // ClickUp answers 401 for a task it will not hand over as well as for a bad
+  // token (#330), so a read that names what it asked for looks at the body.
+  // 403 is unconfirmed and stays authentication.
   if (response.status === 401 || response.status === 403) {
+    if (response.status === 401 && messages.unreachable) {
+      const body = await readBody(response);
+      const code = typeof body?.ECODE === "string" ? body.ECODE : undefined;
+      const text =
+        typeof body?.err === "string" && body.err !== "" ? body.err : undefined;
+
+      // The ECODE values are observed, not documented: only the token-side
+      // ones are listed, and a body that says nothing is read as the token.
+      if (
+        code !== undefined &&
+        !TOKEN_REJECTED_CODES.has(code) &&
+        text !== undefined
+      ) {
+        throw new Error(
+          `ClickUp: could not find ${messages.unreachable}, or this token cannot see it: ${text}`,
+        );
+      }
+    }
     throw new Error(AUTH_FAILED_MESSAGE);
   }
 
@@ -216,6 +243,7 @@ export async function fetchClickUpTask(taskId: string): Promise<ClickUpTask> {
 
   await rejectFailedResponse(response, {
     notFound: `ClickUp: Unable to find task ${parsed.id}.`,
+    unreachable: `task ${parsed.id}`,
     failed: `ClickUp: Failed to fetch task ${parsed.id}.`,
   });
 
@@ -276,8 +304,10 @@ export async function getClickUpBranchNaming(
   if (list) {
     const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
       // A dry run is where rules are written and checked, so a misspelt field
-      // in the shared list still warns there (D5 holds for real runs).
-      shared: list.shared && !dryRun,
+      // in the shared list still warns there (D5 holds for real runs). The
+      // portable Type and Labels never do: no spelling mistake is behind them.
+      shared: list.shared,
+      dryRun,
     });
     for (const warning of result.warnings) {
       onWarning(warning);
@@ -432,6 +462,7 @@ export async function startClickUpTask(typedId: string): Promise<ClickUpStart> {
   const taskResponse = await send(taskPath);
   await rejectFailedResponse(taskResponse, {
     notFound: `ClickUp: Unable to find task ${parsed.id}.`,
+    unreachable: `task ${parsed.id}`,
     failed: `ClickUp: Failed to fetch task ${parsed.id}.`,
   });
   const current = parseStartState(await readBody(taskResponse));
@@ -458,6 +489,7 @@ export async function startClickUpTask(typedId: string): Promise<ClickUpStart> {
   const listResponse = await send(listPath);
   await rejectFailedResponse(listResponse, {
     notFound: `ClickUp: Unable to find list ${current.listId}.`,
+    unreachable: `list ${current.listId}`,
     failed: `ClickUp: Failed to fetch list ${current.listId}.`,
   });
   const statuses = parseListStatuses(await readBody(listResponse));
@@ -601,6 +633,7 @@ export async function assignClickUpTask(
     const response = await sendClickUp(taskPath, token);
     await rejectFailedResponse(response, {
       notFound: `ClickUp: Unable to find task ${parsed.id}.`,
+      unreachable: `task ${parsed.id}`,
       failed: `ClickUp: Failed to fetch task ${parsed.id}.`,
     });
     const ids = parseAssigneeIds(await readBody(response));

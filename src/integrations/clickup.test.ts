@@ -382,6 +382,34 @@ describe("ClickUp integration", () => {
       );
     });
 
+    it.each([
+      ["OAUTH_027", "Team not authorized"],
+      ["OAUTH_023", "Team(s) not authorized"],
+      ["ACCESS_076", "You do not have access to this task"],
+      ["OAUTH_192", "Workspace not authorized"],
+    ])("says the task is unreachable on a 401 %s", async (ECODE, err) => {
+      stubToken();
+      stubFetch(respond(401, { err, ECODE }));
+
+      const failure = fetchClickUpTask("9hx");
+      await expect(failure).rejects.toThrow(
+        `ClickUp: could not find task 9hx, or this token cannot see it: ${err}`,
+      );
+      await expect(failure).rejects.not.toThrow(/Authentication failed/);
+    });
+
+    it.each([
+      ["OAUTH_025", "Token invalid"],
+      ["OAUTH_019", "Oauth token not found"],
+    ])("keeps authentication for a 401 %s", async (ECODE, err) => {
+      stubToken();
+      stubFetch(respond(401, { err, ECODE }));
+
+      await expect(fetchClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
+      );
+    });
+
     it("reports not found on HTTP 404", async () => {
       stubToken();
       stubFetch(respond(404, { err: "Task not found", ECODE: "ITEM_015" }));
@@ -874,6 +902,26 @@ describe("the shared branchType list for ClickUp", () => {
     expect(dry[0]).toContain("Rule 1 of branchType names");
   });
 
+  // #331: ClickUp has no Type field, but Type is a portable name, so the shared
+  // list naming it is no spelling mistake and a dry run must not say it is.
+  it("a shared rule naming the portable Type does not warn on a dry run", async () => {
+    projectFile(
+      `${PREFIXES}branchType:\n  - when: { Type: Bug }\n    type: bugfix\n  - when: { Labels: bug }\n    type: bugfix\n  - otherwise: feature\n`,
+    );
+    const dry: string[] = [];
+
+    const naming = await getClickUpBranchNaming(
+      clickUpTask(["bug"]),
+      "9hx",
+      (w) => dry.push(w),
+      true,
+    );
+
+    expect(dry).toEqual([]);
+    expect(naming.kind).toBe("bugfix");
+    expect(naming.match).toMatchObject({ source: "rule", position: 2 });
+  });
+
   it("a clickup.branchType keeps matching on Tags, and a Labels rule matches the same tags", async () => {
     projectFile(
       `${PREFIXES}clickup:\n  branchType:\n    - when: { Tags: bug }\n      type: bugfix\n`,
@@ -1126,6 +1174,21 @@ describe("the shared branchType list for ClickUp", () => {
         await expect(startClickUpTask("9hx")).rejects.toThrow(
           "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
         );
+      });
+
+      it("says the read is unreachable on a 401 that is not the token", async () => {
+        stubToken();
+        sequenceFailing(
+          respond(401, { err: "Team not authorized", ECODE: "OAUTH_027" }),
+        );
+
+        const expected = [
+          "ClickUp: could not find task 9hx, or this token cannot see it: Team not authorized",
+          "ClickUp: could not find list 901, or this token cannot see it: Team not authorized",
+          "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
+        ][index];
+
+        await expect(startClickUpTask("9hx")).rejects.toThrow(expected);
       });
 
       it("reports not found on HTTP 404", async () => {
@@ -1539,6 +1602,19 @@ describe("the shared branchType list for ClickUp", () => {
 
         await expect(assignClickUpTask("9hx")).rejects.toThrow(
           "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
+        );
+      });
+
+      it("says the task is unreachable only for the Get Task read", async () => {
+        stubToken();
+        routesFailing(
+          respond(401, { err: "Team not authorized", ECODE: "OAUTH_027" }),
+        );
+
+        await expect(assignClickUpTask("9hx")).rejects.toThrow(
+          route === "get"
+            ? "ClickUp: could not find task 9hx, or this token cannot see it: Team not authorized"
+            : "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
         );
       });
 

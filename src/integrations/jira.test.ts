@@ -1330,13 +1330,42 @@ jira:
       );
     });
 
-    it("treats an issue with no assignee key as unassigned and assigns it", async () => {
+    it("leaves an issue whose assignee Jira does not show alone (#290)", async () => {
       const fetchSpy = stubJira({ omitAssignee: true });
 
       const result = await assignJiraIssue("DEV-123");
 
-      expect(result.outcome).toBe("assigned");
-      expect(putCalls(fetchSpy)).toHaveLength(1);
+      expect(result).toEqual({
+        outcome: "assignee-hidden",
+        displayName: "Me Myself",
+      });
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    // #290 quotes the first answer from a real site; `fields: null` pins the
+    // `!== null` term, since `"assignee" in null` would throw.
+    it.each([
+      ["has no fields object at all", { id: "10011", key: "DEV-123" }],
+      ["has fields: null", { id: "10011", key: "DEV-123", fields: null }],
+    ])("leaves an issue alone when the answer %s (#290)", async (_, body) => {
+      const fetchSpy = stubJira({ assignee: null });
+      const answer = fetchSpy.getMockImplementation();
+      fetchSpy.mockImplementation(async (url: string, init: RequestInit) =>
+        url.includes("/issue/DEV-123?")
+          ? ({
+              ok: true,
+              status: 200,
+              statusText: "OK",
+              json: async () => body,
+              text: async () => "",
+            } as never)
+          : (answer?.(url, init) as never),
+      );
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result.outcome).toBe("assignee-hidden");
+      expect(putCalls(fetchSpy)).toHaveLength(0);
     });
 
     it("makes no write when the issue is already the caller's", async () => {
@@ -3082,10 +3111,12 @@ describe("Jira Data Center", () => {
 
     function stub({
       assignee = null,
+      omitAssignee = false,
       myself = me,
       putStatus = 204,
     }: {
       assignee?: Record<string, string> | null;
+      omitAssignee?: boolean;
       myself?: Record<string, string>;
       putStatus?: number;
     }) {
@@ -3097,7 +3128,7 @@ describe("Jira Data Center", () => {
         if (url.endsWith("/rest/api/2/myself")) {
           return reply(200, myself);
         }
-        return reply(200, { fields: { assignee } });
+        return reply(200, { fields: omitAssignee ? {} : { assignee } });
       });
       vi.stubGlobal("fetch", fetchSpy);
       return fetchSpy;
@@ -3125,6 +3156,18 @@ describe("Jira Data Center", () => {
       expect((putInit.headers as Record<string, string>).Authorization).toBe(
         `Bearer ${PAT}`,
       );
+    });
+
+    it("leaves an issue whose assignee Jira does not show alone (#290)", async () => {
+      const fetchSpy = stub({ omitAssignee: true });
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "assignee-hidden",
+        displayName: "Fred F",
+      });
+      expect(putCalls(fetchSpy)).toHaveLength(0);
     });
 
     it("is already yours when the key matches, though the name differs", async () => {

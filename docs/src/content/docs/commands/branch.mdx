@@ -152,7 +152,9 @@ worktree config clickup.autoAssign true
 - **A Jira issue that someone else holds is left alone.** Jira keeps one assignee, so assigning would take the
   issue off a colleague. `worktree` leaves it, warns with their name, and the document says `assigned: false`;
   `--assign` does not override this, so reassign it in Jira if that is what you want. An issue that is already
-  yours is reported as such and nothing is written. Assigning in Jira needs the *Browse Projects* and
+  yours is reported as such and nothing is written. An issue whose assignee Jira does not show, because its
+  project's field scheme leaves *Assignee* out, is left alone too: `worktree` cannot tell it from a held one, so it
+  warns, writes nothing and reports `assigned: false`. Assigning in Jira needs the *Browse Projects* and
   *Assign Issues* permissions on the issue's project; without them `worktree` warns and carries on. See
   [Jira Issue Integration](/worktree/guides/jira-integration/#assigning-the-issue).
 - **A ClickUp assignment only adds you.** ClickUp keeps several assignees, so you join the task alongside whoever is
@@ -627,7 +629,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | --- | --- |
 | `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
 | `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}` or `{provider:"clickup", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
-| `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, or a Jira issue is held by someone else); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
+| `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, a Jira issue is held by someone else, or Jira does not show a Jira issue's assignee); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
 | `started` | `true` once the Linear issue, ClickUp task or Jira issue is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (none of `--linear`, `--clickup` or `--jira`, `--no-start`, a configured `false`, or a declined prompt) |
 | `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
 | `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`), `"user"` (the steps in your user config file) or `"lockfile"` |

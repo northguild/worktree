@@ -132,8 +132,9 @@ the update.
 - The move counts only when ClickUp's answer shows the new status. Any failure is a warning, `started` is `false`,
   and the worktree and exit code are unaffected.
 - Moving a task needs edit access to it. A write ClickUp refuses with a 400 or a 5xx, or any status not named here,
-  gets a warning that says so. A 401 or 403 reads as the authentication message, a 404 as the not-found message and
-  a 429 as the rate-limit message.
+  gets a warning that says so. On the update, a 401 or 403 reads as the authentication message, a 404 as the
+  not-found message and a 429 as the rate-limit message. A 401 on the two reads is described under
+  [What Is Not Verified Yet](#what-is-not-verified-yet).
 
 ## Authentication Resolution
 
@@ -163,7 +164,7 @@ workspace id prompt skips it, and under `--missing` pressing Enter skips that pr
 
 ## Getting a ClickUp API Token
 
-1. In ClickUp, click your avatar, then Settings -> Apps -> API Token
+1. In ClickUp, click your avatar, then Settings -> ClickUp API -> API Token
 2. Click "Generate" (or "Regenerate") and copy the token
 3. Use it with `worktree config clickup.apiToken`
 
@@ -198,8 +199,13 @@ are assumptions:
   its answer to the update is the task with its `assignees`. If either is otherwise, the assignment warns, even when
   ClickUp did add you.
 
-ClickUp's answer to a write your token may not make, a move or an assignment, is also unconfirmed: it may be a 401, a 403, a 404 or another
-status, and a 401, 403 or 404 reads as that status's own message, without the edit-access hint.
+ClickUp's answer to a write your token may not make, a move or an assignment, is unconfirmed: it may be a 401, a 403, a 404 or another
+status, and a 401, 403 or 404 reads as that status's own message, without the edit-access hint. A 401 on a write reads
+as the authentication message whatever its body says.
 
-ClickUp's exact status for a task your token cannot see is also unconfirmed, so a 401 and a 403 both report
-`Authentication failed. Please verify clickup.apiToken in your config.`
+ClickUp answers a read of a task, or of a List, with a 401 rather than a 404 when the id is one ClickUp never
+allocated or your token cannot see it. A 401 whose body names a rejected token (`OAUTH_025` or `OAUTH_019`) reads as
+`Authentication failed. Please verify clickup.apiToken in your config.` Any other 401 whose body carries ClickUp's
+code and text reads as `could not find task <id>, or this token cannot see it` (`list <id>` for a List), followed by
+that text, such as `Team not authorized`. A 401 with no such body, and a 403, read as the authentication message. The
+codes are observed, not documented, which is why only the two token ones are named.
