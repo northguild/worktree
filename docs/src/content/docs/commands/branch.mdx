@@ -152,9 +152,9 @@ worktree config clickup.autoAssign true
 - **A Jira issue that someone else holds is left alone.** Jira keeps one assignee, so assigning would take the
   issue off a colleague. `worktree` leaves it, warns with their name, and the document says `assigned: false`;
   `--assign` does not override this, so reassign it in Jira if that is what you want. An issue that is already
-  yours is reported as such and nothing is written. So is an issue whose assignee Jira does not show, because its
-  project's field scheme leaves *Assignee* out: `worktree` cannot tell it from a held one, so it warns and writes nothing.
-  Assigning in Jira needs the *Browse Projects* and
+  yours is reported as such and nothing is written. An issue whose assignee Jira does not show, because its
+  project's field scheme leaves *Assignee* out, is left alone too: `worktree` cannot tell it from a held one, so it
+  warns, writes nothing and reports `assigned: false`. Assigning in Jira needs the *Browse Projects* and
   *Assign Issues* permissions on the issue's project; without them `worktree` warns and carries on. See
   [Jira Issue Integration](/worktree/guides/jira-integration/#assigning-the-issue).
 - **A ClickUp assignment only adds you.** ClickUp keeps several assignees, so you join the task alongside whoever is
