@@ -340,6 +340,7 @@ or use the root-level aliases where noted.
 | `audit-dist` | Assert the SEO requirements over `dist/` (run after `build`; root alias `pnpm docs:audit-dist`) |
 | `build:legacy` | Write `legacy/` (gitignored): the bundle for the old GitHub Pages site |
 | `stage:deploy` | Copy `dist/` to `.deploy/worktree/` and `deploy/_headers` to `.deploy/_headers` (gitignored), the directory `wrangler.jsonc` serves |
+| `web-vitals` | Measure LCP, CLS, TBT and INP on three pages: Lighthouse (pinned, mobile and desktop, median of three) and Playwright Chromium at 4x CPU throttling against `--origin` (a served build under `/worktree/`), PageSpeed Insights and CrUX field data for `--live`. By hand, not a gate; `PSI_API_KEY` is read from the environment. Needs Chromium: `pnpm --filter docs exec playwright install chromium` |
 | `deploy:smoke` | Check the live routes on `https://northguild.dev/worktree/` and three response headers (a hashed asset's `Cache-Control`, `llms.txt`'s `X-Robots-Tag`, and a page carrying neither `noindex` nor `immutable`); `SMOKE_ORIGIN` overrides the origin |
 
 ---

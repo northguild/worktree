@@ -51,3 +51,19 @@ Non-blocking observations from the gates, for a person. Branch-local; `/feature-
   bytes; a multibyte padding character in the boundary tests would pin it on purpose.
 - TN3156 says "1 MB" without saying 10^6 or 2^20 bytes; D10's 1,048,576 is kept (plan §9 Q4). The largest
   page today is `commands/branch/` at 178,908 bytes, so both readings pass.
+
+## Phase 5 — Core Web Vitals, measured
+
+- The INP step label is read when the observer's callback runs, not when the event happened, so an
+  interaction slower than the 500 ms pause would be counted under the next step; the page's worst value is
+  unaffected. With no interaction at or over 16 ms the page row prints `INP (worst) 0 ms`.
+- `playwright` is `^1.65.0`, like every docs devDependency, but it picks the Chromium both Lighthouse and the
+  INP run use; the script's own reason for pinning Lighthouse exactly applies to it too.
+- `PSI_API_KEY` travels in the request's query string, unencoded; nothing prints that URL, but an
+  `X-Goog-Api-Key` header would remove the risk of a later edit doing so.
+- The header comment says PSI "needs no key at a low request rate"; in this run the keyless daily quota was
+  already spent (429). Lighthouse's temp JSON is not removed when `JSON.parse` throws.
+- No tests: the script runs at import. `median` and the PSI field mapping (CLS percentile / 100) could move to
+  an importable module, as `theme-contrast.mjs` does, to get a seam.
+- Chromium could not reach `https://northguild.dev` from the agent's sandbox, and PSI returned 429 with no
+  key, so the live lab run and the CrUX field data were not measured here.

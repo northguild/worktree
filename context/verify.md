@@ -189,6 +189,11 @@ test that genuinely has to be skipped is a conversation, not an edit to this pat
 - **`pnpm changeset:prepare-release`** — not a gate: it mutates the tree (bumps `package.json`, writes
   `CHANGELOG.md`, deletes the consumed notes) and is run once, by a maintainer, to make a release pull
   request. Never run it to verify anything.
+- **`pnpm --filter docs web-vitals`** — not a gate: a measuring script (`docs/scripts/web-vitals.mjs`). It runs Lighthouse
+  through `npx`, drives Playwright Chromium and calls PageSpeed Insights, so it needs the network, a served build
+  (`--origin http://127.0.0.1:<port>`, pages under `/worktree/`) and Chromium installed by hand
+  (`pnpm --filter docs exec playwright install chromium`; the `playwright` package does not download it). It prints LCP, CLS,
+  TBT and INP and writes nothing; no CI job runs it. `PSI_API_KEY` (optional, for `--live`) is read from the environment.
 - **`pnpm --filter docs deploy:smoke`** — requests the live `https://northguild.dev/worktree/` and retries up to 6
   times, 10 s apart (about a minute), so it needs the network and a deployed site; `docs-deploy.yml` runs it after the deploy.
   Besides the routes it asserts three headers by exact value: `Cache-Control: public, max-age=31536000, immutable` on a
