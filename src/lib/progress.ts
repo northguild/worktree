@@ -1,5 +1,6 @@
 // The one module that imports ora. Everything that draws a spinner goes
 // through `createSpinner`, so the E2 fix below cannot be missed at a call site.
+import { stripVTControlCharacters } from "node:util";
 import ora, { type Ora } from "ora";
 import { isColorDisabled } from "./color.js";
 import { isNonInteractive } from "./interaction.js";
@@ -38,15 +39,22 @@ export function isProgressEnabled(
   return !nonInteractive && stream.isTTY === true && Boolean(stream.columns);
 }
 
+/** FORCE_COLOR asks for colour unless it is empty, `0` or `false`. */
+function isColorForced(env: NodeJS.ProcessEnv = process.env) {
+  const force = env.FORCE_COLOR;
+  return force !== undefined && !["", "0", "false"].includes(force);
+}
+
 /**
  * `warn`, `fail` and the rest of the settling methods print their text to
  * stderr through ora's `stopAndPersist`, disabled spinner or not, and so are a
  * route to the terminal that `BaseCommand.warn` never sees. Redacting at that
  * one method covers every call site at once, the same way `createSpinner`
  * covers the E2 fix — a message that echoes what it was given (a remote URL
- * with credentials) is masked before it is printed (#76).
+ * with credentials) is masked before it is printed (#76). The same wrapper
+ * strips colour from the symbol when the stream is not a terminal (#321).
  */
-function redactPersistedText(spinner: Ora) {
+function redactPersistedText(spinner: Ora, stream: ProgressStream) {
   // Optional only because the suites replace ora with objects that lack it;
   // the real one always has it.
   const original = spinner.stopAndPersist?.bind(spinner);
@@ -55,6 +63,15 @@ function redactPersistedText(spinner: Ora) {
     spinner.stopAndPersist = (options = {}) =>
       original({
         ...options,
+        // ora draws ✔ ✖ ⚠ with log-symbols, which colours from the
+        // environment and never from the stream it is written to, so a
+        // redirected stderr would otherwise hold escape codes (#321).
+        symbol:
+          stream.isTTY === true ||
+          isColorForced() ||
+          options.symbol === undefined
+            ? options.symbol
+            : stripVTControlCharacters(options.symbol),
         text: redactSecrets(options.text ?? spinner.text),
       });
   }
@@ -85,7 +102,7 @@ export function createSpinner(text: string, options: ProgressOptions = {}) {
     spinner.color = false;
   }
 
-  redactPersistedText(spinner);
+  redactPersistedText(spinner, options.stream ?? process.stderr);
 
   return spinner;
 }
