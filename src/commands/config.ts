@@ -66,7 +66,8 @@ export default class Config extends BaseCommand {
         "Write a commented .worktree.yml from the team settings in your git config (never a personal or secret one), uncommitted",
     }),
     // Passed by the commands that delegate to this one mid-run (`branch`, via
-    // verifyConfig), so the offers of D21 are not made before a worktree exists.
+    // verifyConfig), so the project-config step of D21 (the silent removal and
+    // the offer) does not run before a worktree exists.
     "skip-offers": Flags.boolean({ hidden: true }),
   };
 
@@ -425,8 +426,10 @@ export default class Config extends BaseCommand {
     if (wizard) {
       await runWizard(wizard);
     }
-    // Not for a run another command delegated (`branch` before a worktree
-    // exists), and not for one that named its keys (D21).
+    // The project-config step: silently removes the local keys the team's
+    // .worktree.yml covers, and on a terminal offers to write the file. Not for
+    // a run another command delegated (`branch` before a worktree exists), and
+    // not for one that named its keys (D21).
     if (!flags.names && !flags["skip-offers"]) {
       await offerProjectConfig();
     }

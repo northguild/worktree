@@ -5163,6 +5163,37 @@ jira:
       expect(mockGitCreateWorktree).not.toHaveBeenCalled();
     });
 
+    it("still returns the worktree and warns when offerProjectConfig throws (D4)", async () => {
+      vi.mocked(projectConfig.offerProjectConfig).mockRejectedValue(
+        new Error("git config --unset failed"),
+      );
+      const warnSpy = vi
+        .spyOn(branch, "warn")
+        .mockImplementation((input) => input);
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key) =>
+        Promise.resolve(
+          key === "has-called-config" || key === "defaultSourceBranch"
+            ? "origin/main"
+            : "",
+        ),
+      );
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (branch as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: {},
+      });
+
+      const result = await branch.run();
+
+      expect(result).toMatchObject({
+        branch: "feature/test",
+        path: "/path/to/worktree",
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Could not update the project configuration from .worktree.yml. git config --unset failed",
+      );
+    });
+
     it("names the missing config instead of offering to run config", async () => {
       const warnSpy = vi
         .spyOn(branch, "warn")
@@ -5480,6 +5511,36 @@ jira:
       expect(mockCopyEnvFiles).toHaveBeenCalledWith("/path/to/worktree", {
         report: "stderr",
       });
+    });
+
+    // D2 (plan #289 §3): the silent removal is not gated on non-interactive
+    // runs, so `branch --json` must still reach offerProjectConfig.
+    it("still calls offerProjectConfig under --json (D2)", async () => {
+      await runJson({ branchName: "feature/test" }, {});
+
+      expect(projectConfig.offerProjectConfig).toHaveBeenCalledTimes(1);
+    });
+
+    // D4 + §2: a failed removal never fails `branch`; it is a stderr warning,
+    // and stdout stays one parseable document (§2 `--json`).
+    it("returns the document and warns on stderr when offerProjectConfig throws", async () => {
+      vi.mocked(projectConfig.offerProjectConfig).mockRejectedValue(
+        new Error("git config --unset failed"),
+      );
+
+      await runJson({ branchName: "feature/test" }, {});
+
+      expect(output.stderr()).toContain(
+        "Could not update the project configuration from .worktree.yml. git config --unset failed",
+      );
+      expect(output.stdout()).not.toContain("Warning:");
+      expect(output.stdout().trim().split("\n")).toHaveLength(1);
+      expect(output.document()).toMatchObject({
+        branch: "feature/test",
+        path: "/path/to/worktree",
+        warnings: [expect.stringContaining("git config --unset failed")],
+      });
+      expect(process.exitCode).toBeUndefined();
     });
 
     it("says warnings on stderr and keeps them in the document", async () => {

@@ -19,3 +19,7 @@ Branch-local, advisory and disposable — `/feature-close` deletes this file who
   which `fakeGitConfig` already gives with an empty global map.
 - **Phase 1** — `removeCoveredLocalConfig` adds one `gitResolveOriginHead()` call per run on top of
   `readProjectConfig`'s; inside §8 step 3's ~100 ms budget, not yet measured.
+- **Phase 2** — `src/commands/branch.test.ts:124` ("The offers of D21 have their own cases…") and the describe
+  title "branch command — the offers of D21" still use the offers framing.
+- **Phase 2** — the hidden `--skip-offers` flag now also skips the silent removal, so its name undersells it;
+  a rename would touch `src/lib/base-command.ts`.
