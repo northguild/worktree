@@ -187,7 +187,7 @@ that has the thing, which is what lets one shared list work everywhere.
 
 | Provider | Fields | Ids |
 |---|---|---|
-| Jira | every field on the issue, plus `Type` (the issue type, the same value as `issuetype`) and `Labels` (the same value as `labels`). On Jira Cloud rich text arrives as a document and matches nothing; on Jira Data Center the `description` and multi-line (textarea) custom fields are dropped, and `environment` still offers its text | yes |
+| Jira | every field on the issue, plus `Type` (the issue type, the same value as `issuetype`) and `Labels` (the same value as `labels`). On Jira Cloud rich text arrives as a document and matches nothing; on Jira Data Center the `description`, `environment`, multi-line (textarea) custom fields and the Development field are dropped, because they hold wiki text or an unstable summary | yes |
 | GitHub | `Type` (the issue type) and `Labels` | yes, for both |
 | Linear | `Labels` (no `Type`: Linear has no issue type) | yes |
 | ClickUp | `Tags`, and `Labels` (the same tags) | no: a ClickUp tag has no id, so match it by name |
@@ -269,7 +269,7 @@ field shows up. A field that exists but is empty is not a mistake: it just
 matches nothing.
 
 With rules set (a Jira list or the shared one), or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue
-request it was already making; on Jira Data Center that is `?expand=names,schema`, because the schema is how rich text is told from plain text. Otherwise the request is unchanged.
+request it was already making; on Jira Data Center that is `?expand=names,schema`, because the schema is how rich text and the Development field are told from plain text. Otherwise the request is unchanged.
 
 ## Branch name template
 

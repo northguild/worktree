@@ -299,18 +299,29 @@ function getJiraBranchType(issue: JiraIssue) {
 }
 
 // #126 D11: Data Center returns rich text as plain strings, so it is told
-// apart by the schema: the system `description`, and custom
-// fields of the textarea type (docs.atlassian.com api/2/field; Atlassian KB
-// "REST API essential parameters for custom field creation").
-const RICH_TEXT_SYSTEMS = new Set(["description"]);
+// apart by the schema: the system `description` and `environment` (both
+// wiki-rendered), and custom fields of the textarea type (docs.atlassian.com
+// api/2/field; Atlassian KB "REST API essential parameters for custom field
+// creation"). #294: the Development field, which the bundled
+// development-integration plugin puts on every Jira Software issue, returns a
+// Java `toString` whose object ids change on every request, so it is dropped
+// by its custom type too.
+const RICH_TEXT_SYSTEMS = new Set(["description", "environment"]);
 const TEXTAREA_CUSTOM_TYPE =
   "com.atlassian.jira.plugin.system.customfieldtypes:textarea";
+const DEVELOPMENT_CUSTOM_TYPE =
+  "com.atlassian.jira.plugins.jira-development-integration-plugin:devsummary";
+const VALUELESS_CUSTOM_TYPES = new Set([
+  TEXTAREA_CUSTOM_TYPE,
+  DEVELOPMENT_CUSTOM_TYPE,
+]);
 
-function isRichTextSchema(schema: JiraFieldSchema | undefined): boolean {
+function hasNoRuleValue(schema: JiraFieldSchema | undefined): boolean {
   return (
     schema !== undefined &&
     ((schema.system !== undefined && RICH_TEXT_SYSTEMS.has(schema.system)) ||
-      schema.custom === TEXTAREA_CUSTOM_TYPE)
+      (schema.custom !== undefined &&
+        VALUELESS_CUSTOM_TYPES.has(schema.custom)))
   );
 }
 
@@ -368,7 +379,7 @@ export function getJiraIssueFields(
   const fields = Object.entries(issue.fields).map(([id, raw]) => ({
     id,
     name: issue.names?.[id] ?? id,
-    values: isRichTextSchema(issue.schema?.[id])
+    values: hasNoRuleValue(issue.schema?.[id])
       ? []
       : normalizeJiraFieldValue(raw, deployment),
   }));
@@ -507,7 +518,8 @@ async function fetchJira(
 
 /**
  * `names` asks Jira for field display names, which only the rules need (D9).
- * Data Center adds `schema` to tell rich text from plain text (D11).
+ * Data Center adds `schema` to tell rich text and the Development field from
+ * plain text (D11, #294).
  */
 export async function fetchJiraIssue(
   issueId: string,

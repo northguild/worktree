@@ -2440,6 +2440,8 @@ describe("Jira Data Center", () => {
     describe("field values", () => {
       const TEXTAREA =
         "com.atlassian.jira.plugin.system.customfieldtypes:textarea";
+      const DEVELOPMENT =
+        "com.atlassian.jira.plugins.jira-development-integration-plugin:devsummary";
       const TEXTFIELD =
         "com.atlassian.jira.plugin.system.customfieldtypes:textfield";
       const issue = {
@@ -2450,6 +2452,7 @@ describe("Jira Data Center", () => {
           environment: "Environment",
           customfield_10100: "Notes",
           customfield_10101: "Ticket ref",
+          customfield_10000: "Development",
           assignee: "Assignee",
         },
         schema: {
@@ -2466,6 +2469,11 @@ describe("Jira Data Center", () => {
             customId: 10101,
           },
           assignee: { type: "user", system: "assignee" },
+          customfield_10000: {
+            type: "any",
+            custom: DEVELOPMENT,
+            customId: 10000,
+          },
         },
         fields: {
           summary: "Fix login bug",
@@ -2474,6 +2482,8 @@ describe("Jira Data Center", () => {
           environment: "staging",
           customfield_10100: "multi\nline",
           customfield_10101: "ABC-1",
+          customfield_10000:
+            "{summaryBean=com.atlassian.jira.plugin.devstatus.rest.SummaryBean@6c511b8[summary={}]}",
           assignee: {
             key: "JIRAUSER10100",
             name: "fred",
@@ -2500,6 +2510,23 @@ describe("Jira Data Center", () => {
         expect(await dryRunFields()).toContainEqual({
           id: "customfield_10100",
           name: "Notes",
+          values: [],
+        });
+      });
+
+      // #294
+      it("gives the system environment no values", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "environment",
+          name: "Environment",
+          values: [],
+        });
+      });
+
+      it("gives the bundled Development field no values", async () => {
+        expect(await dryRunFields()).toContainEqual({
+          id: "customfield_10000",
+          name: "Development",
           values: [],
         });
       });
