@@ -1,4 +1,5 @@
-import chalk, { type ColorName } from "chalk";
+import type { ColorName } from "chalk";
+import chalk from "./color.js";
 import type { WorktreeAgent, WorktreeListEntry } from "./types.js";
 
 export function conjoin(

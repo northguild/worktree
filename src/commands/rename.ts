@@ -1,6 +1,5 @@
 import path from "node:path";
 import { Args, Flags } from "@oclif/core";
-import chalk from "chalk";
 import {
   findSessionForPath,
   getAgentSessions,
@@ -9,6 +8,7 @@ import {
   toRealPath,
 } from "../lib/agent.js";
 import { BaseCommand } from "../lib/base-command.js";
+import chalk from "../lib/color.js";
 import {
   findWorktreeByTarget,
   gitGetLocalBranches,

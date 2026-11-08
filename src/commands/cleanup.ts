@@ -1,6 +1,6 @@
 import { Flags } from "@oclif/core";
-import chalk from "chalk";
 import { BaseCommand } from "../lib/base-command.js";
+import chalk from "../lib/color.js";
 import {
   gitGetWorktreeList,
   gitRemoveWorktreesWithProgress,
