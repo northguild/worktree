@@ -7,7 +7,8 @@ name: Publish
 #   guard      did this push move the version?            (no environment, read-only)
 #   publish    test, build, notes, npm publish, tag, GitHub release
 #   notify     the Discord post                           (no permissions, no environment, no OIDC)
-#   docs       the docs deploy, stable versions only      (calls docs-deploy.yml; no environment)
+#   docs       the docs deploy, stable versions only      (calls docs-deploy.yml; its `site` job runs in the
+#                                                          `cloudflare-production` environment, main only)
 #
 # Nothing here holds an npm token: the publish job has `id-token: write` and npm exchanges it for a
 # short-lived credential (trusted publishing), which also attaches the provenance attestation.
@@ -216,6 +217,3 @@ jobs:
       pages: write # legacy-pages deploys to GitHub Pages
       id-token: write # actions/deploy-pages (OIDC)
     uses: ./.github/workflows/docs-deploy.yml
-    secrets:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

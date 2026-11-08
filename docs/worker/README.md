@@ -254,8 +254,9 @@ of this endpoint.
 See `.github/workflows/worker-deploy.yml`. Deploys automatically on pushes to
 `main` that change `docs/worker/**`, `docs/src/chat/lib/**` (the contract the worker bundles), or
 `docs/package.json` or `pnpm-lock.yaml` (the dependencies it bundles, so a bump alone redeploys it). A manual "Run workflow" deploys only from `main`: a run from any other
-branch deploys nothing, provided that branch's copy of the workflow still has the guard (a manual run uses the
-selected branch's file). Requires two GitHub **repository secrets**:
+branch deploys nothing, and GitHub refuses it at the `cloudflare-production` environment even if that branch's
+copy of the workflow drops the guard. Requires two secrets in that GitHub **environment** (Settings →
+Environments), whose deployment branches are limited to `main`:
 
 | Secret | Where to get it |
 |---|---|
