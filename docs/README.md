@@ -270,8 +270,7 @@ the URL because `/dox/` is a `StarlightPage` and not a collection entry, so it h
 `/worktree/dox/` (`src/pages/dox.astro`) is the page the chat is becoming (plan #309): a full-bleed hive of its own under the
 site header, with a strip holding "New chat" (once there is a transcript) and the environment badge (`● local` or `● live`, set after
 mount so the server markup matches), and, below it, the chat: the empty hub (the Dox crystal at logo scale and the prompt line) or the
-transcript, and the pinned composer. The examples rail arrives in a later phase of #309; until then, the drawer and its launcher still
-open the chat on every other page.
+transcript, and the pinned composer, with the examples rail beside it. The drawer and its launcher still open the chat on every other page.
 
 - **Shape.** A `StarlightPage` with `template: splash`, title "Dox", `noindex`, `pagefind: false`, an inline `<head>` script that sets
   `data-dox-shell` on `<html>`, and one `client:load` island, `DoxPage` (`src/chat/components/`). The page's global `<style>` keys
@@ -298,6 +297,19 @@ open the chat on every other page.
     Under it, the accuracy note on a wide screen; at 60rem and below it moves into a popup the info button opens (`ChatInfo.tsx`).
   - **"New chat"** stops a stream, empties the transcript, shows the hub and puts focus in the composer. The transcript is kept in
     `localStorage` as before; per-message times are not shown.
+  - **The examples rail** (`ExamplesRail.tsx`, `ExamplesPanel.tsx`) holds the three starters of `lib/chat-starters.ts`, which the
+    drawer's empty transcript offers too. Each has an `area` ("Issues", "Environment files", "Cleanup"; the rail groups by it and
+    draws an icon per area in `ExamplesPanel.tsx`) and a `route`, the docs page that answers it, shown as the card's chip. A card is a
+    button named by its question and described by its chip. It sends through `DoxChat`'s handle (`send`), which is the composer's own
+    guarded send: refused while an answer is coming (focus stays on the card), otherwise sent, with a draft in the field left alone
+    and focus moving to the field. On a wide screen the rail is a column, 22rem to 34rem by default (`clamp(22rem, 34vw, 34rem)`),
+    and `RailResizer.tsx` widens it up to half the page while the chat keeps 28rem (`rail-width.ts` holds the bounds and mirrors the
+    CSS): drag, or focus the handle and press Left or Right (16px, 64px with Shift), Home or End; a double-click resets it. The width
+    is remembered in `localStorage` (`northguild-dox-rail-width`). At 60rem and below the rail is a sheet under the chat and the
+    handle is gone. The stylesheet decides when it shows: open before the first question on a phone taller than 44rem, folded behind
+    the "Examples · 3" bar above the composer from the first question on (and from the start on a shorter phone). The bar opens the
+    sheet; a card whose send succeeds, or Escape (`use-esc-layer.ts`, which puts focus on the bar), folds it. Which docs page a card names is its route,
+    not a title: there is no page-title map in the client.
   - **Model.** The page asks the default model until the brain selector arrives in a later phase of #309.
   - **Contrast.** `scripts/theme-contrast.mjs` measures the hive's pairs ("hive: ..."), text at 4.5:1 and glyphs and edges at 3:1. Its
     surfaces are spelled out there (a card is the spring tier at 5% over the page): change `dox-hive.css` and the script together.

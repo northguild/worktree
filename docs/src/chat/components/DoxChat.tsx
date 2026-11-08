@@ -12,6 +12,7 @@ import {
 } from "@heroicons/react/24/outline";
 import {
   type KeyboardEvent,
+  type ReactNode,
   type Ref,
   type SyntheticEvent,
   useCallback,
@@ -138,6 +139,12 @@ function useScrollRegion(
 export interface DoxChatHandle {
   /** Empties the transcript, shows the hub and puts focus in the composer. */
   reset: () => void;
+  /**
+   * Sends `text` as the reader's question through the composer's own guarded send, for the host's example cards: false
+   * while an answer is still coming, for an empty text, or when the text is refused (the reason is shown as a warning).
+   * A draft in the field is left alone.
+   */
+  send: (text: string) => boolean;
 }
 
 interface DoxChatProps {
@@ -145,9 +152,15 @@ interface DoxChatProps {
   ref?: Ref<DoxChatHandle>;
   /** Fired with `true` while the conversation has nothing to show. Raw, not deferred, so the host's chrome follows the first send at once. */
   onEmptyChange?: (empty: boolean) => void;
+  /** Rendered directly above the composer's panel: the phone's examples bar (the host owns it, and CSS shows it). */
+  aboveComposer?: ReactNode;
 }
 
-export function DoxChat({ ref, onEmptyChange }: DoxChatProps = {}) {
+export function DoxChat({
+  ref,
+  onEmptyChange,
+  aboveComposer,
+}: DoxChatProps = {}) {
   const { messages, isStreaming, warning, submit, retry, stop, clear } =
     useDocsChat(DEFAULT_MODEL_ID);
 
@@ -187,6 +200,18 @@ export function DoxChat({ ref, onEmptyChange }: DoxChatProps = {}) {
     onEmptyChange?.(noTurns);
   }, [noTurns, onEmptyChange]);
 
+  // The one send: the composer's Enter and button, and the host's example cards, all come through it.
+  const sendText = useCallback(
+    (text: string) => {
+      if (isStreaming || text.trim() === "") return false;
+      // A refused message is not sent and the reason is shown as a warning by `useDocsChat`.
+      if (!submit(text)) return false;
+      inputRef.current?.focus();
+      return true;
+    },
+    [isStreaming, submit],
+  );
+
   useImperativeHandle(
     ref,
     () => ({
@@ -196,8 +221,9 @@ export function DoxChat({ ref, onEmptyChange }: DoxChatProps = {}) {
         // The button that asked for this goes with the transcript, and focus would fall to the page.
         inputRef.current?.focus();
       },
+      send: sendText,
     }),
-    [clear],
+    [clear, sendText],
   );
 
   // "Try again" clears the warning, which unmounts the button the keyboard user is on, and focus would fall to the page.
@@ -236,12 +262,8 @@ export function DoxChat({ ref, onEmptyChange }: DoxChatProps = {}) {
   }
 
   function send() {
-    if (isStreaming || empty) return;
-    // A refused message stays in the box and the reason is shown as a warning by `useDocsChat`.
-    if (submit(value)) {
-      setValue("");
-      inputRef.current?.focus();
-    }
+    // A refused message stays in the box.
+    if (sendText(value)) setValue("");
   }
 
   function handleSubmit(event: SyntheticEvent) {
@@ -313,6 +335,7 @@ export function DoxChat({ ref, onEmptyChange }: DoxChatProps = {}) {
 
       <div className="gmt-hive-composer">
         <div className="gmt-hive-composer-inner">
+          {aboveComposer}
           <form className="gmt-hive-form" onSubmit={handleSubmit}>
             <ChatInput
               ref={inputRef}

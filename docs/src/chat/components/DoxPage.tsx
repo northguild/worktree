@@ -2,12 +2,18 @@
  * The full-bleed `/dox` surface (plan #309 D6; ported from gmt's `DoxPage`). It is deliberately not a nav bar: the
  * site header shows on this route as on every page and gives the way back, so the strip holds chat status and the one
  * control that is the conversation's own, "New chat". The body holds the chat (`DoxChat`): the empty hub, or the
- * transcript, and the pinned composer. The rail arrives in a later phase.
+ * transcript, and the pinned composer. Beside it (under it, on a phone) is the examples rail (D7): the starter questions,
+ * which send through the composer, a resizer to widen it, and on a phone the bar above the composer that folds the sheet.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import "../../styles/dox-hive.css";
+import type { ChatStarter } from "../lib/chat-starters";
 import { ChatErrorBoundary } from "./ChatErrorBoundary";
 import { DoxChat, type DoxChatHandle } from "./DoxChat";
+import { ExamplesBar } from "./ExamplesBar";
+import { ExamplesRail } from "./ExamplesRail";
+import { RailResizer } from "./RailResizer";
+import { useEscLayer } from "./use-esc-layer";
 
 /**
  * Which Worker this page is talking to. Read after mount, never during render: deriving it from `window.location`
@@ -30,7 +36,25 @@ function useEnvironment(): Environment | null {
 export function DoxPage() {
   const environment = useEnvironment();
   const chatRef = useRef<DoxChatHandle>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLButtonElement>(null);
+  const railId = useId();
   const [empty, setEmpty] = useState(true);
+  // Phone: the reader has opened the examples sheet from the bar. Whether the sheet shows at all is the stylesheet's call.
+  const [examplesOpen, setExamplesOpen] = useState(false);
+
+  // A card sends its question through the composer's own guarded send. A refusal leaves focus on the card; a send moves it
+  // to the field, and the sheet folds so the phone shows the answer.
+  const pickExample = useCallback((starter: ChatStarter) => {
+    if (chatRef.current?.send(starter.text)) setExamplesOpen(false);
+  }, []);
+
+  // Escape folds the phone's sheet back to its bar. Wider than a phone the bar is hidden and the state is not a layer.
+  useEscLayer({
+    open: () => examplesOpen && barRef.current?.checkVisibility?.() !== false,
+    close: () => setExamplesOpen(false),
+    opener: () => barRef.current,
+  });
 
   // `not-content` is Starlight's opt-out from its markdown rules: the island sits inside `.sl-markdown-content`, whose
   // `code` rules (colour, fill, size, margin, padding) would otherwise win over the hive's own at equal specificity.
@@ -64,10 +88,31 @@ export function DoxPage() {
           )}
         </div>
       </div>
-      <div className="gmt-hive-body" data-empty={empty ? "" : undefined}>
+      <div
+        ref={bodyRef}
+        className="gmt-hive-body"
+        data-empty={empty ? "" : undefined}
+      >
         <ChatErrorBoundary>
-          <DoxChat ref={chatRef} onEmptyChange={setEmpty} />
+          <DoxChat
+            ref={chatRef}
+            onEmptyChange={setEmpty}
+            aboveComposer={
+              <ExamplesBar
+                ref={barRef}
+                expanded={examplesOpen}
+                railId={railId}
+                onToggle={() => setExamplesOpen((open) => !open)}
+              />
+            }
+          />
         </ChatErrorBoundary>
+        <RailResizer railId={railId} container={bodyRef} />
+        <ExamplesRail
+          railId={railId}
+          collapsed={!examplesOpen}
+          onPick={pickExample}
+        />
       </div>
     </div>
   );

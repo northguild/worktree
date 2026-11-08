@@ -52,3 +52,22 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
   overflows (README). The same overflow-only rule would fit here.
 - **No test pins the reading surface's margins.** jsdom does no layout; the caller's headless-Chrome measurement is the
   only check (recorded in the Phase 2 commit).
+
+## Phase 3
+
+- **The chip shows a raw route** (`/guides/env-files/`), which meets D7's letter (`ChatStarter.route`) but not gmt's
+  look, where the chip is a human title. A short page label would be a `page` field on `ChatStarter`; its wording needs
+  a source (the frontmatter titles are long SEO strings), so it goes to the maintainer with §9 Q7, as do the areas
+  ("Issues", "Environment files", "Cleanup") and their heroicons.
+- **DoxPage tests live in `ExamplesPanel.test.tsx`**, because `DoxPage.test.tsx` was not on Phase 3's Files line;
+  `react/testing.md` wants them colocated with `DoxPage`.
+- **Rules with no test.** `use-esc-layer.ts` deferring to an open native popover (seam: DoxPage with ChatInfo's
+  popover open); the `checkVisibility` gate that keeps the sheet from being an Escape layer on a wide screen (no
+  layout in jsdom); a refused card leaving the sheet open.
+- **Contrast unmeasured.** `--gmt-ice` and `--gmt-ice-dim` on `--gmt-fill-subtle` (cards, chip, bar, area titles) and on
+  `--gmt-fill-strong` (hover, focus), and the chip's `--gmt-border-strong` edge; `theme-contrast.mjs` was not on the
+  Files line. §8 gives contrast to Phases 2 and 8.
+- **Long inline code wraps mid-token on a phone** (`--github` broke as `--` / `github` at 390px in the seeded
+  transcript).
+- **Chunk sizes.** §8 asks for the gzipped `/dox` chunk sizes before and after each UI phase (#304); Phases 1 and 2 did
+  not record them. Phase 3's commit records the sizes after it.

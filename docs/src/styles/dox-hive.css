@@ -2,7 +2,7 @@
  * The hive: layout and ornament for the Dox page (plan #309 D5), ported from gmt's `gmt-hive.css` (gmt d479dca8) and
  * recoloured: every cyan role is the spring tier, `--gmt-spring` for fills, borders and rings and `--gmt-spring-ink`
  * for text. It carries the shell, the strip, the hub and the crystal (phase 1) and the transcript and the composer
- * (phase 2); the rail comes with its phase. The hive's text pairs are measured in `docs/scripts/theme-contrast.mjs`
+ * (phase 2) and the examples rail, its resizer and the phone's bar (phase 3). The hive's text pairs are measured in `docs/scripts/theme-contrast.mjs`
  * ("hive: ..."): a colour changed here changes there too.
  *
  * Imported by `DoxPage.tsx`, never from `astro.config.mjs`'s `customCss`, so Vite code-splits it into the island's chunk
@@ -450,7 +450,10 @@
 .gmt-hive-jump,
 .gmt-hive-new,
 .gmt-hive-warning-retry,
-.gmt-hive-boundary-button {
+.gmt-hive-boundary-button,
+.gmt-hive-example,
+.gmt-hive-example-chip,
+.gmt-hive-examples-bar {
   /* biome-ignore lint/correctness/noUnknownProperty: corner-shape is not yet in Biome's property list */
   corner-shape: bevel;
 }
@@ -1118,5 +1121,412 @@
     color: CanvasText;
     background: Canvas;
     border-color: CanvasText;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Examples rail (plan #309 Phase 3): the starter questions beside the chat, or under it as a sheet on a phone. Starlight's
+ * `@layer starlight.reset { * { margin: 0 } }` beats utilities on this site and this sheet is unlayered, so it is styled
+ * here and not with classes.
+ * ------------------------------------------------------------------ */
+
+/* The default width is also the narrowest. The reader can drag the rail out to half the page while the chat keeps at least
+   28rem (`RailResizer.tsx`, bounds in `rail-width.ts`, which mirrors these numbers). The clamp lives here too, so a window
+   resize needs no script. */
+.gmt-hive-rail {
+  --gmt-hive-rail-min: clamp(22rem, 34vw, 34rem);
+
+  flex: 0 0 var(--gmt-hive-rail-width, var(--gmt-hive-rail-min));
+  min-inline-size: var(--gmt-hive-rail-min);
+  max-inline-size: max(var(--gmt-hive-rail-min), min(50%, 100% - 28rem));
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  overflow-y: auto;
+  border-inline-start: 1px solid var(--gmt-border);
+}
+
+/* While dragging, text in either pane must not select, and the cursor must not flicker as it crosses the rail. */
+.gmt-hive-body[data-resizing] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.gmt-hive-body[data-resizing] .gmt-hive-rail {
+  pointer-events: none;
+}
+
+/* The resize handle has no width of its own, so the layout is unchanged. Its hit area straddles the rail's border, which
+   lights up on hover, focus and drag; the drag state is `data-resizing` on the handle itself, set by `RailResizer`. */
+.gmt-hive-resizer {
+  position: relative;
+  flex: 0 0 0;
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.gmt-hive-resizer::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: -0.375rem;
+  inline-size: 0.75rem;
+}
+
+.gmt-hive-resizer::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: -1px;
+  inline-size: 3px;
+  background: transparent;
+  transition: background var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+.gmt-hive-resizer:hover::after,
+.gmt-hive-resizer:focus::after,
+.gmt-hive-resizer[data-resizing]::after {
+  background: var(--gmt-spring-ink);
+}
+
+/* The line carries the focus state, so the page's outline gives way to it. */
+.gmt-hive-resizer:focus-visible {
+  outline-color: transparent;
+}
+
+/* ---- The panel ---- */
+
+.gmt-hive-examples {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+
+.gmt-hive-examples-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: var(--gmt-space-3);
+  padding: var(--gmt-space-3) var(--gmt-space-4);
+  border-block-end: 1px solid var(--gmt-border);
+}
+
+.gmt-hive-examples .gmt-hive-examples-header h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gmt-ice-dim);
+}
+
+.gmt-hive-examples-count {
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  color: var(--gmt-ice-dim);
+}
+
+/* The body scrolls inside the rail; the header stays put. */
+.gmt-hive-examples-body {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow-y: auto;
+  padding: var(--gmt-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gmt-space-6);
+}
+
+.gmt-hive-examples-area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gmt-space-3);
+}
+
+.gmt-hive-examples .gmt-hive-examples-area-title {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gmt-ice-dim);
+
+  /* The glyph sits before the label on the same line, so the row stays one line tall. */
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-inline-size: 0;
+}
+
+/* The glyph takes the heading's own colour (`currentColor`). */
+.gmt-hive-examples-area-icon {
+  flex: none;
+  inline-size: 1.3em;
+  block-size: 1.3em;
+}
+
+.gmt-hive-examples-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gmt-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gmt-hive-examples .gmt-hive-examples-list > li {
+  margin: 0;
+  padding: 0;
+}
+
+.gmt-hive-examples .gmt-hive-examples-list > li::before {
+  content: none;
+}
+
+/* A native button, restyled. The text is `--gmt-ice` in every state, so hover and focus change the border and the fill and
+   never the text colour. */
+.gmt-hive-example {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gmt-space-2);
+  inline-size: 100%;
+  min-block-size: 2.75rem;
+  margin: 0;
+  padding: var(--gmt-space-3) var(--gmt-space-4);
+  font: inherit;
+  font-size: var(--gmt-text-sm);
+  line-height: 1.5;
+  text-align: start;
+  color: var(--gmt-ice);
+  background: var(--gmt-fill-subtle);
+  border: 1px solid var(--gmt-border);
+  border-radius: var(--gmt-radius-md);
+  cursor: pointer;
+  transition:
+    background var(--gmt-duration-fast) var(--gmt-easing),
+    border-color var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+.gmt-hive-example:hover,
+.gmt-hive-example:focus-visible {
+  background: var(--gmt-fill-strong);
+  border-color: var(--gmt-border-strong);
+}
+
+.gmt-hive-example-text {
+  overflow-wrap: anywhere;
+}
+
+/* Names the page that answers the question. Its own border, so it reads as a tag on the card and not as more of the
+   question. */
+.gmt-hive-example-chip {
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.04em;
+  color: var(--gmt-ice-dim);
+  padding: var(--gmt-space-1) var(--gmt-space-2);
+  border: 1px solid var(--gmt-border-strong);
+  border-radius: var(--gmt-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+/* ---- The phone's bar: the way back to the sheet. Hidden here, shown inside the 60rem query below. ---- */
+
+.gmt-hive-examples-bar {
+  appearance: none;
+  display: none;
+  align-items: center;
+  gap: var(--gmt-space-2);
+  inline-size: 100%;
+  min-block-size: 2.75rem;
+  margin: 0 0 var(--gmt-space-2);
+  padding: var(--gmt-space-2) var(--gmt-space-4);
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gmt-ice);
+  background: var(--gmt-fill-subtle);
+  border: 1px solid var(--gmt-border);
+  border-radius: var(--gmt-radius-md);
+  cursor: pointer;
+  transition:
+    background var(--gmt-duration-fast) var(--gmt-easing),
+    border-color var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+.gmt-hive-examples-bar:hover,
+.gmt-hive-examples-bar:focus-visible {
+  background: var(--gmt-fill-strong);
+  border-color: var(--gmt-border-strong);
+}
+
+.gmt-hive-examples-bar-chevron {
+  margin-inline-start: auto;
+  inline-size: 1rem;
+  block-size: 1rem;
+  transition: transform var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+.gmt-hive-examples-bar[aria-expanded="true"] .gmt-hive-examples-bar-chevron {
+  transform: rotate(180deg);
+}
+
+/* Below this width a side-by-side split leaves neither half usable, so the rail becomes a bottom sheet: it is already the
+   body's second child, so source order gives the stacking, and there is nothing to drag. */
+@media (width <= 60rem) {
+  .gmt-hive-body {
+    flex-direction: column;
+  }
+
+  .gmt-hive-rail {
+    flex: 0 0 55%;
+    min-inline-size: 0;
+    max-inline-size: none;
+    border-inline-start: none;
+    border-block-start: 1px solid var(--gmt-border);
+  }
+
+  .gmt-hive-resizer {
+    display: none;
+  }
+
+  .gmt-hive-examples-bar {
+    display: flex;
+  }
+
+  /* An empty conversation: the crystal, status line and prompt keep their full height and the sheet takes the rest, rather
+     than a fixed 55% squeezing the hub off the top. Its floor is low (the title and about two rows, which scroll inside
+     it) so the crystal keeps its height below the site header on short phones. The bar stays hidden: the sheet is open. */
+  .gmt-hive-body[data-empty] .gmt-hive-chat {
+    flex: 0 1 auto;
+  }
+
+  .gmt-hive-body[data-empty] .gmt-hive-rail {
+    flex: 1 1 0;
+    min-block-size: 7rem;
+  }
+
+  .gmt-hive-body[data-empty] .gmt-hive-empty {
+    padding-block: var(--gmt-space-3);
+    gap: var(--gmt-space-2);
+  }
+
+  .gmt-hive-body[data-empty] .gmt-hive-examples-bar {
+    display: none;
+  }
+
+  /* A conversation has started: the sheet folds away until the bar above the composer opens it. */
+  .gmt-hive-body:not([data-empty]) .gmt-hive-rail[data-collapsed] {
+    display: none;
+  }
+}
+
+/* A short phone, empty conversation: the crystal, status line and prompt do not fit beside even the sheet's floor, so the
+   sheet starts folded behind the bar, as it does once a conversation has started. gmt measured 688px tall at 320px wide
+   for the floor and keeps 44rem as the margin; the empty state's padding goes too. */
+@media (width <= 60rem) and (height <= 44rem) {
+  .gmt-hive-body[data-empty] .gmt-hive-rail[data-collapsed] {
+    display: none;
+  }
+
+  :where(.gmt-hive-body)[data-empty]:has(.gmt-hive-rail[data-collapsed])
+    .gmt-hive-chat {
+    flex: 1 1 auto;
+  }
+
+  .gmt-hive-body[data-empty] .gmt-hive-examples-bar {
+    display: flex;
+  }
+
+  .gmt-hive-body[data-empty] .gmt-hive:has(> .gmt-hive-empty) {
+    padding-block: 0;
+  }
+
+  .gmt-hive-body[data-empty] .gmt-hive-empty {
+    padding-block: var(--gmt-space-1);
+  }
+}
+
+/* Shorter still, a landscape phone: the composer alone takes about 210px, so squeezing would leave the transcript a sliver.
+   The chat keeps a 30rem floor and the shell scrolls as a page instead; focusing the composer scrolls it into view. */
+@media (width <= 60rem) and (height <= 35rem) {
+  .gmt-hive-shell {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .gmt-hive-body {
+    flex: 1 0 auto;
+    min-block-size: 30rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gmt-hive-example,
+  .gmt-hive-examples-bar,
+  .gmt-hive-examples-bar-chevron,
+  .gmt-hive-resizer::after {
+    transition: none;
+  }
+}
+
+/* Raised contrast: the hairlines that separate the surfaces become the strong border. Colour is never the only separator. */
+@media (prefers-contrast: more) {
+  .gmt-hive-rail,
+  .gmt-hive-examples-header {
+    border-color: var(--gmt-border-strong);
+  }
+
+  .gmt-hive-example,
+  .gmt-hive-examples-bar {
+    border-color: var(--gmt-border-strong);
+  }
+
+  .gmt-hive-resizer:hover::after,
+  .gmt-hive-resizer:focus::after,
+  .gmt-hive-resizer[data-resizing]::after {
+    background: CanvasText;
+  }
+}
+
+/* Forced colours drop tinted fills, so the cards, chips and bar are restated in the system palette. */
+@media (forced-colors: active) {
+  .gmt-hive-rail,
+  .gmt-hive-examples-header {
+    border-color: CanvasText;
+  }
+
+  .gmt-hive-example,
+  .gmt-hive-examples-bar {
+    background: ButtonFace;
+    color: ButtonText;
+    border: 1px solid ButtonText;
+  }
+
+  .gmt-hive-example-chip {
+    color: ButtonText;
+    border: 1px dashed ButtonText;
+  }
+
+  .gmt-hive-examples .gmt-hive-examples-area-title,
+  .gmt-hive-examples .gmt-hive-examples-header h2,
+  .gmt-hive-examples-count {
+    color: CanvasText;
+  }
+
+  .gmt-hive-resizer:hover::after,
+  .gmt-hive-resizer:focus::after,
+  .gmt-hive-resizer[data-resizing]::after {
+    background: Highlight;
   }
 }
