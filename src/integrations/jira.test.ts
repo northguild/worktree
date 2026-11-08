@@ -46,6 +46,24 @@ function signInPage(url: string, redirected = false) {
     headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
     json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token <")),
     text: async () => "<!DOCTYPE html><title>Sign in</title>",
+    body: { cancel: vi.fn().mockResolvedValue(undefined) },
+  };
+}
+
+// #312: a proxy's error page, which would be pasted whole if anything read it.
+const PROXY_PAGE = "<html><body><h1>502 Bad Gateway</h1></body></html>";
+
+function proxyErrorPage(url: string) {
+  return {
+    ok: false,
+    status: 502,
+    statusText: "Bad Gateway",
+    redirected: false,
+    url,
+    headers: new Headers({ "content-type": "text/html" }),
+    json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token <")),
+    text: vi.fn().mockResolvedValue(PROXY_PAGE),
+    body: { cancel: vi.fn().mockResolvedValue(undefined) },
   };
 }
 
@@ -972,6 +990,88 @@ jira:
     );
   });
 
+  it("names the status and host of an HTML error page, never the page", async () => {
+    stubCloudJira();
+    const page = proxyErrorPage(
+      "https://example.atlassian.net/rest/api/3/issue/DEV-123",
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(page));
+
+    const failure = fetchJiraIssue("dev-123");
+
+    await expect(failure).rejects.toThrow(
+      "Jira: Failed to fetch issue DEV-123. 502 Bad Gateway - example.atlassian.net answered with a web page, not the API",
+    );
+    await expect(failure).rejects.not.toThrow(/<html|<h1|api-token/);
+    expect(page.text).not.toHaveBeenCalled();
+    expect(page.body.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the body of a sign-in page it does not read", async () => {
+    stubCloudJira();
+    const page = signInPage(
+      "https://example.atlassian.net/rest/api/3/issue/DEV-123",
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(page));
+
+    await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+      "answered with a web page",
+    );
+    expect(page.body.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("leaves no unhandled rejection when the cancel itself rejects", async () => {
+    stubCloudJira();
+    // A plain function, not vi.fn: a mock records how its promise settles,
+    // and that handles the rejection this test is looking for.
+    let cancels = 0;
+    const page = {
+      ...proxyErrorPage(
+        "https://example.atlassian.net/rest/api/3/issue/DEV-123",
+      ),
+      body: {
+        cancel: () => {
+          cancels += 1;
+          return Promise.reject(new TypeError("stream locked"));
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(page));
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+
+    try {
+      await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+        "Jira: Failed to fetch issue DEV-123. 502 Bad Gateway - example.atlassian.net answered with a web page, not the API",
+      );
+      // Node reports an unhandled rejection once the microtasks drain.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(cancels).toBe(1);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("keeps a JSON error body from Jira in the message", async () => {
+    stubCloudJira();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => '{"errorMessages":["boom"]}',
+      }),
+    );
+
+    await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+      'Jira: Failed to fetch issue DEV-123. 500 Internal Server Error - {"errorMessages":["boom"]}',
+    );
+  });
+
   it("names no redirect when a site with a context path redirects within its own host", async () => {
     stubCloudJira("https://jira.example.com/jira/");
     vi.stubGlobal(
@@ -1166,6 +1266,35 @@ jira:
       );
       await expect(failure).rejects.not.toThrow(authorization);
       expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("names the status and host of an HTML error page on the write, never the page", async () => {
+      const fetchSpy = stubJira({ assignee: null });
+      const answer = fetchSpy.getMockImplementation();
+      const page = proxyErrorPage(
+        "https://example.atlassian.net/rest/api/3/issue/DEV-123/assignee",
+      );
+      fetchSpy.mockImplementation(async (url: string, init: RequestInit) =>
+        init.method === "PUT"
+          ? (page as never)
+          : (answer?.(url, init) as never),
+      );
+
+      const failure = assignJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        "Jira: Failed to assign issue DEV-123. 502 Bad Gateway - example.atlassian.net answered with a web page, not the API",
+      );
+      await expect(failure).rejects.not.toThrow(/<html|<h1|api-token/);
+      expect(page.text).not.toHaveBeenCalled();
+    });
+
+    it("keeps a plain error body from Jira on the write", async () => {
+      stubJira({ assignee: null, putStatus: 500, putBody: "boom" });
+
+      await expect(assignJiraIssue("DEV-123")).rejects.toThrow(
+        "Jira: Failed to assign issue DEV-123. 500 status 500 - boom",
+      );
     });
 
     function putCalls(fetchSpy: ReturnType<typeof stubJira>) {
@@ -1616,6 +1745,27 @@ jira:
       );
       await expect(failure).rejects.not.toThrow(authorization);
       expect(posts(fetchSpy)).toHaveLength(0);
+    });
+
+    it("names the status and host of an HTML error page on the write, never the page", async () => {
+      const fetchSpy = stubJira();
+      const answer = fetchSpy.getMockImplementation();
+      const page = proxyErrorPage(
+        "https://example.atlassian.net/rest/api/3/issue/DEV-123/transitions",
+      );
+      fetchSpy.mockImplementation(async (url: string, init: RequestInit) =>
+        init.method === "POST"
+          ? (page as never)
+          : (answer?.(url, init) as never),
+      );
+
+      const failure = startJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        "Jira: Failed to move issue DEV-123. 502 Bad Gateway - example.atlassian.net answered with a web page, not the API",
+      );
+      await expect(failure).rejects.not.toThrow(/<html|<h1|api-token/);
+      expect(page.text).not.toHaveBeenCalled();
     });
 
     function posts(fetchSpy: ReturnType<typeof stubJira>) {

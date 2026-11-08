@@ -438,18 +438,26 @@ function hostOf(url: string): string | undefined {
   }
 }
 
-// #295: an SSO gateway in front of Jira answers an API call with its sign-in
-// page, often after a redirect to another origin, and fetch hands that over as
-// a 200. Say what arrived and from which host. Hosts only: no header value,
-// and so never the token (D10).
-function webPageInsteadOfApi(site: JiraSite, response: Response): Error | null {
+function isWebPage(response: Response): boolean {
   const contentType = response.headers?.get?.("content-type") ?? "";
 
-  if (!/\b(text\/html|application\/xhtml\+xml)\b/i.test(contentType)) {
-    return null;
-  }
+  return /\b(text\/html|application\/xhtml\+xml)\b/i.test(contentType);
+}
 
-  // site.host may carry a context path (example.com/jira); compare hosts.
+// A web page's body is never read, so it is cancelled instead: Node's garbage
+// collector is too slow to rely on, and undici holds the connection until the
+// body is consumed or cancelled. A failed cancel changes nothing for the caller.
+function discardBody(response: Response): void {
+  void response.body?.cancel().catch(() => {});
+}
+
+// The host that answered, and whether a redirect took the request away from
+// the configured site. site.host may carry a context path (example.com/jira);
+// compare hosts.
+function answeringHost(
+  site: JiraSite,
+  response: Response,
+): { finalHost: string; redirect: string } {
   const siteHost = hostOf(`https://${site.host}`) ?? site.host;
   const finalHost = (response.url && hostOf(response.url)) || siteHost;
   const redirect =
@@ -457,9 +465,45 @@ function webPageInsteadOfApi(site: JiraSite, response: Response): Error | null {
       ? ` after a redirect from ${siteHost}`
       : "";
 
+  return { finalHost, redirect };
+}
+
+// #295: an SSO gateway in front of Jira answers an API call with its sign-in
+// page, often after a redirect to another origin, and fetch hands that over as
+// a 200. Say what arrived and from which host. Hosts only: no header value,
+// and so never the token (D10).
+function webPageInsteadOfApi(site: JiraSite, response: Response): Error | null {
+  if (!isWebPage(response)) {
+    return null;
+  }
+
+  // Every caller gives up on the response once this names it a web page.
+  discardBody(response);
+  const { finalHost, redirect } = answeringHost(site, response);
+
   return new Error(
     `Jira: ${finalHost} answered with a web page${redirect}, not the API. A sign-in gateway in front of Jira may need a browser session or an exception for API calls.`,
   );
+}
+
+// #312: the text after a failed request's status. Jira's own JSON or plain
+// body stays; a web page (a proxy's 502 page, say) is named by host and never
+// read or pasted. Hosts only, as above (D10).
+async function jiraFailureBody(
+  path: string,
+  site: JiraSite,
+  response: Response,
+): Promise<string> {
+  if (isWebPage(response)) {
+    discardBody(response);
+    const { finalHost, redirect } = answeringHost(site, response);
+
+    return ` - ${finalHost} answered with a web page${redirect}, not the API`;
+  }
+
+  const body = await readJiraBody(path, () => response.text());
+
+  return body ? ` - ${body}` : "";
 }
 
 // Reads a JSON body, but first says so when the answer is a web page.
@@ -595,9 +639,9 @@ async function readJiraIssue(
   }
 
   if (!response.ok) {
-    const errorMessage = await readJiraBody(issuePath, () => response.text());
+    const body = await jiraFailureBody(issuePath, site, response);
     throw new Error(
-      `Jira: Failed to fetch issue ${issueKey}. ${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`,
+      `Jira: Failed to fetch issue ${issueKey}. ${response.status} ${response.statusText}${body}`,
     );
   }
 
@@ -709,10 +753,11 @@ interface JiraUser {
 }
 
 // D5: a failed assignment is named in the person's terms. The messages carry
-// the issue key and the API's own text, never a header. `step` is which of the
-// three requests failed, because each needs something different: reading the
-// caller needs only a login, reading the issue needs Browse Projects, and
-// writing its assignee needs Assign Issues.
+// the issue key and the API's own text (a web page is named by its host,
+// #312), never a header. `step` is which of the three requests failed,
+// because each needs something different: reading the caller needs only a
+// login, reading the issue needs Browse Projects, and writing its assignee
+// needs Assign Issues.
 async function jiraAssignFailure(
   response: Response,
   path: string,
@@ -742,8 +787,8 @@ async function jiraAssignFailure(
     return new Error(`Jira: Issue ${issueKey} was not found.`);
   }
 
-  const errorMessage = await readJiraBody(path, () => response.text());
-  const detail = `${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
+  const body = await jiraFailureBody(path, site, response);
+  const detail = `${response.status} ${response.statusText}${body}`;
 
   if (response.status === 400 && step === "assignee") {
     return new Error(
@@ -872,8 +917,9 @@ interface JiraTransition {
 }
 
 // D8: a failed move is named in the person's terms. The messages carry the
-// issue key and the API's own text, never a header. `transitionName` is set
-// only for the write, whose 400 means the transition's screen wants a field (D4).
+// issue key and the API's own text (a web page is named by its host, #312),
+// never a header. `transitionName` is set only for the write, whose 400 means
+// the transition's screen wants a field (D4).
 async function jiraStartFailure(
   response: Response,
   path: string,
@@ -889,8 +935,8 @@ async function jiraStartFailure(
     return new Error(`Jira: Issue ${issueKey} was not found.`);
   }
 
-  const errorMessage = await readJiraBody(path, () => response.text());
-  const detail = `${response.status} ${response.statusText}${errorMessage ? ` - ${errorMessage}` : ""}`;
+  const body = await jiraFailureBody(path, site, response);
+  const detail = `${response.status} ${response.statusText}${body}`;
 
   if (response.status === 400 && transitionName) {
     return new Error(

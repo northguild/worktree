@@ -182,6 +182,10 @@ keeps working. It is configured, not detected, because a Cloud site can have a c
   often after a redirect to another host. That reads `Jira: sso.example.com answered with a web page after a
   redirect from jira.example.com, not the API.`, naming hosts only, and says the gateway may need a browser
   session or an exception for API calls. Jira never saw the request, so this says nothing about the token.
+- **An HTML error page on a failed request is named, never pasted.** When a request fails and the answer is a web
+  page, such as a proxy's 502 or 503 page, the error gives the status and the host that answered, for example
+  `Failed to fetch issue DEV-123. 502 Bad Gateway - jira.example.com answered with a web page, not the API`, and
+  not the page itself. A JSON or plain-text error body from Jira stays in the message.
 - **A 401 names the likely fix.** On `cloud` with a host outside `atlassian.net`, the error suggests
   `worktree config jira.deployment datacenter`; on `datacenter` with an `atlassian.net` host it says Jira Cloud
   uses `cloud`.
