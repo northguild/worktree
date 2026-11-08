@@ -19,7 +19,7 @@ import {
   isProjectFileKey,
   isTeamConfigKey,
   loadProjectConfig,
-  MIGRATION_OFFER_KEY,
+  markProjectConfigUnusable,
   offerProjectConfig,
   POST_CREATE_APPROVAL_KEY,
   PROJECT_CONFIG_SCHEMA_URL,
@@ -1679,17 +1679,30 @@ function fakeGitConfig(initial: Record<string, string> = {}) {
     const key = `northguild.worktree.${name}`;
     return local.get(key) ?? global.get(key) ?? "";
   });
+  // git's exit codes, on the error as execFile puts them: 1 for a key that is
+  // not set, 5 for an unset of a key that is not there.
+  const exit = (code: number) =>
+    Object.assign(new Error(`exit ${code}`), { code });
   mockRun.mockImplementation(async (_file: string, args: string[]) => {
     const [, scope, a, b] = args;
+    if (scope === "--show-scope" && a === "--get-all" && b) {
+      // In git's order: global before local.
+      const entries = [
+        ...(global.has(b) ? [`global\t${global.get(b)}`] : []),
+        ...(local.has(b) ? [`local\t${local.get(b)}`] : []),
+      ];
+      if (entries.length === 0) throw exit(1);
+      return entries.join("\n");
+    }
     if (scope !== "--local")
       throw new Error(`unexpected git ${args.join(" ")}`);
     if (a === "--unset") {
-      if (!b || !local.delete(b)) throw new Error("exit 5");
+      if (!b || !local.delete(b)) throw exit(5);
       return "";
     }
     if (b === undefined) {
       const value = a === undefined ? undefined : local.get(a);
-      if (value === undefined) throw new Error("exit 1");
+      if (value === undefined) throw exit(1);
       return value;
     }
     local.set(a as string, b);
@@ -1870,7 +1883,7 @@ postCreate:
 
 describe("the internal offer keys (D22)", () => {
   it("live under northguild.worktree.* and are not in CONFIG_NAMES", () => {
-    for (const key of [PROJECT_FILE_OFFER_KEY, MIGRATION_OFFER_KEY]) {
+    for (const key of [PROJECT_FILE_OFFER_KEY]) {
       expect(key.startsWith("northguild.worktree.")).toBe(true);
       const bare = key.replace("northguild.worktree.", "");
       expect(CONFIG_NAMES as readonly string[]).not.toContain(bare);
@@ -1911,6 +1924,19 @@ describe("offerProjectConfig: the nudge (D21)", () => {
     // A "no" is recorded as well as a "yes".
     expect(local.get(PROJECT_FILE_OFFER_KEY)).toBe("declined");
     expect(fs.existsSync(path.join(scratch, ".worktree.yml"))).toBe(false);
+  });
+
+  // Review of #296: since #281, `worktree config` marks a file it cannot use
+  // `{ status: "none", reason: "unusable" }` and carries on. That is not "no
+  // file", so the offer stays silent and records no answer.
+  it("offers nothing when the file was marked unusable", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    markProjectConfigUnusable();
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(local.has(PROJECT_FILE_OFFER_KEY)).toBe(false);
   });
 
   it("writes the file on yes and records the answer", async () => {
@@ -1967,40 +1993,43 @@ describe("offerProjectConfig: the nudge (D21)", () => {
   });
 });
 
-describe("offerProjectConfig: migration (D21)", () => {
+describe("offerProjectConfig: removing the keys the file covers", () => {
   const FILE =
     "branchPrefix:\n  feature: feat/\n  bugfix: fix/\npostCreate:\n  - pnpm install\n";
   let say: ReturnType<typeof vi.spyOn>;
+  let warn: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.mocked(confirm).mockReset();
     say = vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    warn = vi.spyOn(console, "error").mockImplementation(() => {});
     setNonInteractive(false);
     fromOriginMain(FILE);
   });
 
   afterEach(() => {
     say.mockRestore();
+    warn.mockRestore();
+    vi.unstubAllEnvs();
     setNonInteractive(false);
   });
 
-  it("offers to unset local keys that hold the file's value, and leaves a differing one", async () => {
+  // Rule (issue #289, project-configuration.mdx "Moving to the file"): a
+  // local value identical to the file's is removed, silently; a differing
+  // local value, a global value and a personal key are not.
+  it("unsets local keys that hold the file's value, without asking or printing", async () => {
     const { local } = fakeGitConfig({
       "branchPrefix.feature": "feat/",
       "branchPrefix.bugfix": "bug/",
       postCreate: "pnpm install",
+      postCreateApproval: postCreateApprovalHash(["pnpm install"]),
       opener: "herdr",
     });
-    vi.mocked(confirm).mockResolvedValue(true);
 
     await offerProjectConfig();
 
-    expect(confirm).toHaveBeenCalledTimes(1);
-    const message = vi.mocked(confirm).mock.calls[0]?.[0].message ?? "";
-    expect(message).toContain("branchPrefix.feature");
-    expect(message).toContain("postCreate");
-    expect(message).not.toContain("branchPrefix.bugfix");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(say).not.toHaveBeenCalled();
     expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
     expect(local.has("northguild.worktree.postCreate")).toBe(false);
     // The differing value is the discouraged override; a personal key is not covered.
@@ -2014,30 +2043,37 @@ describe("offerProjectConfig: migration (D21)", () => {
     ]);
   });
 
-  it("unsets nothing on no, and does not ask again for the same content", async () => {
-    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
-    vi.mocked(confirm).mockResolvedValue(false);
+  // project-configuration.mdx: with no origin/HEAD the personal
+  // defaultSourceBranch is what finds the file, so removing it would lose it.
+  it("removes a covered defaultSourceBranch when origin/HEAD resolves", async () => {
+    fromOriginMain("defaultSourceBranch: origin/main\n");
+    const { local } = fakeGitConfig({ defaultSourceBranch: "origin/main" });
 
     await offerProjectConfig();
-    await offerProjectConfig();
 
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+    expect(local.has("northguild.worktree.defaultSourceBranch")).toBe(false);
   });
 
-  it("asks again when the file's content changes", async () => {
-    fakeGitConfig({ "branchPrefix.feature": "feat/" });
-    vi.mocked(confirm).mockResolvedValue(false);
+  it("keeps a covered defaultSourceBranch when there is no origin/HEAD, other keys still go", async () => {
+    mocked.gitResolveOriginHead.mockResolvedValue("");
+    blob("defaultSourceBranch: origin/main\nbranchPrefix:\n  feature: feat/\n");
+    const { local } = fakeGitConfig({
+      defaultSourceBranch: "origin/main",
+      "branchPrefix.feature": "feat/",
+    });
+    mockedConfig.gitGetConfigValue.mockImplementation(
+      async (name: string) => local.get(`northguild.worktree.${name}`) ?? "",
+    );
 
     await offerProjectConfig();
-    resetProjectConfigCache();
-    fromOriginMain(`${FILE}defaultSourceBranch: origin/main\n`);
-    await offerProjectConfig();
 
-    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(local.get("northguild.worktree.defaultSourceBranch")).toBe(
+      "origin/main",
+    );
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
   });
 
-  it("does not ask when no local key matches, and does not unset a global one", async () => {
+  it("leaves a global value alone", async () => {
     const { local, global } = fakeGitConfig({
       "branchPrefix.feature": "other/",
     });
@@ -2045,27 +2081,179 @@ describe("offerProjectConfig: migration (D21)", () => {
 
     await offerProjectConfig();
 
-    expect(confirm).not.toHaveBeenCalled();
-    expect(local.has(MIGRATION_OFFER_KEY)).toBe(false);
+    expect(global.get("northguild.worktree.branchPrefix.bugfix")).toBe("fix/");
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe(
+      "other/",
+    );
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["--unset"]),
+    );
   });
 
-  it("offers a multi-step postCreate nothing, since one string is not a list", async () => {
-    fromOriginMain("postCreate:\n  - pnpm install\n  - pnpm build\n");
-    fakeGitConfig({ postCreate: "pnpm install; pnpm build" });
+  // Review of #296: unsetting a local copy must not hand the key to another
+  // scope's value, which would then win over the file (D2).
+  it("leaves a local copy alone when another scope also sets the key", async () => {
+    const { local, global } = fakeGitConfig({
+      "branchPrefix.feature": "feat/",
+    });
+    global.set("northguild.worktree.branchPrefix.feature", "feature/");
 
     await offerProjectConfig();
 
-    expect(confirm).not.toHaveBeenCalled();
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["--unset"]),
+    );
   });
 
-  it("offers nothing non-interactively", async () => {
+  // Review of #296: a personal postCreate is what skips the approval (D16).
+  // Removing it while the file's step is unapproved would make every later
+  // unattended `branch` stop on approval.
+  it("keeps a covered postCreate while the file's step is not approved, so unattended runs still pass", async () => {
+    const { local } = fakeGitConfig({ postCreate: "pnpm install" });
+
+    await offerProjectConfig();
+    setNonInteractive(true);
+
+    expect(local.get("northguild.worktree.postCreate")).toBe("pnpm install");
+    await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
+  });
+
+  it("removes a covered postCreate once the file's step is approved, and unattended runs still pass", async () => {
+    const { local } = fakeGitConfig({
+      postCreate: "pnpm install",
+      postCreateApproval: postCreateApprovalHash(["pnpm install"]),
+    });
+
+    await offerProjectConfig();
+    setNonInteractive(true);
+
+    expect(local.has("northguild.worktree.postCreate")).toBe(false);
+    await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
+  });
+
+  it("leaves a local postCreate alone when the file's is a list of several steps", async () => {
+    fromOriginMain("postCreate:\n  - pnpm install\n  - pnpm build\n");
+    const { local } = fakeGitConfig({ postCreate: "pnpm install; pnpm build" });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.postCreate")).toBe(
+      "pnpm install; pnpm build",
+    );
+  });
+
+  it("removes nothing when the file came from WORKTREE_PROJECT_CONFIG, not the default branch", async () => {
+    const draft = path.join(scratch, "draft.yml");
+    fs.writeFileSync(draft, FILE);
+    vi.stubEnv("WORKTREE_PROJECT_CONFIG", draft);
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+  });
+
+  it("still removes under --json, --yes, --non-interactive, CI or without a TTY", async () => {
     const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
     setNonInteractive(true);
 
     await offerProjectConfig();
 
     expect(confirm).not.toHaveBeenCalled();
+    expect(say).not.toHaveBeenCalled();
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
+  });
+
+  it("is a no-op the second time, and records no marker key", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+
+    await offerProjectConfig();
+    mockRun.mockClear();
+    await offerProjectConfig();
+
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["--unset"]),
+    );
+    expect([...local.keys()]).toEqual([]);
+  });
+
+  it("leaves an existing migrationOffer value from an older version untouched", async () => {
+    const { local } = fakeGitConfig({
+      "branchPrefix.feature": "feat/",
+      migrationOffer: "abc123",
+    });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.migrationOffer")).toBe("abc123");
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
+  });
+
+  it("rejects when an unset fails, so the caller can warn", async () => {
+    mockRun.mockImplementation(async (_file: string, args: string[]) => {
+      if (args.includes("--unset")) throw new Error("could not lock config");
+      return args.at(-1) === "northguild.worktree.branchPrefix.feature"
+        ? "local\tfeat/"
+        : "";
+    });
+
+    await expect(offerProjectConfig()).rejects.toThrow("could not lock config");
+  });
+
+  // Review of #296: two runs at once both read the key, and the second unset
+  // exits 5 because the first already removed it.
+  it("treats an unset that finds the key already gone as done", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    const fake = mockRun.getMockImplementation() as (
+      file: string,
+      args: string[],
+    ) => Promise<string>;
+    mockRun.mockImplementation(async (file: string, args: string[]) => {
+      if (args.includes("--unset")) {
+        // The other run's unset lands first.
+        local.delete(args.at(-1) as string);
+        throw Object.assign(new Error("exit 5"), { code: 5 });
+      }
+      return fake(file, args);
+    });
+
+    await expect(offerProjectConfig()).resolves.toBeUndefined();
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
+  });
+
+  it("rejects an unset that exits 5 with the key still there", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    const fake = mockRun.getMockImplementation() as (
+      file: string,
+      args: string[],
+    ) => Promise<string>;
+    mockRun.mockImplementation(async (file: string, args: string[]) => {
+      if (args.includes("--unset")) {
+        throw Object.assign(new Error("has multiple values"), { code: 5 });
+      }
+      return fake(file, args);
+    });
+
+    await expect(offerProjectConfig()).rejects.toThrow("has multiple values");
     expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+  });
+
+  it("does not repeat the file's warnings: reporting stays with the caller", async () => {
+    // An unknown key makes the load carry a warning.
+    fromOriginMain(`${FILE}surprise: 1\n`);
+    const result = await loadProjectConfig();
+    expect(result.warnings.length).toBeGreaterThan(0);
+    fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    setNonInteractive(true);
+
+    await offerProjectConfig();
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(say).not.toHaveBeenCalled();
   });
 });
 

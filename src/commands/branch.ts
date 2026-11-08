@@ -1605,14 +1605,17 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       brief,
     });
 
-    // D21: after the worktree is open, so the offers never sit between the
-    // person and their tree. The worktree is the deliverable (§2): nothing
-    // here can fail the run.
+    // D21: after the worktree is open, so the project-config step (the silent
+    // removal of the local keys the file covers, and the offer to write it)
+    // never sits between the person and their tree. Not gated on --json: the
+    // removal is silent and runs in non-interactive runs too. The worktree is
+    // the deliverable (§2): nothing here can fail the run, so a failure is a
+    // warning.
     try {
       await offerProjectConfig();
     } catch (error) {
       this.warn(
-        `Could not make the .worktree.yml offer. ${error instanceof Error ? error.message : String(error)}`,
+        `Could not update the project configuration from .worktree.yml. ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 

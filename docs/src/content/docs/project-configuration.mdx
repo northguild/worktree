@@ -371,19 +371,30 @@ merge it to the default branch. The result loads exactly as written.
 
 ## Moving to the file
 
-On a terminal, `worktree` offers two steps, each at most once. Nothing is offered under `--json`, `--yes`,
-`--non-interactive`, `CI` or without a terminal, and `branch` makes its offers only after the worktree is
-open.
+Two steps move your settings to the file. Only the first is an offer.
 
-- **Before there is a file.** With no `.worktree.yml` on the default branch and a team key in your git
-  config, `worktree` offers `worktree config --project` once per repository. Either answer is remembered.
-- **After there is one.** The keys in your local git config that hold the same value as the file are offered
-  for removal with `git config --local --unset`, once per version of the file. A key with a different value
-  is left alone: it is the override described under [Precedence](#precedence). Global values are never
-  touched.
+- **Before there is a file.** On a terminal, with no `.worktree.yml` on the default branch and a team key in
+  your git config, `worktree` offers `worktree config --project` once per repository. Either answer is
+  remembered. Nothing is offered under `--json`, `--yes`, `--non-interactive`, `CI` or without a terminal,
+  and `branch` makes the offer only after the worktree is open.
+- **After there is one.** The keys in your local git config that hold the same value as the file are removed
+  with `git config --local --unset`, without asking and without a message. `branch` does this after the worktree
+  is open (not on `--dry-run`), including under `--json`, `--yes` and `CI`, and a bare `worktree config` does it
+  too. This happens only when the file is on the default branch, not when it is read through
+  `WORKTREE_PROJECT_CONFIG`. A key with a different value is left alone: it is the override described under
+  [Precedence](#precedence). Global values are never touched. A matching key also stays wherever removing it
+  would change what `worktree` does:
+  - a key that another scope sets as well, such as your global git config, because that value would then win
+    over the file;
+  - a local `postCreate`, until you have [approved](#approving-the-steps) the file's step, because your own
+    `postCreate` is what lets `branch` run without that approval;
+  - with no `origin/HEAD`, a local `defaultSourceBranch`, because it is what finds the file.
 
-The answers are kept in local git config under `northguild.worktree.*`, outside the configuration keys:
-`worktree config --list` does not show them and `worktree config <key> <value>` cannot set them.
+  If a key cannot be removed, `branch` and `worktree config` warn and still succeed.
+
+The answer to the first offer is kept in local git config under `northguild.worktree.*`, outside the
+configuration keys: `worktree config --list` does not show it and `worktree config <key> <value>` cannot set
+it.
 
 `worktree config --list` marks where each value comes from, and `worktree config <key> <value>` for a key the
 file sets shows both values and asks first. See [`config`](/worktree/commands/config/#project-file).

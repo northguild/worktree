@@ -1066,13 +1066,11 @@ export async function writeProjectFile() {
 }
 
 // ---------------------------------------------------------------------------
-// The two offers (D21, D22)
+// The file offer and the covered-key removal (D21, D22)
 // ---------------------------------------------------------------------------
 
 /** "accepted" or "declined": the nudge is made once per repository. */
 export const PROJECT_FILE_OFFER_KEY = "northguild.worktree.projectFileOffer";
-/** A hash of the file's content the migration was last offered for. */
-export const MIGRATION_OFFER_KEY = "northguild.worktree.migrationOffer";
 
 async function readLocal(key: string) {
   try {
@@ -1124,64 +1122,96 @@ async function offerProjectFile() {
   }
 }
 
-async function offerMigration(config: ProjectConfig) {
-  const contentHash = createHash("sha256")
-    .update(JSON.stringify(config), "utf8")
-    .digest("hex");
-  if ((await readLocal(MIGRATION_OFFER_KEY)) === contentHash) {
-    return;
+/**
+ * The value of a key set exactly once, in local git config, and in no other
+ * scope; otherwise `""`. Every scope counts (D2), so with the same key set
+ * globally, system-wide, in a worktree's config or by `-c`, unsetting the local
+ * copy would hand the key to that other value instead of to the file.
+ */
+async function onlyLocalValue(key: string) {
+  let entries: string[];
+  try {
+    entries = (
+      await run("git", ["config", "--show-scope", "--get-all", key])
+    ).split("\n");
+  } catch {
+    return "";
   }
-  // Only a local value the file repeats exactly. A differing one is the
-  // discouraged override, and a global one is not this repository's to remove.
-  // A list of steps is not one string, so only a single step can match.
-  const covered: { key: ProjectFileKey; value: string }[] = [];
-  for (const key of PROJECT_FILE_KEYS) {
-    const fromFile = projectFileValue(config, key);
-    if (key === "postCreate" && (config.postCreate?.length ?? 0) !== 1) {
-      continue;
-    }
-    if (fromFile && (await readLocal(localKey(key))) === fromFile) {
-      covered.push({ key, value: fromFile });
-    }
+  const [entry, ...others] = entries;
+  if (!entry || others.length > 0) {
+    return "";
   }
-  if (covered.length === 0) {
-    return;
-  }
-  const list = covered
-    .map(({ key, value }) => `  ${key}=${showVisibly(value)}`)
-    .join("\n");
-  const remove = await askConfirm(
-    {
-      message: `${PROJECT_CONFIG_FILE} already sets these, with the same value, in your local git config:\n${list}\nRemove them from your local git config? You will not be asked again for this version of the file.`,
-    },
-    {
-      value: "whether to remove the settings the project file covers",
-      flag: "`git config --local --unset`",
-      fallback: false,
-    },
-  );
-  await run("git", ["config", "--local", MIGRATION_OFFER_KEY, contentHash]);
-  if (!remove) {
-    return;
-  }
-  for (const { key } of covered) {
-    await run("git", ["config", "--local", "--unset", localKey(key)]);
-  }
-  console.log(
-    `Removed ${covered.map(({ key }) => key).join(", ")} from your local git config.`,
-  );
+  const tab = entry.indexOf("\t");
+  return tab > 0 && entry.slice(0, tab) === "local" ? entry.slice(tab + 1) : "";
 }
 
 /**
- * The two offers of D21, for an interactive `branch` (after the worktree is
- * opened) and `config`. Nothing is asked, read or written for a run that is
- * non-interactive, which covers `--json`, `--yes`, CI and no TTY. A file that
- * cannot be used was already reported by the caller, so it is left alone here.
+ * A personal `postCreate` is what lets `branch` skip the approval (D16). Once
+ * the copy is gone the file's step needs its own, so the copy may go only when
+ * this person has approved that step; otherwise every unattended `branch` after
+ * the removal would stop on approval.
+ */
+async function fileStepApproved(config: ProjectConfig) {
+  const steps = config.postCreate ?? [];
+  return (
+    steps.length === 1 &&
+    (await readApproval()) === postCreateApprovalHash(steps)
+  );
+}
+
+async function unsetLocal(key: string) {
+  try {
+    await run("git", ["config", "--local", "--unset", key]);
+  } catch (error) {
+    // Exit 5 with the key gone is another run that removed it first, which is
+    // the outcome wanted. Anything else is a failure.
+    if ((error as { code?: unknown }).code === 5 && !(await readLocal(key))) {
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Unsets the local git config keys the project file repeats with the same
+ * value, without asking or printing. A file from the default branch keeps
+ * supplying them, so the copies only go stale. A copy stays where removing it
+ * would change what `worktree` does: a key another scope also sets, a
+ * `postCreate` whose step is not approved, and with no origin/HEAD a
+ * `defaultSourceBranch`, which is what finds the file. A failed unset throws,
+ * unless the key is already gone.
+ */
+async function removeCoveredLocalConfig(config: ProjectConfig) {
+  const hasOriginHead = Boolean(await gitResolveOriginHead());
+  for (const key of PROJECT_FILE_KEYS) {
+    // Only a local value the file repeats exactly. A differing one is the
+    // discouraged override, and a global one is not this repository's to remove.
+    // A list of steps is not one string, so only a single step can match.
+    if (key === "postCreate" && !(await fileStepApproved(config))) {
+      continue;
+    }
+    if (key === "defaultSourceBranch" && !hasOriginHead) {
+      continue;
+    }
+    const fromFile = projectFileValue(config, key);
+    if (fromFile && (await onlyLocalValue(localKey(key))) === fromFile) {
+      await unsetLocal(localKey(key));
+    }
+  }
+}
+
+/**
+ * What `branch` (after the worktree is opened) and `config` do with the project
+ * file. Keys the file already covers are removed from local git config on
+ * every run, `--json`, `--yes` and CI included, but only for a file read from
+ * the default branch: one from `WORKTREE_PROJECT_CONFIG` would leave the keys
+ * gone once the variable is unset. The offer to write the file is made only on
+ * an interactive run. A file that cannot be used was already reported by the
+ * caller, so it is left alone here, and its warnings are not printed again.
+ * The name predates the silent removal and is kept because a rename would
+ * touch both callers and every test that mocks it by name.
  */
 export async function offerProjectConfig() {
-  if (isNonInteractive()) {
-    return;
-  }
   let project: ProjectConfigResult;
   try {
     project = await loadProjectConfig();
@@ -1192,8 +1222,14 @@ export async function offerProjectConfig() {
     throw error;
   }
   if (project.status === "loaded") {
-    await offerMigration(project.config);
-  } else if (project.status === "none" && project.reason === "no-file") {
+    if (project.source.kind === "ref") {
+      await removeCoveredLocalConfig(project.config);
+    }
+  } else if (
+    project.status === "none" &&
+    project.reason === "no-file" &&
+    !isNonInteractive()
+  ) {
     await offerProjectFile();
   }
 }

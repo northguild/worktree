@@ -89,7 +89,8 @@ export default class Config extends BaseCommand {
         "With a key and a value, write it to your user config file, which holds personal defaults for every repository",
     }),
     // Passed by the commands that delegate to this one mid-run (`branch`, via
-    // verifyConfig), so the offers of D21 are not made before a worktree exists.
+    // verifyConfig), so the project-config step of D21 (the silent removal and
+    // the offer) does not run before a worktree exists.
     "skip-offers": Flags.boolean({ hidden: true }),
   };
 
@@ -602,10 +603,23 @@ export default class Config extends BaseCommand {
     if (wizard) {
       await runWizard(wizard);
     }
-    // Not for a run another command delegated (`branch` before a worktree
-    // exists), and not for one that named its keys (D21).
+    // The project-config step: silently removes the local keys the team's
+    // .worktree.yml covers, and on a terminal offers to write the file. Not for
+    // a run another command delegated (`branch` before a worktree exists), and
+    // not for one that named its keys (D21). The wizard has saved its values by
+    // now, so a failure here warns, as it does in `branch`, rather than failing
+    // the run; a quit (Ctrl+C at the offer) still ends it quietly.
     if (!flags.names && !flags["skip-offers"]) {
-      await offerProjectConfig();
+      try {
+        await offerProjectConfig();
+      } catch (error) {
+        if (error instanceof Error && error.name === "ExitPromptError") {
+          throw error;
+        }
+        this.warn(
+          `Could not update the project configuration from .worktree.yml. ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
   }
 }
