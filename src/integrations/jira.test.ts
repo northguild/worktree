@@ -34,6 +34,24 @@ function makeJiraIssue(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// #295: what an SSO gateway hands back for an API call, a sign-in page that
+// would fail JSON parsing if anything tried.
+function signInPage(url: string, redirected = false) {
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    redirected,
+    url,
+    headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
+    json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token <")),
+    text: async () => "<!DOCTYPE html><title>Sign in</title>",
+  };
+}
+
+const SIGN_IN_HINT =
+  "A sign-in gateway in front of Jira may need a browser session or an exception for API calls.";
+
 // A project file on origin/main, and no working copy of it to disagree with.
 function stubProjectFile(content: string) {
   vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
@@ -905,6 +923,102 @@ jira:
     await expect(failure).rejects.not.toThrow(/did not answer within/);
   });
 
+  function stubCloudJira(host = "https://example.atlassian.net/") {
+    expectCommands(
+      "git config northguild.worktree.jira.deployment",
+      "git config northguild.worktree.jira.host",
+      "git config northguild.worktree.jira.email",
+      "git config northguild.worktree.jira.apiToken",
+    );
+    vi.spyOn(cli, "run")
+      .mockResolvedValueOnce("cloud")
+      .mockResolvedValueOnce(host)
+      .mockResolvedValueOnce("test@example.com")
+      .mockResolvedValueOnce("api-token");
+  }
+
+  it("says a sign-in page reached by a redirect is not the API, naming hosts and no token", async () => {
+    stubCloudJira();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          signInPage("https://idp.example.com/login?next=%2Frest", true),
+        ),
+    );
+
+    const failure = fetchJiraIssue("dev-123");
+
+    await expect(failure).rejects.toThrow(
+      `Jira: idp.example.com answered with a web page after a redirect from example.atlassian.net, not the API. ${SIGN_IN_HINT}`,
+    );
+    await expect(failure).rejects.not.toThrow(/api-token|Unexpected token/);
+  });
+
+  it("says a sign-in page served at the API's own URL is not the API, with no redirect named", async () => {
+    stubCloudJira();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          signInPage("https://example.atlassian.net/rest/api/3/issue/DEV-123"),
+        ),
+    );
+
+    await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+      `Jira: example.atlassian.net answered with a web page, not the API. ${SIGN_IN_HINT}`,
+    );
+  });
+
+  it("names no redirect when a site with a context path redirects within its own host", async () => {
+    stubCloudJira("https://jira.example.com/jira/");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          signInPage("https://jira.example.com/jira/login.jsp", true),
+        ),
+    );
+
+    await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+      `Jira: jira.example.com answered with a web page, not the API. ${SIGN_IN_HINT}`,
+    );
+  });
+
+  it("does not count a gateway's sign-in page as valid credentials", async () => {
+    stubCloudJira();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(signInPage("https://idp.example.com/login", true)),
+    );
+
+    expect(await validateJiraCredentials()).toBe(false);
+  });
+
+  it("still reads an API answer that says it is JSON", async () => {
+    stubCloudJira();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({
+          "content-type": "application/json;charset=UTF-8",
+        }),
+        json: vi.fn().mockResolvedValue(makeJiraIssue()),
+      }),
+    );
+
+    await expect(fetchJiraIssue("dev-123")).resolves.toMatchObject({
+      key: "DEV-123",
+    });
+  });
+
   it("reports an error body that stalls past the timeout as a timeout", async () => {
     expectCommands(
       "git config northguild.worktree.jira.deployment",
@@ -1032,6 +1146,27 @@ jira:
 
       return fetchSpy;
     }
+
+    it.each([
+      ["myself", "/rest/api/3/myself"],
+      ["issue", "/rest/api/3/issue/DEV-123"],
+    ])("says a sign-in page for the %s read is not the API", async (_, path) => {
+      const fetchSpy = stubJira({ assignee: null });
+      const answer = fetchSpy.getMockImplementation();
+      fetchSpy.mockImplementation(async (url: string, init: RequestInit) =>
+        url.split("?")[0].endsWith(path)
+          ? (signInPage(url) as never)
+          : (answer?.(url, init) as never),
+      );
+
+      const failure = assignJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        `Jira: example.atlassian.net answered with a web page, not the API. ${SIGN_IN_HINT}`,
+      );
+      await expect(failure).rejects.not.toThrow(authorization);
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
 
     function putCalls(fetchSpy: ReturnType<typeof stubJira>) {
       return fetchSpy.mock.calls.filter(([, init]) => init.method === "PUT");
@@ -1461,6 +1596,27 @@ jira:
 
       return fetchSpy;
     }
+
+    it.each([
+      ["status", (url: string) => !url.includes("/transitions")],
+      ["transitions", (url: string) => url.includes("/transitions")],
+    ])("says a sign-in page for the %s read is not the API", async (_, isRead) => {
+      const fetchSpy = stubJira();
+      const answer = fetchSpy.getMockImplementation();
+      fetchSpy.mockImplementation(async (url: string, init: RequestInit) =>
+        init.method !== "POST" && isRead(url)
+          ? (signInPage(url) as never)
+          : (answer?.(url, init) as never),
+      );
+
+      const failure = startJiraIssue("DEV-123");
+
+      await expect(failure).rejects.toThrow(
+        `Jira: example.atlassian.net answered with a web page, not the API. ${SIGN_IN_HINT}`,
+      );
+      await expect(failure).rejects.not.toThrow(authorization);
+      expect(posts(fetchSpy)).toHaveLength(0);
+    });
 
     function posts(fetchSpy: ReturnType<typeof stubJira>) {
       return fetchSpy.mock.calls.filter(([, init]) => init.method === "POST");
