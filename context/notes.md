@@ -26,3 +26,29 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
 - **Phone layout unverified in a real device.** The caller's headless Chrome pass measured no scroll and a centred hub
   at 390×844, but its screenshots overflow on the right for gmt's live page too, so the phone pictures were not
   trusted.
+
+## Phase 2
+
+- **Dox and You share one colour.** D5 maps gmt's cyan (Dox) to spring, which was already gmt's user colour, so the
+  two speakers' nodes, card tints and labels are the same green; only side and label tell them apart. A maintainer
+  call: give one role ice or another tint, or accept it.
+- **The drawer until Phase 4.** `ChatWarning`, `ChatErrorBoundary` (which also loses its toast placement), the code
+  blocks' Copy bar in `MarkdownContent` and `ChatSubmitButton`'s icon now carry the hive look, which the drawer does not
+  load, so they render unstyled there. The branch never merges before Phase 4 deletes the drawer (one PR per feature).
+- **Layer order on the live site.** `@layer starlight.reset`'s `* { margin: 0 }` is declared after Tailwind's
+  `utilities`, so `mb-2` and `space-y-*` do nothing anywhere on the site, the drawer's answers included. `/dox` gets
+  its own reading surface; the drawer is retired in Phase 4, so nothing was filed.
+- **Effect suppression.** `DoxChat.tsx` carries a `biome-ignore useExhaustiveDependencies` for an unread `turnCount`;
+  `react/use-effect.md` says to fix the cause. Precedent at `useIdleTimeout.ts:40`; gmt's effect uses `[]` and a
+  ResizeObserver.
+- **Wording the code chose.** "Jump to latest message", "Copy" / "Copied" / "Copy failed" have no plan source (gmt's
+  scroll button has no name). Belongs with §9 Q9.
+- **Rules with no test yet.** The reader's text rendered as text rather than markdown (only `UserMessage.test.tsx`,
+  deleted in Phase 4); "New chat" during a stream stopping it; `scrollToBottom` instant under reduced motion; the
+  boundary marker `aria-hidden`. The warning's Try again focus ring (spring ink on the signal fill) is not measured.
+- **Model preference.** A model stored by the drawer is ignored on `/dox` until Phase 8's brain menu.
+- **Every code block is a tab stop.** `MarkdownContent`'s `<pre>` is a focusable named region even when it does not
+  scroll, so a one-line block adds a tab stop and a landmark; the transcript scroller is a region only while it
+  overflows (README). The same overflow-only rule would fit here.
+- **No test pins the reading surface's margins.** jsdom does no layout; the caller's headless-Chrome measurement is the
+  only check (recorded in the Phase 2 commit).

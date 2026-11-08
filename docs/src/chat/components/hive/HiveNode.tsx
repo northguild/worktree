@@ -20,9 +20,11 @@ interface HiveNodeProps {
   speaker: HiveRole;
   /** Waiting on the first token: the crystal keeps turning and the halo pulses, then it lands square. */
   pending?: boolean;
+  /** Names the label, so the turn's `<article>` can be labelled by it (`aria-labelledby`). */
+  labelId?: string;
 }
 
-export function HiveNode({ speaker, pending = false }: HiveNodeProps) {
+export function HiveNode({ speaker, pending = false, labelId }: HiveNodeProps) {
   const id = useId();
   const spinRef = useCrystalSpin(pending);
 
@@ -36,7 +38,9 @@ export function HiveNode({ speaker, pending = false }: HiveNodeProps) {
           <HiveGlyph idSuffix={id} />
         </div>
       </div>
-      <span className="gmt-hive-label">{LABELS[speaker]}</span>
+      <span id={labelId} className="gmt-hive-label">
+        {LABELS[speaker]}
+      </span>
     </div>
   );
 }

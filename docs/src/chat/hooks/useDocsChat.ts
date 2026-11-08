@@ -15,7 +15,7 @@ const THREAD_ID = "docs-chat";
 
 const STALLED: ChatWarningState = {
   message:
-    "The assistant stopped responding. The answer above may be incomplete — try again.",
+    "Dox stopped responding. The answer above may be incomplete — try asking again.",
   retryable: true,
 };
 

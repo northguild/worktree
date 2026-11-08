@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 import { useChatContext } from "./ChatContext";
 import { ChatForm } from "./ChatForm";
-import { ChatInfo } from "./ChatInfo";
+import { AccuracyNote } from "./ChatInfo";
 import { ChatWarning } from "./ChatWarning";
 import { Messages } from "./Messages";
 
@@ -62,7 +62,7 @@ export function ChatPanel() {
           submitRef={submitRef}
           inputRef={inputRef}
         />
-        <ChatInfo />
+        <AccuracyNote className="px-4 pb-3 text-xs text-chat-muted" />
       </div>
     </div>
   );

@@ -1,13 +1,13 @@
 /**
  * The full-bleed `/dox` surface (plan #309 D6; ported from gmt's `DoxPage`). It is deliberately not a nav bar: the
- * site header shows on this route as on every page and gives the way back, so the strip holds chat status only,
- * here the environment badge. The body holds the empty hub: the crystal at logo scale and the prompt line. The
- * transcript, the composer and the rail arrive in later phases.
+ * site header shows on this route as on every page and gives the way back, so the strip holds chat status and the one
+ * control that is the conversation's own, "New chat". The body holds the chat (`DoxChat`): the empty hub, or the
+ * transcript, and the pinned composer. The rail arrives in a later phase.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "../../styles/dox-hive.css";
 import { ChatErrorBoundary } from "./ChatErrorBoundary";
-import { HiveHub } from "./hive/HiveHub";
+import { DoxChat, type DoxChatHandle } from "./DoxChat";
 
 /**
  * Which Worker this page is talking to. Read after mount, never during render: deriving it from `window.location`
@@ -29,6 +29,8 @@ function useEnvironment(): Environment | null {
 
 export function DoxPage() {
   const environment = useEnvironment();
+  const chatRef = useRef<DoxChatHandle>(null);
+  const [empty, setEmpty] = useState(true);
 
   // `not-content` is Starlight's opt-out from its markdown rules: the island sits inside `.sl-markdown-content`, whose
   // `code` rules (colour, fill, size, margin, padding) would otherwise win over the hive's own at equal specificity.
@@ -36,6 +38,16 @@ export function DoxPage() {
     <div className="gmt-hive-shell not-content">
       <div className="gmt-hive-strip">
         <div className="gmt-hive-strip-end">
+          {/* Replaces the drawer's "Clear chat" (D12). Only a transcript can be left, so an empty page has no button. */}
+          {!empty && (
+            <button
+              type="button"
+              className="gmt-hive-new"
+              onClick={() => chatRef.current?.reset()}
+            >
+              New chat
+            </button>
+          )}
           {/* Standing status rather than a control, so it keeps the corner. */}
           {environment && (
             <span
@@ -52,22 +64,9 @@ export function DoxPage() {
           )}
         </div>
       </div>
-      <div className="gmt-hive-body" data-empty>
+      <div className="gmt-hive-body" data-empty={empty ? "" : undefined}>
         <ChatErrorBoundary>
-          <div className="gmt-hive-chat">
-            <div className="gmt-hive">
-              <div className="gmt-hive-empty">
-                <HiveHub />
-                {/* Names the character: the code treatment ties "Dox" to the crystal above it and to the package
-                    name, so both read as identifiers and not as prose. */}
-                <p className="gmt-hive-prompt">
-                  Ask <code className="gmt-hive-name">Dox</code> about
-                  worktrees, branches and issues in{" "}
-                  <code>@northguild/worktree</code>.
-                </p>
-              </div>
-            </div>
-          </div>
+          <DoxChat ref={chatRef} onEmptyChange={setEmpty} />
         </ChatErrorBoundary>
       </div>
     </div>

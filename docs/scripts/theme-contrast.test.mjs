@@ -177,3 +177,71 @@ describe("every pair the theme puts on screen", () => {
     expect(result.ratio).toBeLessThan(result.min);
   });
 });
+
+// Plan #309 Phase 2: the hive's pairs are measured, not assumed. The expected thresholds are WCAG 2.2's (text 4.5:1, a
+// control's boundary or glyph 3:1); the figure for the composer's edge is worked by hand below.
+describe("the hive's pairs (the Dox page)", () => {
+  const hive = PAIRS.filter((pair) => pair.name.startsWith("hive: "));
+
+  it("covers the text the page puts on its three surfaces: the page, a turn's card and the composer", () => {
+    const names = hive.filter((p) => p.kind === "text").map((p) => p.name);
+    for (const covered of [
+      "hive: text in a turn's card",
+      "hive: the waiting line",
+      "hive: a warning",
+      "hive: typed text in the composer",
+      "hive: the composer's placeholder",
+      "hive: the accuracy note",
+      "hive: a role label (Dox, You)",
+    ])
+      expect(names).toContain(covered);
+    expect(hive.filter((p) => p.kind === "text").length).toBeGreaterThanOrEqual(
+      15,
+    );
+  });
+
+  for (const theme of ["dark", "light"]) {
+    it(`measures every hive text pair at ${TEXT_MIN}:1 or more in the ${theme} theme`, () => {
+      const properties = themeProperties(theme);
+      const measured = measure(theme, hive, properties).filter(
+        (m) => m.kind === "text",
+      );
+      expect(measured.length).toBeGreaterThan(0);
+      expect(
+        measured.filter((m) => m.ratio < TEXT_MIN).map((m) => m.name),
+      ).toEqual([]);
+    });
+  }
+
+  it("lays a card's tint over the page before measuring: ice on spring at 5% over the dark void, 15.1:1", () => {
+    // Worked by hand, dark theme: void #03080c, spring #4ade80, ice #cfeaf2. The card is 5% spring over void:
+    // r = 3 + 0.05 * (74 - 3) = 6.55, g = 8 + 0.05 * (222 - 8) = 18.7, b = 12 + 0.05 * (128 - 12) = 17.8.
+    // L(card) = 0.2126 * lin(6.55) + 0.7152 * lin(18.7) + 0.0722 * lin(17.8) = 0.0004 + 0.0046 + 0.0004 = 0.0054 (lin per WCAG).
+    // L(ice #cfeaf2) = 0.2126 * 0.6239 + 0.7152 * 0.8228 + 0.0722 * 0.8879 = 0.7852. (0.7852 + 0.05) / (0.0054 + 0.05) = 15.1.
+    const [card] = measure(
+      "dark",
+      hive.filter((p) => p.name === "hive: text in a turn's card"),
+    );
+    expect(card.ratio).toBeCloseTo(15.1, 0);
+  });
+
+  it("keeps the composer's edge off gmt's spring hairline, which fails 3:1 in both themes", () => {
+    for (const theme of ["dark", "light"]) {
+      const [hairline] = measure(theme, [
+        {
+          name: "x",
+          fg: "var(--gmt-border-strong)",
+          bg: ["var(--gmt-glass-tint)", "var(--gmt-void)"],
+          min: NON_TEXT_MIN,
+          kind: "non-text",
+        },
+      ]);
+      expect(hairline.ratio).toBeLessThan(NON_TEXT_MIN);
+    }
+    const edge = hive.find((p) => p.name === "hive: the composer's edge");
+    for (const theme of ["dark", "light"])
+      expect(measure(theme, [edge])[0].ratio).toBeGreaterThanOrEqual(
+        NON_TEXT_MIN,
+      );
+  });
+});

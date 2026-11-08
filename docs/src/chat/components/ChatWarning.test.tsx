@@ -116,4 +116,15 @@ describe("ChatWarning", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Unavailable.");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
+
+  // §4.1 row 16: gmt's warning carries a marker, `⟨ ! ⟩`, that is decoration: the message is the content.
+  it("draws its marker hidden from assistive technology, so a screen reader hears only the message", () => {
+    render(
+      <ChatWarning state={{ message: "Wait a moment.", retryable: true }} />,
+    );
+
+    const marker = screen.getByText("⟨ ! ⟩");
+    expect(marker).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("status").textContent).toContain("Wait a moment.");
+  });
 });

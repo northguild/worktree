@@ -1,13 +1,34 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
+import answerStream from "../hooks/fixtures/chat-answer.sse?raw";
 import { DoxPage } from "./DoxPage";
 
 // Expected values: plan #309 Phase 1 "Done when" (the prompt line and an aria-hidden crystal SVG) and §4.1 rows 1, 3
 // and 7 (the empty hub, the environment badge `● local` / `● live` with a title, and the prompt line "Ask Dox about
 // ... in @northguild/worktree"). The wording of the prompt line is the plan's §9 Q9 ("worktree wording").
 
-afterEach(() => {
+beforeEach(() => {
+  const storage = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => void storage.set(key, value),
+    removeItem: (key: string) => void storage.delete(key),
+  });
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
+afterEach(async () => {
+  // A disposed chat client may still save on a timer; let it land in this test's storage.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
   vi.unstubAllGlobals();
 });
 
@@ -22,7 +43,8 @@ describe("DoxPage", () => {
 
   it("draws the crystal as an aria-hidden SVG, so the page names it once and in words", () => {
     const { container } = render(<DoxPage />);
-    const crystals = container.querySelectorAll("svg");
+    // The crystal is the 100 x 87 mark; the composer's icons are other SVGs.
+    const crystals = container.querySelectorAll('svg[viewBox="0 0 100 87"]');
     expect(crystals).toHaveLength(1);
     expect(crystals[0]).toHaveAttribute("aria-hidden", "true");
     expect(crystals[0]).toHaveAttribute("focusable", "false");
@@ -65,11 +87,56 @@ describe("DoxPage", () => {
     expect(html).not.toContain("● ");
   });
 
-  it("holds the hub in the body, marked empty, with no chat controls yet", async () => {
+  it("holds the hub and the composer in the body, marked empty, with no New chat to press", async () => {
     const { container } = render(<DoxPage />);
     await waitFor(() => expect(screen.getByText("● local")).toBeVisible());
     expect(container.querySelector("[data-empty]")).not.toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Message" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+  });
+});
+
+describe("DoxPage -- New chat", () => {
+  async function askOne() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const { runId } = JSON.parse(init.body as string) as { runId: string };
+        return new Response(answerStream.replaceAll("RUN-ID", runId), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }),
+    );
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "How do I remove a worktree?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await screen.findByRole("article", { name: "Dox" });
+    await waitFor(() =>
+      expect(screen.getByRole("article", { name: "Dox" })).toHaveTextContent(
+        "To remove a worktree",
+      ),
+    );
+  }
+
+  it("appears in the strip once there is a transcript, and empties it and shows the hub again when pressed", async () => {
+    const { container } = render(<DoxPage />);
+    await askOne();
+    await waitFor(() =>
+      expect(container.querySelector("[data-empty]")).toBeNull(),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
+
+    await waitFor(() =>
+      expect(screen.queryAllByRole("article")).toHaveLength(0),
+    );
+    expect(screen.getByText(/^Ask/, { selector: "p" })).toBeInTheDocument();
+    expect(container.querySelector("[data-empty]")).not.toBeNull();
+    // The button the reader pressed is gone with the transcript: focus moves to the composer, not to the page.
+    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
   });
 });

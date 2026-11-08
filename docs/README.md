@@ -89,7 +89,7 @@ On the page, the pieces are:
 - **The empty chat and its limits.** With no question yet, the transcript offers three starter questions
   (`lib/chat-starters.ts`, each paired with the docs page that answers it), sent through the same guarded
   `submit` as the composer; focus moves to the message field when they go. A line under the composer
-  (`components/ChatInfo.tsx`) says the answers can be wrong. `Chat.tsx` wraps the provider and drawer in
+  (`AccuracyNote` in `components/ChatInfo.tsx`) says the answers can be wrong. `Chat.tsx` wraps the provider and drawer in
   `ChatErrorBoundary`: a render error shows a `role="alert"` notice, with "Reload the page" when the error is
   a failed module load and "Try again" otherwise. A chat chunk missing on first open never reaches it: the
   launcher's `import()` fails first and shows its own load error (`launcher.ts`).
@@ -268,9 +268,10 @@ the URL because `/dox/` is a `StarlightPage` and not a collection entry, so it h
 ## The Dox page
 
 `/worktree/dox/` (`src/pages/dox.astro`) is the page the chat is becoming (plan #309): a full-bleed hive of its own under the
-site header, with a strip holding the environment badge (`● local` or `● live`, set after mount so the server markup matches)
-and, below it, the empty hub: the Dox crystal at logo scale and the prompt line. The transcript, the composer and the examples
-rail arrive in the later phases of #309; until they do, the drawer and its launcher still open the chat on every other page.
+site header, with a strip holding "New chat" (once there is a transcript) and the environment badge (`● local` or `● live`, set after
+mount so the server markup matches), and, below it, the chat: the empty hub (the Dox crystal at logo scale and the prompt line) or the
+transcript, and the pinned composer. The examples rail arrives in a later phase of #309; until then, the drawer and its launcher still
+open the chat on every other page.
 
 - **Shape.** A `StarlightPage` with `template: splash`, title "Dox", `noindex`, `pagefind: false`, an inline `<head>` script that sets
   `data-dox-shell` on `<html>`, and one `client:load` island, `DoxPage` (`src/chat/components/`). The page's global `<style>` keys
@@ -280,6 +281,27 @@ rail arrive in the later phases of #309; until they do, the drawer and its launc
 - **Kept out of lists.** The sitemap is `@astrojs/sitemap`, configured in `astro.config.mjs` with a `filter` that drops `/worktree/dox/`
   (Starlight adds its own sitemap only when none is configured). `llms.txt` is built from the content collection, which `/dox/` is not
   part of, and it is not one of the audit's 28 `PAGE_PATHS`.
+- **The chat (`chat/components/DoxChat.tsx`).** The engine is the one the drawer uses, `useDocsChat`; only the parts are restyled
+  into the hive. Each question and answer is a turn: the crystal's node, labelled "You" or "Dox", beside a card (a zigzag from 48rem
+  of the transcript's own width; one column below). The answer is `MarkdownContent`, whose fenced code carries the language and a
+  "Copy" button, and no download. The reader's question is text, never markdown.
+  - **Waiting.** From the send until the first text, the newest turn is Dox's, with "Searching docs…", a scanline and the crystal
+    spinning (`hive/use-crystal-spin.ts`). It lands square on the first text; under `prefers-reduced-motion` it does not spin and a
+    still halo and bar carry the wait. The answer's card is a polite live region from the wait on. An answer with no text (stopped, or
+    killed by an error) is not a turn: the failure shows as the warning.
+  - **Warnings** (`ChatWarning`) keep their roles, a polite status when asking again can help and an alert when it cannot, in the
+    `--gmt-signal` tokens. "Try again" asks the last question again and moves focus to Stop.
+  - **The scroller** is the only thing that scrolls. It is a focusable region named "Conversation, scrollable" only while it
+    overflows (a box that scrolls must take focus, and one that does not should not be a tab stop). Once the reader scrolls up, a
+    "Jump to latest message" button appears (`hooks/useBottomScroll.ts`).
+  - **The composer** is `ChatInput` and `ChatSubmitButton`: Enter sends, Shift+Enter adds a line, one button is Send and then Stop.
+    Under it, the accuracy note on a wide screen; at 60rem and below it moves into a popup the info button opens (`ChatInfo.tsx`).
+  - **"New chat"** stops a stream, empties the transcript, shows the hub and puts focus in the composer. The transcript is kept in
+    `localStorage` as before; per-message times are not shown.
+  - **Model.** The page asks the default model until the brain selector arrives in a later phase of #309.
+  - **Contrast.** `scripts/theme-contrast.mjs` measures the hive's pairs ("hive: ..."), text at 4.5:1 and glyphs and edges at 3:1. Its
+    surfaces are spelled out there (a card is the spring tier at 5% over the page): change `dox-hive.css` and the script together.
+    Both roles are the spring tier (plan #309 D5), so a turn is told by its side and label rather than by colour.
 - **Style.** `src/styles/dox-hive.css` is gmt's hive stylesheet, recoloured to the spring tier (`--gmt-spring` for fills and borders,
   `--gmt-spring-ink` for text) and imported by the island, so Vite ships it with that page only. The three tokens the vendored theme lacks
   (`--gmt-motion-scan-duration`, `--gmt-motion-sheen-duration`, `--gmt-z-behind`) are declared in `theme.css`. The crystal's geometry

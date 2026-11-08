@@ -332,7 +332,7 @@ describe("useDocsChat -- a stalled answer", () => {
       expect(texts(result).at(-1)).toEqual(["assistant", PARTIAL]);
       expect(result.current.warning).toEqual({
         message:
-          "The assistant stopped responding. The answer above may be incomplete — try again.",
+          "Dox stopped responding. The answer above may be incomplete — try asking again.",
         retryable: true,
       });
     } finally {

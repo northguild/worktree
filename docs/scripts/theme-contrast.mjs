@@ -279,6 +279,18 @@ const SEARCH_FIELD = ["var(--gmt-glass-tint-subtle)", ...SEARCH];
 const SEARCH_HOVER = ["var(--gmt-accent-wash)", ...SEARCH];
 const SEARCH_FOCUS = ["var(--sl-color-accent-low)"];
 
+// The Dox page's hive (#309 phase 2; `src/styles/dox-hive.css`). The shell is `--gmt-void`; a turn's card is the role colour,
+// the spring tier, at 5% over it; the composer panel is the glass tint; a warning is the signal fill. `dox-hive.css` states
+// these as `color(from var(--gmt-hive-role) srgb r g b / 5%)` and so on, which this script does not read (custom properties
+// declared on a class are not `:root`'s), so each is spelled out here with the same alpha as a decimal; change both together.
+const HIVE = ["var(--gmt-void)"];
+const HIVE_CARD = ["color(from var(--gmt-spring) srgb r g b / 0.05)", ...HIVE];
+const HIVE_FIELD = ["var(--gmt-glass-tint)", ...HIVE];
+const HIVE_WARNING = ["var(--gmt-signal-fill)", ...HIVE];
+const HIVE_STRIP_BUTTON = ["var(--gmt-fill-subtle)", ...HIVE];
+const HIVE_CODE = ["var(--gmt-code-bg)", ...HIVE_CARD];
+const HIVE_PANEL = ["var(--gmt-surface-2)"];
+
 const text = (name, fg, bg) => ({ name, fg, bg, min: TEXT_MIN, kind: "text" });
 const shape = (name, fg, bg) => ({
   name,
@@ -389,6 +401,60 @@ export const PAIRS = [
     "var(--gmt-spring)",
   ]),
   shape("chat: accent fill on the panel", "var(--color-chat-accent)", CHAT),
+  // The hive's text (§4.1 rows 8-11, 16-20): the strip, the turns, the waiting line, the warnings, the composer, the fine print.
+  text("hive: environment badge, local", "var(--gmt-signal-ink)", HIVE),
+  text("hive: environment badge, live", "var(--gmt-spring-ink)", HIVE),
+  text("hive: the prompt line", "var(--gmt-ice)", HIVE),
+  text("hive: code in the prompt line", "var(--gmt-spring-ink)", [
+    "var(--gmt-code-bg)",
+    ...HIVE,
+  ]),
+  text("hive: New chat", "var(--gmt-spring-ink)", HIVE_STRIP_BUTTON),
+  text("hive: a role label (Dox, You)", "var(--gmt-spring-ink)", HIVE),
+  text("hive: text in a turn's card", "var(--gmt-ice)", HIVE_CARD),
+  text("hive: the waiting line", "var(--gmt-ice-dim)", HIVE_CARD),
+  text("hive: a link in an answer", "var(--gmt-spring-ink)", HIVE_CARD),
+  text("hive: code in an answer", "var(--gmt-ice)", HIVE_CODE),
+  text("hive: a heading in an answer", "var(--gmt-spring-ink)", HIVE_CARD),
+  text("hive: inline code in an answer", "var(--gmt-spring-ink)", HIVE_CODE),
+  text("hive: a quote in an answer", "var(--gmt-ice-dim)", [
+    "var(--gmt-fill-subtle)",
+    ...HIVE_CARD,
+  ]),
+  text("hive: a code block's language", "var(--gmt-ice-dim)", HIVE_CODE),
+  text("hive: a code block's Copy", "var(--gmt-spring-ink)", HIVE_CODE),
+  text("hive: a warning", "var(--gmt-signal-ink)", HIVE_WARNING),
+  text("hive: a warning's Try again", "var(--gmt-signal-ink)", HIVE_WARNING),
+  text("hive: typed text in the composer", "var(--gmt-ice)", HIVE_FIELD),
+  text("hive: the composer's placeholder", "var(--gmt-ice-dim)", HIVE_FIELD),
+  text(
+    "hive: the remaining-characters count",
+    "var(--gmt-ice-dim)",
+    HIVE_FIELD,
+  ),
+  text("hive: the accuracy note", "var(--gmt-ice-dim)", HIVE),
+  text("hive: the fine print's popup", "var(--gmt-ice-dim)", HIVE_PANEL),
+  shape("hive: the crystal", "var(--gmt-spring)", HIVE),
+  // The field's boundary is what tells a reader where to type (SC 1.4.11), so it is the muted text colour at 70%, not gmt's
+  // spring hairline (`--gmt-border-strong`, 2.33:1 in dark and 1.44:1 in light, measured with the pair this replaced).
+  shape(
+    "hive: the composer's edge",
+    "color-mix(in srgb, var(--gmt-ice-dim) 70%, transparent)",
+    HIVE_FIELD,
+  ),
+  shape("hive: the send icon", "var(--gmt-spring-ink)", [
+    "var(--gmt-fill-strong)",
+    ...HIVE_FIELD,
+  ]),
+  shape("hive: the info icon", "var(--gmt-spring-ink)", HIVE_FIELD),
+  shape("hive: a link's border in an answer", "var(--gmt-spring)", HIVE_CARD),
+  shape("hive: the jump icon", "var(--gmt-spring-ink)", HIVE_PANEL),
+  shape("hive: the focus ring on a card", "var(--gmt-spring-ink)", HIVE_CARD),
+  shape(
+    "hive: the focus ring on the composer",
+    "var(--gmt-spring-ink)",
+    HIVE_FIELD,
+  ),
   text("search: typed text in the field", "var(--gmt-ice)", SEARCH_FIELD),
   text("search: the field's placeholder", "var(--gmt-ice-dim)", SEARCH_FIELD),
   text("search: a result's title", "var(--gmt-ice)", SEARCH),

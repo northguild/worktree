@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { vi } from "vitest";
 import { MarkdownContent } from "./MarkdownContent";
 
@@ -88,5 +88,61 @@ describe("MarkdownContent links", () => {
     expect(
       screen.getByRole("link", { name: "Getting Started" }),
     ).toHaveAttribute("href", "/worktree/getting-started/");
+  });
+});
+
+// Plan #309 Phase 2, §4.1 row 13: a fenced code block carries a copy control and no download (gmt's Streamdown block
+// has a language label and a copy button). The text copied is the block's code as written, without the newline that
+// closes a fence: what a reader would select and copy by hand.
+describe("MarkdownContent code blocks", () => {
+  const FENCED = "```bash\nworktree list\n```";
+  let writeText: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names the language and offers Copy, which puts the code on the clipboard", async () => {
+    render(<MarkdownContent content={FENCED} />);
+
+    expect(screen.getByText("bash")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(writeText).toHaveBeenCalledExactlyOnceWith("worktree list");
+    expect(
+      await screen.findByRole("button", { name: "Copied" }),
+    ).toBeInTheDocument();
+  });
+
+  it("makes the block a named, focusable region, so a wide one can be scrolled with the arrow keys", () => {
+    render(<MarkdownContent content={FENCED} />);
+
+    const region = screen.getByRole("region", { name: "bash code" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(region).toHaveTextContent("worktree list");
+  });
+
+  it("offers no download, and no copy control for inline code", () => {
+    render(
+      <MarkdownContent content={`${FENCED}\n\nRun \`worktree list\` first.`} />,
+    );
+
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /download/i })).toBeNull();
+  });
+
+  it("says so when the clipboard refuses, and lets the reader try again", async () => {
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    render(<MarkdownContent content={FENCED} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Copy failed" }),
+    ).toBeInTheDocument();
   });
 });
