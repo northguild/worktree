@@ -4786,6 +4786,41 @@ postCreate:
         expect(projectConfig.offerProjectConfig).toHaveBeenCalledTimes(1);
       });
 
+      // Review of #296: the removal now runs on every bare run, after the
+      // wizard saved its values, so a failed unset warns as it does in `branch`.
+      it("warns, and does not fail, when the project-config step throws", async () => {
+        await withFile(EXAMPLE);
+        mockConfirm.mockResolvedValue(false);
+        mockInput.mockResolvedValue("x");
+        vi.mocked(projectConfig.offerProjectConfig).mockRejectedValue(
+          new Error("could not lock config file .git/config"),
+        );
+        parsed({}, { missing: false });
+
+        await expect(config.run()).resolves.toBeUndefined();
+
+        expect(warn).toHaveBeenCalledWith(
+          "Could not update the project configuration from .worktree.yml. could not lock config file .git/config",
+        );
+      });
+
+      it("still ends quietly on a quit at the offer", async () => {
+        await withFile(EXAMPLE);
+        mockConfirm.mockResolvedValue(false);
+        mockInput.mockResolvedValue("x");
+        const quit = new Error("User force closed the prompt");
+        quit.name = "ExitPromptError";
+        vi.mocked(projectConfig.offerProjectConfig).mockRejectedValue(quit);
+        parsed({}, { missing: false });
+
+        await expect(config.run()).rejects.toMatchObject({
+          name: "ExitPromptError",
+        });
+        expect(warn).not.toHaveBeenCalledWith(
+          expect.stringContaining("Could not update the project configuration"),
+        );
+      });
+
       it("makes no offer after the user quits the wizard, and the quit propagates", async () => {
         // Brief item 8: Esc then Yes or Ctrl+C ends the run; nothing follows.
         const quit = new Error("User force closed the prompt");
@@ -5082,7 +5117,7 @@ postCreate:
     });
 
     describe("the internal offer keys (D22)", () => {
-      for (const key of ["projectFileOffer", "migrationOffer"]) {
+      for (const key of ["projectFileOffer"]) {
         it(`${key} is not in CONFIG_NAMES, not in --list and cannot be set by name`, async () => {
           expect(CONFIG_NAMES as readonly string[]).not.toContain(key);
           personal[key] = "a-stored-value";

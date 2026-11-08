@@ -111,20 +111,26 @@ the team keys in your git config (`defaultSourceBranch`, `branchPrefix.*`, `jira
 secret key. A personal `postCreate` command becomes a one-step list. The file is left uncommitted for you to
 review, and the command refuses to overwrite an existing `.worktree.yml`. It takes no other argument or flag.
 
-### Offers
+### Offers and removal
 
-On a terminal, `branch` (after the worktree is open) and a bare `worktree config` make two offers, each at
-most once. Nothing is offered under `--json`, `--yes`, `--non-interactive`, `CI`, without a terminal, or on
-`branch --dry-run`.
+`branch` (after the worktree is open) and a bare `worktree config` do two things with the project file.
 
-- With no `.worktree.yml` on the default branch and a team key in your git config, `worktree config --project`
-  is offered once per repository. Either answer is remembered.
-- With a `.worktree.yml`, the keys in your local git config that hold the same value as the file are offered
-  for removal (`git config --local --unset`), once per version of the file. A key with a different value
-  stays, as the override it is.
+- With a `.worktree.yml` on the default branch, the keys in your local git config that hold the same value as
+  the file are removed (`git config --local --unset`) without asking or printing anything, on every run,
+  including `--json`, `--yes`, `--non-interactive` and `CI` (not on `branch --dry-run`). A file read through
+  `WORKTREE_PROJECT_CONFIG` removes nothing. A key with a different value stays, as the override it is. A
+  matching key stays too when another scope (your global git config, say) also sets it, a local `postCreate`
+  stays until you approve the file's step, and with no `origin/HEAD` a local `defaultSourceBranch` stays,
+  because it is what finds the file. See
+  [Moving to the file](/worktree/project-configuration/#moving-to-the-file). If a key cannot be removed, the
+  command warns and still succeeds.
+- Only this one is an offer: on a terminal, with no `.worktree.yml` on the default branch and a team key in
+  your git config, `worktree config --project` is offered once per repository. Either answer is remembered.
+  Nothing is offered under `--json`, `--yes`, `--non-interactive`, `CI`, without a terminal, or on
+  `branch --dry-run`.
 
-These answers are kept under `northguild.worktree.*` in local git config. They are not configuration keys, so
-`--list` does not show them and `worktree config <key> <value>` cannot set them.
+The answer to the offer is kept under `northguild.worktree.*` in local git config. It is not a configuration
+key, so `--list` does not show it and `worktree config <key> <value>` cannot set it.
 
 ## User config file
 
