@@ -419,6 +419,53 @@ async function readJiraBody<T>(
   }
 }
 
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).host;
+  } catch {
+    return undefined;
+  }
+}
+
+// #295: an SSO gateway in front of Jira answers an API call with its sign-in
+// page, often after a redirect to another origin, and fetch hands that over as
+// a 200. Say what arrived and from which host. Hosts only: no header value,
+// and so never the token (D10).
+function webPageInsteadOfApi(site: JiraSite, response: Response): Error | null {
+  const contentType = response.headers?.get?.("content-type") ?? "";
+
+  if (!/\b(text\/html|application\/xhtml\+xml)\b/i.test(contentType)) {
+    return null;
+  }
+
+  // site.host may carry a context path (example.com/jira); compare hosts.
+  const siteHost = hostOf(`https://${site.host}`) ?? site.host;
+  const finalHost = (response.url && hostOf(response.url)) || siteHost;
+  const redirect =
+    response.redirected && finalHost !== siteHost
+      ? ` after a redirect from ${siteHost}`
+      : "";
+
+  return new Error(
+    `Jira: ${finalHost} answered with a web page${redirect}, not the API. A sign-in gateway in front of Jira may need a browser session or an exception for API calls.`,
+  );
+}
+
+// Reads a JSON body, but first says so when the answer is a web page.
+async function readJiraJson<T>(
+  path: string,
+  site: JiraSite,
+  response: Response,
+): Promise<T> {
+  const page = webPageInsteadOfApi(site, response);
+
+  if (page) {
+    throw page;
+  }
+
+  return readJiraBody<T>(path, () => response.json() as Promise<T>);
+}
+
 // Node's TLS verification codes that a private certificate authority causes.
 const PRIVATE_CA_CODES = new Set([
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
@@ -542,7 +589,7 @@ async function readJiraIssue(
     );
   }
 
-  const data = await readJiraBody(issuePath, () => response.json());
+  const data = await readJiraJson<unknown>(issuePath, site, response);
 
   if (isJiraError(data)) {
     const errorMessage =
@@ -732,12 +779,10 @@ export async function assignJiraIssue(
     );
   }
 
-  const me = await readJiraBody<JiraUser>(myselfPath, () =>
-    myselfResponse.json(),
-  );
-  const issue = await readJiraBody<{
+  const me = await readJiraJson<JiraUser>(myselfPath, site, myselfResponse);
+  const issue = await readJiraJson<{
     fields?: { assignee?: JiraUser | null };
-  }>(assigneePath, () => issueResponse.json());
+  }>(assigneePath, site, issueResponse);
   const assignee = issue.fields?.assignee;
   const displayName = me.displayName ?? "you";
 
@@ -868,9 +913,10 @@ export async function startJiraIssue(issueId: string): Promise<JiraStart> {
     throw await jiraStartFailure(statusResponse, statusPath, issueKey, site);
   }
 
-  const issue = await readJiraBody<{ fields?: { status?: JiraStatus } }>(
+  const issue = await readJiraJson<{ fields?: { status?: JiraStatus } }>(
     statusPath,
-    () => statusResponse.json(),
+    site,
+    statusResponse,
   );
   const current = issue.fields?.status;
   const categoryKey = current?.statusCategory?.key;
@@ -904,9 +950,10 @@ export async function startJiraIssue(issueId: string): Promise<JiraStart> {
     );
   }
 
-  const body = await readJiraBody<{ transitions?: unknown }>(
+  const body = await readJiraJson<{ transitions?: unknown }>(
     transitionsPath,
-    () => transitionsResponse.json(),
+    site,
+    transitionsResponse,
   );
 
   if (!Array.isArray(body.transitions)) {

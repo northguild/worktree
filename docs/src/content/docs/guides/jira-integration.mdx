@@ -178,6 +178,10 @@ keeps working. It is configured, not detected, because a Cloud site can have a c
   connecting: a `jira.host` it cannot parse, one carrying `user:password@`, a blocked port, or (on `datacenter`) a
   token with characters a header cannot carry. Those read `Jira: the request to jira.example.com could not be made
   (TypeError). Check jira.host and jira.apiToken in your config.`, naming only `jira.host` on `cloud`.
+- **A sign-in page is named as one.** An SSO gateway in front of Jira can answer an API call with its sign-in page,
+  often after a redirect to another host. That reads `Jira: sso.example.com answered with a web page after a
+  redirect from jira.example.com, not the API.`, naming hosts only, and says the gateway may need a browser
+  session or an exception for API calls. Jira never saw the request, so this says nothing about the token.
 - **A 401 names the likely fix.** On `cloud` with a host outside `atlassian.net`, the error suggests
   `worktree config jira.deployment datacenter`; on `datacenter` with an `atlassian.net` host it says Jira Cloud
   uses `cloud`.
