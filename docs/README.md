@@ -45,22 +45,45 @@ full data flow — nothing is a black box.
 
 ```
 Browser (static site on northguild.dev/worktree/)
+  │  useChat (@tanstack/ai-react) – docs/src/chat/hooks/useDocsChat.ts
   │
-  │  POST /  { model, messages[] }
+  │  POST /api/chat  { threadId, runId, messages[], forwardedProps: { model } }
   ▼
 Cloudflare Worker  (docs/worker/)
   │  – holds GEMINI_API_KEY as an encrypted secret
-  │  – validates input, enforces CORS
+  │  – rate-limits, validates input (validation.ts), enforces CORS
   │  – prepends the system prompt (baked in at build time)
   ▼
-Google Gemini API  (SSE stream)
+Google Gemini API  (@tanstack/ai-gemini)
   │
   ▼
-Worker pipes SSE back to the browser
+Worker streams AG-UI events over SSE (RUN_STARTED, TEXT_MESSAGE_*, RUN_FINISHED or RUN_ERROR)
   │
   ▼
-docs/src/chat/  – React components render the streamed response
+useChat folds the events into messages;  docs/src/chat/  renders them
 ```
+
+On the page, the pieces are:
+
+- **The connection.** `fetchServerSentEvents` posts to `PUBLIC_GEMINI_WORKER_URL` plus `/api/chat`
+  (`lib/chat-endpoint.ts`; unset, it is `http://localhost:8787`). Its `fetchClient` is `chatFetch`
+  (`lib/chat-fetch.ts`), which does three things the library does not: it reads the Worker's `{ error, retryable }`
+  body on a non-OK status and throws it as the error's `cause`; it drops assistant turns with no text from the
+  request; and it removes the `X-Run-Id` header the library adds, because the Worker's CORS allows `Content-Type`
+  alone. The chosen model travels as `forwardedProps.model`.
+- **The transcript.** One conversation (`threadId` `docs-chat`), kept in `localStorage` by `useChat`'s
+  persistence under `docs_chat_transcript:docs-chat`. Only text parts are stored; anything else read back is
+  refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). Switching model keeps it; "Clear chat" stops a stream and removes
+  it. The model preference is `docs_chat_model`, and a stored value that is not one of the two models on offer
+  reads as the default. The retired client's three `docs_chat_history_<model>` keys are removed on first mount.
+- **Failures.** They are never messages. A status before the stream opens, a `RUN_ERROR` inside it or a dropped
+  connection becomes one warning under the transcript (`components/ChatWarning.tsx`) with "Try again" when asking
+  again can help. An answer that is silent for 30 s, or runs for 120 s, is stopped and warned about.
+- **Rendering.** Only text parts render, the assistant's through `MarkdownContent` (see below). The bubble is a
+  polite live region; a recoverable warning is `role="status"`, one that retrying will not fix is `role="alert"`.
+
+`POST /` on the Worker still speaks the old protocol for the site that is live until the next release; see
+[worker/README.md](worker/README.md).
 
 The static bundle **never** sees the API key. The key lives exclusively in
 Cloudflare's secret store and is injected by the Worker runtime on each request.

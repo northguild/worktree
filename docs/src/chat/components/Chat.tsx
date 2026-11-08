@@ -1,9 +1,6 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { ChatProvider } from "./ChatContext";
 import { ChatDrawer } from "./ChatDrawer";
-
-const queryClient = new QueryClient();
 
 interface ChatProps {
   /** Mount with the drawer already open: the launcher's first activation opens the chat it has just loaded. */
@@ -12,11 +9,9 @@ interface ChatProps {
 
 export function Chat({ defaultOpen = false }: ChatProps) {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ChatProvider defaultOpen={defaultOpen}>
-        <ChatDrawer />
-      </ChatProvider>
-    </QueryClientProvider>
+    <ChatProvider defaultOpen={defaultOpen}>
+      <ChatDrawer />
+    </ChatProvider>
   );
 }
 

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
-import { MAX_MESSAGE_LENGTH } from "../constants";
+import { MAX_MESSAGE_LENGTH } from "../lib/chat-constants";
 import { ChatForm } from "./ChatForm";
 
 /**

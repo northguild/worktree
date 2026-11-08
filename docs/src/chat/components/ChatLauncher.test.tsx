@@ -1,4 +1,11 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import type { Root } from "react-dom/client";
 import { vi } from "vitest";
 import { type ChatModule, initChatLauncher } from "../launcher";
 
@@ -20,6 +27,22 @@ function mountLauncher() {
   if (!root) throw new Error("launcher markup missing");
   return root;
 }
+
+// `mountChat` makes its own React root and returns nothing to unmount it with, so the roots it makes are kept here.
+// Left mounted, the chat would go on reacting (its transcript loads asynchronously) after a test has removed the page
+// and the stubbed `localStorage` from under it.
+const mountedRoots = vi.hoisted(() => [] as Root[]);
+vi.mock("react-dom/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-dom/client")>();
+  return {
+    ...actual,
+    createRoot: (...args: Parameters<typeof actual.createRoot>) => {
+      const root = actual.createRoot(...args);
+      mountedRoots.push(root);
+      return root;
+    },
+  };
+});
 
 const ALT_SHIFT_C = { key: "C", code: "KeyC", altKey: true, shiftKey: true };
 
@@ -275,7 +298,7 @@ describe("ChatLauncher", () => {
   });
 });
 
-/** jsdom has no `scrollIntoView` and, under this Node, no usable `localStorage`; the chat's scroll and history hooks use both. */
+/** jsdom has no `scrollIntoView` and, under this Node, no usable `localStorage`; the chat's scroll and its transcript storage use both. */
 function stubBrowserApis() {
   Element.prototype.scrollIntoView = vi.fn();
   const items = new Map<string, string>();
@@ -288,7 +311,12 @@ function stubBrowserApis() {
 
 describe("ChatLauncher with the real chat", () => {
   beforeEach(stubBrowserApis);
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    act(() => {
+      for (const root of mountedRoots.splice(0)) root.unmount();
+    });
+    vi.unstubAllGlobals();
+  });
 
   it("opens a named drawer on the first activation, leaving one chat trigger", async () => {
     setup(() => import("./Chat"));
@@ -303,6 +331,11 @@ describe("ChatLauncher with the real chat", () => {
     expect(
       within(dialog).getByRole("button", { name: "Close chat" }),
     ).toBeVisible();
+    // Plan #257 §4.4: the two clear actions are one control, named "Clear chat".
+    const clears = within(dialog).getAllByRole("button", { name: /clear/i });
+    expect(clears.map((b) => b.textContent)).toEqual(["Clear chat"]);
+    expect(clears[0]).toHaveAccessibleName("Clear chat");
+
     // The static launcher has handed over (it is hidden), so assistive tech meets no stale "Open chat".
     expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
 

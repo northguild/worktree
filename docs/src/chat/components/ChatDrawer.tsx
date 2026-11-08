@@ -1,12 +1,11 @@
 import { Button } from "@base-ui/react";
 import { Drawer } from "@base-ui/react/drawer";
-import { Menu } from "@base-ui/react/menu";
-import { ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { useCallback, useMemo, useRef } from "react";
+import { XMarkIcon } from "@heroicons/react/24/outline";
+import { useCallback, useRef } from "react";
 import { cn } from "../../utils";
-import { FREE_MODELS } from "../constants";
 import { useEnterAnimation } from "../hooks/useEnterAnimation";
 import { useGlobalKeyDown } from "../hooks/useGlobalKeyDown";
+import { CHAT_MODELS, type ChatModelId } from "../lib/chat-constants";
 import { CHAT_SHORTCUT } from "../shortcut";
 import { useChatContext } from "./ChatContext";
 import { ChatModelSelect } from "./ChatModelSelect";
@@ -27,13 +26,11 @@ export function ChatDrawer() {
     setEntered,
     model,
     setModel,
-    clearMessages,
-    clearAllMessages,
+    clear,
   } = useChatContext();
 
   const popupRef = useRef<HTMLDivElement | null>(null);
   const backdropRef = useRef<HTMLDivElement | null>(null);
-  const modelOptions = useMemo(() => FREE_MODELS, []);
 
   const handleOpen = useCallback(() => {
     setIsDrawerClosing(false);
@@ -50,12 +47,10 @@ export function ChatDrawer() {
     }, 480);
   }, [setIsDrawerOpen, setIsDrawerClosing, setEntered]);
 
-  function handleModelChange(value: string | null): void {
-    if (value) {
-      // Each model has its own storage key — just switch; don't clear.
-      // clearMessages() is only for the explicit Clear button.
-      setModel(value);
-    }
+  function handleModelChange(value: ChatModelId): void {
+    // The model is a setting, not a conversation: switching keeps the
+    // transcript. Only the explicit "Clear chat" button empties it.
+    setModel(value);
   }
 
   // keyboard: toggle the chat with CHAT_SHORTCUT (Alt+Shift+C)
@@ -131,55 +126,18 @@ export function ChatDrawer() {
                 <div className="flex-1 min-w-0">
                   <ChatModelSelect
                     label="Model"
-                    models={modelOptions}
+                    models={CHAT_MODELS}
                     onChange={handleModelChange}
                     selectedModel={model}
                   />
                 </div>
-                {/* Split clear button */}
-                <div className="flex items-stretch border rounded overflow-hidden border-chat-control-border shrink-0">
-                  <Button
-                    onClick={clearMessages}
-                    className="px-2 py-1 text-sm bg-chat-fill hover:bg-chat-fill-strong transition-colors"
-                    aria-label="Clear current chat"
-                  >
-                    Clear
-                  </Button>
-                  <div className="w-px bg-chat-border self-stretch" />
-                  <Menu.Root>
-                    <Menu.Trigger
-                      className="px-1 bg-chat-fill hover:bg-chat-fill-strong transition-colors flex items-center"
-                      aria-label="More clear options"
-                    >
-                      <ChevronDownIcon className="w-3 h-3" />
-                    </Menu.Trigger>
-                    <Menu.Portal>
-                      <Menu.Positioner
-                        side="bottom"
-                        align="end"
-                        sideOffset={4}
-                        positionMethod="fixed"
-                        className="z-[10001]"
-                      >
-                        <Menu.Popup className="bg-chat-bg border border-chat-border rounded shadow-lg min-w-[160px] py-1">
-                          <Menu.Item
-                            onClick={clearMessages}
-                            className="px-3 py-1.5 text-sm cursor-pointer hover:bg-chat-fill data-[highlighted]:bg-chat-fill"
-                          >
-                            Clear chat
-                          </Menu.Item>
-                          <Menu.Separator className="my-1 border-t border-chat-border" />
-                          <Menu.Item
-                            onClick={clearAllMessages}
-                            className="px-3 py-1.5 text-sm cursor-pointer text-chat-danger hover:bg-chat-fill data-[highlighted]:bg-chat-fill"
-                          >
-                            Clear all chats
-                          </Menu.Item>
-                        </Menu.Popup>
-                      </Menu.Positioner>
-                    </Menu.Portal>
-                  </Menu.Root>
-                </div>
+                {/* Stops a stream first (useChat's clear) and removes the stored transcript. */}
+                <Button
+                  onClick={clear}
+                  className="px-2 py-1 text-sm border rounded border-chat-control-border bg-chat-fill hover:bg-chat-fill-strong transition-colors shrink-0"
+                >
+                  Clear chat
+                </Button>
               </div>
             </div>
 

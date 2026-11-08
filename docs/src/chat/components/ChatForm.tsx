@@ -2,9 +2,9 @@
 
 import { useForm } from "@tanstack/react-form";
 import { useEffect, useRef } from "react";
-import { MAX_MESSAGE_LENGTH } from "../constants";
 import { FormProvider } from "../form/FormContext";
 import { FormField } from "../form/FormField";
+import { MAX_MESSAGE_LENGTH } from "../lib/chat-constants";
 import { ChatInput } from "./ChatInput";
 import { ChatSubmitButton } from "./ChatSubmitButton";
 
