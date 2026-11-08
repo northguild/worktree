@@ -19,6 +19,7 @@ import {
   isProjectFileKey,
   isTeamConfigKey,
   loadProjectConfig,
+  markProjectConfigUnusable,
   offerProjectConfig,
   POST_CREATE_APPROVAL_KEY,
   PROJECT_CONFIG_SCHEMA_URL,
@@ -1923,6 +1924,19 @@ describe("offerProjectConfig: the nudge (D21)", () => {
     // A "no" is recorded as well as a "yes".
     expect(local.get(PROJECT_FILE_OFFER_KEY)).toBe("declined");
     expect(fs.existsSync(path.join(scratch, ".worktree.yml"))).toBe(false);
+  });
+
+  // Review of #296: since #281, `worktree config` marks a file it cannot use
+  // `{ status: "none", reason: "unusable" }` and carries on. That is not "no
+  // file", so the offer stays silent and records no answer.
+  it("offers nothing when the file was marked unusable", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    markProjectConfigUnusable();
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(local.has(PROJECT_FILE_OFFER_KEY)).toBe(false);
   });
 
   it("writes the file on yes and records the answer", async () => {
