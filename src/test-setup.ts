@@ -44,13 +44,21 @@ function describeRunCall(call: unknown[]): string {
   return options?.cwd ? `${argv} (cwd: ${options.cwd})` : argv;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   // Clear all mocks before each test
   vi.clearAllMocks();
   // vitest's stdin is not a TTY, so the run would resolve as non-interactive and
   // every prompt would take its default. The suites that assert a prompt is
   // asked are the human path; the ones for the other mode say so themselves.
   setNonInteractive(false);
+  // No suite reads the real user config file (#281): the override is unset and
+  // the default location is a directory that does not exist. An explicit
+  // override naming a missing file would throw, so it is cleared, not pointed.
+  // Imported here, not at the top: user-config reaches cli.js, whose mock this
+  // file builds from variables it has not yet initialised when imports run.
+  (await import("./lib/user-config.js")).resetUserConfigCache();
+  vi.stubEnv("WORKTREE_USER_CONFIG", "");
+  vi.stubEnv("XDG_CONFIG_HOME", "/nonexistent-worktree-test-xdg");
   // A successful, silent run is the benign default. Without it a suite that
   // reaches runCapturing without mocking it gets undefined back rather than a
   // promise, and fails somewhere unrelated to what it is testing.

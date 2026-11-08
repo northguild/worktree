@@ -4,7 +4,11 @@ import path from "node:path";
 import { LineCounter, parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import { run } from "./cli.js";
-import { gitGetConfigValue } from "./config.js";
+import {
+  type ConfigValueSource,
+  fileSettingValue,
+  gitGetConfigValue,
+} from "./config.js";
 import {
   PERSONAL_KEYS,
   PERSONAL_SECTIONS,
@@ -24,6 +28,7 @@ import {
 import { isNonInteractive } from "./interaction.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
+import { loadUserConfig } from "./user-config.js";
 import {
   GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
@@ -389,8 +394,7 @@ const TEAM_CONFIG_KEYS = [
 ] as const satisfies readonly ConfigName[];
 
 export type TeamConfigKey = (typeof TEAM_CONFIG_KEYS)[number];
-/** Where an answer came from; `default` means the caller's built-in applies. */
-export type ConfigValueSource = "git-config" | "project" | "default";
+export type { ConfigValueSource };
 
 export function isTeamConfigKey(name: string): name is TeamConfigKey {
   return (TEAM_CONFIG_KEYS as readonly string[]).includes(name);
@@ -423,10 +427,11 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
 }
 
 /**
- * A team key by D2: git config (any scope) first, then the project file, then
- * `""` with source `default` for the caller's built-in. The file is not read
- * when git config answers. A file that cannot be used throws
- * `ProjectConfigError`, as `loadProjectConfig` does.
+ * A team key by D2 (#281): git config (any scope) first, then the project
+ * file, then the user file, then `""` with source `default` for the caller's
+ * built-in. A file is not read when a layer above it answers. A file that
+ * cannot be used throws `ProjectConfigError` or `UserConfigError`, as
+ * `loadProjectConfig` and `loadUserConfig` do.
  */
 export async function resolveTeamConfig(name: TeamConfigKey): Promise<{
   value: string;
@@ -439,8 +444,14 @@ export async function resolveTeamConfig(name: TeamConfigKey): Promise<{
   const result = await loadProjectConfig();
   const fromFile =
     result.status === "loaded" ? projectValue(result.config, name) : undefined;
-  return fromFile
-    ? { value: fromFile, source: "project" }
+  if (fromFile) {
+    return { value: fromFile, source: "project" };
+  }
+  const user = await loadUserConfig();
+  const fromUser =
+    user.status === "loaded" ? fileSettingValue(user.config, name) : undefined;
+  return fromUser
+    ? { value: fromUser, source: "user" }
     : { value: "", source: "default" };
 }
 
@@ -735,6 +746,23 @@ export async function getProjectPostCreateSteps() {
     : [];
 }
 
+/**
+ * The user file's `postCreate` steps, trimmed. They are the person's own, so
+ * unlike the project file's they need no approval (#281 D10).
+ */
+export async function getUserPostCreateSteps() {
+  const user = await loadUserConfig();
+  // The schema is built from the key tables, so its type is loose; the
+  // validated value is a list of strings.
+  const steps: unknown =
+    user.status === "loaded" ? user.config.postCreate : undefined;
+  return Array.isArray(steps)
+    ? steps
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.trim())
+    : [];
+}
+
 async function readApproval() {
   try {
     return (
@@ -813,6 +841,9 @@ export async function ensurePostCreateApproved(options: { install?: boolean }) {
   }
   const steps = await getProjectPostCreateSteps();
   if (steps.length === 0) {
+    // `runInstall` reads the user file's steps next, after the worktree exists:
+    // a file that cannot be used stops the run here, before anything is created.
+    await loadUserConfig();
     return;
   }
   if ((await readApproval()) === postCreateApprovalHash(steps)) {
