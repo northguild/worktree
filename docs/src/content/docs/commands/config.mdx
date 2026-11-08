@@ -109,8 +109,12 @@ review, and the command refuses to overwrite an existing `.worktree.yml`. It tak
 - With a `.worktree.yml` on the default branch, the keys in your local git config that hold the same value as
   the file are removed (`git config --local --unset`) without asking or printing anything, on every run,
   including `--json`, `--yes`, `--non-interactive` and `CI` (not on `branch --dry-run`). A file read through
-  `WORKTREE_PROJECT_CONFIG` removes nothing. With no `origin/HEAD`, a local `defaultSourceBranch` is kept, because
-  it is what finds the file. A key with a different value stays, as the override it is.
+  `WORKTREE_PROJECT_CONFIG` removes nothing. A key with a different value stays, as the override it is. A
+  matching key stays too when another scope (your global git config, say) also sets it, a local `postCreate`
+  stays until you approve the file's step, and with no `origin/HEAD` a local `defaultSourceBranch` stays,
+  because it is what finds the file. See
+  [Moving to the file](/worktree/project-configuration/#moving-to-the-file). If a key cannot be removed, the
+  command warns and still succeeds.
 - Only this one is an offer: on a terminal, with no `.worktree.yml` on the default branch and a team key in
   your git config, `worktree config --project` is offered once per repository. Either answer is remembered.
   Nothing is offered under `--json`, `--yes`, `--non-interactive`, `CI`, without a terminal, or on

@@ -429,9 +429,20 @@ export default class Config extends BaseCommand {
     // The project-config step: silently removes the local keys the team's
     // .worktree.yml covers, and on a terminal offers to write the file. Not for
     // a run another command delegated (`branch` before a worktree exists), and
-    // not for one that named its keys (D21).
+    // not for one that named its keys (D21). The wizard has saved its values by
+    // now, so a failure here warns, as it does in `branch`, rather than failing
+    // the run; a quit (Ctrl+C at the offer) still ends it quietly.
     if (!flags.names && !flags["skip-offers"]) {
-      await offerProjectConfig();
+      try {
+        await offerProjectConfig();
+      } catch (error) {
+        if (error instanceof Error && error.name === "ExitPromptError") {
+          throw error;
+        }
+        this.warn(
+          `Could not update the project configuration from .worktree.yml. ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
   }
 }

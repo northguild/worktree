@@ -644,8 +644,11 @@ overwrite an existing one. Local git config keys that hold the same value as a
 `.worktree.yml` on the default branch (not one read through
 `WORKTREE_PROJECT_CONFIG`) are removed without asking or printing by `branch`
 (after the worktree is open, not `--dry-run`) and a bare `worktree config`,
-`--json`, `--yes` and CI included; with no `origin/HEAD` a local
-`defaultSourceBranch` is kept, since it finds the file. Only one step is an offer, on a terminal
+`--json`, `--yes` and CI included. A matching key stays when another git config
+scope also sets it (that value would win over the file), a local `postCreate`
+stays until the file's step is approved (it is what skips the approval), and
+with no `origin/HEAD` a local `defaultSourceBranch` stays, since it finds the
+file. A failed removal is a warning, never a failed run. Only one step is an offer, on a terminal
 only (never `--json`, `--yes`, `--non-interactive`, CI, no TTY or
 `branch --dry-run`; in `branch`, after the worktree is open): `--project`, once
 per repository, when the repository has no file and git config holds a team

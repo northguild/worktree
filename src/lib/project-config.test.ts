@@ -1502,17 +1502,30 @@ function fakeGitConfig(initial: Record<string, string> = {}) {
     const key = `northguild.worktree.${name}`;
     return local.get(key) ?? global.get(key) ?? "";
   });
+  // git's exit codes, on the error as execFile puts them: 1 for a key that is
+  // not set, 5 for an unset of a key that is not there.
+  const exit = (code: number) =>
+    Object.assign(new Error(`exit ${code}`), { code });
   mockRun.mockImplementation(async (_file: string, args: string[]) => {
     const [, scope, a, b] = args;
+    if (scope === "--show-scope" && a === "--get-all" && b) {
+      // In git's order: global before local.
+      const entries = [
+        ...(global.has(b) ? [`global\t${global.get(b)}`] : []),
+        ...(local.has(b) ? [`local\t${local.get(b)}`] : []),
+      ];
+      if (entries.length === 0) throw exit(1);
+      return entries.join("\n");
+    }
     if (scope !== "--local")
       throw new Error(`unexpected git ${args.join(" ")}`);
     if (a === "--unset") {
-      if (!b || !local.delete(b)) throw new Error("exit 5");
+      if (!b || !local.delete(b)) throw exit(5);
       return "";
     }
     if (b === undefined) {
       const value = a === undefined ? undefined : local.get(a);
-      if (value === undefined) throw new Error("exit 1");
+      if (value === undefined) throw exit(1);
       return value;
     }
     local.set(a as string, b);
@@ -1819,6 +1832,7 @@ describe("offerProjectConfig: removing the keys the file covers", () => {
       "branchPrefix.feature": "feat/",
       "branchPrefix.bugfix": "bug/",
       postCreate: "pnpm install",
+      postCreateApproval: postCreateApprovalHash(["pnpm install"]),
       opener: "herdr",
     });
 
@@ -1887,6 +1901,49 @@ describe("offerProjectConfig: removing the keys the file covers", () => {
     );
   });
 
+  // Review of #296: unsetting a local copy must not hand the key to another
+  // scope's value, which would then win over the file (D2).
+  it("leaves a local copy alone when another scope also sets the key", async () => {
+    const { local, global } = fakeGitConfig({
+      "branchPrefix.feature": "feat/",
+    });
+    global.set("northguild.worktree.branchPrefix.feature", "feature/");
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["--unset"]),
+    );
+  });
+
+  // Review of #296: a personal postCreate is what skips the approval (D16).
+  // Removing it while the file's step is unapproved would make every later
+  // unattended `branch` stop on approval.
+  it("keeps a covered postCreate while the file's step is not approved, so unattended runs still pass", async () => {
+    const { local } = fakeGitConfig({ postCreate: "pnpm install" });
+
+    await offerProjectConfig();
+    setNonInteractive(true);
+
+    expect(local.get("northguild.worktree.postCreate")).toBe("pnpm install");
+    await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
+  });
+
+  it("removes a covered postCreate once the file's step is approved, and unattended runs still pass", async () => {
+    const { local } = fakeGitConfig({
+      postCreate: "pnpm install",
+      postCreateApproval: postCreateApprovalHash(["pnpm install"]),
+    });
+
+    await offerProjectConfig();
+    setNonInteractive(true);
+
+    expect(local.has("northguild.worktree.postCreate")).toBe(false);
+    await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
+  });
+
   it("leaves a local postCreate alone when the file's is a list of several steps", async () => {
     fromOriginMain("postCreate:\n  - pnpm install\n  - pnpm build\n");
     const { local } = fakeGitConfig({ postCreate: "pnpm install; pnpm build" });
@@ -1950,11 +2007,49 @@ describe("offerProjectConfig: removing the keys the file covers", () => {
     mockRun.mockImplementation(async (_file: string, args: string[]) => {
       if (args.includes("--unset")) throw new Error("could not lock config");
       return args.at(-1) === "northguild.worktree.branchPrefix.feature"
-        ? "feat/"
+        ? "local\tfeat/"
         : "";
     });
 
     await expect(offerProjectConfig()).rejects.toThrow("could not lock config");
+  });
+
+  // Review of #296: two runs at once both read the key, and the second unset
+  // exits 5 because the first already removed it.
+  it("treats an unset that finds the key already gone as done", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    const fake = mockRun.getMockImplementation() as (
+      file: string,
+      args: string[],
+    ) => Promise<string>;
+    mockRun.mockImplementation(async (file: string, args: string[]) => {
+      if (args.includes("--unset")) {
+        // The other run's unset lands first.
+        local.delete(args.at(-1) as string);
+        throw Object.assign(new Error("exit 5"), { code: 5 });
+      }
+      return fake(file, args);
+    });
+
+    await expect(offerProjectConfig()).resolves.toBeUndefined();
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
+  });
+
+  it("rejects an unset that exits 5 with the key still there", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    const fake = mockRun.getMockImplementation() as (
+      file: string,
+      args: string[],
+    ) => Promise<string>;
+    mockRun.mockImplementation(async (file: string, args: string[]) => {
+      if (args.includes("--unset")) {
+        throw Object.assign(new Error("has multiple values"), { code: 5 });
+      }
+      return fake(file, args);
+    });
+
+    await expect(offerProjectConfig()).rejects.toThrow("has multiple values");
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
   });
 
   it("does not repeat the file's warnings: reporting stays with the caller", async () => {

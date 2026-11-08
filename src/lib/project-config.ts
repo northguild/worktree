@@ -1125,11 +1125,63 @@ async function offerProjectFile() {
 }
 
 /**
+ * The value of a key set exactly once, in local git config, and in no other
+ * scope; otherwise `""`. Every scope counts (D2), so with the same key set
+ * globally, system-wide, in a worktree's config or by `-c`, unsetting the local
+ * copy would hand the key to that other value instead of to the file.
+ */
+async function onlyLocalValue(key: string) {
+  let entries: string[];
+  try {
+    entries = (
+      await run("git", ["config", "--show-scope", "--get-all", key])
+    ).split("\n");
+  } catch {
+    return "";
+  }
+  const [entry, ...others] = entries;
+  if (!entry || others.length > 0) {
+    return "";
+  }
+  const tab = entry.indexOf("\t");
+  return tab > 0 && entry.slice(0, tab) === "local" ? entry.slice(tab + 1) : "";
+}
+
+/**
+ * A personal `postCreate` is what lets `branch` skip the approval (D16). Once
+ * the copy is gone the file's step needs its own, so the copy may go only when
+ * this person has approved that step; otherwise every unattended `branch` after
+ * the removal would stop on approval.
+ */
+async function fileStepApproved(config: ProjectConfig) {
+  const steps = config.postCreate ?? [];
+  return (
+    steps.length === 1 &&
+    (await readApproval()) === postCreateApprovalHash(steps)
+  );
+}
+
+async function unsetLocal(key: string) {
+  try {
+    await run("git", ["config", "--local", "--unset", key]);
+  } catch (error) {
+    // Exit 5 with the key gone is another run that removed it first, which is
+    // the outcome wanted. Anything else is a failure.
+    if ((error as { code?: unknown }).code === 5 && !(await readLocal(key))) {
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
  * Unsets the local git config keys the project file repeats with the same
  * value, without asking or printing. A file from the default branch keeps
- * supplying them, so the copies only go stale, with one exception: with no
- * origin/HEAD the local `defaultSourceBranch` is what finds the file, so it is
- * kept. A failed unset throws.
+ * supplying them, so the copies only go stale. A copy stays where removing it
+ * would change what `worktree` does: a key another scope also sets, a
+ * `postCreate` whose step is not approved, and with no origin/HEAD a
+ * `defaultSourceBranch`, which is what finds the file. A failed unset throws,
+ * unless the key is already gone.
  */
 async function removeCoveredLocalConfig(config: ProjectConfig) {
   const hasOriginHead = Boolean(await gitResolveOriginHead());
@@ -1137,15 +1189,15 @@ async function removeCoveredLocalConfig(config: ProjectConfig) {
     // Only a local value the file repeats exactly. A differing one is the
     // discouraged override, and a global one is not this repository's to remove.
     // A list of steps is not one string, so only a single step can match.
-    if (key === "postCreate" && (config.postCreate?.length ?? 0) !== 1) {
+    if (key === "postCreate" && !(await fileStepApproved(config))) {
       continue;
     }
     if (key === "defaultSourceBranch" && !hasOriginHead) {
       continue;
     }
     const fromFile = projectFileValue(config, key);
-    if (fromFile && (await readLocal(localKey(key))) === fromFile) {
-      await run("git", ["config", "--local", "--unset", localKey(key)]);
+    if (fromFile && (await onlyLocalValue(localKey(key))) === fromFile) {
+      await unsetLocal(localKey(key));
     }
   }
 }
