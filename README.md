@@ -92,7 +92,7 @@ The setup flow can configure:
 - `codeEditor` for automatically opening a worktree, such as `code`
 - `opener` for where a worktree opens — `editor` (default), `herdr`, `rex`, `auto` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
-- `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, else inferred from the lockfile)
+- `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, then the steps in your user config file, else inferred from the lockfile)
 - `linear.agentToken`, `linear.webhookSecret`, `linear.agentAllow` and `linear.agentContext` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`), the Linear user ids allowed to delegate an issue to it, and `true` to also hand the issue's text to the agent (off by default). `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
@@ -101,6 +101,15 @@ wizard skips what the file answers, `worktree config --list` marks each value `(
 `(overrides .worktree.yml: <file value>)`, and `worktree config --project` writes a `.worktree.yml` from the
 team keys in your git config (never a personal or secret one), uncommitted. See
 [Project Configuration](https://northguild.dev/worktree/project-configuration/).
+
+A user config file, `~/.config/worktree/config.yml` (or `$XDG_CONFIG_HOME/worktree/config.yml`, or the path in
+`WORKTREE_USER_CONFIG`), holds your personal keys and a fallback for the team keys, for every repository; write it
+with `worktree config --user <key> <value>`. It ranks below `.worktree.yml`: the order is a flag, git config,
+`.worktree.yml`, the user file, then the built-in default. `worktree config --list` marks its values
+`(user config)` or `(overrides user config: <value>)`, and `worktree config <key>` prints the resolved value. A
+secret in it is refused with exit `2`. Its `postCreate` steps run without approval, so keep the file as private
+as a shell profile, and mind what a dotfiles sync carries into it. See
+[Configuration](https://northguild.dev/worktree/configuration/#user-config-file).
 
 Then create your first worktree:
 
@@ -113,7 +122,7 @@ That will:
 1. create a new branch from your configured source branch
 2. add a Git worktree under `<repo>.worktrees/feature/improve-readme`
 3. copy the gitignored env files from the main repository — `.env*`, `.dev.vars*` and `.envrc` — and any gitignored file `.worktree.yml` lists under `copy`
-4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml` (run in order, after you approve them: checked before anything is created, asked on a terminal, exit `2` with `missing_value` when nothing can be asked, so approve with `worktree config --approve` or skip with `--no-install`), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); a failure stops the remaining steps, keeps the worktree, opens nothing and exits `1`
+4. install dependencies — by default when non-interactive, and on a terminal when `postCreate` is set or `--install` is given (`--no-install` skips it); the command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml` (run in order, after you approve them: checked before anything is created, asked on a terminal, exit `2` with `missing_value` when nothing can be asked, so approve with `worktree config --approve` or skip with `--no-install`), else the `postCreate` steps in your user config file (no approval), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); a failure stops the remaining steps, keeps the worktree, opens nothing and exits `1`
 5. open the new worktree in your configured editor, if one is set — or as a Herdr space when `opener` is `herdr`, or as a Rex session when it is `rex`; with `auto`, in the Herdr or Rex the command runs inside, else the editor
 
 ## Common Workflows
@@ -264,7 +273,7 @@ worktree help branch
 
 Configuration is stored in Git config under the `northguild.worktree.*` namespace. A committed
 `.worktree.yml` can supply the team keys (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`, `jira.deployment`,
-`clickup.workspaceId`, `github.repository`, `github.host`); your git config wins over it, and it wins over the built-in default. A file's
+`clickup.workspaceId`, `github.repository`, `github.host`); your git config wins over it, and it wins over your user config file and the built-in default. A file's
 `jira.host` receives every teammate's Jira credentials, so review a change to it like code. See
 [Project Configuration](https://northguild.dev/worktree/project-configuration/).
 
@@ -333,12 +342,12 @@ line, `worktree: no default for <value>; pass <flag>`.
   With no issue, the name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`, `jira.autoAssign` or `clickup.autoAssign`, then assign. The default is never saved.
 - **Start (Linear, ClickUp, Jira):** `--start`/`--no-start`, then `linear.autoStart`, `clickup.autoStart` or `jira.autoStart`, then start: a non-interactive `--linear` run moves a backlog or unstarted issue to started, a non-interactive `--clickup` run moves an open-status task to the List's first in-progress status, and a non-interactive `--jira` run moves a To Do issue to its in-progress status, unless `--no-start` or the key is `false`. The default is never saved, and a failed move warns and changes no exit code.
-- **Install:** on. The command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml`, else
-  inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). Steps from the
+- **Install:** on. The command is your `postCreate`, else the steps under `postCreate` in `.worktree.yml`, else the
+  steps in your user config file (no approval), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). Steps from the
   file need your approval first; unapproved, a non-interactive run exits `2` (`missing_value`) before anything is
   created, naming `worktree config --approve` (in a terminal) and `--no-install`. It never prints a value to approve with. With nothing to run it says so and carries on. A failure keeps
   the worktree, starts nothing and exits `1`.
-- **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`), else `origin/main` with a warning.
+- **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`, else your user config file), else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
 - **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, `git fetch` 60 s, `gh auth token` and the session listing
   10 s, the install 10 min. A command still running at its bound is sent SIGTERM, then SIGKILL 2 s later, so
@@ -368,7 +377,7 @@ worktree branch --github 42 --json --agent-file brief.md
 - `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), and `null` when no assignment was attempted. `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), and `null` when none was attempted. `herdr`, `rex` and `agent` are `null` when skipped (`rex` is `{session,block}`, with `block` `null` when the session was found rather than reported by `rex new`: one that was already open, or one whose `rex new` timed out and turned up after; `agent` says whether an agent started), and
   `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
 - `installed` is `{ran:false,reason}` when skipped. `steps` are the commands that ran, in order; `command` is the
-  one that failed, else the last that ran; `from` is `"git-config"`, `"project"` or `"lockfile"`. A failed install still prints the whole document, with
+  one that failed, else the last that ran; `from` is `"git-config"`, `"project"`, `"user"` or `"lockfile"`. A failed install still prints the whole document, with
   `installed.ok` `false`, and exits `1`.
 - A brief that was given and not delivered does the same: the whole document, `agent` `null` or
   `agent.prompted` `false`, the reason in `warnings`, exit `1`.

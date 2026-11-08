@@ -3,7 +3,10 @@ import path from "node:path";
 import { commandExists, runStreaming } from "./cli.js";
 import { gitGetConfigValue } from "./config.js";
 import { isNonInteractive } from "./interaction.js";
-import { getProjectPostCreateSteps } from "./project-config.js";
+import {
+  getProjectPostCreateSteps,
+  getUserPostCreateSteps,
+} from "./project-config.js";
 import { splitCommandValue } from "./utils.js";
 
 /** D5: an install can legitimately take minutes, but not unboundedly long. */
@@ -22,7 +25,7 @@ const LOCKFILE_COMMANDS: ReadonlyArray<readonly [string, string]> = [
   ["bun.lock", "bun install --frozen-lockfile"],
 ];
 
-export type InstallSource = "git-config" | "project" | "lockfile";
+export type InstallSource = "git-config" | "project" | "user" | "lockfile";
 
 /**
  * What the install step did, in the shape `branch --json` reports as
@@ -35,7 +38,7 @@ export type InstallResult =
       command: string;
       /** Every step that ran, in order, the failing one included. */
       steps: string[];
-      /** Where the steps came from: git config, the project file or a lockfile. */
+      /** Where the steps came from: git config, the project file, the user file or a lockfile. */
       from: InstallSource;
       inferred: boolean;
       ok: boolean;
@@ -58,7 +61,7 @@ function inferCommand(worktreePath: string) {
  * tree alone, as every run did before this step existed.
  *
  * The steps are the personal `postCreate` (one command) when set, else the
- * project file's list, else one command inferred from the lockfile in the new
+ * project file's list, else the user file's list, else one command inferred from the lockfile in the new
  * tree. Each runs by argv in that tree, never through a shell, with its output
  * on stderr and a 10 minute bound, and the first failure stops the rest. The
  * file's steps are approved by the caller before anything is created (D16); this
@@ -73,9 +76,16 @@ export async function runInstall(
     return { ran: false, reason: "--no-install was given" };
   }
 
+  // Git-only here: this is the first layer of `postCreate`, and the file layers
+  // below it have their own list readers (#281 D9, D10).
   const personal = (await gitGetConfigValue("postCreate")).trim();
   const fromFile = personal ? [] : await getProjectPostCreateSteps();
-  const configured = personal !== "" || fromFile.length > 0;
+  // Read only when nothing above it answers, so a person with no user file
+  // reads none (#281 D10).
+  const fromUser =
+    personal || fromFile.length > 0 ? [] : await getUserPostCreateSteps();
+  const configured =
+    personal !== "" || fromFile.length > 0 || fromUser.length > 0;
   if (install !== true && !isNonInteractive() && !configured) {
     return {
       ran: false,
@@ -91,6 +101,9 @@ export async function runInstall(
   } else if (fromFile.length > 0) {
     from = "project";
     steps = fromFile;
+  } else if (fromUser.length > 0) {
+    from = "user";
+    steps = fromUser;
   } else {
     from = "lockfile";
     const inferred = inferCommand(worktreePath);
@@ -105,7 +118,7 @@ export async function runInstall(
 
   // A single command that cannot start is a skipped install, as it always was.
   // In a list, one that cannot start is a failed step: the person asked for it.
-  if (from !== "project") {
+  if (from !== "project" && from !== "user") {
     const [program] = splitCommandValue(steps[0] ?? "");
     if (!program) {
       return skipped("postCreate holds no command");
