@@ -39,10 +39,14 @@ export function isProgressEnabled(
   return !nonInteractive && stream.isTTY === true && Boolean(stream.columns);
 }
 
-/** FORCE_COLOR asks for colour unless it is empty, `0` or `false`. */
+/**
+ * FORCE_COLOR asks for colour unless it is `0` or `false`. Empty counts as a
+ * request, as it does for Node's `hasColors()` (which log-symbols reads) and
+ * for chalk.
+ */
 function isColorForced(env: NodeJS.ProcessEnv = process.env) {
   const force = env.FORCE_COLOR;
-  return force !== undefined && !["", "0", "false"].includes(force);
+  return force !== undefined && force !== "0" && force !== "false";
 }
 
 /**

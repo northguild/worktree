@@ -138,8 +138,11 @@ describe("createSpinner symbols follow the stream, not the environment (#321)", 
     expect(printed(true)).toContain(green);
   });
 
-  it("keeps the symbol's colour when FORCE_COLOR asks for it", () => {
-    vi.stubEnv("FORCE_COLOR", "1");
+  it.each([
+    "1",
+    "",
+  ])("keeps the symbol's colour when FORCE_COLOR is '%s'", (force) => {
+    vi.stubEnv("FORCE_COLOR", force);
 
     try {
       expect(printed(false)).toContain(green);
