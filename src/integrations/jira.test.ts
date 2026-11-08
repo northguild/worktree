@@ -988,6 +988,18 @@ jira:
     );
   });
 
+  it("does not count a gateway's sign-in page as valid credentials", async () => {
+    stubCloudJira();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(signInPage("https://idp.example.com/login", true)),
+    );
+
+    expect(await validateJiraCredentials()).toBe(false);
+  });
+
   it("still reads an API answer that says it is JSON", async () => {
     stubCloudJira();
     vi.stubGlobal(

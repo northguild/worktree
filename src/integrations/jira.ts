@@ -677,7 +677,8 @@ export async function validateJiraCredentials(): Promise<boolean> {
       site,
     );
 
-    return response.ok;
+    // #295: a gateway's 200 sign-in page is not Jira accepting the token.
+    return response.ok && webPageInsteadOfApi(site, response) === null;
   } catch {
     return false;
   }
