@@ -36,6 +36,10 @@ import { CHAT_SHORTCUT_ARIA } from "../chat/shortcut";
 </div>
 
 <script>
+  // In dev, React Fast Refresh needs its preamble before any component module runs, or the chat chunk throws
+  // "@vitejs/plugin-react can't detect preamble". @astrojs/react injects it only on a page with a hydrated island, and
+  // this site has none: the chat is a dynamic import from this script. The module is empty in a production build.
+  import "@vitejs/plugin-react/preamble";
   import { initChatLauncher } from "../chat/launcher";
 
   const root = document.querySelector<HTMLElement>("[data-chat-launcher-root]");
