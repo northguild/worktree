@@ -31,3 +31,14 @@ Non-blocking observations from the gates, for a person. Branch-local; `/feature-
   header rows; §7 left them unchanged and they are incomplete rather than untrue.
 - The smoke's hashed asset is the first sorted `_astro/` entry — today `Chat.*.js`, about 850 KB, fetched up to
   six times — and `readdir` there does not skip a subdirectory that might sort first.
+
+## Phase 3 — `llms.txt` Optional section and the `describedby` link
+
+- The audit test "fails on every page when the file it names is not in the build" checks two pages, not all
+  28, and not the site-level "llms.txt is missing from the build" line beside them.
+- The `describedby` match splits `rel` on whitespace, so `rel="describedby alternate"` counts; no test uses a
+  multi-word `rel`. The predicate is written twice in `audit-dist.mjs` (the per-page rule and the 404 rule).
+- The llmstxt.org wording on `## Optional` quoted in `llms-txt.test.ts` was fetched by the coder; the reviewer
+  had no web access to compare it word for word. The meaning matches D9 either way.
+- Biome reports the new `LLMS_TXT_URL` import in `Head.astro` as unused (the 35th `pnpm check` warning): it
+  cannot see the Astro template, the same false positive as the file's two older `noUnusedVariables`.

@@ -191,6 +191,33 @@ function auditIcons(html, dist) {
   return failures;
 }
 
+const LLMS_TXT_URL = `${ORIGIN}llms.txt`;
+
+/**
+ * D8: each of the 28 pages links its llms.txt exactly once, as `rel="describedby" type="text/plain"` with the absolute
+ * URL, and the file is in the build. The 404 is not a page of the site and carries none (auditNotFound).
+ */
+function auditDescribedBy(html, dist) {
+  const links = tagsOf(html, "link").filter((l) =>
+    (l.rel ?? "").split(/\s+/).includes("describedby"),
+  );
+  if (links.length !== 1)
+    return [`${links.length} describedby links, expected exactly 1`];
+  const [{ type, href }] = links;
+  const failures = [];
+  if (type !== "text/plain")
+    failures.push(
+      `describedby link has type ${type ?? "(none)"}, expected text/plain`,
+    );
+  if (href !== LLMS_TXT_URL)
+    failures.push(
+      `describedby link href is ${href ?? "(none)"}, expected ${LLMS_TXT_URL}`,
+    );
+  else if (!isBuiltFile(href, dist))
+    failures.push(`describedby link ${href} is not a file in the build`);
+  return failures;
+}
+
 /** The page's source file relative to the content directory, or undefined when none exists: `commands` is `commands/index.mdx`. */
 export function sourcePathOf(path, contentDir = CONTENT_DIR) {
   const candidates =
@@ -1251,6 +1278,7 @@ async function auditPage(path, dist, descriptions, options) {
   if (!metaContent("name", "twitter:image:alt"))
     fail("no twitter:image:alt tag");
   for (const rule of auditIcons(html, dist)) fail(rule);
+  for (const rule of auditDescribedBy(html, dist)) fail(rule);
   for (const rule of auditTitle(html)) fail(rule);
 
   const ld = jsonLdTypes(html);
@@ -1395,16 +1423,23 @@ async function filesUnder(dir) {
 
 /** The item lines of a llmstxt.org file: `- [name](url): notes`. */
 function llmsItems(text) {
-  return text
-    .split("\n")
-    .filter((line) => line.startsWith("- "))
-    .map((line) => {
-      const m = line.match(/^- \[([^\]]*)\]\(([^)]*)\)(?:: (.*))?$/);
-      return m
-        ? { title: m[1], url: m[2], notes: m[3] ?? "" }
-        : { malformed: line };
-    });
+  let section = "";
+  const items = [];
+  for (const line of text.split("\n")) {
+    if (line.startsWith("## ")) section = line.slice(3).trim();
+    if (!line.startsWith("- ")) continue;
+    const m = line.match(/^- \[([^\]]*)\]\(([^)]*)\)(?:: (.*))?$/);
+    items.push(
+      m
+        ? { title: m[1], url: m[2], notes: m[3] ?? "", section }
+        : { malformed: line },
+    );
+  }
+  return items;
 }
+
+/** D9: `## Optional` (llmstxt.org: links an agent can skip when context is short) holds the changelog alone. */
+const OPTIONAL_PATHS = ["changelog"];
 
 async function auditLlms(dist, descriptions) {
   const failures = [];
@@ -1434,6 +1469,13 @@ async function auditLlms(dist, descriptions) {
       );
       continue;
     }
+    const expectedSection = OPTIONAL_PATHS.includes(path)
+      ? "Optional"
+      : "Documentation";
+    if (item.section !== expectedSection)
+      failures.push(
+        `llms.txt: ${item.url} is under "## ${item.section}", expected "## ${expectedSection}"`,
+      );
     if (item.title === "") failures.push(`llms.txt: ${item.url} has no title`);
     if (item.notes === "")
       failures.push(`llms.txt: ${item.url} has no description`);
@@ -1465,6 +1507,12 @@ function auditNotFound(html) {
     );
   if (tagsOf(html, "link").some((l) => l.rel === "canonical"))
     fail("has a canonical link, but /404/ is not a page of the site");
+  if (
+    tagsOf(html, "link").some((l) =>
+      (l.rel ?? "").split(/\s+/).includes("describedby"),
+    )
+  )
+    fail("has a describedby link, but /404/ is not a page of the site");
   if (/<script type="application\/ld\+json">/.test(html))
     fail("has JSON-LD (a BreadcrumbList would name /404/ as a page)");
   const toGettingStarted = [

@@ -64,20 +64,32 @@ const EDIT_LINK =
   '<a href="https://github.com/northguild/worktree/edit/main/docs/src/content/docs/faq.mdx" class="sl-flex">Edit page</a>';
 const descriptionOf = (path) => `A description of ${path || "the root"}.`;
 const titleOf = (path) => path || "Home";
-const llmsTxt = (paths, described = {}) =>
-  [
+// D9: the changelog alone is under `## Optional`; every other page is under `## Documentation`. `sections` overrides
+// that split by path (to put a page in the wrong one).
+const llmsTxt = (paths, described = {}, sections = {}) => {
+  const item = (p) =>
+    `- [${titleOf(p)}](${url(p)}): ${described[p] ?? descriptionOf(p)}`;
+  const sectionOf = (p) =>
+    sections[p] ?? (p === "changelog" ? "Optional" : "Documentation");
+  return [
     "# @northguild/worktree",
     "",
     "> Docs.",
     "",
     "## Documentation",
     "",
-    ...paths.map(
-      (p) =>
-        `- [${titleOf(p)}](${url(p)}): ${described[p] ?? descriptionOf(p)}`,
-    ),
+    ...paths.filter((p) => sectionOf(p) === "Documentation").map(item),
+    "",
+    "## Optional",
+    "",
+    ...paths.filter((p) => sectionOf(p) === "Optional").map(item),
     "",
   ].join("\n");
+};
+
+// D8: every page but the 404 links its llms.txt, as Head.astro renders it.
+const LLMS_LINK =
+  '<link rel="describedby" type="text/plain" href="https://northguild.dev/worktree/llms.txt"/>';
 
 function jsonLd(path) {
   const types =
@@ -243,6 +255,7 @@ function page(path, overrides = {}) {
     `<meta name="twitter:card" content="summary_large_image"/>`,
     overrides.preview ?? PREVIEW_TAGS,
     overrides.icons ?? ICONS,
+    overrides.describedby ?? LLMS_LINK,
     `<meta name="description" content="${description}"/>`,
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abcabc.js"></script>',
@@ -989,6 +1002,105 @@ describe("auditDist", () => {
     );
     await write(dist, "llms.txt", text);
     expect((await audit()).some((f) => /llms\.txt.*H1/.test(f))).toBe(true);
+  });
+
+  // D9 / llmstxt.org: "Optional" is for links an agent can skip; the changelog alone goes there.
+  it("fails an llms.txt that lists the changelog under ## Documentation", async () => {
+    await write(
+      dist,
+      "llms.txt",
+      llmsTxt(PATHS, {}, { changelog: "Documentation" }),
+    );
+    expect(await audit()).toContain(
+      `llms.txt: ${url("changelog")} is under "## Documentation", expected "## Optional"`,
+    );
+  });
+
+  it("fails an llms.txt that lists another page under ## Optional", async () => {
+    await write(dist, "llms.txt", llmsTxt(PATHS, {}, { faq: "Optional" }));
+    expect(await audit()).toContain(
+      `llms.txt: ${url("faq")} is under "## Optional", expected "## Documentation"`,
+    );
+  });
+
+  // D8: the describedby link to llms.txt, on the 28 pages and not on the 404.
+  describe("the describedby link to llms.txt (D8)", () => {
+    const LLMS_URL = "https://northguild.dev/worktree/llms.txt";
+
+    it("fails a page with no describedby link", async () => {
+      await write(dist, htmlPath("faq"), page("faq", { describedby: "" }));
+      expect(await audit()).toEqual([
+        "/faq/: 0 describedby links, expected exactly 1",
+      ]);
+    });
+
+    it("fails a page with two describedby links", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", { describedby: `${LLMS_LINK}${LLMS_LINK}` }),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: 2 describedby links, expected exactly 1",
+      ]);
+    });
+
+    it("fails a link whose type is not text/plain", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          describedby: LLMS_LINK.replace("text/plain", "text/html"),
+        }),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: describedby link has type text/html, expected text/plain",
+      ]);
+    });
+
+    it("fails a link with no type", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          describedby: LLMS_LINK.replace(' type="text/plain"', ""),
+        }),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: describedby link has type (none), expected text/plain",
+      ]);
+    });
+
+    it("fails a relative href: crawlers are given the absolute URL", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          describedby: LLMS_LINK.replace(LLMS_URL, "/worktree/llms.txt"),
+        }),
+      );
+      expect(await audit()).toEqual([
+        `/faq/: describedby link href is /worktree/llms.txt, expected ${LLMS_URL}`,
+      ]);
+    });
+
+    it("fails on every page when the file it names is not in the build", async () => {
+      await rm(join(dist, "llms.txt"));
+      const failures = await audit();
+      expect(failures).toContain(
+        `/faq/: describedby link ${LLMS_URL} is not a file in the build`,
+      );
+      expect(failures).toContain(
+        `/ (root): describedby link ${LLMS_URL} is not a file in the build`,
+      );
+    });
+
+    it("fails a 404 that carries the link: it is not a page of the site", async () => {
+      await write(dist, "404.html", notFoundPage({ head: LLMS_LINK }));
+      expect(await audit()).toEqual([
+        "404.html: has a describedby link, but /404/ is not a page of the site",
+      ]);
+    });
   });
 
   // Last updated (D11): the page's <time> equals the independently computed date.

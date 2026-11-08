@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { renderLlmsTxt } from "./llms-txt";
+import { LLMS_TXT_URL, renderLlmsTxt } from "./llms-txt";
 
 // Expected values do not come from the endpoint. The URLs come from D3 (`https://northguild.dev/worktree/<path>/`,
 // the root page at `/worktree/`) applied to each source file's path; titles and descriptions are read straight
@@ -75,6 +75,34 @@ describe("llms.txt", () => {
     const firstH2 = lines.findIndex((l) => l.startsWith("## "));
     expect(firstH2).toBeGreaterThan(0);
     expect(firstH2).toBeLessThan(firstItem);
+  });
+
+  // D9 / llmstxt.org: "Optional" is the section for "secondary information: links an agent can skip when a shorter
+  // context is needed" (read 2026-11-08). The changelog is the one page that is history, not how to use the tool.
+  it("puts the changelog alone under ## Optional and the other 27 under ## Documentation", () => {
+    const { text } = body();
+    const sections = new Map<string, string[]>();
+    let current = "";
+    for (const line of text.split("\n")) {
+      if (line.startsWith("## ")) {
+        current = line;
+        sections.set(current, []);
+      } else if (line.startsWith("- ")) sections.get(current)?.push(line);
+    }
+    expect([...sections.keys()]).toEqual(["## Documentation", "## Optional"]);
+    expect(sections.get("## Optional")).toHaveLength(1);
+    expect(sections.get("## Optional")?.[0]).toContain(
+      `](${ORIGIN}changelog/):`,
+    );
+    expect(sections.get("## Documentation")).toHaveLength(27);
+    expect(
+      sections.get("## Documentation")?.some((l) => l.includes("/changelog/")),
+    ).toBe(false);
+  });
+
+  // D8: the page head links this exact URL (the audit checks the link against it).
+  it("exports the absolute URL of the file it renders", () => {
+    expect(LLMS_TXT_URL).toBe("https://northguild.dev/worktree/llms.txt");
   });
 
   it("lists the root page first, as the site's entry point", () => {
