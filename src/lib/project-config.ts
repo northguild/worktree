@@ -292,7 +292,8 @@ async function resolveRef() {
   );
 }
 
-async function workingCopyWarning(ref: string, content: string) {
+// `content` is the merged copy, or undefined when the ref holds none.
+async function workingCopyWarning(ref: string, content: string | undefined) {
   const working = path.join(await gitGetTopLevelPath(), PROJECT_CONFIG_FILE);
   let workingContent: string;
   try {
@@ -300,6 +301,11 @@ async function workingCopyWarning(ref: string, content: string) {
   } catch {
     // No copy of its own in this worktree: nothing to disagree with.
     return [];
+  }
+  if (content === undefined) {
+    return [
+      `${working} exists, but ${ref} has no ${PROJECT_CONFIG_FILE}, so it is ignored. Only the merged copy applies; use ${OVERRIDE_ENV}=${working} to try your edit.`,
+    ];
   }
   if (workingContent.trim() === content.trim()) {
     return [];
@@ -353,6 +359,7 @@ export async function readProjectConfig(
     }
     source = { kind: "ref", ref };
     if (blob.status === "absent-path") {
+      warnings.push(...(await workingCopyWarning(ref, undefined)));
       return { status: "none", reason: "no-file", source, warnings };
     }
     content = blob.content;
