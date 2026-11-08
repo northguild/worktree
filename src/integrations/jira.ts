@@ -444,6 +444,13 @@ function isWebPage(response: Response): boolean {
   return /\b(text\/html|application\/xhtml\+xml)\b/i.test(contentType);
 }
 
+// A web page's body is never read, so it is cancelled instead: Node's garbage
+// collector is too slow to rely on, and undici holds the connection until the
+// body is consumed or cancelled. A failed cancel changes nothing for the caller.
+function discardBody(response: Response): void {
+  void response.body?.cancel().catch(() => {});
+}
+
 // The host that answered, and whether a redirect took the request away from
 // the configured site. site.host may carry a context path (example.com/jira);
 // compare hosts.
@@ -470,6 +477,8 @@ function webPageInsteadOfApi(site: JiraSite, response: Response): Error | null {
     return null;
   }
 
+  // Every caller gives up on the response once this names it a web page.
+  discardBody(response);
   const { finalHost, redirect } = answeringHost(site, response);
 
   return new Error(
@@ -486,6 +495,7 @@ async function jiraFailureBody(
   response: Response,
 ): Promise<string> {
   if (isWebPage(response)) {
+    discardBody(response);
     const { finalHost, redirect } = answeringHost(site, response);
 
     return ` - ${finalHost} answered with a web page${redirect}, not the API`;

@@ -46,6 +46,7 @@ function signInPage(url: string, redirected = false) {
     headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
     json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token <")),
     text: async () => "<!DOCTYPE html><title>Sign in</title>",
+    body: { cancel: vi.fn().mockResolvedValue(undefined) },
   };
 }
 
@@ -62,6 +63,7 @@ function proxyErrorPage(url: string) {
     headers: new Headers({ "content-type": "text/html" }),
     json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token <")),
     text: vi.fn().mockResolvedValue(PROXY_PAGE),
+    body: { cancel: vi.fn().mockResolvedValue(undefined) },
   };
 }
 
@@ -1002,6 +1004,54 @@ jira:
     );
     await expect(failure).rejects.not.toThrow(/<html|<h1|api-token/);
     expect(page.text).not.toHaveBeenCalled();
+    expect(page.body.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the body of a sign-in page it does not read", async () => {
+    stubCloudJira();
+    const page = signInPage(
+      "https://example.atlassian.net/rest/api/3/issue/DEV-123",
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(page));
+
+    await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+      "answered with a web page",
+    );
+    expect(page.body.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("leaves no unhandled rejection when the cancel itself rejects", async () => {
+    stubCloudJira();
+    // A plain function, not vi.fn: a mock records how its promise settles,
+    // and that handles the rejection this test is looking for.
+    let cancels = 0;
+    const page = {
+      ...proxyErrorPage(
+        "https://example.atlassian.net/rest/api/3/issue/DEV-123",
+      ),
+      body: {
+        cancel: () => {
+          cancels += 1;
+          return Promise.reject(new TypeError("stream locked"));
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(page));
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+
+    try {
+      await expect(fetchJiraIssue("dev-123")).rejects.toThrow(
+        "Jira: Failed to fetch issue DEV-123. 502 Bad Gateway - example.atlassian.net answered with a web page, not the API",
+      );
+      // Node reports an unhandled rejection once the microtasks drain.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(cancels).toBe(1);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 
   it("keeps a JSON error body from Jira in the message", async () => {
