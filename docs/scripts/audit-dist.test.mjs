@@ -208,6 +208,11 @@ function png(width, height) {
   return bytes;
 }
 
+/** The landing's "Ask Dox" button as Hero.astro renders it: a button with the launcher's chat bubble. */
+const ASK_DOX =
+  '<button type="button" class="ask-dox" aria-haspopup="dialog" data-chat-open>Ask Dox' +
+  '<svg aria-hidden="true" focusable="false"><path d="M0 0"></path></svg></button>';
+
 function page(path, overrides = {}) {
   const description = overrides.description ?? descriptionOf(path);
   const time = overrides.time ?? `${DATE}T10:00:00.000Z`;
@@ -218,11 +223,13 @@ function page(path, overrides = {}) {
       : path === "getting-started"
         ? "Getting Started with @northguild/worktree"
         : path;
-  // D17: the root is a landing whose call to action is "Get started", linking to Getting Started.
+  // D17: the root is a landing whose call to action is "Get started", linking to Getting Started; beside it, the
+  // "Ask Dox" button that opens the chat (the user, 2026-11-08).
   const landing =
     path === ""
       ? (overrides.landing ??
-        '<a href="/worktree/getting-started/" class="sl-link-button primary">Get started</a>')
+        '<a href="/worktree/getting-started/" class="sl-link-button primary">Get started</a>' +
+          ASK_DOX)
       : "";
   return [
     "<!doctype html><html><head>",
@@ -989,6 +996,25 @@ describe("auditDist", () => {
     const failures = await audit();
     expect(failures).toHaveLength(1);
     expect(failures[0]).toMatch(/^\/ \(root\).*2 actions/);
+  });
+
+  // The user, 2026-11-08: "we are missing an 'Ask Dox' button in the landing page".
+  it("fails a landing with no Ask Dox button", async () => {
+    await rewrite("", (html) => html.replace(ASK_DOX, ""));
+    const failures = await audit();
+    expect(failures).toEqual([
+      '/ (root): the landing has 0 "Ask Dox" buttons, expected 1',
+    ]);
+  });
+
+  it("fails an Ask Dox button that does not open the chat", async () => {
+    await rewrite("", (html) =>
+      html.replace(ASK_DOX, ASK_DOX.replace(" data-chat-open", "")),
+    );
+    const failures = await audit();
+    expect(failures).toEqual([
+      '/ (root): the "Ask Dox" button does not open the chat (it needs type="button" and data-chat-open)',
+    ]);
   });
 
   it("fails a landing that has sections below the hero again", async () => {

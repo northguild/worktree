@@ -65,6 +65,13 @@ useChat folds the events into messages;  docs/src/chat/  renders them
 
 On the page, the pieces are:
 
+- **Opening it.** The launcher button (`components/ChatLauncher.astro`, on every page) imports the chat on first use,
+  by click or Alt+Shift+C, mounts it open and hands over to the chat's own trigger (`launcher.ts`). A control marked
+  `data-chat-open` opens it too: the landing's "Ask Dox", which `Hero.astro` renders as a button from the hero action
+  carrying that attribute. Before the chat has loaded it loads it, as the launcher does; after, it sends
+  `docs-chat:open`, which the drawer listens for. In dev the launcher's script first imports
+  `@vitejs/plugin-react/preamble`: `@astrojs/react` injects React's refresh preamble only on a page that hydrates an
+  island, and none does, so without it the chat chunk throws "can't detect preamble".
 - **The connection.** `fetchServerSentEvents` posts to `PUBLIC_GEMINI_WORKER_URL` plus `/api/chat`
   (`lib/chat-endpoint.ts`; unset, it is `http://localhost:8787`). Its `fetchClient` is `chatFetch`
   (`lib/chat-fetch.ts`), which does three things the library does not: it reads the Worker's `{ error, retryable }`
@@ -258,6 +265,9 @@ right sidebar ("On this page") painted over the button on wide pages whatever it
 checked in `dist/` instead (`pnpm docs:audit-dist`).
 
 ## The landing hero
+
+The copy has two actions: "Get started", a link to Getting Started, and "Ask Dox", a button that opens the chat (see
+*Opening it* above). `pnpm docs:audit-dist` holds both, and no other link action.
 
 The landing's art box (`src/components/HeroLeaves.astro`, rendered by the landing branch of `Hero.astro` only) is a field of
 leaf-shaped WebGL particles (D18): on load they gust in from every edge of the viewport and from behind the header, build one

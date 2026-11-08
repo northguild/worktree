@@ -1,10 +1,11 @@
 import { Button } from "@base-ui/react";
 import { Drawer } from "@base-ui/react/drawer";
 import { XMarkIcon } from "@heroicons/react/24/outline";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { cn } from "../../utils";
 import { useEnterAnimation } from "../hooks/useEnterAnimation";
 import { useGlobalKeyDown } from "../hooks/useGlobalKeyDown";
+import { OPEN_CHAT_EVENT } from "../launcher";
 import { CHAT_MODELS, type ChatModelId } from "../lib/chat-constants";
 import { CHAT_SHORTCUT } from "../shortcut";
 import { useChatContext } from "./ChatContext";
@@ -64,6 +65,16 @@ export function ChatDrawer() {
       handleOpen();
     },
   });
+
+  // The page's other openers (the landing's "Ask Dox") reach the mounted chat through this event (launcher.ts). An
+  // open drawer, or one still closing, is left as it is.
+  useEffect(() => {
+    function open() {
+      if (!isDrawerOpen) handleOpen();
+    }
+    window.addEventListener(OPEN_CHAT_EVENT, open);
+    return () => window.removeEventListener(OPEN_CHAT_EVENT, open);
+  }, [isDrawerOpen, handleOpen]);
 
   // Drive entrance animation via two-phase mount.
   useEnterAnimation(isDrawerOpen, setEntered);
