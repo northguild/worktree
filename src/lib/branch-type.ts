@@ -47,6 +47,13 @@ export class AmbiguousFieldError extends ProjectConfigError {
   }
 }
 
+const PORTABLE_NAMES = ["Type", "Labels"];
+
+/** `Type` and `Labels`, the names a shared `branchType` rule may use (#128 D3). */
+function isPortableName(name: string) {
+  return PORTABLE_NAMES.some((portable) => sameName(portable, name));
+}
+
 type WhenValue = string | number | { id: string | number };
 
 function sameName(left: string, right: string) {
@@ -87,13 +94,19 @@ function findField(key: string, fields: IssueField[], where: string) {
  * whatever is left. No match and no `otherwise` is no kind, so no prefix.
  * `listName` (such as `jira.branchType`) only words the warnings. `shared`
  * marks the top-level list (D5): written for several providers, so a field
- * this issue lacks is not worth a warning there. The ambiguity error stays.
+ * this issue lacks is not worth a warning there. `dryRun` is where rules are
+ * written and checked, so a misspelt field in the shared list warns there
+ * too, except for the portable `Type` and `Labels`: a provider that offers
+ * neither is not a spelling mistake. The ambiguity error stays.
  */
 export function evaluateBranchTypeRules(
   rules: readonly BranchTypeRule[],
   fields: IssueField[],
   listName = "branchType",
-  { shared = false }: { shared?: boolean } = {},
+  {
+    shared = false,
+    dryRun = false,
+  }: { shared?: boolean; dryRun?: boolean } = {},
 ): BranchTypeResult {
   const warnings: string[] = [];
 
@@ -108,7 +121,7 @@ export function evaluateBranchTypeRules(
     for (const [key, wanted] of Object.entries(rule.when)) {
       const field = findField(key, fields, where);
       if (!field) {
-        if (!shared) {
+        if (!shared || (dryRun && !isPortableName(key))) {
           warnings.push(
             `${where} names the field "${showVisibly(key)}", which this issue does not have, so the rule did not match. Check the spelling, or use the field's id.`,
           );
@@ -205,7 +218,7 @@ export function formatBranchTypeRule(rule: BranchTypeRule) {
  * naming it finds every other provider's `Labels` by name (`findField`).
  */
 export function isPortableField(field: IssueField) {
-  return sameName(field.id, "Type") || sameName(field.id, "Labels");
+  return isPortableName(field.id);
 }
 
 /**

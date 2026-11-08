@@ -927,8 +927,10 @@ export async function getGitHubBranchNaming(
   if (list) {
     const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
       // A dry run is where rules are written and checked, so a misspelt field
-      // in the shared list still warns there (D5 holds for real runs).
-      shared: list.shared && !dryRun,
+      // in the shared list still warns there (D5 holds for real runs). The
+      // portable Type and Labels never do: no spelling mistake is behind them.
+      shared: list.shared,
+      dryRun,
     });
     for (const warning of result.warnings) {
       onWarning(warning);
