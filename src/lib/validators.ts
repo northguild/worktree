@@ -65,9 +65,12 @@ export function isValidBranchName(value: string): true | string {
     { regex: /\.\./, message: "Branch name cannot contain double dots" },
     { regex: /\s/, message: "Branch name cannot contain spaces" },
     {
-      regex: /[~^:\\*?[\]@{]/,
+      // `@` is allowed (user@fix): git forbids the sequence `@{`, which the `{`
+      // here covers. A lone `@` is refused below because git reads it as HEAD.
+      regex: /[~^:\\*?[\]{]/,
       message: "Branch name contains invalid characters",
     },
+    { regex: /^@$/, message: "Branch name cannot be just '@'" },
     { regex: /\.$/, message: "Branch name cannot end with a dot" },
     { regex: /\/$/, message: "Branch name cannot end with a slash" },
     {
