@@ -149,7 +149,7 @@ const MAINTAINERS =
 // Phase 16 (D18, the leaf-particle hero): the landing alone loads the hero loader and carries the art box, whose still
 // SVG and canvas are aria-hidden. The loader reaches the effect only through a dynamic import().
 const HERO_SCRIPT =
-  '<script type="module" src="/worktree/_astro/HeroLeaves.ghi.js"></script>';
+  '<script type="module" src="/worktree/_astro/HeroLeaves.ghighi.js"></script>';
 const HERO_ART =
   '<div class="art" data-hero-art><svg class="hero-still" aria-hidden="true" focusable="false"></svg><canvas class="hero-canvas" data-hero-canvas aria-hidden="true"></canvas></div>';
 
@@ -245,8 +245,8 @@ function page(path, overrides = {}) {
     overrides.icons ?? ICONS,
     `<meta name="description" content="${description}"/>`,
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
-    '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
-    '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
+    '<script type="module" src="/worktree/_astro/page.abcabc.js"></script>',
+    '<script type="module" src="/worktree/_astro/ChatLauncher.defdef.js"></script>',
     path === "" ? (overrides.heroScript ?? HERO_SCRIPT) : "",
     `</head><body>${overrides.header ?? (path === "" ? LANDING_HEADER : HEADER)}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
@@ -305,7 +305,7 @@ beforeEach(async () => {
   await write(dist, "404.html", notFoundPage());
   await write(
     dist,
-    "_astro/common.abc.css",
+    "_astro/common.abcabc.css",
     `.tab>[role=tab]{display:flex;min-block-size:44px}${ENTRANCE_CSS}`,
   );
   await write(
@@ -315,19 +315,19 @@ beforeEach(async () => {
   );
   await write(dist, "sitemap-0.xml", sitemap(PATHS));
   await write(dist, "llms.txt", llmsTxt(PATHS));
-  await write(dist, "_astro/page.abc.js", "console.log('page');");
+  await write(dist, "_astro/page.abcabc.js", "console.log('page');");
   await write(
     dist,
-    "_astro/ChatLauncher.def.js",
-    'button.onclick=()=>import("./Chat.xyz.js");',
+    "_astro/ChatLauncher.defdef.js",
+    'button.onclick=()=>import("./Chat.xyzxyz.js");',
   );
-  await write(dist, "_astro/Chat.xyz.js", "export const chat = 1;");
+  await write(dist, "_astro/Chat.xyzxyz.js", "export const chat = 1;");
   await write(
     dist,
-    "_astro/HeroLeaves.ghi.js",
-    'document.addEventListener("x",()=>import("./particles.jkl.js"));',
+    "_astro/HeroLeaves.ghighi.js",
+    'document.addEventListener("x",()=>import("./particles.jkljkl.js"));',
   );
-  await write(dist, "_astro/particles.jkl.js", "export const effect = 1;");
+  await write(dist, "_astro/particles.jkljkl.js", "export const effect = 1;");
   for (const file of ["favicon.svg", "favicon.ico", "apple-touch-icon.png"])
     await write(dist, file, "x");
   await write(dist, "og-image.jpg", jpeg(1200, 630));
@@ -726,7 +726,7 @@ describe("auditDist", () => {
     await rewrite("faq", (html) =>
       html.replace(
         "</head>",
-        '<script type="module" src="/worktree/_astro/Chat.xyz.js"></script></head>',
+        '<script type="module" src="/worktree/_astro/Chat.xyzxyz.js"></script></head>',
       ),
     );
     expect((await audit()).some((f) => /chat/i.test(f))).toBe(true);
@@ -736,19 +736,19 @@ describe("auditDist", () => {
     await rewrite("faq", (html) =>
       html.replace(
         "</head>",
-        '<link rel="modulepreload" href="/worktree/_astro/Chat.xyz.js"></head>',
+        '<link rel="modulepreload" href="/worktree/_astro/Chat.xyzxyz.js"></head>',
       ),
     );
     expect((await audit()).some((f) => /chat/i.test(f))).toBe(true);
   });
 
   it("fails a page script that statically imports the chat chunk", async () => {
-    await write(dist, "_astro/page.abc.js", 'import"./Chat.xyz.js";');
+    await write(dist, "_astro/page.abcabc.js", 'import"./Chat.xyzxyz.js";');
     expect((await audit()).some((f) => /chat/i.test(f))).toBe(true);
   });
 
   it("allows the launcher to import the chat dynamically", async () => {
-    // beforeEach's ChatLauncher.def.js already does: import("./Chat.xyz.js").
+    // beforeEach's ChatLauncher.defdef.js already does: import("./Chat.xyzxyz.js").
     expect(await audit()).toEqual([]);
   });
 
@@ -822,6 +822,48 @@ describe("auditDist", () => {
   it("accepts a lastmod that is a W3C Datetime equal to the footer's", async () => {
     await write(dist, "sitemap-0.xml", sitemap(PATHS));
     expect(await lastmodFailures()).toEqual([]);
+  });
+
+  // Hashed names under _astro/ (plan 287, D5 and §4.2): `immutable` is safe only if a name changes with its content.
+  // The accepted names are measured on a real build (docs/dist/_astro/, 2026-11-08): `common.xqO6OrSB.css`,
+  // `client.SkQ_jZIB.js` (a `_` in the hash) and Expressive Code's five-character `ec.0vx5m.js`. A hash that is
+  // absent, or shorter than five characters, is the case the rule exists for.
+  const hashFailures = async () =>
+    (await audit()).filter((f) => /hash/.test(f));
+
+  it("accepts the hashed names a real build emits", async () => {
+    for (const name of [
+      "common.xqO6OrSB.css",
+      "client.SkQ_jZIB.js",
+      "ec.0vx5m.js",
+      "x.ab-cd.js",
+    ])
+      await write(dist, `_astro/${name}`, "x");
+    expect(await hashFailures()).toEqual([]);
+  });
+
+  it("fails a file under _astro/ with no hash in its name, and names it", async () => {
+    await write(dist, "_astro/runtime.js", "x");
+    const failures = await hashFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("_astro/runtime.js");
+  });
+
+  it("fails a hash shorter than five characters", async () => {
+    await write(dist, "_astro/runtime.abcd.js", "x");
+    const failures = await hashFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("_astro/runtime.abcd.js");
+  });
+
+  it("fails an unhashed file in a subfolder of _astro/", async () => {
+    await write(dist, "_astro/sub/plain.css", "x");
+    expect((await hashFailures())[0]).toContain("_astro/sub/plain.css");
+  });
+
+  it("does not require a hash outside _astro/", async () => {
+    await write(dist, "fonts/plain.woff2", "x");
+    expect(await hashFailures()).toEqual([]);
   });
 
   it("fails a sitemap with an extra URL", async () => {
@@ -1279,7 +1321,7 @@ describe("auditDist", () => {
   describe("package-manager tabs", () => {
     // The entrance's keyframes stay, so only the tab rule is under test.
     const css = (rule) =>
-      write(dist, "_astro/common.abc.css", `${rule}${ENTRANCE_CSS}`);
+      write(dist, "_astro/common.abcabc.css", `${rule}${ENTRANCE_CSS}`);
 
     it("fails a build with no tab rule", async () => {
       await css(".other{min-block-size:44px}");
@@ -1586,7 +1628,7 @@ describe("the theme toggle (#266)", () => {
 
   it("fails a provider loaded as an external script rather than inline", async () => {
     const failures = await withProvider(
-      '<script src="/worktree/_astro/provider.abc.js"></script>',
+      '<script src="/worktree/_astro/provider.abcabc.js"></script>',
     );
     expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
   });
@@ -1885,7 +1927,7 @@ describe("the 404 speaks git", () => {
 // --gmt-cyan-bright #0e7490 and --gmt-cyan-ink #045268. The rest of each case is the rule written in the audit's header: a
 // declaration naming cyan is a finding only when it is the cascade winner and something uses it.
 describe("no cyan accent left", () => {
-  const sheet = (css) => write(dist, "_astro/theme.abc.css", css);
+  const sheet = (css) => write(dist, "_astro/theme.abcabc.css", css);
   const used = (selector = "a") =>
     write(
       dist,
@@ -1984,7 +2026,7 @@ describe("no cyan accent left", () => {
   it("reads a class used only by a script as used", async () => {
     await sheet(".widget-xyz{color:#67e8f9}");
     expect(await findings()).toEqual([]);
-    await write(dist, "_astro/page.abc.js", "el.className='widget-xyz';");
+    await write(dist, "_astro/page.abcabc.js", "el.className='widget-xyz';");
     expect(await findings()).toHaveLength(1);
   });
 
@@ -2021,7 +2063,7 @@ describe("no cyan accent left", () => {
       true,
     );
     await write(dist, "index.html", page(""));
-    await write(dist, "_astro/page.abc.js", "const c='var(--gmt-cyan)';");
+    await write(dist, "_astro/page.abcabc.js", "const c='var(--gmt-cyan)';");
     expect((await findings()).some((f) => /script names cyan/.test(f))).toBe(
       true,
     );
@@ -2082,7 +2124,7 @@ describe("the leaf-particle hero", () => {
     await rewrite("faq", (html) =>
       html.replace(
         "</head>",
-        '<script type="module" src="/worktree/_astro/particles.jkl.js"></script></head>',
+        '<script type="module" src="/worktree/_astro/particles.jkljkl.js"></script></head>',
       ),
     );
     expect((await heroFailures()).some((f) => /effect up front/.test(f))).toBe(
@@ -2095,7 +2137,7 @@ describe("the leaf-particle hero", () => {
       dist,
       "404.html",
       notFoundPage({
-        head: '<link rel="modulepreload" href="/worktree/_astro/particles.jkl.js">',
+        head: '<link rel="modulepreload" href="/worktree/_astro/particles.jkljkl.js">',
       }),
     );
     expect(
@@ -2108,8 +2150,8 @@ describe("the leaf-particle hero", () => {
   it("fails a loader that imports the effect statically", async () => {
     await write(
       dist,
-      "_astro/HeroLeaves.ghi.js",
-      'import"./particles.jkl.js";',
+      "_astro/HeroLeaves.ghighi.js",
+      'import"./particles.jkljkl.js";',
     );
     expect((await heroFailures()).some((f) => /effect up front/.test(f))).toBe(
       true,
@@ -2117,7 +2159,7 @@ describe("the leaf-particle hero", () => {
   });
 
   it("fails a loader with no dynamic import of the effect", async () => {
-    await write(dist, "_astro/HeroLeaves.ghi.js", "console.log(1);");
+    await write(dist, "_astro/HeroLeaves.ghighi.js", "console.log(1);");
     expect(
       (await heroFailures()).some((f) => /no dynamic import/.test(f)),
     ).toBe(true);
@@ -2126,9 +2168,9 @@ describe("the leaf-particle hero", () => {
   it("fails a loader over 2 KB gzipped", async () => {
     await write(
       dist,
-      "_astro/HeroLeaves.ghi.js",
+      "_astro/HeroLeaves.ghighi.js",
       Buffer.concat([
-        Buffer.from('import("./particles.jkl.js");//'),
+        Buffer.from('import("./particles.jkljkl.js");//'),
         incompressible(LOADER_BUDGET + 500),
       ]),
     );
@@ -2140,12 +2182,12 @@ describe("the leaf-particle hero", () => {
   it("counts the loader's own static imports against its 2 KB", async () => {
     await write(
       dist,
-      "_astro/HeroLeaves.ghi.js",
-      'import{t as e}from"./preload-helper.pqr.js";e(()=>import(`./particles.jkl.js`),[]);',
+      "_astro/HeroLeaves.ghighi.js",
+      'import{t as e}from"./preload-helper.pqrpqr.js";e(()=>import(`./particles.jkljkl.js`),[]);',
     );
     await write(
       dist,
-      "_astro/preload-helper.pqr.js",
+      "_astro/preload-helper.pqrpqr.js",
       incompressible(LOADER_BUDGET + 500),
     );
     expect(
@@ -2156,17 +2198,17 @@ describe("the leaf-particle hero", () => {
   it("reads the bundler's wrapped dynamic import, quoted with backticks, as the loader's import of the effect", async () => {
     await write(
       dist,
-      "_astro/HeroLeaves.ghi.js",
-      'import{t as e}from"./preload-helper.pqr.js";e(()=>import(`./particles.jkl.js`),[]);',
+      "_astro/HeroLeaves.ghighi.js",
+      'import{t as e}from"./preload-helper.pqrpqr.js";e(()=>import(`./particles.jkljkl.js`),[]);',
     );
-    await write(dist, "_astro/preload-helper.pqr.js", "export const t = 1;");
+    await write(dist, "_astro/preload-helper.pqrpqr.js", "export const t = 1;");
     expect(await heroFailures()).toEqual([]);
   });
 
   it("fails an effect over 32 KB gzipped", async () => {
     await write(
       dist,
-      "_astro/particles.jkl.js",
+      "_astro/particles.jkljkl.js",
       incompressible(EFFECT_BUDGET + 2000),
     );
     expect(
@@ -2177,7 +2219,7 @@ describe("the leaf-particle hero", () => {
   it("accepts an effect under 32 KB gzipped", async () => {
     const body = incompressible(20 * 1024);
     expect(gzipBytes(body)).toBeLessThan(EFFECT_BUDGET);
-    await write(dist, "_astro/particles.jkl.js", body);
+    await write(dist, "_astro/particles.jkljkl.js", body);
     expect(await heroFailures()).toEqual([]);
   });
 
@@ -2185,13 +2227,13 @@ describe("the leaf-particle hero", () => {
     // Each file is well under the budget; together they are over it: the budget is for "everything it imports, together".
     await write(
       dist,
-      "_astro/particles.jkl.js",
+      "_astro/particles.jkljkl.js",
       Buffer.concat([
-        Buffer.from('import"./ogl.mno.js";//'),
+        Buffer.from('import"./ogl.mnomno.js";//'),
         incompressible(20 * 1024),
       ]),
     );
-    await write(dist, "_astro/ogl.mno.js", incompressible(20 * 1024));
+    await write(dist, "_astro/ogl.mnomno.js", incompressible(20 * 1024));
     expect(
       (await heroFailures()).some((f) => /effect and what it imports/.test(f)),
     ).toBe(true);
@@ -2265,7 +2307,7 @@ describe("the landing header's entrance (#266)", () => {
   const css = (rules) =>
     write(
       dist,
-      "_astro/common.abc.css",
+      "_astro/common.abcabc.css",
       `.tab>[role=tab]{display:flex;min-block-size:44px}${rules}`,
     );
   const withLandingHeader = async (landingHeader) => {

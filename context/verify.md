@@ -112,7 +112,7 @@ twice on a page; across the site, a sitemap and an `llms.txt` (llmstxt.org forma
 URLs, a `404.html` (with the site's search, a link to Getting Started at `/worktree/getting-started/`, and no canonical link or JSON-LD), a landing at the root (a heading and a "Get started" link to `/worktree/getting-started/`, no second action and no section below the hero; the root alone may carry the site default description), and no `shuding/nextra` string. The date rule is only meaningful on
 full git history (CI uses `fetch-depth: 0`): on a shallow clone Starlight and the oracle both read the same truncated log. A page whose source file has no commit yet (a new or just-renamed one) fails the date rule with "no git history", so run the audit after committing it. It prints every failed rule, one line each, and
 exits 1 on any. To run it by hand: `pnpm docs:build && pnpm docs:audit-dist`, or point it at another build with
-`node docs/scripts/audit-dist.mjs <dir>`. It also checks accessible names on every page and the 404 (each button named, a name beside visible text containing it, each `<select>` labelled, the search button, and the chat launcher's `aria-keyshortcuts="Alt+Shift+C"`) and that the built CSS gives `[role=tab]` a minimum height of at least 44px; the search *input* is made in the browser and is checked there.
+`node docs/scripts/audit-dist.mjs <dir>`. It also checks accessible names on every page and the 404 (each button named, a name beside visible text containing it, each `<select>` labelled, the search button, and the chat launcher's `aria-keyshortcuts="Alt+Shift+C"`) and that the built CSS gives `[role=tab]` a minimum height of at least 44px; the search *input* is made in the browser and is checked there. Every file under `dist/_astro/` must carry a hash of five or more characters in its name (`name.hash.ext`), because `docs/deploy/_headers` serves that folder `immutable` for a year; the failure names the file.
 Phase 13 added: on every page and the 404, the header's two NorthGuild links (`https://northguild.dev/` reading "NorthGuild", `/worktree/` reading
 "worktree"), each named by its own visible text, and the GitHub and Discord links (new tab, `rel=noopener`, "(opens in a new tab)" in the name); every `<svg>`
 hidden or a named image; the 404's heading a git error line (`fatal: ...`); and no cyan: it reads the `--gmt-cyan*` variables and their literal colours
@@ -189,6 +189,9 @@ test that genuinely has to be skipped is a conversation, not an edit to this pat
   request. Never run it to verify anything.
 - **`pnpm --filter docs deploy:smoke`** — requests the live `https://northguild.dev/worktree/` and retries up to 6
   times, 10 s apart (about a minute), so it needs the network and a deployed site; `docs-deploy.yml` runs it after the deploy.
+  Besides the routes it asserts three headers by exact value: `Cache-Control: public, max-age=31536000, immutable` on a
+  hashed asset (one it picks from `docs/dist/_astro/`, so build first), `X-Robots-Tag: noindex` on `llms.txt`, and on a page
+  no `X-Robots-Tag` and no `immutable` `Cache-Control`. `SMOKE_ORIGIN=http://127.0.0.1:<port>` points it at `docs/.deploy` served by `wrangler dev --local`.
 - **`pnpm --filter docs stage:deploy`** and **`pnpm --filter docs build:legacy`** — produce the gitignored
   `docs/.deploy/` and `docs/legacy/` for the deploy jobs; neither verifies anything.
 - **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` without `--dry-run` (the chat Worker's and the site's) — need `CLOUDFLARE_API_TOKEN` and

@@ -339,8 +339,8 @@ or use the root-level aliases where noted.
 | `worker:deploy` | Test → build → `wrangler deploy` |
 | `audit-dist` | Assert the SEO requirements over `dist/` (run after `build`; root alias `pnpm docs:audit-dist`) |
 | `build:legacy` | Write `legacy/` (gitignored): the bundle for the old GitHub Pages site |
-| `stage:deploy` | Copy `dist/` to `.deploy/worktree/` (gitignored), the directory `wrangler.jsonc` serves |
-| `deploy:smoke` | Check the live routes on `https://northguild.dev/worktree/` (`SMOKE_ORIGIN` overrides the origin) |
+| `stage:deploy` | Copy `dist/` to `.deploy/worktree/` and `deploy/_headers` to `.deploy/_headers` (gitignored), the directory `wrangler.jsonc` serves |
+| `deploy:smoke` | Check the live routes on `https://northguild.dev/worktree/` and three response headers (a hashed asset's `Cache-Control`, `llms.txt`'s `X-Robots-Tag`, and a page carrying neither `noindex` nor `immutable`); `SMOKE_ORIGIN` overrides the origin |
 
 ---
 
@@ -386,7 +386,12 @@ commit, so a docs change merged after the release waits for the next one. Two jo
 - **`site`** builds `docs/dist`, audits it, copies it to `docs/.deploy/worktree/` and runs `wrangler deploy` with
   `docs/wrangler.jsonc`: a Worker with static assets and no script, on the Route `northguild.dev/worktree*`.
   The copy exists because a Route does not strip its path, while `astro build` writes `dist/` without the
-  `/worktree` base. It then runs `deploy:smoke` against the live URL, retrying for route propagation.
+  `/worktree` base. The same step copies `docs/deploy/_headers` to `docs/.deploy/_headers`, the root of the
+  assets directory, which is where Cloudflare reads it: files under `/worktree/_astro/` (all hashed, which the
+  audit checks) are served `Cache-Control: public, max-age=31536000, immutable`, and `/worktree/*.txt` carries
+  `X-Robots-Tag: noindex`. Edit that file in `docs/deploy/`, not in `docs/public/`, where it would land at
+  `.deploy/worktree/_headers` and never be read. It then runs `deploy:smoke` against the live URL, retrying for
+  route propagation; the smoke run asserts those headers too.
 - **`legacy-pages`** runs after `site` and publishes `docs/legacy/` (from `build:legacy`) to GitHub Pages: the
   schema file at `https://northguild.github.io/worktree/schema/v1.json` plus a redirect stub per old route.
 

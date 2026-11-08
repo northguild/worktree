@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Live checks for the docs site after `wrangler deploy` (docs/wrangler.jsonc): the home page, the slash-less
- * redirect, the schema file, the sitemap and a 404, on https://northguild.dev/worktree/. Modelled on
+ * redirect, the schema file, the sitemap and a 404, on https://northguild.dev/worktree/, and the headers docs/deploy/_headers
+ * sets: the exact Cache-Control of a hashed asset, `X-Robots-Tag: noindex` on llms.txt, and on a page neither noindex nor
+ * an immutable Cache-Control. Modelled on
  * northguild/gmt apps/dox/scripts/deploy-smoke.mjs. Run by .github/workflows/docs-deploy.yml; by hand with
  *
  *     pnpm --filter docs deploy:smoke
@@ -12,7 +14,7 @@
  * up to 6 times, 10 s apart, for route propagation. Exits 1 with a table of failures when the last attempt
  * still fails. It does not roll back.
  */
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const ORIGIN = process.env.SMOKE_ORIGIN ?? "https://northguild.dev";
@@ -25,6 +27,12 @@ const WAIT_MS = 10_000;
 const SCHEMA_SOURCE = fileURLToPath(
   new URL("../dist/schema/v1.json", import.meta.url),
 );
+
+// The year-long value docs/deploy/_headers gives `_astro/*` (D5 of plan 287). Compared whole, not as a substring, so a
+// Cache-Control that Cloudflare joined to its own default shows as a different string and fails (D7).
+const IMMUTABLE = "public, max-age=31536000, immutable";
+// A hashed asset the build emitted, read from dist/ as the schema row reads it: the live site must serve this very name.
+const ASSETS_SOURCE = fileURLToPath(new URL("../dist/_astro", import.meta.url));
 
 /** One request, no redirect following. */
 async function send(url) {
@@ -39,6 +47,7 @@ async function send(url) {
       ? new URL(res.headers.get("location"), url).href
       : undefined,
     type: res.headers.get("content-type") ?? "",
+    headers: res.headers,
     bytes: Buffer.from(await res.arrayBuffer()),
   };
 }
@@ -73,6 +82,8 @@ async function run(row) {
 
 async function buildRows() {
   const schema = await readFile(SCHEMA_SOURCE);
+  // Any file in _astro/ will do: all of them are hashed (audit-dist.mjs), and all are covered by the one rule.
+  const [asset] = (await readdir(ASSETS_SOURCE)).sort();
   return [
     {
       label: "home page",
@@ -119,6 +130,48 @@ async function buildRows() {
               ? `<loc> outside ${CANONICAL}: ${bad[0]}`
               : undefined;
           },
+        },
+      ],
+    },
+    {
+      label: "hashed asset caches for a year",
+      url: `${BASE}/_astro/${asset}`,
+      steps: [
+        {
+          status: 200,
+          check: ({ headers }) =>
+            headers.get("cache-control") === IMMUTABLE
+              ? undefined
+              : `expected Cache-Control ${IMMUTABLE}, got ${headers.get("cache-control")}`,
+        },
+      ],
+    },
+    {
+      label: "llms.txt is noindex",
+      url: `${BASE}/llms.txt`,
+      steps: [
+        {
+          status: 200,
+          check: ({ headers }) =>
+            headers.get("x-robots-tag") === "noindex"
+              ? undefined
+              : `expected X-Robots-Tag noindex, got ${headers.get("x-robots-tag")}`,
+        },
+      ],
+    },
+    {
+      label: "a page is not noindex or immutable",
+      url: `${BASE}/commands/branch/`,
+      steps: [
+        {
+          status: 200,
+          // A page changes without changing its URL, so it must keep revalidating (D5).
+          check: ({ headers }) =>
+            headers.has("x-robots-tag")
+              ? `expected no X-Robots-Tag, got ${headers.get("x-robots-tag")}`
+              : /immutable/i.test(headers.get("cache-control") ?? "")
+                ? `expected a page to revalidate, got Cache-Control ${headers.get("cache-control")}`
+                : undefined,
         },
       ],
     },

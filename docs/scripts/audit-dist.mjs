@@ -63,6 +63,9 @@
  * keyframes animate only opacity, transform and color; and the fade never targets `.wordmark`, `.title-wrapper` or
  * `header-chip`, and on search only `site-search > button[data-open-modal]`.
  *
+ * Also (plan 287, D5): every file under `_astro/` has a hash of five or more characters in its name, because
+ * `docs/deploy/_headers` serves that folder `immutable` for a year.
+ *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
 
@@ -1588,6 +1591,27 @@ async function auditSite(dist) {
   return failures;
 }
 
+// A file under `_astro/` is served `Cache-Control: immutable` for a year (docs/deploy/_headers), which is safe only if its
+// name changes with its content: a dot-delimited hash of five or more characters before the extension. Five is the
+// shortest the build emits (Expressive Code's `ec.0vx5m.js`); the longest names are Vite's eight (`common.xqO6OrSB.css`).
+const HASHED_NAME = /\.[A-Za-z0-9_-]{5,}\.[^./]+$/;
+
+async function hashedNameFailures(dist) {
+  let files;
+  try {
+    files = await filesUnder(join(dist, "_astro"));
+  } catch {
+    return ["_astro/: cannot be read"];
+  }
+  return files
+    .map((file) => file.slice(dist.length + 1))
+    .filter((name) => !HASHED_NAME.test(name))
+    .map(
+      (name) =>
+        `${name}: no hash of 5 or more characters in the name, but _astro/ is served immutable`,
+    );
+}
+
 /** Every failed rule across the build in `dist`, one line each; an empty array is a pass. */
 export async function auditDist(dist = DEFAULT_DIST, overrides = {}) {
   const options = {
@@ -1600,6 +1624,7 @@ export async function auditDist(dist = DEFAULT_DIST, overrides = {}) {
     failures.push(...(await auditPage(path, dist, descriptions, options)));
   failures.push(...(await auditSite(dist)));
   failures.push(...(await auditLlms(dist, descriptions)));
+  failures.push(...(await hashedNameFailures(dist)));
   return failures;
 }
 

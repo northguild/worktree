@@ -20,7 +20,7 @@
     "prebuild": "pnpm -C .. run docs:sync-version && pnpm run worker:build-context",
     "build": "astro build",
     "audit-dist": "node scripts/audit-dist.mjs",
-    "stage:deploy": "rm -rf .deploy && mkdir .deploy && cp -R dist .deploy/worktree",
+    "stage:deploy": "rm -rf .deploy && mkdir .deploy && cp -R dist .deploy/worktree && cp deploy/_headers .deploy/_headers",
     "deploy:smoke": "node scripts/deploy-smoke.mjs",
     "build:legacy": "node scripts/build-legacy-pages.mjs",
     "typecheck": "pnpm run worker:build-context && astro check",
