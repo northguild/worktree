@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { vi } from "vitest";
 import { MAX_MESSAGE_LENGTH } from "../lib/chat-constants";
 import { ChatForm } from "./ChatForm";
@@ -8,9 +8,9 @@ import { ChatForm } from "./ChatForm";
  * Enter means lives in the form's handler, and mounting the pair is what proves
  * the two halves agree.
  */
-function renderField() {
-  const onSubmit = vi.fn();
-  render(<ChatForm onSubmit={onSubmit} />);
+function renderField(accepts = true) {
+  const onSubmit = vi.fn(() => accepts);
+  render(<ChatForm onSubmit={onSubmit} answering={false} onStop={vi.fn()} />);
   return { onSubmit };
 }
 
@@ -48,7 +48,7 @@ describe("ChatInput", () => {
     expect(field().value).toBe("line one\nline two");
   });
 
-  it("submits on a bare Enter and prevents the default", async () => {
+  it("submits on a bare Enter and prevents the default", () => {
     const { onSubmit } = renderField();
     fireEvent.change(field(), { target: { value: "ship it" } });
 
@@ -56,10 +56,10 @@ describe("ChatInput", () => {
     const notPrevented = fireEvent.keyDown(field(), { key: "Enter" });
 
     expect(notPrevented).toBe(false);
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("ship it"));
+    expect(onSubmit).toHaveBeenCalledWith("ship it");
   });
 
-  it("does not submit on Shift+Enter, and leaves the newline to the browser", async () => {
+  it("does not submit on Shift+Enter, and leaves the newline to the browser", () => {
     const { onSubmit } = renderField();
     fireEvent.change(field(), { target: { value: "line one" } });
 
@@ -74,10 +74,10 @@ describe("ChatInput", () => {
     // need @testing-library/user-event, which is not a dependency here — the
     // field's ability to hold one is covered separately above.
     expect(notPrevented).toBe(true);
-    await waitFor(() => expect(onSubmit).not.toHaveBeenCalled());
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("does neither while an IME composition is active", async () => {
+  it("does neither while an IME composition is active", () => {
     const { onSubmit } = renderField();
     fireEvent.change(field(), { target: { value: "にほん" } });
 
@@ -87,7 +87,7 @@ describe("ChatInput", () => {
     });
 
     expect(notPrevented).toBe(true);
-    await waitFor(() => expect(onSubmit).not.toHaveBeenCalled());
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("mirrors the value into the sizer that drives the field's growth", () => {
@@ -190,5 +190,52 @@ describe("ChatInput", () => {
     // it focuses the control natively, as the padded <input> this replaces did.
     expect(wrapper.tagName).toBe("LABEL");
     expect((wrapper as HTMLLabelElement).control).toBe(field());
+  });
+
+  it("clears the box once the message is accepted", () => {
+    renderField(true);
+    fireEvent.change(field(), { target: { value: "ship it" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(field().value).toBe("");
+  });
+
+  it("keeps a refused message in the box for the reader to fix", () => {
+    const { onSubmit } = renderField(false);
+    fireEvent.change(field(), { target: { value: "ship it" } });
+
+    fireEvent.keyDown(field(), { key: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledWith("ship it");
+    expect(field().value).toBe("ship it");
+  });
+
+  it("sends nothing on Enter while an answer is arriving", () => {
+    const onSubmit = vi.fn(() => true);
+    render(<ChatForm onSubmit={onSubmit} answering onStop={vi.fn()} />);
+    fireEvent.change(field(), { target: { value: "and another" } });
+
+    fireEvent.keyDown(field(), { key: "Enter" });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(field().value).toBe("and another");
+  });
+
+  it("sends nothing when the disabled Send is clicked on a blank box", () => {
+    const { onSubmit } = renderField();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing from a blank box", () => {
+    const { onSubmit } = renderField();
+    fireEvent.change(field(), { target: { value: "   \n " } });
+
+    fireEvent.keyDown(field(), { key: "Enter" });
+
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

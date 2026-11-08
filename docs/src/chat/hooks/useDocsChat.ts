@@ -5,6 +5,7 @@ import type { ChatModelId } from "../lib/chat-constants";
 import { chatEndpoint } from "../lib/chat-endpoint";
 import { chatFetch } from "../lib/chat-fetch";
 import { messageText, removeLegacyHistory } from "../lib/chat-history";
+import { checkUserText } from "../lib/chat-sanitize";
 import type { ChatWarningState, UIMessage } from "../lib/chat-types";
 import { createTranscriptStorage } from "./transcript-storage";
 import { useIdleTimeout } from "./useIdleTimeout";
@@ -32,6 +33,11 @@ export interface DocsChat {
   /** The failure to show under the transcript, if the last answer failed. */
   warning: ChatWarningState | null;
   sendMessage: (text: string) => Promise<void>;
+  /**
+   * The composer's send (D8): checks the text, sends what survives and answers
+   * whether it was accepted. A refusal is shown as a warning and sends nothing.
+   */
+  submit: (text: string) => boolean;
   /** Asks the last question again, replacing whatever answered it. */
   retry: () => Promise<void>;
   stop: () => void;
@@ -80,6 +86,19 @@ export function useDocsChat(model: ChatModelId): DocsChat {
     [send],
   );
 
+  const submit = useCallback(
+    (text: string) => {
+      const checked = checkUserText(text);
+      if (!checked.ok) {
+        setWarning({ message: checked.reason, retryable: false });
+        return false;
+      }
+      void sendMessage(checked.text);
+      return true;
+    },
+    [sendMessage],
+  );
+
   const retry = useCallback(async () => {
     setWarning(null);
     await reload();
@@ -95,6 +114,7 @@ export function useDocsChat(model: ChatModelId): DocsChat {
     isStreaming: isLoading,
     warning,
     sendMessage,
+    submit,
     retry,
     stop,
     clear,

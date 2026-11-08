@@ -474,3 +474,66 @@ describe("the model preference (through ChatProvider)", () => {
     );
   });
 });
+
+describe("useDocsChat -- submit, the guarded send (D8)", () => {
+  it("refuses a blank message, keeps it out of the request and says why", () => {
+    const sent = stubFetch(answerStream);
+    const { result } = setup();
+
+    let accepted = true;
+    act(() => {
+      accepted = result.current.submit("  \n ");
+    });
+
+    expect(accepted).toBe(false);
+    expect(result.current.warning).toEqual({
+      message: "Message is empty.",
+      retryable: false,
+    });
+    expect(sent).toHaveLength(0);
+  });
+
+  it("refuses a message over the 20,000-character cap, counting what the reader typed", () => {
+    const sent = stubFetch(answerStream);
+    const { result } = setup();
+
+    let accepted = true;
+    act(() => {
+      accepted = result.current.submit("x".repeat(20_001));
+    });
+
+    expect(accepted).toBe(false);
+    expect(result.current.warning).toEqual({
+      message: "Message is too long — 20,001 characters, limit 20,000.",
+      retryable: false,
+    });
+    expect(sent).toHaveLength(0);
+  });
+
+  it("sends the sanitised text and clears an earlier warning", async () => {
+    const sent = stubFetch(answerStream);
+    const { result } = setup();
+    act(() => {
+      result.current.submit("");
+    });
+    expect(result.current.warning).not.toBeNull();
+
+    let accepted = false;
+    act(() => {
+      // A zero-width space (U+200B) is stripped by D8; the rest is the question.
+      accepted = result.current.submit(
+        `${QUESTION.slice(0, 3)}​${QUESTION.slice(3)}`,
+      );
+    });
+
+    expect(accepted).toBe(true);
+    expect(result.current.warning).toBeNull();
+    await waitFor(() =>
+      expect(texts(result)).toEqual([
+        ["user", QUESTION],
+        ["assistant", ANSWER],
+      ]),
+    );
+    expect(sent[0]?.body.messages.at(-1)?.content).toBe(QUESTION);
+  });
+});

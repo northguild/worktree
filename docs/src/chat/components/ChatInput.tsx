@@ -1,6 +1,5 @@
 import { forwardRef, useId } from "react";
 import { cn } from "../../utils";
-import { useField } from "../form/FieldContext";
 
 /**
  * Styles shared by the textarea and its invisible sizer.
@@ -71,6 +70,8 @@ function formatRemainingLabel(value: string, maxLength: number): string {
 }
 
 interface ChatInputProps {
+  value: string;
+  onChange: (value: string) => void;
   /** Accessible name for the field. The placeholder is not a substitute. */
   label: string;
   placeholder?: string;
@@ -87,11 +88,18 @@ interface ChatInputProps {
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
   function ChatInput(
-    { label, placeholder, className, disabled, maxLength, onKeyDown },
+    {
+      value,
+      onChange,
+      label,
+      placeholder,
+      className,
+      disabled,
+      maxLength,
+      onKeyDown,
+    },
     ref,
   ) {
-    const field = useField();
-    const value = String(field.state.value ?? "");
     const countId = useId();
     const countLabel =
       maxLength === undefined ? "" : formatRemainingLabel(value, maxLength);
@@ -128,14 +136,13 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         <textarea
           ref={ref}
           rows={1}
-          name={field.name}
+          name="message"
           aria-label={label}
           aria-describedby={maxLength === undefined ? undefined : countId}
           maxLength={maxLength}
           value={value}
-          onBlur={field.handleBlur}
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-            field.handleChange(e.target.value)
+            onChange(e.target.value)
           }
           onKeyDown={onKeyDown}
           placeholder={placeholder}

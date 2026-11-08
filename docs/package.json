@@ -40,9 +40,6 @@
     "@tanstack/ai": "^1.2.0",
     "@tanstack/ai-gemini": "^1.2.0",
     "@tanstack/ai-react": "^1.0.2",
-    "@tanstack/react-form": "^1.33.5",
-    "@tanstack/react-form-devtools": "^0.2.34",
-    "@tanstack/react-store": "^0.11.2",
     "astro": "^7.4.5",
     "ogl": "^1.0.11",
     "react": "^19.3.1",
@@ -55,7 +52,6 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.12",
-    "@tanstack/react-devtools": "^0.10.13",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.3.0",
