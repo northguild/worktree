@@ -294,7 +294,15 @@ async function resolveRef() {
 
 // `content` is the merged copy, or undefined when the ref holds none.
 async function workingCopyWarning(ref: string, content: string | undefined) {
-  const working = path.join(await gitGetTopLevelPath(), PROJECT_CONFIG_FILE);
+  let top: string;
+  try {
+    top = await gitGetTopLevelPath();
+  } catch {
+    // No work tree (a bare repository, or its .git directory): there is no
+    // working copy to compare, and a hint must never fail the read.
+    return [];
+  }
+  const working = path.join(top, PROJECT_CONFIG_FILE);
   let workingContent: string;
   try {
     workingContent = fs.readFileSync(working, "utf8");

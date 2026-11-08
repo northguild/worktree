@@ -371,6 +371,26 @@ describe("readProjectConfig: a differing working copy (D1)", () => {
     expect(result.warnings[0]).toContain("WORKTREE_PROJECT_CONFIG");
   });
 
+  it.each([
+    ["the ref holds no file", undefined],
+    ["the ref holds a file", "copy: [a]\n"],
+  ])("is quiet with no work tree when %s", async (_, content) => {
+    if (content === undefined) {
+      mocked.gitResolveOriginHead.mockResolvedValue("origin/main");
+      mocked.gitReadBlobAtRef.mockResolvedValue({ status: "absent-path" });
+    } else {
+      fromOriginMain(content);
+    }
+    mocked.gitGetTopLevelPath.mockRejectedValue(
+      new Error("fatal: this operation must be run in a work tree"),
+    );
+
+    const result = await readProjectConfig({});
+
+    expect(result.status).toBe(content === undefined ? "none" : "loaded");
+    expect(result.warnings).toEqual([]);
+  });
+
   it("is quiet when neither the ref nor the worktree holds a file", async () => {
     mocked.gitResolveOriginHead.mockResolvedValue("origin/main");
     mocked.gitReadBlobAtRef.mockResolvedValue({ status: "absent-path" });
