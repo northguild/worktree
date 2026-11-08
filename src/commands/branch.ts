@@ -164,9 +164,10 @@ List's first in-progress status; a task already in an in-progress or review
 status, a finished one and a List with no in-progress status are left where they
 are. It needs edit access to the task.
 --start (or jira.autoStart) moves a --jira issue in the To Do status category to
-the one in-progress status its workflow offers from there; an issue already in
-progress, a finished one, and a workflow offering none or several in-progress
-statuses are left where they are. It needs the Transition Issues permission.
+the in-progress status its workflow offers from there (the one named
+"In Progress" where there are several); an issue already in
+progress, a finished one, and a workflow offering none, or several with none
+named "In Progress", are left where they are. It needs the Transition Issues permission.
 --no-start never moves any. Without --start or the key, a terminal is asked once
 and a non-interactive run starts.
 

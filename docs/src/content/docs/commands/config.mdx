@@ -252,8 +252,8 @@ whitespace is refused with exit `2`, and nothing is stored.
   means you are asked once and your answer is saved. See
   [Configuration](/worktree/configuration/#jira-integration-notes).
 - `jira.autoStart` whether `--jira` also moves the issue to in progress once the worktree exists: `true`
-  always (an issue already in progress or done, or with no single in-progress status to move to, is left
-  where it is), `false` never, unset means you are asked once and your answer is saved. See
+  always (an issue already in progress or done, or with no in-progress status to move to, or several with
+  none named In Progress, is left where it is), `false` never, unset means you are asked once and your answer is saved. See
   [Configuration](/worktree/configuration/#jira-integration-notes) and
   [Moving the issue to in progress](/worktree/guides/jira-integration/#moving-the-issue-to-in-progress).
 

@@ -319,14 +319,15 @@ worktree branch --jira DEV-123 --no-start
 worktree config jira.autoStart true    # always start, stop asking
 ```
 
-- **Only an issue in the To Do category moves.** Jira puts every status in a category, and the move goes by that,
-  never by a status name. An issue in To Do goes through the transition Jira offers from its current status that
+- **Only an issue in the To Do category moves.** Jira puts every status in a category, and the move goes by that;
+  a status name is read only to pick between several in-progress statuses. An issue in To Do goes through the transition Jira offers from its current status that
   leads to an In Progress category status. An issue already in that category is reported as already started and not
   moved, so `started` is `true`. An issue in the Done category, or any other, is a warning and is left where it is;
   `started` is `false`.
 - **It will not guess between statuses.** When the transitions available lead to more than one in-progress status,
-  or to none, nothing is written and `started` is `false`: with several, the warning names the statuses it found, and
-  you move the issue in Jira. With none, the warning says the workflow may have none or the account may lack the
+  the one named "In Progress" is taken, so a default Scrum project (In Progress and In Review) moves. With several and
+  none so named, or to none at all, nothing is written and `started` is `false`: with several, the warning names the
+  statuses it found, and you move the issue in Jira. With none, the warning says the workflow may have none or the account may lack the
   Transition Issues permission, because Jira answers the same way for both.
 - **A non-interactive run with the key unset moves the issue**, without saving anything, so a script that passes
   `--jira` now changes the issue's status. `false` or `--no-start` still skips it.

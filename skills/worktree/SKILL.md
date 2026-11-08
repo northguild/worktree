@@ -175,11 +175,12 @@ It needs edit access to the task, and happens at the same point as the Linear mo
 `--jira` follows the same order with `jira.autoStart` as its key: `true` always, `false` never,
 unset asks once and saves the answer, and a non-interactive run moves the issue and saves nothing
 (a script that passes `--jira` must use `--no-start` or `false` to leave the status alone). Only an
-issue whose status category is To Do moves, through the one transition that leads to an
-in-progress status; names are never matched. One already in progress is reported as it is, with
-`started: true` and no warning. One that is done, or whose workflow offers no in-progress
-transition or several leading to different statuses, is left where it is, a warning says why and
-`started` is `false`. Needs the Transition Issues permission, and happens at the same point as the
+issue whose status category is To Do moves, through the transition that leads to an
+in-progress status; where several statuses are offered, the one named "In Progress" (any
+capitalisation) is taken, and no other name is matched. One already in progress is reported as it
+is, with `started: true` and no warning. One that is done, or whose workflow offers no
+in-progress transition or several statuses with none (or more than one) named "In Progress", is
+left where it is, a warning says why and `started` is `false`. Needs the Transition Issues permission, and happens at the same point as the
 Linear move.
 
 With neither flag, `github.autoAssign` (for `--github`), `jira.autoAssign`
@@ -321,7 +322,7 @@ Flags for agent mode:
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not |
-| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its one in-progress transition, once the worktree exists, or not; only a backlog or unstarted issue (Linear), an open-status task (ClickUp) or a To Do-category issue (Jira) moves, and a `--start` with no issue flag exits `2` |
+| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its workflow's in-progress transition (the one to the status named In Progress where there are several), once the worktree exists, or not; only a backlog or unstarted issue (Linear), an open-status task (ClickUp) or a To Do-category issue (Jira) moves, and a `--start` with no issue flag exits `2` |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
