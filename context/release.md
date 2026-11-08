@@ -163,8 +163,9 @@ stable version has been published.
   serves 2.1.2. `v1.2.8` was once tagged and never released, so never published; that gap is closed
   because tag and release no longer come apart.
 - **Deploy (docs)** — `docs-deploy.yml`, called by the `docs` job of `publish.yml` after `publish` succeeds and
-  only when the version has no `-` (a prerelease does not deploy docs). The job passes exactly
-  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (no `secrets: inherit`), declares its own `contents: read`,
+  only when the version has no `-` (a prerelease does not deploy docs). The job passes no secret
+  (no `secrets: inherit` either): the `site` job runs in the `cloudflare-production` environment (below) and reads
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from it. The job declares its own `contents: read`,
   `pages: write` and `id-token: write`, and has no `release` environment, so its OIDC token cannot be exchanged for
   an npm credential. The called workflow builds the release commit, the one `v<version>` tags. It is skipped when
   `publish` is. It can also be run by hand (`workflow_dispatch`), from `main` only: `site` carries
@@ -186,14 +187,37 @@ stable version has been published.
 - **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`, `docs/src/chat/lib/**` (the contract the Worker bundles), or
   `docs/package.json` or `pnpm-lock.yaml` (the dependencies it bundles, so a bump alone redeploys it), or a manual
   dispatch from `main` only: the `deploy` job carries `if: github.ref == 'refs/heads/main'` (#246), so a run from
-  any other ref deploys nothing, as long as that ref's copy of the workflow keeps the guard (`workflow_dispatch`
-  runs the selected ref's file, and the Cloudflare secrets are repository-level; #253). **Has succeeded on push**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
+  any other ref deploys nothing, and the `cloudflare-production` environment refuses any other ref
+  server-side (#253; below). **Has succeeded on push**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
   repository secrets on 2026-10-03, and a manual dispatch that day succeeded. Every earlier run, the last
   one on 2026-10-01, failed at *Deploy to Cloudflare* for want of that credential. Push-triggered runs
   have succeeded since, on 2026-10-26, 2026-11-04 and 2026-11-05 (`gh run list --workflow worker-deploy.yml`).
   The merge deploys the Worker, but the client waits for a release: until one ships, the live client keeps
   calling `POST /`, which the Worker keeps serving unchanged, and `POST /api/chat` sits idle. Once a release has shipped the
   new client and the live site is seen using `/api/chat`, #257's §9 Q6 follow-up retires `POST /`.
+
+### The `cloudflare-production` environment
+
+**Both Cloudflare deploy jobs, `deploy` in `worker-deploy.yml` and `site` in `docs-deploy.yml`, run in the
+`cloudflare-production` GitHub environment** (#253). The `if: github.ref == 'refs/heads/main'` guards stay, but
+they live in each branch's own copy of the file, and `workflow_dispatch` runs the selected branch's copy, so a
+branch can drop one. The environment is checked by GitHub, not by the YAML: a run from a ref its
+deployment-branch policy does not admit is refused before any step runs.
+
+**Settings an admin makes, none of which a workflow file can:** the environment's *Deployment branches and tags*
+is *Selected branches and tags* with `main` only; `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are
+**environment** secrets; the repository-level copies are deleted. `publish.yml`'s `docs` job passes no secret, so
+nothing reads those copies. **Order matters:** create the environment, set the policy and add both secrets
+*before* the change that names it merges, and delete the repository copies after. A workflow naming an environment
+that does not exist makes GitHub create it with no policy and no secrets. Then the release's docs deploy fails for
+want of a credential, because a called workflow sees no repository secret it is not passed. The Worker deploy and a
+manual docs deploy still succeed, unprotected, on the repository secrets until those are deleted, so nothing goes
+red. **Until the repository copies are deleted, #253 is not fixed**: any branch's workflow that names no
+environment can still read them. **Verify** with `gh api repos/northguild/worktree/environments/cloudflare-production`
+(`deployment_branch_policy` must be a custom policy, not `null`), with `gh api
+repos/northguild/worktree/environments/cloudflare-production/deployment-branch-policies` (exactly one entry: `main`,
+of type `branch`), with `gh api repos/northguild/worktree/actions/secrets` (neither Cloudflare secret listed), and by
+dispatching `worker-deploy.yml` from a non-`main` branch: the run must be refused at the environment.
 
 ### What each path gets on a merge
 

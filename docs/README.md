@@ -355,12 +355,14 @@ or use the root-level aliases where noted.
 
 ### GitHub Actions
 
-Set in **GitHub repo → Settings → Secrets and variables → Actions**.
+The two Cloudflare secrets are **environment** secrets, set in **GitHub repo → Settings → Environments →
+`cloudflare-production`**, whose deployment-branch policy admits only `main`. The variable is set in **Settings →
+Secrets and variables → Actions**.
 
 | Name | Type | Purpose |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | Secret | Used by `worker-deploy.yml` and `docs-deploy.yml` to authenticate `wrangler deploy`; the site deploy needs it to cover Routes on the `northguild.dev` zone |
-| `CLOUDFLARE_ACCOUNT_ID` | Secret | Used by both workflows alongside the API token |
+| `CLOUDFLARE_API_TOKEN` | Environment secret (`cloudflare-production`) | Used by `worker-deploy.yml` and `docs-deploy.yml` to authenticate `wrangler deploy`; the site deploy needs it to cover Routes on the `northguild.dev` zone |
+| `CLOUDFLARE_ACCOUNT_ID` | Environment secret (`cloudflare-production`) | Used by both workflows alongside the API token |
 | `GEMINI_WORKER_URL` | Variable (not secret) | Public worker URL baked into the static bundle at docs build time |
 
 `GEMINI_WORKER_URL` is a **variable**, not a secret — its value is the public
@@ -395,7 +397,8 @@ The Cloudflare Worker deploys automatically on pushes to `main` that touch
 `.github/workflows/worker-deploy.yml`): the last two because the Worker bundles its dependencies.
 
 To deploy outside a release (a docs fix that cannot wait), use "Run workflow" on `docs-deploy.yml`, from `main`:
-a run from any other branch skips both jobs and deploys nothing. It builds `main`'s head at that moment.
+a run from any other branch skips both jobs and deploys nothing, and the `cloudflare-production` environment would
+refuse it anyway. It builds `main`'s head at that moment.
 
 To recover a failed `docs` job, use "Re-run failed jobs" on that Publish run (`gh run rerun <run-id> --failed`),
 within 30 days of it. Only what failed runs again, with the run's own commit and ref: it rebuilds the release
