@@ -1012,7 +1012,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
           return false;
         }
         case "ambiguous": {
-          const message = `${issueKey} was not moved to in progress: Jira offers more than one in-progress status from ${showVisibly(result.status)} (${showVisibly(result.targets.join(", "))}), so none was chosen. Move it in Jira.`;
+          const message = `${issueKey} was not moved to in progress: Jira offers more than one in-progress status from ${showVisibly(result.status)} (${showVisibly(result.targets.join(", "))}), and not exactly one is named In Progress, so none was chosen. Move it in Jira.`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;

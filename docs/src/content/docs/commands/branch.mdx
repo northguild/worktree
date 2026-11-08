@@ -324,7 +324,7 @@ worktree config jira.autoStart true    # always start, stop asking
   leads to an In Progress category status. An issue already in that category is reported as already started and not
   moved, so `started` is `true`. An issue in the Done category, or any other, is a warning and is left where it is;
   `started` is `false`.
-- **It will not guess between statuses.** When the transitions available lead to more than one in-progress status,
+- **Between several in-progress statuses, only one named In Progress is taken.** When the transitions available lead to more than one in-progress status,
   the one named "In Progress" is taken, so a default Scrum project (In Progress and In Review) moves. With several and
   none so named, or to none at all, nothing is written and `started` is `false`: with several, the warning names the
   statuses it found, and you move the issue in Jira. With none, the warning says the workflow may have none or the account may lack the

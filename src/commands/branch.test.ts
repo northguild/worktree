@@ -1671,7 +1671,7 @@ jira:
             status: "\u001b[2Js",
             targets: ["\u001b[2Ja", "\u001b[2Jb"],
           },
-          "DEV-123 was not moved to in progress: Jira offers more than one in-progress status from \\x1b[2Js (\\x1b[2Ja, \\x1b[2Jb), so none was chosen. Move it in Jira.",
+          "DEV-123 was not moved to in progress: Jira offers more than one in-progress status from \\x1b[2Js (\\x1b[2Ja, \\x1b[2Jb), and not exactly one is named In Progress, so none was chosen. Move it in Jira.",
           "warn",
         ],
       ])("escapes a control character in a Jira name for %s", async (_outcome, result, expected, where) => {
@@ -1822,9 +1822,9 @@ jira:
           {
             outcome: "ambiguous",
             status: "To Do",
-            targets: ["In Progress", "In Review"],
+            targets: ["In Review", "Testing"],
           },
-          "DEV-123 was not moved to in progress: Jira offers more than one in-progress status from To Do (In Progress, In Review), so none was chosen. Move it in Jira.",
+          "DEV-123 was not moved to in progress: Jira offers more than one in-progress status from To Do (In Review, Testing), and not exactly one is named In Progress, so none was chosen. Move it in Jira.",
         ],
       ])("%s warns with the issue and the reason, and reports false", async (_label, result, message) => {
         mockStart.mockResolvedValue(result as any);
