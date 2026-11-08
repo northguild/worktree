@@ -382,6 +382,34 @@ describe("ClickUp integration", () => {
       );
     });
 
+    it.each([
+      ["OAUTH_027", "Team not authorized"],
+      ["OAUTH_023", "Team(s) not authorized"],
+      ["ACCESS_076", "You do not have access to this task"],
+      ["OAUTH_192", "Workspace not authorized"],
+    ])("says the task is unreachable on a 401 %s", async (ECODE, err) => {
+      stubToken();
+      stubFetch(respond(401, { err, ECODE }));
+
+      const failure = fetchClickUpTask("9hx");
+      await expect(failure).rejects.toThrow(
+        `ClickUp: could not find task 9hx, or this token cannot see it: ${err}`,
+      );
+      await expect(failure).rejects.not.toThrow(/Authentication failed/);
+    });
+
+    it.each([
+      ["OAUTH_025", "Token invalid"],
+      ["OAUTH_019", "Oauth token not found"],
+    ])("keeps authentication for a 401 %s", async (ECODE, err) => {
+      stubToken();
+      stubFetch(respond(401, { err, ECODE }));
+
+      await expect(fetchClickUpTask("9hx")).rejects.toThrow(
+        "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
+      );
+    });
+
     it("reports not found on HTTP 404", async () => {
       stubToken();
       stubFetch(respond(404, { err: "Task not found", ECODE: "ITEM_015" }));
@@ -1128,6 +1156,21 @@ describe("the shared branchType list for ClickUp", () => {
         );
       });
 
+      it("says the read is unreachable on a 401 that is not the token", async () => {
+        stubToken();
+        sequenceFailing(
+          respond(401, { err: "Team not authorized", ECODE: "OAUTH_027" }),
+        );
+
+        const expected = [
+          "ClickUp: could not find task 9hx, or this token cannot see it: Team not authorized",
+          "ClickUp: could not find list 901, or this token cannot see it: Team not authorized",
+          "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
+        ][index];
+
+        await expect(startClickUpTask("9hx")).rejects.toThrow(expected);
+      });
+
       it("reports not found on HTTP 404", async () => {
         stubToken();
         sequenceFailing(respond(404, { err: "not found" }));
@@ -1539,6 +1582,19 @@ describe("the shared branchType list for ClickUp", () => {
 
         await expect(assignClickUpTask("9hx")).rejects.toThrow(
           "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
+        );
+      });
+
+      it("says the task is unreachable only for the Get Task read", async () => {
+        stubToken();
+        routesFailing(
+          respond(401, { err: "Team not authorized", ECODE: "OAUTH_027" }),
+        );
+
+        await expect(assignClickUpTask("9hx")).rejects.toThrow(
+          route === "get"
+            ? "ClickUp: could not find task 9hx, or this token cannot see it: Team not authorized"
+            : "ClickUp: Authentication failed. Please verify clickup.apiToken in your config.",
         );
       });
 
