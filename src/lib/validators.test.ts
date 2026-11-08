@@ -256,6 +256,9 @@ describe("isValidBranchName", () => {
     ${"user@fix"}            | ${true}                                             | ${"at sign inside a name"}
     ${"@user"}               | ${true}                                             | ${"leading at sign"}
     ${"origin/user@fix"}     | ${true}                                             | ${"at sign in a later component"}
+    ${"a{b"}                 | ${true}                                             | ${"brace inside a name"}
+    ${"{x}"}                 | ${true}                                             | ${"braces around a name"}
+    ${"origin/a{b"}          | ${true}                                             | ${"brace in a later component"}
     ${"@"}                   | ${"Branch name cannot be just '@'"}                 | ${"a lone at sign"}
     ${"branch@{upstream}"}   | ${"Branch name contains invalid characters"}        | ${"at-brace sequence"}
     ${"branch@{"}            | ${"Branch name contains invalid characters"}        | ${"at-brace sequence, unclosed"}
