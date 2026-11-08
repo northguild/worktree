@@ -175,7 +175,8 @@ A shared rule names fields by what every provider offers: the portable `Type` an
 rule that names a field an issue does not have, such as a `Type` rule on a Linear issue, does not match and does not
 warn on a real run, because a shared file is written for several providers on purpose. A provider's own list
 still warns, and so does a shared list on a dry run, so a misspelt field such as `Lables` shows up while you
-write the rules. In a shared list match `Type` and `Labels` by name: an id belongs to one provider, so a rule
+write the rules. In the shared list the portable `Type` and `Labels` never warn, since a provider without one is no
+spelling mistake. In a shared list match `Type` and `Labels` by name: an id belongs to one provider, so a rule
 pasted from a dry run with an id only ever matches that provider, and fails silently on the others. Keep
 id-based rules for a provider's own list.
 
@@ -265,7 +266,7 @@ A rule in a provider's own list naming a field the issue does not have, such as 
 project, warns on every run that gets as far as that rule, naming the field and the rule's position, and the rule
 does not match. The warning is in `warnings` of the `--json` document. A rule in the shared `branchType` list does
 not warn on a real run, since it is written for several providers; on a dry run it warns too, so a misspelt
-field shows up. A field that exists but is empty is not a mistake: it just
+field shows up, except the portable `Type` and `Labels`. A field that exists but is empty is not a mistake: it just
 matches nothing.
 
 With rules set (a Jira list or the shared one), or on a dry run, `worktree` asks Jira for field display names (`?expand=names`) on the issue

@@ -108,7 +108,8 @@ worktree branch --jira DEV-123
 worktree branch --jira dev-123
 
 # Assign a Jira issue to yourself; one held by someone else is left alone
-# (a warning names them, `assigned` is false). Needs Browse Projects and
+# (a warning names them, `assigned` is false), and so is one whose assignee
+# Jira does not show (a warning says so). Needs Browse Projects and
 # Assign Issues on the project. --no-assign skips it for one run.
 worktree branch --jira DEV-123 --assign
 
@@ -207,7 +208,7 @@ name, case-insensitively) and values (by name or `{ id: "10301" }`), every field
 in a `when` must match, and `type:` is `feature`, `bugfix` or `chore`. `- otherwise:
 <kind>` closes the list; without it an unmatched issue gets no prefix. A rule
 naming a field the issue lacks warns (in `warnings` under `--json`) and does not
-match; a rule in the shared list does not warn on a real run, but a dry run still prints the warning so a misspelt field shows up. Prefer ids in a provider's own list; in the shared list match `Type` and `Labels` by name. `github`, `linear` and `clickup` take a `branchType` list of the same
+match; a rule in the shared list does not warn on a real run, but a dry run still prints the warning so a misspelt field shows up (not for the portable `Type` and `Labels`). Prefer ids in a provider's own list; in the shared list match `Type` and `Labels` by name. `github`, `linear` and `clickup` take a `branchType` list of the same
 shape and replace their built-in mapping the same way: GitHub rules match `Type` and `Labels`, Linear
 `Labels` (by name or id), ClickUp `Tags` (by name only; a tag has no id). `Type` and `Labels` are
 portable: Jira also answers to `Type` (its issue type, beside `issuetype`) and `Labels` (beside `labels`, which a localized Jira does not display as "Labels") and ClickUp to `Labels` (its tags,
@@ -380,7 +381,7 @@ document:
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`,
   `{provider:"clickup",key,url}`, or `null`; `url` can itself be `null`.
-- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), `null` when no assignment was attempted.
+- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, a Jira issue is held by someone else, or Jira does not show a Jira issue's assignee), `null` when no assignment was attempted.
 - `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), `null` when none was attempted.
 - `herdr`, `rex` and `agent` are `null` when skipped. `rex` is `{session,block}`
   for the Rex session that was opened, `block` `null` when the session was

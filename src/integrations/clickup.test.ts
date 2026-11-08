@@ -902,6 +902,26 @@ describe("the shared branchType list for ClickUp", () => {
     expect(dry[0]).toContain("Rule 1 of branchType names");
   });
 
+  // #331: ClickUp has no Type field, but Type is a portable name, so the shared
+  // list naming it is no spelling mistake and a dry run must not say it is.
+  it("a shared rule naming the portable Type does not warn on a dry run", async () => {
+    projectFile(
+      `${PREFIXES}branchType:\n  - when: { Type: Bug }\n    type: bugfix\n  - when: { Labels: bug }\n    type: bugfix\n  - otherwise: feature\n`,
+    );
+    const dry: string[] = [];
+
+    const naming = await getClickUpBranchNaming(
+      clickUpTask(["bug"]),
+      "9hx",
+      (w) => dry.push(w),
+      true,
+    );
+
+    expect(dry).toEqual([]);
+    expect(naming.kind).toBe("bugfix");
+    expect(naming.match).toMatchObject({ source: "rule", position: 2 });
+  });
+
   it("a clickup.branchType keeps matching on Tags, and a Labels rule matches the same tags", async () => {
     projectFile(
       `${PREFIXES}clickup:\n  branchType:\n    - when: { Tags: bug }\n      type: bugfix\n`,
