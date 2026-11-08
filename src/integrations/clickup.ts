@@ -53,6 +53,7 @@ export function parseClickUpTaskId(input: string): ClickUpTaskId {
 }
 
 export async function resolveClickUpToken(): Promise<string> {
+  // Git-only: a secret is never read from a file (#281 D9).
   const token = await gitGetConfigValue("clickup.apiToken");
 
   if (!token) {

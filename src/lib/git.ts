@@ -151,6 +151,8 @@ export async function gitGetComparisonBase() {
   if (originHead) {
     return originHead;
   }
+  // Git-only: the personal key as it always was. Layering the project file in
+  // would change what counts as unpushed work for a repository that sets it.
   return await gitGetConfigValue("defaultSourceBranch");
 }
 

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { confirm } from "@inquirer/prompts";
 import { expectCommands, mockRun } from "../test-setup.js";
+import type { ConfigValueSource } from "./config.js";
 import * as config from "./config.js";
 import { CONFIG_NAMES, SECRET_CONFIG_NAMES } from "./constants.js";
 import * as git from "./git.js";
@@ -14,6 +15,7 @@ import {
   getBranchPrefix,
   getBranchTypeRules,
   getProjectPostCreateSteps,
+  getUserPostCreateSteps,
   isProjectFileKey,
   isTeamConfigKey,
   loadProjectConfig,
@@ -36,6 +38,11 @@ import {
   writeProjectFile,
 } from "./project-config.js";
 import { MissingValueError } from "./prompt.js";
+import {
+  resetUserConfigCache,
+  USER_CONFIG_OVERRIDE_ENV,
+  UserConfigError,
+} from "./user-config.js";
 
 vi.mock("@inquirer/prompts", () => ({
   confirm: vi.fn(),
@@ -52,7 +59,8 @@ vi.mock("./git.js", () => ({
   gitGetTopLevelPath: vi.fn(),
 }));
 
-vi.mock("./config.js", () => ({
+vi.mock("./config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./config.js")>()),
   gitGetConfigValue: vi.fn(),
 }));
 
@@ -119,9 +127,21 @@ async function failure(content: string) {
   return error as ProjectConfigError;
 }
 
+// The user file is read from here and never from the real $HOME: the default
+// location points into the scratch directory, which holds no file unless a
+// slice writes one (#281).
+function userFile(content: string) {
+  const file = path.join(scratch, "user-config.yml");
+  fs.writeFileSync(file, content);
+  vi.stubEnv(USER_CONFIG_OVERRIDE_ENV, file);
+}
+
 beforeEach(() => {
   resetProjectConfigCache();
+  resetUserConfigCache();
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), "wt-project-config-"));
+  vi.stubEnv(USER_CONFIG_OVERRIDE_ENV, "");
+  vi.stubEnv("XDG_CONFIG_HOME", path.join(scratch, "xdg"));
   mocked.gitResolveOriginHead.mockResolvedValue("");
   mockedConfig.gitGetConfigValue.mockResolvedValue("");
   mocked.gitReadBlobAtRef.mockResolvedValue({ status: "absent-path" });
@@ -130,6 +150,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   fs.rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -765,6 +786,142 @@ describe("resolveTeamConfig (D2, D3)", () => {
   });
 });
 
+// #281 D2/D9: flag -> git config -> project file -> user file -> default. Each
+// expected source below is read off that order and the Precedence table in
+// docs/src/content/docs/project-configuration.mdx (flag, git, file, default),
+// with the user file ranking below the team file; none comes from running the
+// resolver. The values differ per layer so a wrong winner shows as a wrong value.
+describe("resolveTeamConfig with the user file (#281 D2, D9)", () => {
+  // key: [git, project, user], and the nested shape the YAML needs.
+  const layers: Record<string, [string, string, string]> = {
+    defaultSourceBranch: ["origin/git", "origin/project", "origin/user"],
+    "branchPrefix.feature": ["g/", "p/", "u/"],
+    "branchPrefix.bugfix": ["gb/", "pb/", "ub/"],
+    "branchPrefix.chore": ["gc/", "pc/", "uc/"],
+    "jira.host": ["git.example.com", "project.example.com", "user.example.com"],
+    "jira.deployment": ["git-value", "datacenter", "cloud"],
+    "clickup.workspaceId": ["111", "222", "333"],
+    "github.repository": ["git/repo", "project/repo", "user/repo"],
+    "github.host": [
+      "git.example.com",
+      "project.example.com",
+      "user.example.com",
+    ],
+  };
+
+  function yamlFor(key: string, value: string) {
+    const [head, child] = key.split(".");
+    return child === undefined
+      ? `${head}: "${value}"\n`
+      : `${head}:\n  ${child}: "${value}"\n`;
+  }
+
+  // Which layers hold a value -> the layer that must win.
+  const subsets: ReadonlyArray<
+    [string, readonly ("git" | "project" | "user")[], ConfigValueSource]
+  > = [
+    ["git, project and user", ["git", "project", "user"], "git-config"],
+    ["git and project", ["git", "project"], "git-config"],
+    ["git and user", ["git", "user"], "git-config"],
+    ["project and user", ["project", "user"], "project"],
+    ["git alone", ["git"], "git-config"],
+    ["project alone", ["project"], "project"],
+    ["user alone", ["user"], "user"],
+  ];
+  const winner = { "git-config": 0, project: 1, user: 2 } as const;
+
+  describe.each(Object.keys(layers))("%s", (key) => {
+    const values = layers[key] as [string, string, string];
+
+    it.each(subsets)("set in %s", async (_label, present, expectedSource) => {
+      if (present.includes("git")) {
+        mockedConfig.gitGetConfigValue.mockImplementation((name: string) =>
+          Promise.resolve(name === key ? values[0] : ""),
+        );
+      }
+      if (present.includes("project")) {
+        fromOriginMain(yamlFor(key, values[1]));
+      }
+      if (present.includes("user")) {
+        userFile(yamlFor(key, values[2]));
+      }
+
+      expect(await resolveTeamConfig(key as never)).toEqual({
+        value: values[winner[expectedSource as keyof typeof winner]],
+        source: expectedSource,
+      });
+    });
+
+    it("set nowhere is empty with source default", async () => {
+      expect(await resolveTeamConfig(key as never)).toEqual({
+        value: "",
+        source: "default",
+      });
+    });
+  });
+
+  it("reads clickup.workspaceId from the user file as text, though YAML parses 9001234 as a number", async () => {
+    userFile("clickup:\n  workspaceId: 9001234\n");
+
+    expect(await resolveTeamConfig("clickup.workspaceId")).toEqual({
+      value: "9001234",
+      source: "user",
+    });
+  });
+
+  it("reads the user file only when git config and the project file say nothing", async () => {
+    fromOriginMain("defaultSourceBranch: origin/project\n");
+    userFile("this: is: not valid yaml: [\n");
+
+    expect(await resolveTeamConfig("defaultSourceBranch")).toEqual({
+      value: "origin/project",
+      source: "project",
+    });
+  });
+
+  it("throws the user file's error rather than answering with the default", async () => {
+    userFile("jira:\n  host: [not, text]\n");
+
+    await expect(resolveTeamConfig("jira.host")).rejects.toBeInstanceOf(
+      UserConfigError,
+    );
+  });
+
+  it("is unchanged with no user file: no warning, no output", async () => {
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+    fromOriginMain("defaultSourceBranch: origin/project\n");
+
+    expect(await resolveTeamConfig("defaultSourceBranch")).toEqual({
+      value: "origin/project",
+      source: "project",
+    });
+    expect(stderr).not.toHaveBeenCalled();
+    expect(stdout).not.toHaveBeenCalled();
+  });
+});
+
+describe("getUserPostCreateSteps (#281 D10)", () => {
+  it("is the user file's steps, trimmed", async () => {
+    userFile("postCreate:\n  - ' pnpm install '\n  - pnpm build\n");
+
+    expect(await getUserPostCreateSteps()).toEqual([
+      "pnpm install",
+      "pnpm build",
+    ]);
+  });
+
+  it("is empty with no user file", async () => {
+    expect(await getUserPostCreateSteps()).toEqual([]);
+  });
+
+  it("is empty when the file sets no steps", async () => {
+    userFile("opener: none\n");
+
+    expect(await getUserPostCreateSteps()).toEqual([]);
+  });
+});
+
 describe("the published JSON Schema (D5, D6)", () => {
   it("is Draft 2020-12, the dialect zod emits by default", () => {
     expect(projectConfigJsonSchema().$schema).toBe(
@@ -1012,6 +1169,25 @@ describe("post-create approval", () => {
 
     await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("needs no approval for the user file's own steps (#281 D10)", async () => {
+    fromOriginMain("postCreate: []\n");
+    userFile("postCreate:\n  - pnpm install\n");
+    setNonInteractive(true);
+
+    await expect(ensurePostCreateApproved({})).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("stops before anything is created when the user file cannot be used (#281)", async () => {
+    fromOriginMain("postCreate: []\n");
+    userFile("postCreate: [not valid\n");
+    setNonInteractive(true);
+
+    await expect(ensurePostCreateApproved({})).rejects.toBeInstanceOf(
+      UserConfigError,
+    );
   });
 
   it("fails closed non-interactively: exit 2, naming both ways out, never the hash", async () => {

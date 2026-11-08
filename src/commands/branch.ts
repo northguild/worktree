@@ -39,7 +39,11 @@ import {
   isPortableField,
   pasteReadyLine,
 } from "../lib/branch-type.js";
-import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
+import {
+  getConfigValue,
+  gitGetConfigValue,
+  gitSetConfigValue,
+} from "../lib/config.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
@@ -192,7 +196,7 @@ no started state to move to, or the attempt failed), null if none was attempted
 installed: {ran:true, command, steps[], from, inferred, ok, reason?} or
 {ran:false, reason}
 command is the step that failed, else the last that ran; steps are the ones
-that ran, in order; from is "git-config", "project" or "lockfile"
+that ran, in order; from is "git-config", "project", "user" or "lockfile"
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
 rex: {session, block|null}, or null if no Rex session was opened (block is
 null when the session was found rather than reported by rex new: one already
@@ -737,7 +741,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       return flagValue;
     }
 
-    const configured = await gitGetConfigValue(configKey);
+    const configured = (await getConfigValue(configKey)).value;
     if (configured === "true") {
       return true;
     }
@@ -1400,6 +1404,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     for (const warning of project.warnings) {
       this.warn(warning);
     }
+    // The user file was read, and its warnings said, before `run` (#281, see
+    // `loadUserConfigUpFront`).
 
     const configNames: ConfigName[] = !flags.source
       ? ["defaultSourceBranch"]
@@ -1430,12 +1436,14 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
     // The key has no default and the fetch needs it, so a run still without one
     // after the offer is a missing value, and it ends before a tree exists.
+    // Git-only: a secret is never read from a file (#281 D9).
     if (flags.linear && !(await gitGetConfigValue("linear.apiKey"))) {
       throw new MissingValueError(
         "the Linear API key",
         "`worktree config linear.apiKey <key>`",
       );
     }
+    // Git-only: a secret is never read from a file (#281 D9).
     if (flags.clickup && !(await gitGetConfigValue("clickup.apiToken"))) {
       throw new MissingValueError(
         "the ClickUp API token",

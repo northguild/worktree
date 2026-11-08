@@ -11,13 +11,19 @@ import * as projectConfig from "./project-config.js";
 let tree: string;
 let postCreate: string;
 let projectSteps: string[];
+let userSteps: string[];
 
 beforeEach(() => {
   tree = mkdtempSync(join(tmpdir(), "worktree-install-"));
   postCreate = "";
   projectSteps = [];
+  userSteps = [];
   vi.spyOn(projectConfig, "getProjectPostCreateSteps").mockImplementation(
     async () => projectSteps,
+  );
+  // Never the real user file (#281).
+  vi.spyOn(projectConfig, "getUserPostCreateSteps").mockImplementation(
+    async () => userSteps,
   );
   vi.spyOn(config, "gitGetConfigValue").mockImplementation(async (name) =>
     name === "postCreate" ? postCreate : "",
@@ -330,5 +336,85 @@ describe("runInstall file steps", () => {
   it("--no-install runs none of them", async () => {
     expect(await runInstall(tree, false)).toMatchObject({ ran: false });
     expect(mockRunStreaming).not.toHaveBeenCalled();
+  });
+});
+
+// #281 D10: git postCreate, then the approved project steps, then the user
+// file's, then the lockfile. Each layer wins whole (none appends): that is how
+// the git and project layers already behave. The expected sources and steps
+// are read off that order, not off the code's output.
+describe("runInstall user file steps (#281 D10)", () => {
+  beforeEach(() => {
+    userSteps = ["pnpm install", "pnpm build"];
+  });
+
+  it("runs the user file's steps, in order, when nothing above sets any", async () => {
+    lockfile("package-lock.json");
+
+    const result = await runInstall(tree);
+
+    expect(result).toEqual({
+      ran: true,
+      command: "pnpm build",
+      steps: ["pnpm install", "pnpm build"],
+      from: "user",
+      inferred: false,
+      ok: true,
+    });
+    expect(mockRunStreaming.mock.calls).toEqual([
+      ["pnpm", ["install"], { cwd: tree, timeout: INSTALL_TIMEOUT_MS }],
+      ["pnpm", ["build"], { cwd: tree, timeout: INSTALL_TIMEOUT_MS }],
+    ]);
+  });
+
+  it("outranks the lockfile and counts as configured for an interactive run", async () => {
+    setNonInteractive(false);
+
+    expect(await runInstall(tree)).toMatchObject({
+      ran: true,
+      from: "user",
+    });
+  });
+
+  it("yields to the project file's steps", async () => {
+    projectSteps = ["make setup"];
+
+    expect(await runInstall(tree)).toMatchObject({
+      from: "project",
+      steps: ["make setup"],
+    });
+  });
+
+  it("yields to git config's postCreate", async () => {
+    projectSteps = ["make setup"];
+    postCreate = "make personal";
+
+    expect(await runInstall(tree)).toMatchObject({
+      from: "git-config",
+      steps: ["make personal"],
+    });
+  });
+
+  it("is not read when a layer above it answers", async () => {
+    const spy = vi.spyOn(projectConfig, "getUserPostCreateSteps");
+    projectSteps = ["make setup"];
+
+    await runInstall(tree);
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("falls to the lockfile when the user file has no steps", async () => {
+    userSteps = [];
+    lockfile("package-lock.json");
+
+    expect(await runInstall(tree)).toMatchObject({
+      from: "lockfile",
+      steps: ["npm ci"],
+    });
+  });
+
+  it("does not run with --no-install", async () => {
+    expect(await runInstall(tree, false)).toMatchObject({ ran: false });
   });
 });

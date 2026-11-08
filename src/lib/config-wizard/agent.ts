@@ -1,4 +1,4 @@
-import { gitGetConfigValue } from "../config.js";
+import { getConfigValue } from "../config.js";
 import { showVisibly } from "../project-config.js";
 import { askConfirm } from "../prompt.js";
 import { splitCommandValue } from "../utils.js";
@@ -35,7 +35,7 @@ export async function configureAgentCommand(ctx: WizardContext): Promise<void> {
  * open", so a stored `opener` is the one chosen in this run.
  */
 export async function configureAgent(ctx: WizardContext): Promise<void> {
-  let command = await gitGetConfigValue("agent.command");
+  let command = (await getConfigValue("agent.command")).value;
   if (shouldPrompt(ctx, "agent.command")) {
     // No default and no suggestion: the runtime is deliberately not named
     // (AGENT-MODE-PLAN §2). The validator stays on, as `agent.command` is run
@@ -62,7 +62,7 @@ export async function configureAgent(ctx: WizardContext): Promise<void> {
     return;
   }
 
-  const stored = (await gitGetConfigValue("herdr.agent")).trim();
+  const stored = (await getConfigValue("herdr.agent")).value.trim();
   if (command === "") {
     // Without a brief `herdr.agent` alone decides (readHerdrAgentKind in
     // base-command.ts), so a stored kind still starts in every new space after

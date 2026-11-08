@@ -1,8 +1,9 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { confirm, input, select } from "@inquirer/prompts";
 import Config from "../commands/config.js";
 import * as herdr from "../integrations/herdr.js";
@@ -32,6 +33,7 @@ import { InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
 import * as terminalHost from "./terminal-host.js";
 import type { ConfigName } from "./types.js";
+import { resetUserConfigCache } from "./user-config.js";
 
 // openWorktreePath is the only method covered here that draws a spinner. Mock it
 // so the suite neither writes to the terminal nor depends on a TTY.
@@ -2835,6 +2837,94 @@ describe("init — interaction mode", () => {
     expect(await initWith([])).toMatchObject({ nonInteractive: true });
     process.env.CI = "false";
     expect(await initWith([])).toMatchObject({ nonInteractive: false });
+  });
+});
+
+// #281 §5 (a user file that cannot be used stops every command but `config`,
+// exit 2) and D6 (an unknown key warns once). Read in `init`, so a command
+// meets the file before it does anything, whichever keys git config answers.
+describe("init — the user file (#281)", () => {
+  let userDir: string;
+
+  function userFile(yaml: string) {
+    const file = join(userDir, "config.yml");
+    writeFileSync(file, yaml);
+    vi.stubEnv("WORKTREE_USER_CONFIG", file);
+    resetUserConfigCache();
+  }
+
+  beforeEach(() => {
+    userDir = mkdtempSync(join(tmpdir(), "worktree-init-user-"));
+  });
+
+  afterEach(() => {
+    rmSync(userDir, { recursive: true, force: true });
+    setNonInteractive(undefined);
+  });
+
+  it("warns once about a key the file does not know", async () => {
+    userFile("herdr:\n  focus: false\nmysteryKey: 1\n");
+    const command = new TestCommand([], await loadConfig());
+    const warn = vi.spyOn(command, "warn").mockImplementation((i) => i);
+
+    await command.init();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain("`mysteryKey`");
+  });
+
+  it("stops with exit 2 on a file it cannot use", async () => {
+    userFile("opener: [unclosed\n");
+    const command = new TestCommand([], await loadConfig());
+
+    await expect(command.init()).rejects.toMatchObject({
+      code: "invalid_value",
+      oclif: { exit: 2 },
+    });
+  });
+
+  it("says nothing when there is no file", async () => {
+    const command = new TestCommand([], await loadConfig());
+    const warn = vi.spyOn(command, "warn").mockImplementation((i) => i);
+
+    await command.init();
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("leaves a file it cannot use to `config`, which repairs it", async () => {
+    userFile("opener: [unclosed\n");
+    const command = new Config([], await loadConfig());
+    const warn = vi.spyOn(command, "warn").mockImplementation((i) => i);
+
+    await expect(command.init()).resolves.toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // A command added later inherits the read; this fails if one turns it off.
+  it("is read up front by every command but `config`", async () => {
+    const dir = fileURLToPath(new URL("../commands/", import.meta.url));
+    const files = readdirSync(dir).filter(
+      (file) => file.endsWith(".ts") && !file.endsWith(".test.ts"),
+    );
+    const notBase: string[] = [];
+    const overriding: string[] = [];
+    for (const file of files) {
+      const { default: command } = await import(join(dir, file));
+      if (!(command.prototype instanceof BaseCommand)) {
+        notBase.push(file);
+      }
+      if (
+        command.prototype.loadUserConfigUpFront !==
+        (BaseCommand.prototype as any).loadUserConfigUpFront
+      ) {
+        overriding.push(file);
+      }
+    }
+
+    expect(files.length).toBeGreaterThan(1);
+    expect(notBase).toEqual([]);
+    expect(overriding).toEqual(["config.ts"]);
   });
 });
 

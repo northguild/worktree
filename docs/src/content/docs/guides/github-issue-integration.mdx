@@ -31,7 +31,7 @@ contacted.
 `--github` and `--assign` read and assign in one repository, chosen in this order:
 
 1. The `github.repository` key, an `owner/repo` such as `acme/widgets`. It is read from git config, then from
-   `.worktree.yml`.
+   `.worktree.yml`, then from your [user config file](/worktree/configuration/#user-config-file).
 2. The `upstream` remote, when it exists and is on `github.host` (`github.com` unless you set one).
 3. The `origin` remote.
 

@@ -83,6 +83,8 @@ export default class Checkout extends BaseCommand {
     for (const warning of project.warnings) {
       this.warn(warning);
     }
+    // The user file was read, and its warnings said, before `run` (#281, see
+    // `loadUserConfigUpFront`).
 
     const branchNameArg = this.normalizeBranchNameArg(args.branchName);
     const sourceBranchName =

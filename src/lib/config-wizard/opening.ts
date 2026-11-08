@@ -1,4 +1,4 @@
-import { gitGetConfigValue } from "../config.js";
+import { getConfigValue } from "../config.js";
 import { OPENER_KINDS } from "../constants.js";
 import { askConfirm, askSelect } from "../prompt.js";
 import type { OpenerKind } from "../types.js";
@@ -13,7 +13,7 @@ import { saveConfigValue } from "./written.js";
  * the default, the non-interactive fallback or the follow-ups' deciding value.
  */
 export async function getStoredOpener(): Promise<OpenerKind> {
-  const storedOpener = await gitGetConfigValue("opener");
+  const storedOpener = (await getConfigValue("opener")).value;
   return OPENER_KINDS.find((kind) => kind === storedOpener) ?? "editor";
 }
 
@@ -125,7 +125,8 @@ export async function configureHerdrFocus(ctx: WizardContext): Promise<void> {
   if (shouldPrompt(ctx, "herdr.focus")) {
     // Only an explicit "false" means no: unset or empty is the documented
     // default of true. A non-interactive run takes that same answer.
-    const focusDefault = (await gitGetConfigValue("herdr.focus")) !== "false";
+    const focusDefault =
+      (await getConfigValue("herdr.focus")).value !== "false";
     const herdrFocus = await askConfirm(
       {
         message: "Should opening a worktree focus its Herdr space?",
@@ -144,7 +145,7 @@ export async function configureHerdrFocus(ctx: WizardContext): Promise<void> {
 export async function configureRexFocus(ctx: WizardContext): Promise<void> {
   if (shouldPrompt(ctx, "rex.focus")) {
     // Only an explicit "false" means no, as for `herdr.focus`.
-    const focusDefault = (await gitGetConfigValue("rex.focus")) !== "false";
+    const focusDefault = (await getConfigValue("rex.focus")).value !== "false";
     const rexFocus = await askConfirm(
       {
         message: "Should opening a worktree focus its Rex session?",
