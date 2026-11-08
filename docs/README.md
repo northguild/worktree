@@ -381,7 +381,8 @@ commit, so a docs change merged after the release waits for the next one. Two jo
 The Worker config is not the chat Worker's: that one is `docs/worker/wrangler.toml`.
 
 The Cloudflare Worker deploys automatically on pushes to `main` that touch
-`docs/worker/**` or `docs/src/chat/lib/**` (see `.github/workflows/worker-deploy.yml`).
+`docs/worker/**`, `docs/src/chat/lib/**`, `docs/package.json` or `pnpm-lock.yaml` (see
+`.github/workflows/worker-deploy.yml`): the last two because the Worker bundles its dependencies.
 
 To deploy outside a release (a docs fix that cannot wait), use "Run workflow" on `docs-deploy.yml`, from `main`:
 a run from any other branch skips both jobs and deploys nothing. It builds `main`'s head at that moment.

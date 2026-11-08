@@ -183,7 +183,8 @@ stable version has been published.
   that time, not the release commit. A failed `docs` job leaves the Publish run red although the package shipped.
   The called jobs set their own `timeout-minutes` (20 and 10), which a calling job cannot: they hold the `publish`
   concurrency group while they run.
-- **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**` or `docs/src/chat/lib/**` (the contract the Worker bundles), or a manual
+- **Deploy (Worker)** — `worker-deploy.yml`, on any push to `main` touching `docs/worker/**`, `docs/src/chat/lib/**` (the contract the Worker bundles), or
+  `docs/package.json` or `pnpm-lock.yaml` (the dependencies it bundles, so a bump alone redeploys it), or a manual
   dispatch from `main` only: the `deploy` job carries `if: github.ref == 'refs/heads/main'` (#246), so a run from
   any other ref deploys nothing, as long as that ref's copy of the workflow keeps the guard (`workflow_dispatch`
   runs the selected ref's file, and the Cloudflare secrets are repository-level; #253). **Has succeeded on push**: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` were set as
@@ -200,7 +201,7 @@ stable version has been published.
 |---|---|---|
 | `@northguild/worktree` (root) | if its version moved: tested, built, published to npm, tagged, released | npm version + tag + GitHub release (all automatic) |
 | `docs` | nothing on a merge. If the version moved and is stable: built, audited and deployed to `northguild.dev/worktree/` (Cloudflare Worker with static assets), then the legacy bundle to GitHub Pages, by the `docs` job of `publish.yml` | nothing |
-| `docs/worker` | deployed to Cloudflare if the merge touched `docs/worker/**` or `docs/src/chat/lib/**` — version or not | nothing |
+| `docs/worker` | deployed to Cloudflare if the merge touched `docs/worker/**`, `docs/src/chat/lib/**`, `docs/package.json` or `pnpm-lock.yaml` — version or not | nothing |
 
 **The npm path is gated on its own version, correctly.** `publish.yml` keys on the root version moving, and
 a merge that does not bump it publishes, tags and releases nothing.

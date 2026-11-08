@@ -252,7 +252,8 @@ of this endpoint.
 ## CI auto-deployment (optional)
 
 See `.github/workflows/worker-deploy.yml`. Deploys automatically on pushes to
-`main` that change `docs/worker/**` or `docs/src/chat/lib/**` (the contract the worker bundles). A manual "Run workflow" deploys only from `main`: a run from any other
+`main` that change `docs/worker/**`, `docs/src/chat/lib/**` (the contract the worker bundles), or
+`docs/package.json` or `pnpm-lock.yaml` (the dependencies it bundles, so a bump alone redeploys it). A manual "Run workflow" deploys only from `main`: a run from any other
 branch deploys nothing, provided that branch's copy of the workflow still has the guard (a manual run uses the
 selected branch's file). Requires two GitHub **repository secrets**:
 
