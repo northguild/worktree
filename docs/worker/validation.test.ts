@@ -219,13 +219,13 @@ describe("validateChatRequest: what the envelope refuses (D7)", () => {
     expect(validateChatRequest(body(fifty)).ok).toBe(true);
   });
 
-  it("refuses a 51st message", () => {
+  it("refuses a 51st message as a conversation to start again", () => {
     const error = expectRefused(
       validateChatRequest(
         body(conversation(Array.from({ length: MAX_MESSAGES + 1 }, () => 1))),
       ),
     );
-    expect(error).toBe("Too many messages — limit 50.");
+    expect(error).toBe("Conversation is too long. Start a new chat.");
   });
 });
 
@@ -247,8 +247,8 @@ describe("validateChatRequest: sanitise, then measure (D6, D7, D8)", () => {
     );
   });
 
-  it("refuses an over-long assistant turn too", () => {
-    expectRefused(
+  it("refuses an over-long assistant turn too, as the conversation", () => {
+    const error = expectRefused(
       validateChatRequest(
         body([
           message("user", "hi", 0),
@@ -256,6 +256,35 @@ describe("validateChatRequest: sanitise, then measure (D6, D7, D8)", () => {
           message("user", "more", 2),
         ]),
       ),
+    );
+    expect(error).toBe("Conversation is too long. Start a new chat.");
+  });
+
+  it("refuses an over-long earlier question as the conversation", () => {
+    const error = expectRefused(
+      validateChatRequest(
+        body([
+          message("user", "a".repeat(20_001), 0),
+          message("assistant", "ok", 1),
+          message("user", "more", 2),
+        ]),
+      ),
+    );
+    expect(error).toBe("Conversation is too long. Start a new chat.");
+  });
+
+  it("names the length when the question being asked is the one over the cap", () => {
+    const error = expectRefused(
+      validateChatRequest(
+        body([
+          message("user", "hi", 0),
+          message("assistant", "ok", 1),
+          message("user", "a".repeat(20_001), 2),
+        ]),
+      ),
+    );
+    expect(error).toBe(
+      "Message is too long — 20,001 characters, limit 20,000.",
     );
   });
 

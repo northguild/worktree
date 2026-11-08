@@ -6,6 +6,12 @@
 // Order: envelope shape, then sanitise, then lengths, then the whole-
 // conversation cap. Text is sanitised BEFORE it is measured (D8), so invisible
 // padding neither counts against a cap nor smuggles anything through.
+//
+// The client replays the whole stored transcript on every request, so a cap
+// that the history crosses refuses every later question too. Only the question
+// being asked is the reader's to shorten: every refusal the history causes —
+// the message count, an earlier turn over the per-message cap, the whole-
+// conversation cap — says to start a new chat instead.
 
 import { z } from "zod";
 import {
@@ -30,7 +36,6 @@ export type ChatRequestResult =
   | { ok: true; value: { messages: ChatMessage[]; model: ChatModelId } }
   | { ok: false; status: 400; error: string };
 
-const TOO_MANY_MESSAGES = `Too many messages — limit ${MAX_MESSAGES.toLocaleString("en-US")}.`;
 const TOO_LONG_CONVERSATION = "Conversation is too long. Start a new chat.";
 const EMPTY_MESSAGE = "Message is empty.";
 
@@ -58,7 +63,8 @@ const envelopeSchema = z.object({
   messages: z
     .array(messageSchema, { error: "Messages must be a list." })
     .min(1, "Send at least one message.")
-    .max(MAX_MESSAGES, TOO_MANY_MESSAGES),
+    // One question at a time: only a long history can pass the count.
+    .max(MAX_MESSAGES, TOO_LONG_CONVERSATION),
   tools: emptyList,
   context: emptyList,
   forwardedProps: z
@@ -79,8 +85,9 @@ export function validateChatRequest(body: unknown): ChatRequestResult {
   }
   const { messages, forwardedProps } = parsed.data;
 
+  const finalIndex = messages.length - 1;
   const cleaned: ChatMessage[] = [];
-  for (const { role, content } of messages) {
+  for (const [index, { role, content }] of messages.entries()) {
     const text = sanitizeUserText(content);
     // Turns with nothing left are dropped, as the client does (`sendableHistory`).
     // An empty assistant turn goes now, so it cannot stand in for the final turn;
@@ -90,7 +97,10 @@ export function validateChatRequest(body: unknown): ChatRequestResult {
       continue;
     }
     const checked = checkUserText(text);
-    if (!checked.ok) return refuse(checked.reason);
+    if (!checked.ok) {
+      const isQuestion = index === finalIndex && role === "user";
+      return refuse(isQuestion ? checked.reason : TOO_LONG_CONVERSATION);
+    }
     cleaned.push({ role, content: checked.text });
   }
 
