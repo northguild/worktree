@@ -3769,9 +3769,7 @@ describe("gitPlanWorktreeRename", () => {
     const error = await refusal("@");
 
     expect(error).toBeInstanceOf(InvalidValueError);
-    expect((error as Error).message).toBe(
-      "Branch name contains invalid characters",
-    );
+    expect((error as Error).message).toBe("Branch name cannot be just '@'");
     expect(mockRun).not.toHaveBeenCalled();
   });
 
