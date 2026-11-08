@@ -6,7 +6,7 @@ import {
   type IssueField,
   matchOfResult,
 } from "../lib/branch-type.js";
-import { gitGetConfigValue } from "../lib/config.js";
+import { getConfigValue, gitGetConfigValue } from "../lib/config.js";
 import {
   getBranchTypeRules,
   getTeamConfigValue,
@@ -215,12 +215,13 @@ interface JiraSettings {
 // The deployment is read first: Data Center never reads `jira.email` (#126 D4).
 async function readJiraSettings(): Promise<JiraSettings> {
   const deployment = await resolveJiraDeployment();
-  const [host, email, apiToken] = await Promise.all([
-    // D17: a host from the project file is trusted like merged code, so no prompt.
-    getTeamConfigValue("jira.host"),
-    deployment === "cloud" ? gitGetConfigValue("jira.email") : "",
-    gitGetConfigValue("jira.apiToken"),
-  ]);
+  // One after another, so the order of the three reads is the order written.
+  // D17: a host from the project file is trusted like merged code, so no prompt.
+  const host = await getTeamConfigValue("jira.host");
+  const email =
+    deployment === "cloud" ? (await getConfigValue("jira.email")).value : "";
+  // Git-only: a secret is never read from a file (#281 D9).
+  const apiToken = await gitGetConfigValue("jira.apiToken");
   return { deployment, host, email, apiToken };
 }
 

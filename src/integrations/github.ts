@@ -589,6 +589,7 @@ async function fetchGitHub(
 async function requireGitHubToken(host: string): Promise<ResolvedGitHubToken> {
   // The stored token is github.com's; it is not even read for another host.
   if (host === GITHUB_COM) {
+    // Git-only: a secret is never read from a file (#281 D9).
     const configuredToken = await gitGetConfigValue("github.token");
     if (configuredToken) {
       return { token: configuredToken, source: "stored" };
@@ -652,7 +653,8 @@ export async function fetchGitHubIssue(issueId: number | string) {
   const repository = await resolveGitHubRepository();
   const { owner, name } = repository;
   const host = hostOf(repository);
-  // The stored token is github.com's and is not read for another host (#120 D3).
+  // The stored token is github.com's and is not read for another host (#120 D3);
+  // git-only, as a secret is never read from a file (#281 D9).
   let token =
     host === GITHUB_COM ? await gitGetConfigValue("github.token") : "";
   let tokenSource: GitHubTokenSource | undefined = token ? "stored" : undefined;

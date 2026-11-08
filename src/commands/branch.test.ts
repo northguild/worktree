@@ -20,6 +20,7 @@ import * as issueLink from "../lib/issue-link.js";
 import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import { InvalidValueError, MissingValueError } from "../lib/prompt.js";
+import { resetUserConfigCache } from "../lib/user-config.js";
 import * as validators from "../lib/validators.js";
 import {
   captureOutput,
@@ -746,6 +747,94 @@ jira:
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("`opener` is a personal setting"),
       );
+    });
+
+    // #281 D6 (unknown keys warn once, are ignored) and §5 (a user file that
+    // cannot be used stops the run, exit 2); the precedent is the project
+    // file's warning above. The file is a real one in a temp directory. The
+    // file is read in `init` (`loadUserConfigUpFront`), so every case runs the
+    // command the way oclif does, `init` then `run`.
+    describe("the user file (#281)", () => {
+      const originalExitCode = process.exitCode;
+      let userDir: string;
+
+      function userFile(yaml: string) {
+        const file = join(userDir, "config.yml");
+        writeFileSync(file, yaml);
+        vi.stubEnv("WORKTREE_USER_CONFIG", file);
+        resetUserConfigCache();
+      }
+
+      async function runJson() {
+        const command = new Branch(["--json"], await loadConfig());
+        (command as any).parse = vi.fn().mockResolvedValue({
+          args: { branchName: "feature/test" },
+          flags: {},
+        });
+        (command as any).parsed = true;
+        vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+          opener: "none",
+        });
+        const warn = vi.spyOn(command, "warn");
+        const output = captureOutput();
+        try {
+          await (command as any)._run();
+          return { document: output.document(), warn };
+        } finally {
+          output.restore();
+        }
+      }
+
+      beforeEach(() => {
+        userDir = mkdtempSync(join(tmpdir(), "worktree-branch-user-"));
+        personalConfig({ defaultSourceBranch: "origin/main" });
+        process.exitCode = undefined;
+      });
+
+      afterEach(() => {
+        rmSync(userDir, { recursive: true, force: true });
+        process.exitCode = originalExitCode;
+      });
+
+      it("warns once about an unknown key, before anything is created", async () => {
+        userFile("herdr:\n  focus: false\nmysteryKey: 1\n");
+
+        const { document, warn } = await runJson();
+
+        expect(document.warnings).toEqual([
+          expect.stringContaining("`mysteryKey`"),
+        ]);
+        expect(warn.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(git.gitCreateWorktree).mock.invocationCallOrder[0] ?? 0,
+        );
+      });
+
+      it("warns once about a dotted key written flat", async () => {
+        userFile("herdr.focus: false\n");
+
+        const { document } = await runJson();
+
+        expect(document.warnings).toEqual([
+          expect.stringContaining("`herdr.focus`"),
+        ]);
+      });
+
+      it("stops with exit 2 on a malformed file, before anything is created", async () => {
+        userFile("opener: [unclosed\n");
+
+        const { document } = await runJson();
+
+        expect(document).toMatchObject({ error: { code: "invalid_value" } });
+        expect(process.exitCode).toBe(2);
+        expect(git.gitFetch).not.toHaveBeenCalled();
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it("prints nothing new when there is no user file", async () => {
+        const { document } = await runJson();
+
+        expect(document.warnings).toEqual([]);
+      });
     });
   });
 
@@ -6673,7 +6762,8 @@ describe("branch command — approval of the project's postCreate steps", () => 
   it("documents the installed fields in --help", () => {
     const help = Branch.description ?? "";
     expect(help).toContain("steps");
-    expect(help).toContain('"git-config", "project" or "lockfile"');
+    // InstallSource in src/lib/install.ts: the four layers runInstall reads.
+    expect(help).toContain('"git-config", "project", "user" or "lockfile"');
   });
 });
 

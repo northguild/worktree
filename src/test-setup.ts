@@ -25,6 +25,37 @@ vi.mock("./lib/cli.js", () => ({
   isProcessRunning: mockIsProcessRunning,
 }));
 
+// Most suites stub the git layer with `vi.spyOn(config, "gitGetConfigValue")`.
+// getConfigValue calls that reader through a local binding, which a spy on the
+// export cannot reach, so every suite would have to stub the layered reader as
+// well. This version reads through the module's own export, so the one stub a
+// suite already sets still decides, and routes team keys through the real
+// resolver as getConfigValue does. The user file is not consulted: no suite has
+// one here (see beforeEach), and the suites for the layering itself
+// (config.test.ts, user-config-readers.test.ts) call `vi.unmock("./lib/config.js")`
+// to run the real reader.
+vi.mock("./lib/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/config.js")>();
+  const mod = {
+    ...actual,
+    getConfigValue: async (
+      name: Parameters<typeof actual.gitGetConfigValue>[0],
+    ) => {
+      const { isTeamConfigKey, resolveTeamConfig } = await import(
+        "./lib/project-config.js"
+      );
+      if (isTeamConfigKey(name)) {
+        return resolveTeamConfig(name);
+      }
+      const value = await mod.gitGetConfigValue(name);
+      return value
+        ? { value, source: "git-config" as const }
+        : { value: "", source: "default" as const };
+    },
+  };
+  return mod;
+});
+
 // A run() call reads as its argv joined, with the cwd appended when one is
 // given. An element containing whitespace is quoted, so one argument holding a
 // space stays distinguishable from two arguments: gitSetConfigValue passes a
@@ -44,13 +75,21 @@ function describeRunCall(call: unknown[]): string {
   return options?.cwd ? `${argv} (cwd: ${options.cwd})` : argv;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   // Clear all mocks before each test
   vi.clearAllMocks();
   // vitest's stdin is not a TTY, so the run would resolve as non-interactive and
   // every prompt would take its default. The suites that assert a prompt is
   // asked are the human path; the ones for the other mode say so themselves.
   setNonInteractive(false);
+  // No suite reads the real user config file (#281): the override is unset and
+  // the default location is a directory that does not exist. An explicit
+  // override naming a missing file would throw, so it is cleared, not pointed.
+  // Imported here, not at the top: user-config reaches cli.js, whose mock this
+  // file builds from variables it has not yet initialised when imports run.
+  (await import("./lib/user-config.js")).resetUserConfigCache();
+  vi.stubEnv("WORKTREE_USER_CONFIG", "");
+  vi.stubEnv("XDG_CONFIG_HOME", "/nonexistent-worktree-test-xdg");
   // A successful, silent run is the benign default. Without it a suite that
   // reaches runCapturing without mocking it gets undefined back rather than a
   // promise, and fails somewhere unrelated to what it is testing.

@@ -118,6 +118,7 @@ function getIssueIdentifier(issueId: string): string {
 }
 
 export async function resolveLinearApiKey(): Promise<string> {
+  // Git-only: a secret is never read from a file (#281 D9).
   const apiKey = await gitGetConfigValue("linear.apiKey");
 
   if (!apiKey) {

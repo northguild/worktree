@@ -4,8 +4,21 @@ import path from "node:path";
 import { LineCounter, parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import { run } from "./cli.js";
-import { gitGetConfigValue } from "./config.js";
-import { JIRA_DEPLOYMENTS, SECRET_CONFIG_NAMES } from "./constants.js";
+import {
+  type ConfigValueSource,
+  fileSettingValue,
+  gitGetConfigValue,
+} from "./config.js";
+import {
+  PERSONAL_KEYS,
+  PERSONAL_SECTIONS,
+  SECRET_KEYS,
+  showVisibly,
+  step,
+  TEAM_SCALARS,
+  TEAM_SECTIONS,
+} from "./config-keys.js";
+import { JIRA_DEPLOYMENTS } from "./constants.js";
 import {
   gitGetTopLevelPath,
   gitHasOriginRemote,
@@ -15,6 +28,7 @@ import {
 import { isNonInteractive } from "./interaction.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
+import { loadUserConfig } from "./user-config.js";
 import {
   GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
@@ -25,6 +39,8 @@ import {
 // Imports git.ts and is never imported by it (or by agent.ts): git.ts and
 // agent.ts already import each other (#59), and this file must not close
 // another loop.
+
+export { showVisibly };
 
 export const PROJECT_CONFIG_FILE = ".worktree.yml";
 export const PROJECT_CONFIG_SCHEMA_URL =
@@ -111,17 +127,6 @@ const copyPattern = z
         "a copy pattern is a relative glob: no leading / or :, and no .. segment",
     },
   );
-
-// The approval prompt prints a step as text, so one that redraws the terminal
-// (\r, ESC) or reorders it (bidi overrides) would hide what runs (D16).
-const step = z
-  .string()
-  .refine((value) => value.trim() !== "", {
-    message: "a step cannot be empty",
-  })
-  .refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), {
-    message: "a step cannot hold control or formatting characters",
-  });
 
 const GITHUB_HOST_MESSAGE =
   "host must be a bare hostname, for example ghe.example.com (no scheme, port or path), and not a subdomain of github.com";
@@ -224,42 +229,6 @@ export function projectConfigJsonSchema() {
 // Key classes (D3)
 // ---------------------------------------------------------------------------
 
-// Sections that hold team keys, and which children they may hold.
-const TEAM_SECTIONS: Record<string, readonly string[]> = {
-  branchPrefix: ["feature", "bugfix", "chore"],
-  jira: ["host", "deployment", "branchType"],
-  github: ["repository", "host", "branchType"],
-  linear: ["branchType"],
-  clickup: ["workspaceId", "branchType"],
-};
-const TEAM_SCALARS = new Set([
-  "defaultSourceBranch",
-  "branchType",
-  "branchName",
-  "copy",
-  "postCreate",
-]);
-// Per-person keys: ignored in the file, with a warning that names where to set them.
-const PERSONAL_KEYS = new Set([
-  "opener",
-  "codeEditor",
-  "herdr.focus",
-  "herdr.agent",
-  "rex.focus",
-  "agent.command",
-  "jira.email",
-  "jira.autoAssign",
-  "jira.autoStart",
-  "github.autoAssign",
-  "linear.autoStart",
-  "linear.agentAllow",
-  "linear.agentContext",
-  "clickup.autoAssign",
-  "clickup.autoStart",
-]);
-const PERSONAL_SECTIONS = new Set(["herdr", "rex", "agent"]);
-const SECRET_KEYS = new Set<string>(SECRET_CONFIG_NAMES);
-
 // ---------------------------------------------------------------------------
 // Result and error types
 // ---------------------------------------------------------------------------
@@ -268,7 +237,11 @@ export type ProjectConfigSource =
   | { kind: "ref"; ref: string }
   | { kind: "path"; path: string };
 
-export type NoProjectConfigReason = "no-ref" | "no-file" | "empty-file";
+export type NoProjectConfigReason =
+  | "no-ref"
+  | "no-file"
+  | "empty-file"
+  | "unusable";
 
 export type ProjectConfigResult =
   | {
@@ -406,6 +379,20 @@ export function resetProjectConfigCache() {
   cached = undefined;
 }
 
+/**
+ * For `worktree config`, the command that works around a bad file (#281 §2):
+ * after the caller has said the file cannot be used, every later reader in the
+ * run sees no file instead of rethrowing. The caller resets the cache when it
+ * is done, so the state does not outlive the command.
+ */
+export function markProjectConfigUnusable() {
+  cached = Promise.resolve({
+    status: "none",
+    reason: "unusable",
+    warnings: [],
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Precedence (D2)
 // ---------------------------------------------------------------------------
@@ -425,8 +412,7 @@ const TEAM_CONFIG_KEYS = [
 ] as const satisfies readonly ConfigName[];
 
 export type TeamConfigKey = (typeof TEAM_CONFIG_KEYS)[number];
-/** Where an answer came from; `default` means the caller's built-in applies. */
-export type ConfigValueSource = "git-config" | "project" | "default";
+export type { ConfigValueSource };
 
 export function isTeamConfigKey(name: string): name is TeamConfigKey {
   return (TEAM_CONFIG_KEYS as readonly string[]).includes(name);
@@ -459,10 +445,11 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
 }
 
 /**
- * A team key by D2: git config (any scope) first, then the project file, then
- * `""` with source `default` for the caller's built-in. The file is not read
- * when git config answers. A file that cannot be used throws
- * `ProjectConfigError`, as `loadProjectConfig` does.
+ * A team key by D2 (#281): git config (any scope) first, then the project
+ * file, then the user file, then `""` with source `default` for the caller's
+ * built-in. A file is not read when a layer above it answers. A file that
+ * cannot be used throws `ProjectConfigError` or `UserConfigError`, as
+ * `loadProjectConfig` and `loadUserConfig` do.
  */
 export async function resolveTeamConfig(name: TeamConfigKey): Promise<{
   value: string;
@@ -475,8 +462,14 @@ export async function resolveTeamConfig(name: TeamConfigKey): Promise<{
   const result = await loadProjectConfig();
   const fromFile =
     result.status === "loaded" ? projectValue(result.config, name) : undefined;
-  return fromFile
-    ? { value: fromFile, source: "project" }
+  if (fromFile) {
+    return { value: fromFile, source: "project" };
+  }
+  const user = await loadUserConfig();
+  const fromUser =
+    user.status === "loaded" ? fileSettingValue(user.config, name) : undefined;
+  return fromUser
+    ? { value: fromUser, source: "user" }
     : { value: "", source: "default" };
 }
 
@@ -550,21 +543,6 @@ export async function renderBranchName(parts: {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Text from the file, made safe to print: every control (`\p{Cc}`) and
- * formatting (`\p{Cf}`) character becomes a visible escape such as `\x1b` or
- * `\u{202e}`, so a key or value cannot redraw the terminal or reorder what a
- * warning, an error or the approval prompt shows (D16).
- */
-export function showVisibly(text: string) {
-  return text.replace(/[\p{Cc}\p{Cf}]/gu, (char) => {
-    const code = char.codePointAt(0) ?? 0;
-    return code < 0x100
-      ? `\\x${code.toString(16).padStart(2, "0")}`
-      : `\\u{${code.toString(16)}}`;
-  });
 }
 
 /**
@@ -786,6 +764,23 @@ export async function getProjectPostCreateSteps() {
     : [];
 }
 
+/**
+ * The user file's `postCreate` steps, trimmed. They are the person's own, so
+ * unlike the project file's they need no approval (#281 D10).
+ */
+export async function getUserPostCreateSteps() {
+  const user = await loadUserConfig();
+  // The schema is built from the key tables, so its type is loose; the
+  // validated value is a list of strings.
+  const steps: unknown =
+    user.status === "loaded" ? user.config.postCreate : undefined;
+  return Array.isArray(steps)
+    ? steps
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.trim())
+    : [];
+}
+
 async function readApproval() {
   try {
     return (
@@ -864,6 +859,9 @@ export async function ensurePostCreateApproved(options: { install?: boolean }) {
   }
   const steps = await getProjectPostCreateSteps();
   if (steps.length === 0) {
+    // `runInstall` reads the user file's steps next, after the worktree exists:
+    // a file that cannot be used stops the run here, before anything is created.
+    await loadUserConfig();
     return;
   }
   if ((await readApproval()) === postCreateApprovalHash(steps)) {

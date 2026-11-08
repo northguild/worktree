@@ -3,7 +3,11 @@ import { Args, Flags } from "@oclif/core";
 import { isRexInstalled } from "../integrations/rex.js";
 import { BaseCommand } from "../lib/base-command.js";
 import { commandExists } from "../lib/cli.js";
-import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
+import {
+  getConfigValue,
+  gitGetConfigValue,
+  gitSetConfigValue,
+} from "../lib/config.js";
 import {
   isJiraDataCenter,
   type WizardContext,
@@ -22,20 +26,35 @@ import {
   approvePostCreate,
   isProjectFileKey,
   loadProjectConfig,
+  markProjectConfigUnusable,
   offerProjectConfig,
   PROJECT_CONFIG_FILE,
   type ProjectConfig,
   ProjectConfigError,
   projectFileKeys,
   projectFileValue,
+  resetProjectConfigCache,
   showVisibly,
   summariseProjectFile,
   writeProjectFile,
 } from "../lib/project-config.js";
 import { askConfirm } from "../lib/prompt.js";
 import type { ConfigName } from "../lib/types.js";
+import {
+  assertUserFileKey,
+  loadUserConfigForRepair,
+  resetUserConfigCache,
+  type UserConfig,
+  userConfigLabel,
+  userFileKeys,
+  userFileValue,
+  writeUserConfigValue,
+} from "../lib/user-config.js";
 import { conjoin } from "../lib/utils.js";
 import { validateConfigValue } from "../lib/validators.js";
+
+/** The origin `--list` gives a value read from the user file (#281 D11). */
+const USER_CONFIG_ORIGIN = "user config";
 
 export default class Config extends BaseCommand {
   static override description = "Configure worktree CLI settings";
@@ -65,6 +84,10 @@ export default class Config extends BaseCommand {
       description:
         "Write a commented .worktree.yml from the team settings in your git config (never a personal or secret one), uncommitted",
     }),
+    user: Flags.boolean({
+      description:
+        "With a key and a value, write it to your user config file, which holds personal defaults for every repository",
+    }),
     // Passed by the commands that delegate to this one mid-run (`branch`, via
     // verifyConfig), so the offers of D21 are not made before a worktree exists.
     "skip-offers": Flags.boolean({ hidden: true }),
@@ -85,9 +108,70 @@ export default class Config extends BaseCommand {
     } catch (error) {
       if (error instanceof ProjectConfigError) {
         this.warn(error.message);
+        markProjectConfigUnusable();
+        this.projectUnusable = true;
         return undefined;
       }
       throw error;
+    }
+  }
+
+  /**
+   * The user config file, when there is a usable one. Like the project file, a
+   * file that cannot be used is said so and treated as absent for the rest of
+   * the run, because `config` is how a person gets past it.
+   */
+  private loadUser() {
+    this.userFile ??= this.readUser();
+    return this.userFile;
+  }
+
+  // Set where a file is treated as absent for this run, so `run` undoes it.
+  private userUnusable = false;
+  private projectUnusable = false;
+
+  private userFile?: Promise<{ config?: UserConfig; path: string }>;
+
+  /**
+   * Not up front, and not throwing: this is the command that repairs a file
+   * every other command stops on (#281 §5). `readUser` reads it the forgiving
+   * way, and says what is wrong with it, when the run first needs it.
+   */
+  protected override async loadUserConfigUpFront() {}
+
+  private async readUser(): Promise<{ config?: UserConfig; path: string }> {
+    const { result, error } = await loadUserConfigForRepair();
+    if (error) {
+      this.userUnusable = true;
+      this.warn(
+        `${error.message}\nIgnoring the user config file until it is fixed. Edit ${showVisibly(userConfigLabel(result.path))} by hand.`,
+      );
+      return { path: result.path };
+    }
+    for (const warning of result.warnings) {
+      this.warn(warning);
+    }
+    return {
+      config: result.status === "loaded" ? result.config : undefined,
+      path: result.path,
+    };
+  }
+
+  /**
+   * The resolved value of a key: git config, the project file, then the user
+   * file. A project file that cannot be used is said so and passed over.
+   */
+  private async resolve(name: ConfigName) {
+    try {
+      return await getConfigValue(name);
+    } catch (error) {
+      if (!(error instanceof ProjectConfigError)) {
+        throw error;
+      }
+      this.warn(error.message);
+      markProjectConfigUnusable();
+      this.projectUnusable = true;
+      return getConfigValue(name);
     }
   }
 
@@ -101,7 +185,7 @@ export default class Config extends BaseCommand {
    * Herdr and later lost the binary should still be told what it set.
    */
   private async getHiddenConfigNames(): Promise<Set<ConfigName>> {
-    const opener = await gitGetConfigValue("opener");
+    const opener = (await this.resolve("opener")).value;
     const hidden = new Set<ConfigName>();
 
     // An explicit `opener=herdr` is an opt-in, and it governs the other two, so
@@ -121,7 +205,7 @@ export default class Config extends BaseCommand {
         continue;
       }
       for (const name of names) {
-        if (!(await gitGetConfigValue(name))) {
+        if (!(await this.resolve(name)).value) {
           hidden.add(name);
         }
       }
@@ -133,6 +217,7 @@ export default class Config extends BaseCommand {
     let count = 0;
     const hidden = await this.getHiddenConfigNames();
     const file = await this.loadFile();
+    const { config: user } = await this.loadUser();
     // Data Center has no email, so `--missing` does not report one (#126 D4).
     const skipEmail = missing && (await isJiraDataCenter());
 
@@ -141,6 +226,7 @@ export default class Config extends BaseCommand {
         continue;
       }
 
+      // git-only: the list shows git config's own value, to say what it overrides
       const value = await gitGetConfigValue(variable);
       // File-derived text is shown with its control characters escaped (D16).
       const fromFile =
@@ -153,7 +239,8 @@ export default class Config extends BaseCommand {
       if (variable === "postCreate" && fromFile && !value) {
         continue;
       }
-      if (missing && (value || fromFile)) {
+      const fromUser = user ? userFileValue(user, variable) : undefined;
+      if (missing && (value || fromFile || fromUser)) {
         continue;
       }
       // Nothing prompts for it, so a `--missing` run has nothing to say (D7).
@@ -177,12 +264,27 @@ export default class Config extends BaseCommand {
       const shown = SECRET_CONFIG_NAMES.some((name) => name === variable)
         ? "***"
         : value;
-      const source =
-        value && fromFile
-          ? value === fromFile
+      // The project file outranks the user file, so where both set a key only
+      // the project file is named (D11, D2).
+      let source = "";
+      if (value && fromFile) {
+        source =
+          value === fromFile
             ? ` (${PROJECT_CONFIG_FILE})`
-            : ` (overrides ${PROJECT_CONFIG_FILE}: ${showVisibly(fromFile)})`
-          : "";
+            : ` (overrides ${PROJECT_CONFIG_FILE}: ${showVisibly(fromFile)})`;
+      } else if (value && fromUser) {
+        source =
+          value === fromUser
+            ? ` (${USER_CONFIG_ORIGIN})`
+            : ` (overrides ${USER_CONFIG_ORIGIN}: ${showVisibly(fromUser)})`;
+      }
+      if (!value && fromUser) {
+        this.log(
+          `${variable}=${showVisibly(fromUser)} (${USER_CONFIG_ORIGIN})`,
+        );
+        count++;
+        continue;
+      }
       this.log(value ? `${variable}=${shown}${source}` : variable);
       count++;
     }
@@ -247,7 +349,7 @@ export default class Config extends BaseCommand {
 
   private async getPromptConfigNames(
     flags: { missing: boolean; names?: string },
-    fileKeys: readonly ConfigName[],
+    skipKeys: readonly ConfigName[],
     hidden?: Set<ConfigName>,
   ): Promise<ConfigName[]> {
     // `hidden` is not computed for a --names run: that path returns before the
@@ -267,7 +369,7 @@ export default class Config extends BaseCommand {
         if (dropEmail && name === "jira.email") {
           continue;
         }
-        if (!fileKeys.includes(name) && !(await gitGetConfigValue(name))) {
+        if (!skipKeys.includes(name) && !(await this.resolve(name)).value) {
           configNames.push(name);
         }
       }
@@ -283,7 +385,7 @@ export default class Config extends BaseCommand {
     const dropEmail = await isJiraDataCenter();
     return applicableConfigNames.filter(
       (name) =>
-        !fileKeys.includes(name) && !(dropEmail && name === "jira.email"),
+        !skipKeys.includes(name) && !(dropEmail && name === "jira.email"),
     );
   }
   /**
@@ -301,8 +403,27 @@ export default class Config extends BaseCommand {
         `${PROJECT_CONFIG_FILE} sets ${fileKeys.join(", ")}, so the wizard does not ask for them. Change one for yourself with \`worktree config <key> <value>\`.`,
       );
     }
+    const { config: user, path: userPath } = await this.loadUser();
     const hidden = flags.names ? undefined : await this.getHiddenConfigNames();
-    let configNames = await this.getPromptConfigNames(flags, fileKeys, hidden);
+    // A key the user file sets is already set, as one the project file sets is
+    // (D11): asking would offer to store "" or a copy in git config over it.
+    const userKeys = user
+      ? userFileKeys(user).filter(
+          (name) =>
+            !(fileKeys as readonly string[]).includes(name) &&
+            this.getApplicableConfigNames(undefined, hidden).includes(name),
+        )
+      : [];
+    if (userKeys.length > 0 && !flags.names) {
+      this.log(
+        `Your user config (${showVisibly(userConfigLabel(userPath))}) sets ${userKeys.join(", ")}, so the wizard does not ask for them. Change one with \`worktree config --user <key> <value>\`, or for this repository only with \`worktree config <key> <value>\`.`,
+      );
+    }
+    let configNames = await this.getPromptConfigNames(
+      flags,
+      [...fileKeys, ...userKeys],
+      hidden,
+    );
 
     // A bare run that does not ask `opener` (`--missing` found it set) lets the
     // stored one decide the follow-ups (D3), so a key it would not ask is not
@@ -351,6 +472,22 @@ export default class Config extends BaseCommand {
   }
 
   public async run(): Promise<void> {
+    try {
+      await this.runConfig();
+    } finally {
+      // A file treated as absent for this run (loadUser, loadFile) must not stay
+      // so for whatever runs next in this process (`branch` runs `config` first).
+      // Only what was marked: a good read stays cached, as in every other command.
+      if (this.userUnusable) {
+        resetUserConfigCache();
+      }
+      if (this.projectUnusable) {
+        resetProjectConfigCache();
+      }
+    }
+  }
+
+  private async runConfig(): Promise<void> {
     const { args, flags } = await this.parse(Config);
 
     // Mark that config has been called at least once
@@ -362,7 +499,8 @@ export default class Config extends BaseCommand {
         flags.list ||
         flags.missing ||
         flags.names ||
-        flags.project
+        flags.project ||
+        flags.user
       ) {
         this.error(
           "--approve cannot be combined with other arguments or flags.",
@@ -373,7 +511,13 @@ export default class Config extends BaseCommand {
     }
 
     if (flags.project) {
-      if (args.name || flags.list || flags.missing || flags.names) {
+      if (
+        args.name ||
+        flags.list ||
+        flags.missing ||
+        flags.names ||
+        flags.user
+      ) {
         this.error(
           "--project cannot be combined with other arguments or flags.",
         );
@@ -384,6 +528,39 @@ export default class Config extends BaseCommand {
       );
       return;
     }
+
+    if (flags.user) {
+      // The only form: a key and a value (D7).
+      if (
+        !args.name ||
+        !args.value ||
+        flags.list ||
+        flags.missing ||
+        flags.names
+      ) {
+        this.error(
+          "--user takes a key and a value (worktree config --user <key> <value>) and cannot be combined with --list, --missing or --names.",
+        );
+      }
+      if (!this.isValidArgName(args.name)) {
+        this.error(`Unknown config name: ${args.name}`);
+      }
+      // Secrets and keys the file cannot hold are refused before the value is
+      // looked at, so no validator can echo a token.
+      assertUserFileKey(args.name);
+      await validateConfigValue(args.name, args.value);
+      const written = writeUserConfigValue(args.name, args.value);
+      const where = showVisibly(userConfigLabel(written.path));
+      this.log(
+        written.changed
+          ? `Set ${args.name} in ${where}.`
+          : `${args.name} is already set to that in ${where}.`,
+      );
+      return;
+    }
+
+    // First, so every read below sees a file that cannot be used as absent.
+    await this.loadUser();
 
     if (args.name) {
       if (!this.isValidArgName(args.name)) {
@@ -410,7 +587,7 @@ export default class Config extends BaseCommand {
       // The value alone, secrets included (unlike `--list`, which masks them),
       // so `$(worktree config <name>)` is usable in a script. An unset key prints nothing and
       // exits 0, the same empty answer the rest of the CLI reads it as.
-      const current = await gitGetConfigValue(args.name);
+      const current = (await this.resolve(args.name)).value;
       if (current) {
         this.log(current);
       }

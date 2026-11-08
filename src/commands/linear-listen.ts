@@ -23,7 +23,7 @@ import {
   handleSession,
 } from "../integrations/linear-agent-dispatch.js";
 import { BaseCommand } from "../lib/base-command.js";
-import { gitGetConfigValue } from "../lib/config.js";
+import { getConfigValue, gitGetConfigValue } from "../lib/config.js";
 import { MissingValueError } from "../lib/prompt.js";
 import { redactSecrets } from "../lib/redact.js";
 
@@ -326,6 +326,7 @@ export default class LinearListen extends BaseCommand {
   };
 
   private async requireConfig() {
+    // Git-only: a secret is never read from a file (#281 D9).
     const agentToken = await gitGetConfigValue("linear.agentToken");
     if (!agentToken) {
       throw new MissingValueError(
@@ -333,6 +334,7 @@ export default class LinearListen extends BaseCommand {
         "`worktree config linear.agentToken <token>`",
       );
     }
+    // Git-only: a secret is never read from a file (#281 D9).
     const webhookSecret = await gitGetConfigValue("linear.webhookSecret");
     if (!webhookSecret) {
       throw new MissingValueError(
@@ -340,6 +342,7 @@ export default class LinearListen extends BaseCommand {
         "`worktree config linear.webhookSecret <secret>`",
       );
     }
+    // Git-only: a secret is never read from a file (#281 D9).
     const apiKey = await gitGetConfigValue("linear.apiKey");
     if (!apiKey) {
       throw new MissingValueError(
@@ -375,7 +378,7 @@ export default class LinearListen extends BaseCommand {
 
     // D5: unset means only the person who owns the personal key.
     let allowedCreators = parseAllowList(
-      await gitGetConfigValue("linear.agentAllow"),
+      (await getConfigValue("linear.agentAllow")).value,
     );
     if (allowedCreators.length === 0) {
       try {
@@ -393,7 +396,7 @@ export default class LinearListen extends BaseCommand {
     // D8: only an explicit "true" lets issue text reach an agent; the setter
     // refuses anything else, so a hand-edited oddity also reads as off.
     const includeIssueContext =
-      (await gitGetConfigValue("linear.agentContext")) === "true";
+      (await getConfigValue("linear.agentContext")).value === "true";
 
     const listener = createListener({
       secret: webhookSecret,

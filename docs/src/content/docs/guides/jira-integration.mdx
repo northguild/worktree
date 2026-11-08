@@ -113,7 +113,7 @@ transition itself.
 
 Authentication is resolved in this order:
 
-1. Existing `jira.host`, `jira.email`, and `jira.apiToken` in git config, with `jira.deployment` (default `cloud`) deciding which are needed: on `datacenter`, `jira.email` is neither required nor read and `jira.apiToken` holds a personal access token. `jira.host` is read from git config, else from the team's `.worktree.yml`, with no prompt; a file's host receives everyone's credentials, see [Project Configuration](/worktree/project-configuration/#jirahost-receives-everyones-credentials).
+1. Existing `jira.host`, `jira.email`, and `jira.apiToken` (the token only in git config; `jira.email` may also come from your [user config file](/worktree/configuration/#user-config-file)), with `jira.deployment` (default `cloud`) deciding which are needed: on `datacenter`, `jira.email` is neither required nor read and `jira.apiToken` holds a personal access token. `jira.host` is read from git config, else from the team's `.worktree.yml`, else from your [user config file](/worktree/configuration/#user-config-file), with no prompt; a file's host receives everyone's credentials, see [Project Configuration](/worktree/project-configuration/#jirahost-receives-everyones-credentials).
 2. Interactive prompts for missing values, then save to local git config.
 
 ## Suggested Setup
