@@ -124,7 +124,7 @@ review, and the command refuses to overwrite an existing `.worktree.yml`. It tak
   because it is what finds the file. See
   [Moving to the file](/worktree/project-configuration/#moving-to-the-file). If a key cannot be removed, the
   command warns and still succeeds.
-- Only this one is an offer: on a terminal, with no `.worktree.yml` on the default branch and a team key in
+- Only this one is an offer: on a terminal, with no `.worktree.yml` on the default branch or in your worktree and a team key in
   your git config, `worktree config --project` is offered once per repository. Either answer is remembered.
   Nothing is offered under `--json`, `--yes`, `--non-interactive`, `CI`, without a terminal, or on
   `branch --dry-run`.

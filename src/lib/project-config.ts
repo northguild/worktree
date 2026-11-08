@@ -1097,8 +1097,26 @@ async function readLocal(key: string) {
 
 const localKey = (name: ProjectFileKey) => `northguild.worktree.${name}`;
 
+/** Whether this worktree already has a `.worktree.yml` of its own. */
+async function hasWorkingCopy() {
+  try {
+    // lstat, not existsSync: a dangling link is a copy too, since `wx` refuses it.
+    fs.lstatSync(path.join(await gitGetTopLevelPath(), PROJECT_CONFIG_FILE));
+    return true;
+  } catch {
+    // No work tree, or nothing at that path.
+    return false;
+  }
+}
+
 async function offerProjectFile() {
   if (await readLocal(PROJECT_FILE_OFFER_KEY)) {
+    return;
+  }
+  // The offer says the repository has no file and writes one with `wx`, which
+  // refuses a copy that is there. The read already warned that it is ignored,
+  // so this stays silent and leaves the offer unspent for when the copy goes.
+  if (await hasWorkingCopy()) {
     return;
   }
   let hasTeamKey = false;
@@ -1118,21 +1136,24 @@ async function offerProjectFile() {
       fallback: false,
     },
   );
-  await run("git", [
-    "config",
-    "--local",
-    PROJECT_FILE_OFFER_KEY,
-    accepted ? "accepted" : "declined",
-  ]);
+  const record = (answer: "accepted" | "declined") =>
+    run("git", ["config", "--local", PROJECT_FILE_OFFER_KEY, answer]);
   if (!accepted) {
+    await record("declined");
     return;
   }
   try {
     const written = await writeProjectFile();
+    await record("accepted");
     console.log(
       `Wrote ${written.path} with ${written.keys.join(", ")}. It is not committed; review it first.`,
     );
   } catch (error) {
+    // A copy made since we looked refused the write: nothing was accepted, and
+    // the next run's check for a copy keeps the offer quiet while it stands.
+    if (!(error instanceof ProjectFileExistsError)) {
+      await record("accepted");
+    }
     console.error(error instanceof Error ? error.message : String(error));
   }
 }

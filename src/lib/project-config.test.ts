@@ -2004,6 +2004,47 @@ describe("offerProjectConfig: the nudge (D21)", () => {
     expect(confirm).toHaveBeenCalledTimes(1);
   });
 
+  // #311: the read warns that an uncommitted copy is ignored; the offer must not
+  // then claim the repository has no file, nor spend itself on a refused write.
+  it("offers nothing, and records nothing, when the worktree has a copy of its own", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    const working = path.join(scratch, ".worktree.yml");
+    fs.writeFileSync(working, "copy: [b]\n");
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(local.has(PROJECT_FILE_OFFER_KEY)).toBe(false);
+    expect(fs.readFileSync(working, "utf8")).toBe("copy: [b]\n");
+  });
+
+  it("treats a dangling .worktree.yml link as a copy of its own", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    fs.symlinkSync(
+      path.join(scratch, "gone.yml"),
+      path.join(scratch, ".worktree.yml"),
+    );
+
+    await offerProjectConfig();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(local.has(PROJECT_FILE_OFFER_KEY)).toBe(false);
+  });
+
+  it("does not record a yes whose write was refused by a copy made meanwhile", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    const working = path.join(scratch, ".worktree.yml");
+    vi.mocked(confirm).mockImplementation(async () => {
+      fs.writeFileSync(working, "copy: [b]\n");
+      return true;
+    });
+
+    await offerProjectConfig();
+
+    expect(local.has(PROJECT_FILE_OFFER_KEY)).toBe(false);
+    expect(fs.readFileSync(working, "utf8")).toBe("copy: [b]\n");
+  });
+
   it("offers nothing when git config holds only personal or secret keys", async () => {
     fakeGitConfig({ ...PERSONAL_VALUES, ...SECRET_VALUES });
 
