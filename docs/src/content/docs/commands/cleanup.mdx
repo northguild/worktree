@@ -65,8 +65,6 @@ Found 5 worktree branches that are marked safe to remove.
 - feature/eng-123-dark-mode (Linear issue ENG-123 canceled, no unpushed commits)
 ```
 
-The counts in these headings follow your system locale, so a large number is grouped the way your locale writes it.
-
 Those five are the whole vocabulary. `merged into <base>` is the one that names a count rather
 than denying one: that worktree *is* ahead of `origin/main`, and every commit in it is already
 applied there. `Path does not exist` answers none of the checks above: a worktree whose
@@ -97,6 +95,10 @@ Linear issue is not canceled. A branch whose issue is canceled is the exception:
 unmerged commits it is listed under the fourth heading, whether it tracks a live remote, has no
 remote, or lost its remote. Use [`list`](/worktree/commands/list/) to see every worktree and what each one is carrying;
 `cleanup` only ever discusses the ones it would sweep and the ones it stopped short of.
+
+The count in each of `cleanup`'s headings, `Found …` and all four `Skipped …`, follows your system
+locale, so a large number is grouped the way your locale writes it: `1,234` in English, `1.234` in
+German.
 
 ## Canceled Linear issues
 
