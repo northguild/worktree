@@ -108,7 +108,8 @@ worktree branch --jira DEV-123
 worktree branch --jira dev-123
 
 # Assign a Jira issue to yourself; one held by someone else is left alone
-# (a warning names them, `assigned` is false). Needs Browse Projects and
+# (a warning names them, `assigned` is false), and so is one whose assignee
+# Jira does not show (a warning says so). Needs Browse Projects and
 # Assign Issues on the project. --no-assign skips it for one run.
 worktree branch --jira DEV-123 --assign
 
@@ -380,7 +381,7 @@ document:
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`,
   `{provider:"clickup",key,url}`, or `null`; `url` can itself be `null`.
-- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, or a Jira issue is held by someone else), `null` when no assignment was attempted.
+- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, a Jira issue is held by someone else, or Jira does not show a Jira issue's assignee), `null` when no assignment was attempted.
 - `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), `null` when none was attempted.
 - `herdr`, `rex` and `agent` are `null` when skipped. `rex` is `{session,block}`
   for the Rex session that was opened, `block` `null` when the session was

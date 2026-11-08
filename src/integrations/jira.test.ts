@@ -1330,13 +1330,37 @@ jira:
       );
     });
 
-    it("treats an issue with no assignee key as unassigned and assigns it", async () => {
+    it("leaves an issue whose assignee Jira does not show alone (#290)", async () => {
       const fetchSpy = stubJira({ omitAssignee: true });
 
       const result = await assignJiraIssue("DEV-123");
 
-      expect(result.outcome).toBe("assigned");
-      expect(putCalls(fetchSpy)).toHaveLength(1);
+      expect(result).toEqual({
+        outcome: "assignee-hidden",
+        displayName: "Me Myself",
+      });
+      expect(putCalls(fetchSpy)).toHaveLength(0);
+    });
+
+    it("leaves an issue alone when the answer has no fields object at all (#290)", async () => {
+      const fetchSpy = stubJira({ assignee: null });
+      const answer = fetchSpy.getMockImplementation();
+      fetchSpy.mockImplementation(async (url: string, init: RequestInit) =>
+        url.includes("/issue/DEV-123?")
+          ? ({
+              ok: true,
+              status: 200,
+              statusText: "OK",
+              json: async () => ({ id: "10011", key: "DEV-123" }),
+              text: async () => "",
+            } as never)
+          : (answer?.(url, init) as never),
+      );
+
+      const result = await assignJiraIssue("DEV-123");
+
+      expect(result.outcome).toBe("assignee-hidden");
+      expect(putCalls(fetchSpy)).toHaveLength(0);
     });
 
     it("makes no write when the issue is already the caller's", async () => {
