@@ -253,7 +253,12 @@ describe("isValidBranchName", () => {
     ${"branch*star"}         | ${"Branch name contains invalid characters"}        | ${"contains asterisk"}
     ${"branch?question"}     | ${"Branch name contains invalid characters"}        | ${"contains question mark"}
     ${"branch[bracket"}      | ${"Branch name contains invalid characters"}        | ${"contains bracket"}
-    ${"branch@at"}           | ${"Branch name contains invalid characters"}        | ${"contains at sign"}
+    ${"user@fix"}            | ${true}                                             | ${"at sign inside a name"}
+    ${"@user"}               | ${true}                                             | ${"leading at sign"}
+    ${"origin/user@fix"}     | ${true}                                             | ${"at sign in a later component"}
+    ${"@"}                   | ${"Branch name cannot be just '@'"}                 | ${"a lone at sign"}
+    ${"branch@{upstream}"}   | ${"Branch name contains invalid characters"}        | ${"at-brace sequence"}
+    ${"branch@{"}            | ${"Branch name contains invalid characters"}        | ${"at-brace sequence, unclosed"}
     ${"branch."}             | ${"Branch name cannot end with a dot"}              | ${"ends with dot"}
     ${"branch/"}             | ${"Branch name cannot end with a slash"}            | ${"ends with slash"}
     ${"feature//double"}     | ${"Branch name cannot contain consecutive slashes"} | ${"consecutive slashes"}
