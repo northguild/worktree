@@ -283,3 +283,29 @@ export async function validateConfigValue(
     throw new InvalidConfigValueError(validationResult);
   }
 }
+
+/**
+ * What `worktree config --user <name> <value>` checks. The user file is a
+ * fallback for every repository, so `defaultSourceBranch` is held to branch-name
+ * syntax only: a lookup would test it against whichever repository the command
+ * happens to run in, and fail outside one (#310). Every other key is checked as
+ * a git write checks it.
+ */
+export async function validateUserConfigValue(
+  configName: string,
+  value: string,
+): Promise<void> {
+  if (configName === "defaultSourceBranch") {
+    // isValidBranchName leaves a leading dash to git (rename asks git as well),
+    // and nothing asks git here: `branch` passes this value to git as an
+    // argument, where a leading dash would be read as an option.
+    const validationResult = value.startsWith("-")
+      ? "Branch name cannot start with a dash"
+      : isValidBranchName(value);
+    if (validationResult !== true) {
+      throw new InvalidConfigValueError(validationResult);
+    }
+    return;
+  }
+  await validateConfigValue(configName, value);
+}

@@ -140,10 +140,12 @@ no secrets.
 
 - **`worktree config --user <key> <value>`** writes one key to the file. It takes exactly a key and a value, and
   cannot be combined with `--list`, `--missing` or `--names`. The value is checked like the one
-  `worktree config <key> <value>` takes, a dotted key such as `herdr.focus` is written nested, and `postCreate`
-  is written as a one-step list. It keeps the file's comments and key order, writes the file atomically, creates
-  its directory with mode `0700` and the file with `0600`, and puts a short header on a file it creates. A value
-  the file already holds changes nothing and says so.
+  `worktree config <key> <value>` takes, with one exception: `defaultSourceBranch` is checked as a branch name
+  only, and not looked up in the current repository, since the file applies to every repository. A dotted key
+  such as `herdr.focus` is written nested, and `postCreate` is written as a one-step list. It keeps the file's
+  comments and key order, writes the file atomically, creates its directory with mode `0700` and the file with
+  `0600`, and puts a short header on a file it creates. A value the file already holds changes nothing and says
+  so.
 - **Refused with exit `2`**, naming the key and never the value: a secret (`github.token` and the other
   tokens), and a key the file cannot hold (`worktree config <key> <value>` sets those in git config). It
   also refuses to rewrite a file that is not valid YAML, and leaves it as it was.
