@@ -184,6 +184,27 @@ describe("evaluateBranchTypeRules", () => {
     expect(result.warnings).toEqual([]);
   });
 
+  // #331: Type and Labels are the portable names, so a provider lacking one
+  // is not a spelling mistake, even on a dry run; a misspelt name still is.
+  it("on a dry run of the shared list, warns about a misspelt field but not an absent portable one", () => {
+    const rules = [
+      when({ Type: "Bug" }, "bugfix"),
+      when({ labels: "bug" }, "bugfix"),
+      when({ Lables: "bug" }, "bugfix"),
+      { otherwise: "feature" } as const,
+    ];
+
+    const result = evaluateBranchTypeRules(rules, [issueType], "branchType", {
+      shared: true,
+      dryRun: true,
+    });
+
+    expect(result.kind).toBe("feature");
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("Rule 3");
+    expect(result.warnings[0]).toContain('"Lables"');
+  });
+
   it("still fails on an ambiguous display name in the shared list", () => {
     const twin: IssueField = { ...issueType, id: "customfield_1" };
 
