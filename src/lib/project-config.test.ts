@@ -1993,6 +1993,27 @@ describe("offerProjectConfig: the nudge (D21)", () => {
     ).toContain("feature: feat/");
   });
 
+  // Review of #318: a failed record must not leave a new file unannounced.
+  it("announces the written file even when recording the answer fails", async () => {
+    fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    const answer = mockRun.getMockImplementation() as (
+      file: string,
+      args: string[],
+    ) => Promise<string>;
+    mockRun.mockImplementation(async (file: string, args: string[]) => {
+      if (args[2] === PROJECT_FILE_OFFER_KEY && args[3] !== undefined) {
+        throw new Error("could not lock config file");
+      }
+      return answer(file, args);
+    });
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await expect(offerProjectConfig()).rejects.toThrow("could not lock config");
+
+    expect(fs.existsSync(path.join(scratch, ".worktree.yml"))).toBe(true);
+    expect(say).toHaveBeenCalledWith(expect.stringContaining("Wrote "));
+  });
+
   it("does not ask again after a yes, even once the file is deleted", async () => {
     fakeGitConfig({ "branchPrefix.feature": "feat/" });
     vi.mocked(confirm).mockResolvedValue(true);
