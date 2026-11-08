@@ -366,7 +366,8 @@ what the team committed. See [Precedence](/worktree/project-configuration/#prece
 
 **No secrets.** A token or key in the file, such as `github.token`, `jira.apiToken`, `linear.apiKey`,
 `linear.agentToken`, `linear.webhookSecret` or `clickup.apiToken`, stops the run with exit `2`, naming the key and
-never the value. Secrets stay in git config. A key the file does not know is ignored with a warning.
+never the value. Secrets stay in git config. To share one token across every repository, set it once with
+`git config --global northguild.worktree.<key> <token>`. A key the file does not know is ignored with a warning.
 
 **`postCreate` steps run without approval.** They are your own file, so unlike the steps in a repository's
 `.worktree.yml` they are not asked about first. Treat the file like a shell profile: if you sync it between
