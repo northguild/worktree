@@ -149,11 +149,73 @@ describe("config command and the user file", () => {
       expect(fs.existsSync(userFile)).toBe(false);
     });
 
-    // §4: validated through validateConfigValue, the validator git writes use.
+    // §4: validated as a git write is (validateUserConfigValue delegates to
+    // validateConfigValue for every key but defaultSourceBranch).
     it("validates the value as a git write would, and writes nothing on a bad one", async () => {
       parsed({ name: "opener", value: "emacs" }, { user: true });
 
       await expect(config.run()).rejects.toThrow("Opener must be");
+
+      expect(fs.existsSync(userFile)).toBe(false);
+    });
+
+    // #310: a per-user default is a fallback for every repository, so it is
+    // checked for branch-name syntax and never looked up in the current one.
+    it("checks defaultSourceBranch for syntax only, so it works outside a repository", async () => {
+      mockRun.mockImplementation(async (_file: string, args: string[]) => {
+        if (args[0] === "rev-parse" || args[0] === "config") {
+          throw new Error(
+            "fatal: not a git repository (or any of the parent directories): .git",
+          );
+        }
+        if (args[0] === "branch" || args[0] === "--no-pager") {
+          throw new Error("fatal: not a git repository");
+        }
+        return "";
+      });
+      parsed(
+        { name: "defaultSourceBranch", value: "origin/develop" },
+        { user: true },
+      );
+
+      await config.run();
+
+      expect(fs.readFileSync(userFile, "utf8")).toContain(
+        "defaultSourceBranch: origin/develop",
+      );
+      const lookups = mockRun.mock.calls.filter(([, args]) =>
+        (args as string[]).includes("branch"),
+      );
+      expect(lookups).toEqual([]);
+    });
+
+    // #310's fix is the --user path alone: a git config write is for this
+    // repository, so it still looks the branch up there.
+    it("still looks defaultSourceBranch up in the repository without --user", async () => {
+      parsed({ name: "defaultSourceBranch", value: "origin/develop" }, {});
+
+      await expect(config.run()).rejects.toThrow(
+        "Branch not found: origin/develop",
+      );
+
+      expect(sets().map(([key]) => key)).not.toContain("defaultSourceBranch");
+    });
+
+    it("refuses a defaultSourceBranch that starts with a dash", async () => {
+      parsed({ name: "defaultSourceBranch", value: "-lock" }, { user: true });
+
+      await expect(config.run()).rejects.toThrow("cannot start with a dash");
+
+      expect(fs.existsSync(userFile)).toBe(false);
+    });
+
+    it("refuses a defaultSourceBranch that is not a valid branch name", async () => {
+      parsed(
+        { name: "defaultSourceBranch", value: "bad..name" },
+        { user: true },
+      );
+
+      await expect(config.run()).rejects.toThrow("double dots");
 
       expect(fs.existsSync(userFile)).toBe(false);
     });

@@ -52,7 +52,10 @@ import {
   writeUserConfigValue,
 } from "../lib/user-config.js";
 import { conjoin } from "../lib/utils.js";
-import { validateConfigValue } from "../lib/validators.js";
+import {
+  validateConfigValue,
+  validateUserConfigValue,
+} from "../lib/validators.js";
 
 /** The origin `--list` gives a value read from the user file (#281 D11). */
 const USER_CONFIG_ORIGIN = "user config";
@@ -563,7 +566,7 @@ export default class Config extends BaseCommand {
       // Secrets and keys the file cannot hold are refused before the value is
       // looked at, so no validator can echo a token.
       assertUserFileKey(args.name);
-      await validateConfigValue(args.name, args.value);
+      await validateUserConfigValue(args.name, args.value);
       const written = writeUserConfigValue(args.name, args.value);
       const where = showVisibly(userConfigLabel(written.path));
       this.log(
