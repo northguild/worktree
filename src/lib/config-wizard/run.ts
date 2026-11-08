@@ -1,5 +1,5 @@
 import { EOL } from "node:os";
-import chalk from "chalk";
+import chalk from "../color.js";
 import { getConfigValue } from "../config.js";
 import { askCheckbox } from "../prompt.js";
 import { configureAgent, configureAgentCommand } from "./agent.js";
@@ -112,7 +112,7 @@ async function askQuestions(ctx: WizardContext): Promise<void> {
     await configureDefaultSourceBranch(ctx);
     for (const item of items) {
       if (ticked.includes(item.id)) {
-        // Words, not colour: the bold is lost under NO_COLOR and the heading
+        // Words, not colour: the bold is dropped under NO_COLOR (lib/color.ts) and the heading
         // still reads. A listed item has a key left to ask (checklist.ts).
         ctx.log(chalk.bold(`Setting up ${item.title}`));
         await CONFIGURE[item.id](ctx);

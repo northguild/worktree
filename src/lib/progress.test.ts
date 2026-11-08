@@ -85,6 +85,31 @@ describe("createSpinner against real ora", () => {
   });
 });
 
+describe("createSpinner under NO_COLOR (#292)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  // ora's default frame colour; under FORCE_COLOR=0 (vitest.config.ts) the
+  // escape itself never shows, so the option ora reads is what is asserted.
+  it("draws the frame without colour when NO_COLOR is set", () => {
+    vi.stubEnv("NO_COLOR", "1");
+    vi.stubEnv("FORCE_COLOR", undefined);
+
+    expect(createSpinner("Working", { nonInteractive: true }).color).toBe(
+      false,
+    );
+  });
+
+  it("keeps ora's cyan frame when NO_COLOR is unset", () => {
+    vi.stubEnv("NO_COLOR", undefined);
+
+    expect(createSpinner("Working", { nonInteractive: true }).color).toBe(
+      "cyan",
+    );
+  });
+});
+
 describe("createSpinner redacts what it prints on warn and fail (#76)", () => {
   const credentialed =
     "origin remote https://octocat:ghp_abcdefghijklmnopqrstuvwxyz0123456789@github.com/o/r.git";

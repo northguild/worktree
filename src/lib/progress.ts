@@ -1,6 +1,7 @@
 // The one module that imports ora. Everything that draws a spinner goes
 // through `createSpinner`, so the E2 fix below cannot be missed at a call site.
 import ora, { type Ora } from "ora";
+import { isColorDisabled } from "./color.js";
 import { isNonInteractive } from "./interaction.js";
 import { redactSecrets } from "./redact.js";
 
@@ -76,6 +77,12 @@ export function createSpinner(text: string, options: ProgressOptions = {}) {
     // ora 9 has this setter (index.js:293) but its typings mark the option
     // readonly; progress.test.ts pins the behaviour against the real ora.
     Object.assign(spinner, { isEnabled: false });
+  }
+
+  // ora colours the frame with its own chalk, which ignores NO_COLOR (#292);
+  // its tick and cross already honour it.
+  if (isColorDisabled()) {
+    spinner.color = false;
   }
 
   redactPersistedText(spinner);
