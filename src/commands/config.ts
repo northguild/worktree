@@ -21,6 +21,7 @@ import {
   SECRET_CONFIG_NAMES,
   UNPROMPTED_CONFIG_NAMES,
 } from "../lib/constants.js";
+import { gitGetTopLevelPath } from "../lib/git.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import {
   approvePostCreate,
@@ -55,6 +56,14 @@ import { validateConfigValue } from "../lib/validators.js";
 
 /** The origin `--list` gives a value read from the user file (#281 D11). */
 const USER_CONFIG_ORIGIN = "user config";
+
+/** Whether the current directory is inside a git work tree. */
+async function isInsideRepository() {
+  return gitGetTopLevelPath().then(
+    () => true,
+    () => false,
+  );
+}
 
 export default class Config extends BaseCommand {
   static override description = "Configure worktree CLI settings";
@@ -491,8 +500,13 @@ export default class Config extends BaseCommand {
   private async runConfig(): Promise<void> {
     const { args, flags } = await this.parse(Config);
 
-    // Mark that config has been called at least once
-    await gitSetConfigValue("has-called-config", "true");
+    // Mark that config has been called at least once. `--user` touches no
+    // repository, so it is run from anywhere, `~` included (#308): outside a
+    // repository there is no git config to mark, so the marker is skipped
+    // there. Inside one, a failed write still fails the command.
+    if (!flags.user || (await isInsideRepository())) {
+      await gitSetConfigValue("has-called-config", "true");
+    }
 
     if (flags.approve) {
       if (
