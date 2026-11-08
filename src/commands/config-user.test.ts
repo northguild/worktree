@@ -114,6 +114,24 @@ describe("config command and the user file", () => {
       expect(sets()).toEqual([["has-called-config", "true"]]);
     });
 
+    // #308: the file holds no repository state, so it is written from `~` too.
+    it("writes the file when the has-called-config marker cannot be written outside a repository", async () => {
+      mockRun.mockImplementation(async (_file: string, args: string[]) => {
+        if (args[0] === "config" && args.length === 3) {
+          throw new Error(
+            "Command failed: git config northguild.worktree.has-called-config true\nfatal: not in a git directory",
+          );
+        }
+        return "";
+      });
+      parsed({ name: "opener", value: "herdr" }, { user: true });
+
+      await config.run();
+
+      expect(fs.readFileSync(userFile, "utf8")).toContain("opener: herdr");
+      expect(printed()).toEqual([`Set opener in ${userFile}.`]);
+    });
+
     // §4: validated through validateConfigValue, the validator git writes use.
     it("validates the value as a git write would, and writes nothing on a bad one", async () => {
       parsed({ name: "opener", value: "emacs" }, { user: true });

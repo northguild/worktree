@@ -491,8 +491,15 @@ export default class Config extends BaseCommand {
   private async runConfig(): Promise<void> {
     const { args, flags } = await this.parse(Config);
 
-    // Mark that config has been called at least once
-    await gitSetConfigValue("has-called-config", "true");
+    // Mark that config has been called at least once. `--user` touches no
+    // repository, so it is run from anywhere, `~` included, and the marker is
+    // written on a best-effort basis there: outside a repository the git write
+    // fails, and that must not stop the file from being written.
+    if (flags.user) {
+      await gitSetConfigValue("has-called-config", "true").catch(() => {});
+    } else {
+      await gitSetConfigValue("has-called-config", "true");
+    }
 
     if (flags.approve) {
       if (
