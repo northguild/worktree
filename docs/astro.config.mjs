@@ -1,20 +1,29 @@
+import { fileURLToPath } from "node:url";
 import react from "@astrojs/react";
+import sitemap from "@astrojs/sitemap";
 import starlight from "@astrojs/starlight";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
+import { sitemapLastmod } from "./src/lib/sitemap-lastmod.ts";
 
 // What the share preview shows, for readers who cannot see it (og:image:alt, twitter:image:alt).
 const PREVIEW_ALT =
   "The worktree docs landing: “A git worktree for every branch” beside a git graph drawn in green leaves.";
 
+// `astro build` writes here; the sitemap reads each page's footer date back from it (D1).
+const DIST = fileURLToPath(new URL("./dist/", import.meta.url));
+
 // One URL form: https://northguild.dev/worktree/<path>/ — no /docs/ prefix.
-// `site` is what makes Starlight emit a sitemap.
+// `site` is what makes the sitemap integration emit one.
 export default defineConfig({
   site: "https://northguild.dev",
   base: "/worktree",
   trailingSlash: "always",
   build: { format: "directory" },
   integrations: [
+    // Registered explicitly (D3): Starlight adds its own sitemap only when none is present, and ours sets `lastmod`
+    // from the built footer (D1). The landing has no footer date and so no `lastmod` (D2).
+    sitemap({ serialize: (item) => sitemapLastmod(DIST, item) }),
     starlight({
       title: "@northguild/worktree",
       // The delimiter in `<title>`: `<page> · @northguild/worktree`, the middle dot GMT's pages use (`Core Rules · GMT`; the

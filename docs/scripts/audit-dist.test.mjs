@@ -273,8 +273,20 @@ function notFoundPage(overrides = {}) {
   ].join("\n");
 }
 
-function sitemap(paths) {
-  return `<?xml version="1.0"?><urlset>${paths.map((p) => `<url><loc>${url(p)}</loc></url>`).join("")}</urlset>`;
+// A compliant sitemap: every page but the landing carries the footer's datetime (plan 287, D1/D2); `lastmods` overrides
+// a path's value, with `null` for none.
+const FOOTER_DATETIME = `${DATE}T10:00:00.000Z`;
+function sitemap(paths, lastmods = {}) {
+  const entry = (p) => {
+    const lastmod =
+      lastmods[p] === undefined
+        ? p === ""
+          ? null
+          : FOOTER_DATETIME
+        : lastmods[p];
+    return `<url><loc>${url(p)}</loc>${lastmod === null ? "" : `<lastmod>${lastmod}</lastmod>`}</url>`;
+  };
+  return `<?xml version="1.0"?><urlset>${paths.map(entry).join("")}</urlset>`;
 }
 
 async function write(dir, relative, content) {
@@ -765,6 +777,53 @@ describe("auditDist", () => {
     ).toBe(true);
   });
 
+  // <lastmod> (plan 287, D1/D2): the footer's datetime on every page but the landing, which has no footer and none.
+  // The values are decided by the footer fixture (`${DATE}T10:00:00.000Z`) and the sitemaps.org W3C Datetime profile.
+  const lastmodFailures = async () =>
+    (await audit()).filter((f) => /lastmod/.test(f));
+
+  it("fails a page missing its lastmod", async () => {
+    await write(dist, "sitemap-0.xml", sitemap(PATHS, { faq: null }));
+    const failures = await lastmodFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(url("faq"));
+    expect(failures[0]).toMatch(/no lastmod/);
+  });
+
+  it("fails the landing carrying a lastmod", async () => {
+    await write(dist, "sitemap-0.xml", sitemap(PATHS, { "": FOOTER_DATETIME }));
+    const failures = await lastmodFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(url(""));
+  });
+
+  it("fails a lastmod that differs from the footer date", async () => {
+    await write(
+      dist,
+      "sitemap-0.xml",
+      sitemap(PATHS, { faq: "2026-11-05T10:00:00.000Z" }),
+    );
+    const failures = await lastmodFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/differs from the footer date/);
+  });
+
+  it("fails a lastmod that is not a W3C Datetime", async () => {
+    // Not a date at all, and a date with no zone designator after its time.
+    for (const bad of ["Nov 4, 2026", `${DATE}T10:00:00`, "20261104"]) {
+      await write(dist, "sitemap-0.xml", sitemap(PATHS, { faq: bad }));
+      expect(
+        (await lastmodFailures()).some((f) => /not a W3C Datetime/.test(f)),
+        bad,
+      ).toBe(true);
+    }
+  });
+
+  it("accepts a lastmod that is a W3C Datetime equal to the footer's", async () => {
+    await write(dist, "sitemap-0.xml", sitemap(PATHS));
+    expect(await lastmodFailures()).toEqual([]);
+  });
+
   it("fails a sitemap with an extra URL", async () => {
     await write(dist, "sitemap-0.xml", sitemap([...PATHS, "extra"]));
     expect(
@@ -896,6 +955,12 @@ describe("auditDist", () => {
       dist,
       htmlPath("faq"),
       page("faq", { time: "2026-11-03T22:00:00.000Z" }),
+    );
+    // The sitemap follows the footer, so only the date rule fails.
+    await write(
+      dist,
+      "sitemap-0.xml",
+      sitemap(PATHS, { faq: "2026-11-03T22:00:00.000Z" }),
     );
     const failures = await audit();
     expect(failures).toHaveLength(1);

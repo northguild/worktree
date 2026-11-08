@@ -1323,17 +1323,61 @@ async function auditPage(path, dist, descriptions, options) {
   return failures;
 }
 
-async function sitemapUrls(dist) {
+// Every <url> of every sitemap the index names: its <loc>, and its <lastmod> where it has one.
+async function sitemapEntries(dist) {
   const index = await readFile(join(dist, "sitemap-index.xml"), "utf8");
-  const urls = [];
+  const entries = [];
   for (const [, loc] of index.matchAll(/<loc>([^<]*)<\/loc>/g)) {
     const file = loc.replace(/^https:\/\/northguild\.dev\/worktree\//, "");
     const sitemap = await readFile(join(dist, file), "utf8");
-    urls.push(
-      ...[...sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1]),
-    );
+    for (const [, body] of sitemap.matchAll(/<url>([\s\S]*?)<\/url>/g))
+      entries.push({
+        loc: /<loc>([^<]*)<\/loc>/.exec(body)?.[1],
+        lastmod: /<lastmod>([^<]*)<\/lastmod>/.exec(body)?.[1],
+      });
   }
-  return urls;
+  return entries;
+}
+
+// A W3C Datetime (the profile of ISO 8601 the sitemaps.org protocol names for <lastmod>): a year, a month, a date, or a
+// date with hours and minutes, optionally seconds and a fraction of a second, then a time zone designator.
+const W3C_DATETIME =
+  /^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?)?)?$/;
+
+// The sitemap's <lastmod> is the page's footer date (D1 of plan 287): each page but the landing carries one equal to
+// its built <time datetime>, and the landing, which has no footer, carries none.
+async function lastmodFailures(dist, entries) {
+  const failures = [];
+  for (const { loc, lastmod } of entries) {
+    const path = PAGE_PATHS.find((p) => pageUrl(p) === loc);
+    if (path === undefined) continue; // not one of the pages: reported by the URL check
+    if (path === "") {
+      if (lastmod !== undefined)
+        failures.push(
+          `sitemap: ${loc} has a lastmod (${lastmod}), but the landing has no footer date`,
+        );
+      continue;
+    }
+    if (lastmod === undefined) {
+      failures.push(`sitemap: ${loc} has no lastmod`);
+      continue;
+    }
+    if (!W3C_DATETIME.test(lastmod))
+      failures.push(`sitemap: ${loc} lastmod ${lastmod} is not a W3C Datetime`);
+    let footer;
+    try {
+      const html = await readFile(join(dist, path, "index.html"), "utf8");
+      footer = tagsOf(html, "time")[0]?.datetime;
+    } catch {
+      continue; // the page is missing: reported with the page rules
+    }
+    // A page with no footer date is the page rules' finding, not a second one here.
+    if (footer !== undefined && lastmod !== footer)
+      failures.push(
+        `sitemap: ${loc} lastmod ${lastmod} differs from the footer date ${footer}`,
+      );
+  }
+  return failures;
 }
 
 async function filesUnder(dir) {
@@ -1436,7 +1480,8 @@ async function auditSite(dist) {
   const failures = [];
 
   try {
-    const urls = (await sitemapUrls(dist)).sort();
+    const entries = await sitemapEntries(dist);
+    const urls = entries.map((entry) => entry.loc).sort();
     const expected = PAGE_PATHS.map(pageUrl).sort();
     for (const url of expected)
       if (!urls.includes(url)) failures.push(`sitemap: ${url} is missing`);
@@ -1447,6 +1492,7 @@ async function auditSite(dist) {
         );
     if (urls.length !== new Set(urls).size)
       failures.push("sitemap: a URL is listed twice");
+    failures.push(...(await lastmodFailures(dist, entries)));
   } catch (error) {
     failures.push(`sitemap: cannot be read (${error.message})`);
   }
