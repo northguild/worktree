@@ -1,5 +1,7 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { checkbox, confirm } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
 import * as rex from "../integrations/rex.js";
@@ -9,6 +11,7 @@ import * as git from "../lib/git.js";
 import { setNonInteractive } from "../lib/interaction.js";
 import { MissingValueError } from "../lib/prompt.js";
 import type { AgentSession, ConfigName } from "../lib/types.js";
+import { resetUserConfigCache } from "../lib/user-config.js";
 import {
   captureOutput,
   loadConfig,
@@ -884,6 +887,30 @@ describe("remove command — the rex closer", () => {
 
     expect(output.document()).toMatchObject({ rexSessionsClosed: [] });
     expect(mockClose).not.toHaveBeenCalled();
+  });
+
+  // #281 §5. Git config answers `opener` here, so nothing in the run would
+  // read the user file on its own, and a file that cannot be used used to be
+  // passed over. It is read before `run`, so the run stops before it looks
+  // for a session or removes anything.
+  it("stops on a user file it cannot use before anything is found or removed", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-remove-user-"));
+    try {
+      const file = path.join(dir, "config.yml");
+      fs.writeFileSync(file, "opener: [unclosed\n");
+      vi.stubEnv("WORKTREE_USER_CONFIG", file);
+      resetUserConfigCache();
+
+      await runJson();
+
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(calls).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

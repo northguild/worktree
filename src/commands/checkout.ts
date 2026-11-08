@@ -9,7 +9,6 @@ import {
 import { createSpinner } from "../lib/progress.js";
 import { loadProjectConfig } from "../lib/project-config.js";
 import { askSelect } from "../lib/prompt.js";
-import { loadUserConfig } from "../lib/user-config.js";
 
 export default class Checkout extends BaseCommand {
   static override args = {
@@ -84,12 +83,8 @@ export default class Checkout extends BaseCommand {
     for (const warning of project.warnings) {
       this.warn(warning);
     }
-    // The user file stops the run here too and warns where the project file
-    // does (#281 D6), before any worktree exists.
-    const user = await loadUserConfig();
-    for (const warning of user.warnings) {
-      this.warn(warning);
-    }
+    // The user file was read, and its warnings said, before `run` (#281, see
+    // `loadUserConfigUpFront`).
 
     const branchNameArg = this.normalizeBranchNameArg(args.branchName);
     const sourceBranchName =

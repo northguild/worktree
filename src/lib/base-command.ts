@@ -52,6 +52,7 @@ import type {
   RenamedSpaces,
   ResolvedOpener,
 } from "./types.js";
+import { loadUserConfig } from "./user-config.js";
 import { splitCommandValue } from "./utils.js";
 
 /**
@@ -512,6 +513,23 @@ export abstract class BaseCommand extends Command {
     });
     this.nonInteractive = mode;
     setNonInteractive(mode);
+    await this.loadUserConfigUpFront();
+  }
+
+  /**
+   * The user config file, read before `run()` for every command (#281). A file
+   * that cannot be used stops the run here, with exit 2, before the command
+   * reads, creates or removes anything (§5), whether or not git config would
+   * have answered every key it goes on to read; and what the file does not
+   * know is said once (D6), for every command rather than only the ones that
+   * happened to print it. The read is cached, so every later reader reuses it.
+   * `config` overrides this: it is the command that repairs a bad file.
+   */
+  protected async loadUserConfigUpFront() {
+    const user = await loadUserConfig();
+    for (const warning of user.warnings) {
+      this.warn(warning);
+    }
   }
 
   // Non-interactive runs take "no" here: the offer is skipped, and

@@ -375,8 +375,8 @@ machines (a dotfiles repository, say), anything that lands in it will run comman
 
 **Writing it.** `worktree config --user <key> <value>` sets one key and creates the file, and its directory, when
 they are missing; see [`config --user`](/worktree/commands/config/#user-config-file). You can also edit it by
-hand. A file that cannot be used (invalid YAML, a value a key does not accept, or a secret) stops every command that
-reads it, except `worktree config`, with exit `2`; `worktree config` warns, ignores the file, and carries on so you can fix it.
+hand. A file that cannot be used (invalid YAML, a value a key does not accept, or a secret) stops every other command
+with exit `2` before it does anything; `worktree config` warns, ignores the file, and carries on so you can fix it.
 
 ## Recommended Team Baseline
 

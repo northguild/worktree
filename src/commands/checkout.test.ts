@@ -14,6 +14,7 @@ import {
 } from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
 import { resetUserConfigCache } from "../lib/user-config.js";
+import { captureOutput, loadConfig } from "../test-setup.js";
 import Checkout from "./checkout.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -256,8 +257,11 @@ describe("checkout command", () => {
 
   // #281 D6 (unknown keys warn once, are ignored) and §5 (a user file that
   // cannot be used stops the run, exit 2); the precedent is the project file's
-  // warning above. The file is a real one in a temp directory.
+  // warning above. The file is a real one in a temp directory. The file is read
+  // in `init` (`loadUserConfigUpFront`), so every case runs the command the way
+  // oclif does, `init` then `run`.
   describe("the user file (#281)", () => {
+    const originalExitCode = process.exitCode;
     let userDir: string;
 
     function userFile(yaml: string) {
@@ -265,6 +269,26 @@ describe("checkout command", () => {
       writeFileSync(file, yaml);
       vi.stubEnv("WORKTREE_USER_CONFIG", file);
       resetUserConfigCache();
+    }
+
+    async function runCheckout() {
+      const command = new Checkout(["feature/test"], await loadConfig());
+      (command as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: {},
+      });
+      (command as any).parsed = true;
+      vi.spyOn(command as any, "openWorktreePath").mockResolvedValue(undefined);
+      const warn = vi
+        .spyOn(command, "warn")
+        .mockImplementation((input) => input);
+      const output = captureOutput();
+      try {
+        await (command as any)._run();
+        return { warn, stderr: output.stderr() };
+      } finally {
+        output.restore();
+      }
     }
 
     beforeEach(() => {
@@ -275,23 +299,18 @@ describe("checkout command", () => {
       ]);
       vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
       vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
-      (checkout as any).parse = vi.fn().mockResolvedValue({
-        args: { branchName: "feature/test" },
-        flags: {},
-      });
+      process.exitCode = undefined;
     });
 
     afterEach(() => {
       rmSync(userDir, { recursive: true, force: true });
+      process.exitCode = originalExitCode;
     });
 
     it("warns once about an unknown key, before a worktree exists", async () => {
       userFile("herdr:\n  focus: false\nmysteryKey: 1\n");
-      const warn = vi
-        .spyOn(checkout, "warn")
-        .mockImplementation((input) => input);
 
-      await checkout.run();
+      const { warn } = await runCheckout();
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain("`mysteryKey`");
@@ -302,11 +321,8 @@ describe("checkout command", () => {
 
     it("warns once about a dotted key written flat", async () => {
       userFile("herdr.focus: false\n");
-      const warn = vi
-        .spyOn(checkout, "warn")
-        .mockImplementation((input) => input);
 
-      await checkout.run();
+      const { warn } = await runCheckout();
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain("`herdr.focus`");
@@ -315,21 +331,19 @@ describe("checkout command", () => {
     it("stops with exit 2 on a malformed file, before a worktree exists", async () => {
       userFile("opener: [unclosed\n");
 
-      await expect(checkout.run()).rejects.toMatchObject({
-        code: "invalid_value",
-        oclif: { exit: 2 },
-      });
+      const { stderr } = await runCheckout();
+
+      expect(stderr).toContain("config.yml");
+      expect(process.exitCode).toBe(2);
+      expect(git.gitGetRemoteBranches).not.toHaveBeenCalled();
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
     it("prints nothing new when there is no user file", async () => {
-      const warn = vi
-        .spyOn(checkout, "warn")
-        .mockImplementation((input) => input);
-
-      await checkout.run();
+      const { warn } = await runCheckout();
 
       expect(warn).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
     });
   });
 

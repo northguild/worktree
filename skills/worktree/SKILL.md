@@ -669,7 +669,8 @@ then the lockfile. `worktree config --user <key> <value>` writes one key (keeps 
 atomic, directory `0700`, file `0600`, never rewrites a file that does not parse; it takes
 only a key and a value). The wizard skips keys the file sets and says so. `worktree config`
 warns about a user file or `.worktree.yml` it cannot use and carries on; every other
-command that reads the file stops with exit `2`. With no user file nothing changes.
+command stops with exit `2`: on such a user file before it does anything, on such a
+`.worktree.yml` when it reads it. With no user file nothing changes.
 
 The file's `copy` list (relative globs such as `config/master.key`) names extra
 files for `branch` and `checkout` to copy with the env files. A path must be

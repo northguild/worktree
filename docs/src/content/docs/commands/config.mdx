@@ -146,8 +146,8 @@ no secrets.
   `worktree config <key> <value>` to override it for this repository only. `--names` is the exception: naming a
   key is asking for it.
 - **A file `worktree config` cannot use** (a user file or a `.worktree.yml` that is invalid) is warned about, and
-  `worktree config` carries on as though it were absent, so you can still repair it. Every other command that reads the file
-  stops with exit `2`.
+  `worktree config` carries on as though it were absent, so you can still repair it. Every other command stops with
+  exit `2`: on such a user file before it does anything, on such a `.worktree.yml` when it reads it.
 
 ## Examples
 

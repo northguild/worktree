@@ -132,6 +132,13 @@ export default class Config extends BaseCommand {
 
   private userFile?: Promise<{ config?: UserConfig; path: string }>;
 
+  /**
+   * Not up front, and not throwing: this is the command that repairs a file
+   * every other command stops on (#281 §5). `readUser` reads it the forgiving
+   * way, and says what is wrong with it, when the run first needs it.
+   */
+  protected override async loadUserConfigUpFront() {}
+
   private async readUser(): Promise<{ config?: UserConfig; path: string }> {
     const { result, error } = await loadUserConfigForRepair();
     if (error) {
