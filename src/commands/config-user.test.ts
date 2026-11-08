@@ -115,11 +115,11 @@ describe("config command and the user file", () => {
     });
 
     // #308: the file holds no repository state, so it is written from `~` too.
-    it("writes the file when the has-called-config marker cannot be written outside a repository", async () => {
+    it("writes the file outside a repository and skips the has-called-config marker there", async () => {
       mockRun.mockImplementation(async (_file: string, args: string[]) => {
-        if (args[0] === "config" && args.length === 3) {
+        if (args[0] === "rev-parse" || args[0] === "config") {
           throw new Error(
-            "Command failed: git config northguild.worktree.has-called-config true\nfatal: not in a git directory",
+            "fatal: not a git repository (or any of the parent directories): .git",
           );
         }
         return "";
@@ -130,6 +130,23 @@ describe("config command and the user file", () => {
 
       expect(fs.readFileSync(userFile, "utf8")).toContain("opener: herdr");
       expect(printed()).toEqual([`Set opener in ${userFile}.`]);
+      expect(sets()).toEqual([]);
+    });
+
+    // #308: only "no repository" is skipped; a marker write that fails inside
+    // one still fails the command, before the file is touched.
+    it("fails, and writes no file, when the marker write fails inside a repository", async () => {
+      mockRun.mockImplementation(async (_file: string, args: string[]) => {
+        if (args[0] === "config" && args.length === 3) {
+          throw new Error("error: could not lock config file .git/config");
+        }
+        return "";
+      });
+      parsed({ name: "opener", value: "herdr" }, { user: true });
+
+      await expect(config.run()).rejects.toThrow("could not lock config file");
+
+      expect(fs.existsSync(userFile)).toBe(false);
     });
 
     // §4: validated through validateConfigValue, the validator git writes use.
