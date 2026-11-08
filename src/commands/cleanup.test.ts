@@ -1848,11 +1848,12 @@ describe("cleanup command — locale-aware counts", () => {
   // The runtime default locale is fixed when Node starts, so a test cannot set
   // it from inside the process. Supply de-DE wherever formatCount asks for the
   // default, which leaves the real Intl.NumberFormat doing the formatting.
-  // de-DE groups with "." (CLDR), so "12.345" cannot be mistaken for the raw
-  // number, and the test does not depend on the machine's own locale.
+  // de-DE groups four-digit numbers with "." (CLDR), so "1.234" cannot be
+  // mistaken for the raw number, and the test does not depend on the machine's
+  // own locale. Four digits is the smallest count that proves the grouping.
   const RealNumberFormat = Intl.NumberFormat;
-  const count = 12345;
-  const formatted = "12.345";
+  const count = 1234;
+  const formatted = "1.234";
 
   const makeEntries = (overrides: Partial<WorktreeListEntry>) =>
     Array.from({ length: count }, (_, i) => ({
