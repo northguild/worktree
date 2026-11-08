@@ -44,5 +44,8 @@ jobs:
       - run: pnpm --filter docs typecheck
       - run: pnpm build
       - run: pnpm docs:build
+      # The real Worker must still bundle for Cloudflare. No credentials: --dry-run
+      # builds the upload and sends nothing (plan #257 R3).
+      - run: pnpm --filter docs worker:bundle-check
       - run: pnpm docs:audit-dist
       - run: pnpm test

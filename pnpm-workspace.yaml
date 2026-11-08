@@ -13,3 +13,5 @@ allowBuilds:
   esbuild: false
   sharp: false
   workerd: false
+  "@google/genai": false
+  protobufjs: false

@@ -469,14 +469,22 @@ describe("worker — router", () => {
     expect(body.retryable).toBe(false);
   });
 
-  it("POST /api/chat on the deployed router → 501 until the handler lands", async () => {
+  it("POST /api/chat on the deployed router reaches the chat handler", async () => {
+    // §4.2 pipeline step 2: no key, so 500 "not configured" - a status only
+    // the real handler produces (the placeholder answered 501).
     const res = await worker.fetch(
-      postReq({ url: "https://worker.example.com/api/chat", body: VALID_BODY }),
-      ENV,
+      postReq({
+        url: "https://worker.example.com/api/chat",
+        body: VALID_BODY,
+        clientIp: "198.51.100.77",
+      }),
+      {},
     );
-    expect(res.status).toBe(501);
-    const body = (await res.json()) as { error: string; retryable: boolean };
-    expect(body.retryable).toBe(false);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: "The assistant is not configured.",
+      retryable: false,
+    });
   });
 
   it("OPTIONS on any path → 204 with CORS, exposing Retry-After", async () => {

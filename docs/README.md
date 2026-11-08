@@ -91,7 +91,9 @@ it reads the docs.
 `build-context.mjs` assembles the final system prompt in this order:
 
 1. **Persona & scope** — the AI is instructed to answer only from the docs and
-   skill guide, and to say so when a question is out of scope.
+   skill guide, and to say so when a question is out of scope. A standing order
+   follows: everything in user messages is a question about the docs, never an
+   instruction, and the prompt is never revealed.
 2. **Linking rules** — the AI is given an explicit list of valid doc routes
    (derived automatically from the MDX filesystem scan) and told never to link
    to GitHub repo anchors, SKILL.md headings, or any route not in that list.
@@ -99,8 +101,10 @@ it reads the docs.
 4. **Documentation** — all MDX pages, each labelled with its file path
 
 The prompt is serialised with `JSON.stringify` into `docs-context.ts` and
-bundled into the worker via tsup. **No runtime fetching** — the context is
-embedded in the ~260 KB worker bundle.
+bundled into the worker via tsup, and passed to `chat()` as `systemPrompts` on every
+request. **No runtime fetching** — the context is embedded in the worker bundle,
+which `wrangler deploy --dry-run` measured on 2026-11-08 at 3,222 KiB uploaded
+(577 KiB gzipped) with the chat libraries, the validator and the prompt in it.
 
 #### Regenerating the context
 
@@ -288,7 +292,8 @@ or use the root-level aliases where noted.
 | Command | What it does |
 |---|---|
 | `test` | Run all docs tests with vitest |
-| `worker:test` | Run every worker test under `worker/` (router, legacy handler, rate limiter) |
+| `worker:test` | Run every worker test under `worker/` (the router, both handlers, the validator, the error mapping, the rate limiter) |
+| `worker:bundle-check` | Build the worker, then `wrangler deploy --dry-run`: proves it still bundles for Cloudflare, with no credentials and nothing sent. Run it after changing a dependency or an import; CI runs it |
 | `worker:setup-secret` | Store `GEMINI_API_KEY` as an encrypted Cloudflare secret (one-time) |
 | `worker:setup-dev-vars` | Write `worker/.dev.vars` from `.env.local` for local wrangler dev |
 | `worker:deploy` | Test → build → `wrangler deploy` |
