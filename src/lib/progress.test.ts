@@ -110,6 +110,48 @@ describe("createSpinner under NO_COLOR (#292)", () => {
   });
 });
 
+describe("createSpinner symbols follow the stream, not the environment (#321)", () => {
+  const green = "\u001B[32m✔\u001B[39m";
+
+  function printed(isTTY: boolean) {
+    const stream = Object.assign(new PassThrough(), { isTTY, columns: 80 });
+    let output = "";
+    stream.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+
+    createSpinner("Working", { nonInteractive: true, stream })
+      .start()
+      .stopAndPersist({ symbol: green, text: "Done" });
+
+    return output;
+  }
+
+  it("prints a plain symbol when the stream is not a terminal", () => {
+    const output = printed(false);
+
+    expect(output).toContain("✔ Done");
+    expect(output).not.toContain("\u001B");
+  });
+
+  it("keeps the symbol's colour on a terminal", () => {
+    expect(printed(true)).toContain(green);
+  });
+
+  it.each([
+    "1",
+    "",
+  ])("keeps the symbol's colour when FORCE_COLOR is '%s'", (force) => {
+    vi.stubEnv("FORCE_COLOR", force);
+
+    try {
+      expect(printed(false)).toContain(green);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe("createSpinner redacts what it prints on warn and fail (#76)", () => {
   const credentialed =
     "origin remote https://octocat:ghp_abcdefghijklmnopqrstuvwxyz0123456789@github.com/o/r.git";
