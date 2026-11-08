@@ -1,5 +1,5 @@
 import { resolveJiraDeployment } from "../../integrations/jira.js";
-import { gitGetConfigValue } from "../config.js";
+import { getConfigValue } from "../config.js";
 import { askInput, InvalidValueError } from "../prompt.js";
 import type { ConfigName } from "../types.js";
 
@@ -45,7 +45,9 @@ export async function isJiraDataCenter() {
 }
 
 export async function getInputConfig(name: ConfigName, fallback: string = "") {
-  const value = await gitGetConfigValue(name);
+  // The resolved value (git, project file, user file): a key held only by the
+  // user file must prefill, or Enter would store "" over it (#281 D11).
+  const { value } = await getConfigValue(name);
   return {
     default: value || fallback,
     prefill: value ? "editable" : "tab",

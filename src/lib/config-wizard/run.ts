@@ -1,6 +1,6 @@
 import { EOL } from "node:os";
 import chalk from "chalk";
-import { gitGetConfigValue } from "../config.js";
+import { getConfigValue } from "../config.js";
 import { askCheckbox } from "../prompt.js";
 import { configureAgent, configureAgentCommand } from "./agent.js";
 import { configureDefaultSourceBranch, configurePostCreate } from "./basics.js";
@@ -87,7 +87,10 @@ async function askQuestions(ctx: WizardContext): Promise<void> {
     const items = listChecklistItems(ctx.configNames);
     let ticked: readonly ChecklistId[] = [];
     if (items.length > 0) {
-      const preTicked = await preTickedIds(items, gitGetConfigValue);
+      const preTicked = await preTickedIds(
+        items,
+        async (name) => (await getConfigValue(name)).value,
+      );
       ticked = await askCheckbox<ChecklistId>(
         {
           message:

@@ -237,7 +237,11 @@ export type ProjectConfigSource =
   | { kind: "ref"; ref: string }
   | { kind: "path"; path: string };
 
-export type NoProjectConfigReason = "no-ref" | "no-file" | "empty-file";
+export type NoProjectConfigReason =
+  | "no-ref"
+  | "no-file"
+  | "empty-file"
+  | "unusable";
 
 export type ProjectConfigResult =
   | {
@@ -373,6 +377,20 @@ export function loadProjectConfig() {
 
 export function resetProjectConfigCache() {
   cached = undefined;
+}
+
+/**
+ * For `worktree config`, the command that works around a bad file (#281 §2):
+ * after the caller has said the file cannot be used, every later reader in the
+ * run sees no file instead of rethrowing. The caller resets the cache when it
+ * is done, so the state does not outlive the command.
+ */
+export function markProjectConfigUnusable() {
+  cached = Promise.resolve({
+    status: "none",
+    reason: "unusable",
+    warnings: [],
+  });
 }
 
 // ---------------------------------------------------------------------------

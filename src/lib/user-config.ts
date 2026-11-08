@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { LineCounter, parseDocument } from "yaml";
+import { isMap, LineCounter, parseDocument } from "yaml";
 import { z } from "zod";
 import {
   PERSONAL_KEYS,
@@ -10,7 +11,7 @@ import {
   step,
   TEAM_SECTIONS,
 } from "./config-keys.js";
-import { JIRA_DEPLOYMENTS, OPENER_KINDS } from "./constants.js";
+import { CONFIG_NAMES, JIRA_DEPLOYMENTS, OPENER_KINDS } from "./constants.js";
 import { InvalidValueError } from "./prompt.js";
 import {
   GITHUB_HOST_PATTERN,
@@ -147,7 +148,7 @@ export type UserConfig = z.infer<typeof userConfigSchema>;
 // Result and error types
 // ---------------------------------------------------------------------------
 
-export type NoUserConfigReason = "no-file" | "empty-file";
+export type NoUserConfigReason = "no-file" | "empty-file" | "unusable";
 
 export type UserConfigResult =
   | {
@@ -272,6 +273,60 @@ export function resetUserConfigCache() {
   cached = undefined;
 }
 
+/**
+ * The read for `worktree config`, the command that repairs a bad file (#281
+ * §2). A file that cannot be used comes back as `error` for the caller to say,
+ * and is treated as absent for the rest of the run, so every reader after this
+ * one (the wizard's, the layered reader's) sees no file instead of throwing.
+ */
+export async function loadUserConfigForRepair(): Promise<{
+  result: UserConfigResult;
+  error?: UserConfigError;
+}> {
+  try {
+    return { result: await loadUserConfig() };
+  } catch (error) {
+    if (!(error instanceof UserConfigError)) {
+      throw error;
+    }
+    const result: UserConfigResult = {
+      status: "none",
+      reason: "unusable",
+      path: userConfigPath().path,
+      warnings: [],
+    };
+    cached = Promise.resolve(result);
+    return { result, error };
+  }
+}
+
+/** The file's path as a person would write it: under the home directory, `~/…`. */
+export function userConfigLabel(file: string, home: string = os.homedir()) {
+  const prefix = home.endsWith(path.sep) ? home : `${home}${path.sep}`;
+  return file.startsWith(prefix)
+    ? `~${path.sep}${file.slice(prefix.length)}`
+    : file;
+}
+
+/** The settings of a loaded file as text, by dotted name; a step list is its steps joined. */
+export function userFileValue(config: UserConfig, name: string) {
+  let current: unknown = config;
+  for (const segment of name.split(".")) {
+    if (!isPlainObject(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  if (Array.isArray(current)) {
+    return current.join("; ");
+  }
+  return typeof current === "string" ||
+    typeof current === "number" ||
+    typeof current === "boolean"
+    ? String(current)
+    : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Parsing and validation
 // ---------------------------------------------------------------------------
@@ -388,4 +443,158 @@ function classifyKeys(
     );
   }
   return settings;
+}
+
+// ---------------------------------------------------------------------------
+// Writing (#281 D8)
+// ---------------------------------------------------------------------------
+
+/** A file key's value as the file holds it: a boolean, a list or text. */
+function typedValue(name: string, raw: string): unknown {
+  const schema = VALUE_SCHEMAS[name];
+  if (schema instanceof z.ZodBoolean) {
+    if (raw !== "true" && raw !== "false") {
+      throw new UserConfigError(`${name} must be true or false`);
+    }
+    return raw === "true";
+  }
+  // A single command, as git config holds it, is a list of one step.
+  return name === "postCreate" ? [raw] : raw;
+}
+
+function headerComment(file: string, home: string) {
+  return [
+    ` ${userConfigLabel(file, home)}: personal defaults for every repository.`,
+    " Never put a token here; keep secrets in git config with `worktree config <key>`.",
+  ].join("\n");
+}
+
+/** Where a file that already exists really lives, so a symlink is written through. */
+function realTarget(file: string) {
+  try {
+    return fs.realpathSync(file);
+  } catch {
+    return file;
+  }
+}
+
+/**
+ * Atomic: a sibling temp file, created `0600` and renamed over the target, so a
+ * reader never sees half a file. The directory is created `0700` when missing;
+ * one that exists keeps its mode. The rename gives an existing file `0600` too.
+ */
+function writeAtomically(file: string, content: string) {
+  const target = realTarget(file);
+  fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+  const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    const fd = fs.openSync(temp, "wx", 0o600);
+    try {
+      // The creation mode is masked by the umask; this is not.
+      fs.fchmodSync(fd, 0o600);
+      fs.writeFileSync(fd, content);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(temp, target);
+  } catch (error) {
+    fs.rmSync(temp, { force: true });
+    throw new UserConfigError(
+      `Cannot write ${showVisibly(target)}: ${showVisibly(error instanceof Error ? error.message : String(error))}`,
+      { cause: error },
+    );
+  }
+}
+
+/**
+ * Refuses a secret (D6) and a key the file cannot hold, with exit 2 naming the
+ * key and never a value, and returns the key's value schema. Called before the
+ * value is validated, so a rejected token is never echoed by a validator.
+ */
+export function assertUserFileKey(name: string) {
+  if (SECRET_KEYS.has(name)) {
+    throw new UserConfigError(
+      `${name} is a secret and cannot be set in the user config file. Keep it in git config with \`worktree config ${name} <value>\`.`,
+    );
+  }
+  const schema = VALUE_SCHEMAS[name];
+  if (!ACCEPTED_KEYS.has(name) || schema === undefined) {
+    throw new UserConfigError(
+      `${name} cannot be set in the user config file. It is read from git config only: use \`worktree config ${name} <value>\`.`,
+    );
+  }
+  return schema;
+}
+
+/** The accepted keys a loaded file sets, in `CONFIG_NAMES` order. */
+export function userFileKeys(config: UserConfig) {
+  return CONFIG_NAMES.filter(
+    (name) =>
+      ACCEPTED_KEYS.has(name) && userFileValue(config, name) !== undefined,
+  );
+}
+
+/**
+ * `worktree config --user <key> <value>`: sets one key in the user file,
+ * keeping its comments and key order. Refuses a secret and a key the file
+ * cannot hold (exit 2, naming the key and never the value), and never rewrites
+ * a file that does not parse. A value the file already holds changes nothing.
+ * The caller validates the value with `validateConfigValue`.
+ */
+export function writeUserConfigValue(
+  name: string,
+  raw: string,
+  env: Record<string, string | undefined> = process.env,
+  home: string = os.homedir(),
+): { path: string; changed: boolean } {
+  const schema = assertUserFileKey(name);
+  const value = typedValue(name, raw);
+  const checked = schema.safeParse(value);
+  if (!checked.success) {
+    throw new UserConfigError(
+      `Invalid value for ${name}: ${checked.error.issues.map((issue) => issue.message).join("; ")}`,
+    );
+  }
+
+  const { path: file } = userConfigPath(env, home);
+  const label = showVisibly(file);
+  const existing = readFile(realTarget(file), false);
+  const document = parseDocument(existing ?? "");
+  const [yamlError] = document.errors;
+  if (yamlError) {
+    throw new UserConfigError(
+      `${label} is not valid YAML, so it was left as it is: ${showVisibly(yamlError.message.split("\n")[0] ?? "")}. Fix it by hand, then run this again.`,
+    );
+  }
+  if (document.contents !== null && !isMap(document.contents)) {
+    throw new UserConfigError(
+      `${label} must be a mapping of keys to values, so it was left as it is.`,
+    );
+  }
+
+  const keyPath = name.split(".");
+  if (JSON.stringify(document.getIn(keyPath)) === JSON.stringify(value)) {
+    return { path: file, changed: false };
+  }
+  try {
+    document.setIn(
+      keyPath,
+      Array.isArray(value) ? document.createNode(value) : value,
+    );
+  } catch {
+    throw new UserConfigError(
+      `Cannot set ${name} in ${label}: ${keyPath[0]} is not a section there. The file was left as it is.`,
+    );
+  }
+  if (existing === undefined || existing.trim() === "") {
+    // On the mapping, not the document: a document comment is followed by a
+    // blank line, and the header sits directly above the keys (§4).
+    if (isMap(document.contents)) {
+      document.contents.commentBefore = headerComment(file, home);
+    }
+  }
+  writeAtomically(file, document.toString());
+  resetUserConfigCache();
+  return { path: file, changed: true };
 }

@@ -32,29 +32,10 @@ const SITES: Record<string, Site[]> = {
   ],
   "commands/config.ts": [
     {
-      key: '"opener"',
-      kind: "deferred",
-      reason: "phase 4 owns config.ts: hiding rule for the wizard",
-    },
-    {
-      key: "name",
-      kind: "deferred",
-      reason: "phase 4 owns config.ts: hiding rule for the wizard",
-    },
-    {
       key: "variable",
-      kind: "deferred",
-      reason: "phase 4 owns config.ts: `config --list`",
-    },
-    {
-      key: "name",
-      kind: "deferred",
-      reason: "phase 4 owns config.ts: `--missing`",
-    },
-    {
-      key: "args.name",
-      kind: "deferred",
-      reason: "phase 4 owns config.ts: `config <name>` print",
+      kind: "git-only",
+      reason:
+        "`--list` shows git config's own value so it can say what it overrides (D11)",
     },
   ],
   "commands/linear-listen.ts": [
@@ -80,20 +61,6 @@ const SITES: Record<string, Site[]> = {
       key: '"has-called-config"',
       kind: "git-only",
       reason: "whether this machine ran `config` is not a setting (D9)",
-    },
-  ],
-  "lib/config-wizard/context.ts": [
-    {
-      key: "name",
-      kind: "deferred",
-      reason: "phase 4 owns context.ts: the wizard's prefill",
-    },
-  ],
-  "lib/config-wizard/run.ts": [
-    {
-      key: "(value)",
-      kind: "deferred",
-      reason: "phase 4 owns run.ts: the checklist's pre-ticked items",
     },
   ],
   "lib/config-wizard/trackers.ts": [
