@@ -640,12 +640,17 @@ file-only key (rules per provider, `branchName`, `copy`, `postCreate` steps).
 `worktree config --project` writes a commented `.worktree.yml` at the current
 worktree's top level from the team keys in git config (never a personal or secret
 key; a personal `postCreate` becomes a one-step list), uncommitted, and refuses to
-overwrite an existing one. On a terminal only (never `--json`, `--yes`,
-`--non-interactive`, CI, no TTY or `branch --dry-run`; in `branch`, after the
-worktree is open), two offers each appear at most once: `--project` when the
-repository has no file and git config holds a team key, and removal of the local
-keys the file repeats with the same value. Their answers live under
-`northguild.worktree.*` outside the config keys, so an agent cannot set them.
+overwrite an existing one. Local git config keys that hold the same value as a
+`.worktree.yml` on the default branch (not one read through
+`WORKTREE_PROJECT_CONFIG`) are removed without asking or printing by `branch`
+(after the worktree is open, not `--dry-run`) and a bare `worktree config`,
+`--json`, `--yes` and CI included; with no `origin/HEAD` a local
+`defaultSourceBranch` is kept, since it finds the file. Only one step is an offer, on a terminal
+only (never `--json`, `--yes`, `--non-interactive`, CI, no TTY or
+`branch --dry-run`; in `branch`, after the worktree is open): `--project`, once
+per repository, when the repository has no file and git config holds a team
+key. Its answer lives under `northguild.worktree.*` outside the config keys, so
+an agent cannot set it.
 
 The file's `copy` list (relative globs such as `config/master.key`) names extra
 files for `branch` and `checkout` to copy with the env files. A path must be

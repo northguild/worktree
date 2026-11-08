@@ -5082,7 +5082,7 @@ postCreate:
     });
 
     describe("the internal offer keys (D22)", () => {
-      for (const key of ["projectFileOffer", "migrationOffer"]) {
+      for (const key of ["projectFileOffer"]) {
         it(`${key} is not in CONFIG_NAMES, not in --list and cannot be set by name`, async () => {
           expect(CONFIG_NAMES as readonly string[]).not.toContain(key);
           personal[key] = "a-stored-value";

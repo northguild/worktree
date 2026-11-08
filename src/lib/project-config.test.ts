@@ -17,7 +17,6 @@ import {
   isProjectFileKey,
   isTeamConfigKey,
   loadProjectConfig,
-  MIGRATION_OFFER_KEY,
   offerProjectConfig,
   POST_CREATE_APPROVAL_KEY,
   PROJECT_CONFIG_SCHEMA_URL,
@@ -1694,7 +1693,7 @@ postCreate:
 
 describe("the internal offer keys (D22)", () => {
   it("live under northguild.worktree.* and are not in CONFIG_NAMES", () => {
-    for (const key of [PROJECT_FILE_OFFER_KEY, MIGRATION_OFFER_KEY]) {
+    for (const key of [PROJECT_FILE_OFFER_KEY]) {
       expect(key.startsWith("northguild.worktree.")).toBe(true);
       const bare = key.replace("northguild.worktree.", "");
       expect(CONFIG_NAMES as readonly string[]).not.toContain(bare);
@@ -1791,40 +1790,42 @@ describe("offerProjectConfig: the nudge (D21)", () => {
   });
 });
 
-describe("offerProjectConfig: migration (D21)", () => {
+describe("offerProjectConfig: removing the keys the file covers", () => {
   const FILE =
     "branchPrefix:\n  feature: feat/\n  bugfix: fix/\npostCreate:\n  - pnpm install\n";
   let say: ReturnType<typeof vi.spyOn>;
+  let warn: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.mocked(confirm).mockReset();
     say = vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    warn = vi.spyOn(console, "error").mockImplementation(() => {});
     setNonInteractive(false);
     fromOriginMain(FILE);
   });
 
   afterEach(() => {
     say.mockRestore();
+    warn.mockRestore();
+    vi.unstubAllEnvs();
     setNonInteractive(false);
   });
 
-  it("offers to unset local keys that hold the file's value, and leaves a differing one", async () => {
+  // Rule (issue #289, project-configuration.mdx "Moving to the file"): a
+  // local value identical to the file's is removed, silently; a differing
+  // local value, a global value and a personal key are not.
+  it("unsets local keys that hold the file's value, without asking or printing", async () => {
     const { local } = fakeGitConfig({
       "branchPrefix.feature": "feat/",
       "branchPrefix.bugfix": "bug/",
       postCreate: "pnpm install",
       opener: "herdr",
     });
-    vi.mocked(confirm).mockResolvedValue(true);
 
     await offerProjectConfig();
 
-    expect(confirm).toHaveBeenCalledTimes(1);
-    const message = vi.mocked(confirm).mock.calls[0]?.[0].message ?? "";
-    expect(message).toContain("branchPrefix.feature");
-    expect(message).toContain("postCreate");
-    expect(message).not.toContain("branchPrefix.bugfix");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(say).not.toHaveBeenCalled();
     expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
     expect(local.has("northguild.worktree.postCreate")).toBe(false);
     // The differing value is the discouraged override; a personal key is not covered.
@@ -1838,30 +1839,37 @@ describe("offerProjectConfig: migration (D21)", () => {
     ]);
   });
 
-  it("unsets nothing on no, and does not ask again for the same content", async () => {
-    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
-    vi.mocked(confirm).mockResolvedValue(false);
+  // project-configuration.mdx: with no origin/HEAD the personal
+  // defaultSourceBranch is what finds the file, so removing it would lose it.
+  it("removes a covered defaultSourceBranch when origin/HEAD resolves", async () => {
+    fromOriginMain("defaultSourceBranch: origin/main\n");
+    const { local } = fakeGitConfig({ defaultSourceBranch: "origin/main" });
 
     await offerProjectConfig();
-    await offerProjectConfig();
 
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+    expect(local.has("northguild.worktree.defaultSourceBranch")).toBe(false);
   });
 
-  it("asks again when the file's content changes", async () => {
-    fakeGitConfig({ "branchPrefix.feature": "feat/" });
-    vi.mocked(confirm).mockResolvedValue(false);
+  it("keeps a covered defaultSourceBranch when there is no origin/HEAD, other keys still go", async () => {
+    mocked.gitResolveOriginHead.mockResolvedValue("");
+    blob("defaultSourceBranch: origin/main\nbranchPrefix:\n  feature: feat/\n");
+    const { local } = fakeGitConfig({
+      defaultSourceBranch: "origin/main",
+      "branchPrefix.feature": "feat/",
+    });
+    mockedConfig.gitGetConfigValue.mockImplementation(
+      async (name: string) => local.get(`northguild.worktree.${name}`) ?? "",
+    );
 
     await offerProjectConfig();
-    resetProjectConfigCache();
-    fromOriginMain(`${FILE}defaultSourceBranch: origin/main\n`);
-    await offerProjectConfig();
 
-    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(local.get("northguild.worktree.defaultSourceBranch")).toBe(
+      "origin/main",
+    );
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
   });
 
-  it("does not ask when no local key matches, and does not unset a global one", async () => {
+  it("leaves a global value alone", async () => {
     const { local, global } = fakeGitConfig({
       "branchPrefix.feature": "other/",
     });
@@ -1869,27 +1877,98 @@ describe("offerProjectConfig: migration (D21)", () => {
 
     await offerProjectConfig();
 
-    expect(confirm).not.toHaveBeenCalled();
-    expect(local.has(MIGRATION_OFFER_KEY)).toBe(false);
+    expect(global.get("northguild.worktree.branchPrefix.bugfix")).toBe("fix/");
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe(
+      "other/",
+    );
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["--unset"]),
+    );
   });
 
-  it("offers a multi-step postCreate nothing, since one string is not a list", async () => {
+  it("leaves a local postCreate alone when the file's is a list of several steps", async () => {
     fromOriginMain("postCreate:\n  - pnpm install\n  - pnpm build\n");
-    fakeGitConfig({ postCreate: "pnpm install; pnpm build" });
+    const { local } = fakeGitConfig({ postCreate: "pnpm install; pnpm build" });
 
     await offerProjectConfig();
 
-    expect(confirm).not.toHaveBeenCalled();
+    expect(local.get("northguild.worktree.postCreate")).toBe(
+      "pnpm install; pnpm build",
+    );
   });
 
-  it("offers nothing non-interactively", async () => {
+  it("removes nothing when the file came from WORKTREE_PROJECT_CONFIG, not the default branch", async () => {
+    const draft = path.join(scratch, "draft.yml");
+    fs.writeFileSync(draft, FILE);
+    vi.stubEnv("WORKTREE_PROJECT_CONFIG", draft);
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+  });
+
+  it("still removes under --json, --yes, --non-interactive, CI or without a TTY", async () => {
     const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
     setNonInteractive(true);
 
     await offerProjectConfig();
 
     expect(confirm).not.toHaveBeenCalled();
-    expect(local.get("northguild.worktree.branchPrefix.feature")).toBe("feat/");
+    expect(say).not.toHaveBeenCalled();
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
+  });
+
+  it("is a no-op the second time, and records no marker key", async () => {
+    const { local } = fakeGitConfig({ "branchPrefix.feature": "feat/" });
+
+    await offerProjectConfig();
+    mockRun.mockClear();
+    await offerProjectConfig();
+
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["--unset"]),
+    );
+    expect([...local.keys()]).toEqual([]);
+  });
+
+  it("leaves an existing migrationOffer value from an older version untouched", async () => {
+    const { local } = fakeGitConfig({
+      "branchPrefix.feature": "feat/",
+      migrationOffer: "abc123",
+    });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.migrationOffer")).toBe("abc123");
+    expect(local.has("northguild.worktree.branchPrefix.feature")).toBe(false);
+  });
+
+  it("rejects when an unset fails, so the caller can warn", async () => {
+    mockRun.mockImplementation(async (_file: string, args: string[]) => {
+      if (args.includes("--unset")) throw new Error("could not lock config");
+      return args.at(-1) === "northguild.worktree.branchPrefix.feature"
+        ? "feat/"
+        : "";
+    });
+
+    await expect(offerProjectConfig()).rejects.toThrow("could not lock config");
+  });
+
+  it("does not repeat the file's warnings: reporting stays with the caller", async () => {
+    // An unknown key makes the load carry a warning.
+    fromOriginMain(`${FILE}surprise: 1\n`);
+    const result = await loadProjectConfig();
+    expect(result.warnings.length).toBeGreaterThan(0);
+    fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    setNonInteractive(true);
+
+    await offerProjectConfig();
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(say).not.toHaveBeenCalled();
   });
 });
 
