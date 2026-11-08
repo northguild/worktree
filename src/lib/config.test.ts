@@ -14,6 +14,10 @@ import * as projectConfig from "./project-config.js";
 import type { ConfigName } from "./types.js";
 import * as userConfig from "./user-config.js";
 
+// These suites test the real layered reader, not the stand-in test-setup.ts
+// gives every other suite.
+vi.unmock("./config.js");
+
 describe("git config", () => {
   // The value §7 case 3 stores by hand: a quote, a backtick and a semicolon,
   // every one of which the old `git config … "${value}"` form handed to a shell.

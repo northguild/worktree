@@ -25,6 +25,37 @@ vi.mock("./lib/cli.js", () => ({
   isProcessRunning: mockIsProcessRunning,
 }));
 
+// Most suites stub the git layer with `vi.spyOn(config, "gitGetConfigValue")`.
+// getConfigValue calls that reader through a local binding, which a spy on the
+// export cannot reach, so every suite would have to stub the layered reader as
+// well. This version reads through the module's own export, so the one stub a
+// suite already sets still decides, and routes team keys through the real
+// resolver as getConfigValue does. The user file is not consulted: no suite has
+// one here (see beforeEach), and the suites for the layering itself
+// (config.test.ts, user-config-readers.test.ts) call `vi.unmock("./lib/config.js")`
+// to run the real reader.
+vi.mock("./lib/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/config.js")>();
+  const mod = {
+    ...actual,
+    getConfigValue: async (
+      name: Parameters<typeof actual.gitGetConfigValue>[0],
+    ) => {
+      const { isTeamConfigKey, resolveTeamConfig } = await import(
+        "./lib/project-config.js"
+      );
+      if (isTeamConfigKey(name)) {
+        return resolveTeamConfig(name);
+      }
+      const value = await mod.gitGetConfigValue(name);
+      return value
+        ? { value, source: "git-config" as const }
+        : { value: "", source: "default" as const };
+    },
+  };
+  return mod;
+});
+
 // A run() call reads as its argv joined, with the cwd appended when one is
 // given. An element containing whitespace is quoted, so one argument holding a
 // space stays distinguishable from two arguments: gitSetConfigValue passes a

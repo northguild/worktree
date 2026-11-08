@@ -39,7 +39,11 @@ import {
   isPortableField,
   pasteReadyLine,
 } from "../lib/branch-type.js";
-import { gitGetConfigValue, gitSetConfigValue } from "../lib/config.js";
+import {
+  getConfigValue,
+  gitGetConfigValue,
+  gitSetConfigValue,
+} from "../lib/config.js";
 import { copyEnvFilesFromRootPath } from "../lib/env.js";
 import {
   gitCreateWorktree,
@@ -737,7 +741,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       return flagValue;
     }
 
-    const configured = await gitGetConfigValue(configKey);
+    const configured = (await getConfigValue(configKey)).value;
     if (configured === "true") {
       return true;
     }
@@ -1430,12 +1434,14 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
     // The key has no default and the fetch needs it, so a run still without one
     // after the offer is a missing value, and it ends before a tree exists.
+    // Git-only: a secret is never read from a file (#281 D9).
     if (flags.linear && !(await gitGetConfigValue("linear.apiKey"))) {
       throw new MissingValueError(
         "the Linear API key",
         "`worktree config linear.apiKey <key>`",
       );
     }
+    // Git-only: a secret is never read from a file (#281 D9).
     if (flags.clickup && !(await gitGetConfigValue("clickup.apiToken"))) {
       throw new MissingValueError(
         "the ClickUp API token",

@@ -28,7 +28,7 @@ import {
 } from "../integrations/rex.js";
 import { rexMultiplexer } from "../integrations/rex-multiplexer.js";
 import { run, spawnDetached } from "./cli.js";
-import { gitGetConfigValue } from "./config.js";
+import { getConfigValue, gitGetConfigValue } from "./config.js";
 import { gitGetAbsoluteWorktreesPath, gitGetRootPath } from "./git.js";
 import {
   isNonInteractive,
@@ -38,11 +38,7 @@ import {
 } from "./interaction.js";
 import type { Multiplexer } from "./multiplexer.js";
 import { createSpinner } from "./progress.js";
-import {
-  getTeamConfigValue,
-  isTeamConfigKey,
-  showLinesVisibly,
-} from "./project-config.js";
+import { showLinesVisibly } from "./project-config.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import { redactSecrets } from "./redact.js";
 import { detectTerminalHosts } from "./terminal-host.js";
@@ -547,6 +543,7 @@ export abstract class BaseCommand extends Command {
   }
 
   protected async verifyConfig(configNames: ConfigName[] = []) {
+    // Git-only: whether this machine has run `config` is not a setting a file can carry (#281 D9).
     if ((await gitGetConfigValue("has-called-config")) !== "true") {
       if (await this.confirmFirstTimeConfig()) {
         await this.config.runCommand("config", ["--skip-offers"]);
@@ -556,10 +553,8 @@ export abstract class BaseCommand extends Command {
 
     const missingNames: ConfigName[] = [];
     for (const name of configNames) {
-      // A team key the project file supplies is not missing (D2, D3).
-      const value = isTeamConfigKey(name)
-        ? await getTeamConfigValue(name)
-        : await gitGetConfigValue(name);
+      // A key a file supplies is not missing (#281 D2, D3).
+      const { value } = await getConfigValue(name);
       if (!value) {
         missingNames.push(name);
       }
@@ -600,7 +595,7 @@ export abstract class BaseCommand extends Command {
 
   /** The opener this run uses: the flag first, then the `opener` key. */
   private async resolveOpener(open: boolean): Promise<ResolvedOpener> {
-    const configured = await gitGetConfigValue("opener");
+    const configured = (await getConfigValue("opener")).value;
 
     if (!open || configured === "none") {
       return "none";
@@ -657,7 +652,7 @@ export abstract class BaseCommand extends Command {
     }
 
     const [head, ...tail] = splitCommandValue(
-      await gitGetConfigValue("agent.command"),
+      (await getConfigValue("agent.command")).value,
     );
 
     if (!head) {
@@ -679,13 +674,13 @@ export abstract class BaseCommand extends Command {
    */
   private async readHerdrAgentKind(brief: string | undefined) {
     const [head, ...tail] = splitCommandValue(
-      await gitGetConfigValue("agent.command"),
+      (await getConfigValue("agent.command")).value,
     );
     // The `agent.command` fallback is for a brief only: without one,
     // `herdr.agent` alone decides, so someone who set `agent.command` for
     // `--agent` is not given an agent in every plain open they never asked for.
     const kind =
-      (await gitGetConfigValue("herdr.agent")) ||
+      (await getConfigValue("herdr.agent")).value ||
       (brief !== undefined ? basename(head ?? "") : "");
 
     return { kind, head, tail };
@@ -891,7 +886,7 @@ export abstract class BaseCommand extends Command {
       }
     | undefined
   > {
-    const opener = await gitGetConfigValue("opener");
+    const opener = (await getConfigValue("opener")).value;
     const tools = toolsToClose(opener);
 
     if (tools.length === 0) {
@@ -1112,7 +1107,7 @@ export abstract class BaseCommand extends Command {
       const [gitRootPath, label, focus] = await Promise.all([
         gitGetRootPath(),
         this.resolveSpaceLabel(path),
-        gitGetConfigValue("herdr.focus"),
+        getConfigValue("herdr.focus").then(({ value }) => value),
       ]);
 
       // Before the open, so a brief with no agent kind to take it fails before
@@ -1301,7 +1296,7 @@ export abstract class BaseCommand extends Command {
 
       const [label, focus] = await Promise.all([
         this.resolveSpaceLabel(path),
-        gitGetConfigValue("rex.focus"),
+        getConfigValue("rex.focus").then(({ value }) => value),
       ]);
 
       // Before the lookup and the open, so a brief with no program to take it
@@ -1390,7 +1385,7 @@ export abstract class BaseCommand extends Command {
    */
   private async resolveRexAgentCommand(brief: string): Promise<string[]> {
     const [head, ...tail] = splitCommandValue(
-      await gitGetConfigValue("agent.command"),
+      (await getConfigValue("agent.command")).value,
     );
 
     if (!head) {
@@ -1427,7 +1422,7 @@ export abstract class BaseCommand extends Command {
   }
 
   private async openCodeEditor(path: string, reopened: boolean) {
-    const codeEditor = await gitGetConfigValue("codeEditor");
+    const codeEditor = (await getConfigValue("codeEditor")).value;
     // codeEditor is a command line, not a bare program name: the head is the
     // file to launch and the tail is leading arguments, with the worktree path
     // passed last as one argument however many spaces it contains. This is the
@@ -1464,7 +1459,7 @@ export abstract class BaseCommand extends Command {
     path: string,
     prompt: string,
   ): Promise<OpenedAgent | undefined> {
-    const agentCommand = await gitGetConfigValue("agent.command");
+    const agentCommand = (await getConfigValue("agent.command")).value;
     // Split exactly as openWorktreePath splits codeEditor: the head is the
     // program to launch and the tail is leading arguments, with quotes grouping
     // an argument that contains spaces. The prompt is appended as one argument

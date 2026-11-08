@@ -6,7 +6,7 @@ import {
   listHerdrAgents,
 } from "../integrations/herdr.js";
 import { isProcessRunning, run } from "./cli.js";
-import { gitGetConfigValue } from "./config.js";
+import { getConfigValue } from "./config.js";
 import type { AgentSession } from "./types.js";
 import { splitCommandValue } from "./utils.js";
 
@@ -124,9 +124,11 @@ const SESSION_LIST_TIMEOUT_MS = 10_000;
 // Every failure — no agent configured, a missing binary, a non-zero exit, output
 // that is not JSON, or JSON that is not an array — yields no sessions from that
 // source and no error: this must never become a hard dependency on any
-// particular agent runtime, or on Herdr.
+// particular agent runtime, or on Herdr. The one exception is a user config
+// file that cannot be used, which stops the run (exit 2) like a bad
+// `.worktree.yml` does (#281).
 async function listRuntimeSessions(): Promise<AgentSession[]> {
-  const agentCommand = await gitGetConfigValue("agent.command");
+  const agentCommand = (await getConfigValue("agent.command")).value;
   // agent.command is a dispatch command line, e.g. `claude --bg`. Only its head
   // is reused here, because listing sessions is a different subcommand of the
   // same program: appending the dispatch arguments would ask for
@@ -135,7 +137,7 @@ async function listRuntimeSessions(): Promise<AgentSession[]> {
   // Split as the dispatch and the Herdr kind split it, so a quoted program path
   // with a space in it is one program to all three.
   const [head] = splitCommandValue(agentCommand);
-  const agent = head || (await gitGetConfigValue("herdr.agent")).trim();
+  const agent = head || (await getConfigValue("herdr.agent")).value.trim();
 
   if (!agent) {
     return [];

@@ -20,3 +20,14 @@ Branch-local review notes for #281 (user-config-file). Nothing reads this file; 
 - The secrets "never consulted" assertions rely on namespace spies; a broken-user-file variant would show it through behaviour.
 - `src/test-setup.ts` dynamically imports the real `user-config.js` to reset its cache; a suite that `vi.mock`s that module without `resetUserConfigCache` would fail loudly. The global `XDG_CONFIG_HOME` stub also reaches real-git subprocesses (git stops reading `~/.config/git/config`).
 - `isRecord` in `config.ts` also accepts arrays; harmless, since a key lookup on an array yields `undefined`.
+
+## Phase 3 — Migrate the readers
+
+- `git.ts` `gitGetComparisonBase` keeps `defaultSourceBranch` git-only: layering it would pull `.worktree.yml` into the unpushed-work base (§2), and git → user while skipping the project file would rank the user file above it (D2). So a `defaultSourceBranch` set only in the user file never becomes that base when origin/HEAD is absent. `project-config.ts` `resolveRef` is in the same position. No phase owns it; it needs a person's call before `/feature-close`.
+- `src/test-setup.ts` installs a global stand-in for `getConfigValue` (so the ~300 `vi.spyOn(config, "gitGetConfigValue")` stubs still decide). It copies the routing without the secret check or the user-file layer, and nothing pins it to the real reader; a future suite that writes a user file without `vi.unmock("./lib/config.js")` would silently get no user layer.
+- Wizard `config-wizard/agent.ts`: with `agent.command` set only in the user file, pressing Enter writes `""` to git config, which the layered reader treats as unset, so the "no agent" answer does nothing. D11's wizard skip (phase 4) should remove the case.
+- `trackers.ts` `*.autoAssign`/`*.autoStart` reads stay git-only while `branch.ts` reads them layered; the audit reason ("is it set in git config itself") is loose for lines that compute a select's default.
+- No test checks that `verifyConfig` finds a personal key set only in the user file.
+- `jira.ts` `readJiraSettings` reads sequentially only to fit `jira.test.ts`'s `mockResolvedValueOnce` order; keying that mock by argument would allow `Promise.all` back.
+- Git-only reasons for the unedited files (`trackers.ts`, `written.ts`, `project-config.ts`, `context.ts`, `run.ts`) live only in the audit table, not as inline comments.
+- `user-config-readers.test.ts` reaches the private `getSourceBranch` through a cast, and tests `resolveGitHubHost()` rather than a command run; driving `branch.run()` would be the stronger seam.

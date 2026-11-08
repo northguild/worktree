@@ -257,6 +257,7 @@ export async function gatherIssueLinks({
     }
 
     const hasKey =
+      // Git-only: a secret is never read from a file (#281 D9).
       lookup && links.size > 0 && !!(await gitGetConfigValue("linear.apiKey"));
     if (lookup && links.size > 0 && !hasKey && warnWithoutKey) {
       warning = NO_KEY;

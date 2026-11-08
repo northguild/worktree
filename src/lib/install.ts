@@ -76,6 +76,8 @@ export async function runInstall(
     return { ran: false, reason: "--no-install was given" };
   }
 
+  // Git-only here: this is the first layer of `postCreate`, and the file layers
+  // below it have their own list readers (#281 D9, D10).
   const personal = (await gitGetConfigValue("postCreate")).trim();
   const fromFile = personal ? [] : await getProjectPostCreateSteps();
   // Read only when nothing above it answers, so a person with no user file
