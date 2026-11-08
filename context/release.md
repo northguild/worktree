@@ -216,8 +216,10 @@ red. **Until the repository copies are deleted, #253 is not fixed**: any branch'
 environment can still read them. **Verify** with `gh api repos/northguild/worktree/environments/cloudflare-production`
 (`deployment_branch_policy` must be a custom policy, not `null`), with `gh api
 repos/northguild/worktree/environments/cloudflare-production/deployment-branch-policies` (exactly one entry: `main`,
-of type `branch`), with `gh api repos/northguild/worktree/actions/secrets` (neither Cloudflare secret listed), and by
-dispatching `worker-deploy.yml` from a non-`main` branch: the run must be refused at the environment.
+of type `branch`), and with `gh api repos/northguild/worktree/actions/secrets` (neither Cloudflare secret listed).
+**A dispatch from another branch proves nothing here**: that branch's copy still carries the `if:` guard, so the job
+is skipped before GitHub evaluates `environment:`, and the run reads *skipped*, not refused. The API reads above
+check the setting itself.
 
 ### What each path gets on a merge
 
