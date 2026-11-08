@@ -196,7 +196,7 @@ no started state to move to, or the attempt failed), null if none was attempted
 installed: {ran:true, command, steps[], from, inferred, ok, reason?} or
 {ran:false, reason}
 command is the step that failed, else the last that ran; steps are the ones
-that ran, in order; from is "git-config", "project" or "lockfile"
+that ran, in order; from is "git-config", "project", "user" or "lockfile"
 herdr: {space, pane, agent|null}, or null if Herdr was not opened
 rex: {session, block|null}, or null if no Rex session was opened (block is
 null when the session was found rather than reported by rex new: one already

@@ -6673,7 +6673,8 @@ describe("branch command — approval of the project's postCreate steps", () => 
   it("documents the installed fields in --help", () => {
     const help = Branch.description ?? "";
     expect(help).toContain("steps");
-    expect(help).toContain('"git-config", "project" or "lockfile"');
+    // InstallSource in src/lib/install.ts: the four layers runInstall reads.
+    expect(help).toContain('"git-config", "project", "user" or "lockfile"');
   });
 });
 

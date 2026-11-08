@@ -244,8 +244,9 @@ anything is opened or any agent is started, so neither lands in a tree without t
 
 - **The command** is [`postCreate`](/worktree/configuration/#post-create-command) when it is set in your git
   config. Otherwise it is the list of steps under `postCreate` in the repository's
-  [`.worktree.yml`](/worktree/project-configuration/#post-create-steps), run in order. With neither, it is
-  inferred from the first lockfile found in the new worktree:
+  [`.worktree.yml`](/worktree/project-configuration/#post-create-steps), run in order. With neither, it is the
+  `postCreate` list in your [user config file](/worktree/configuration/#user-config-file), also run in order. With
+  none of these, it is inferred from the first lockfile found in the new worktree:
 
   | Lockfile | Command |
   |---|---|
@@ -261,8 +262,8 @@ anything is opened or any agent is started, so neither lands in a tree without t
 - **Approval:** the steps from `.worktree.yml` must be approved by you first, and this is checked before
   anything is created. On a terminal `branch` lists every step and asks; no exits `1`. A non-interactive
   run that has not approved them exits `2` with `missing_value`, naming `worktree config --approve` (run it
-  in a terminal) and `--no-install`. A `postCreate` you set yourself, `--no-install` and `--dry-run` need
-  no approval. See [Approving the steps](/worktree/project-configuration/#approving-the-steps).
+  in a terminal) and `--no-install`. A `postCreate` you set yourself, the steps in your user config file (they are your own
+  file), `--no-install` and `--dry-run` need no approval. See [Approving the steps](/worktree/project-configuration/#approving-the-steps).
 - **How it runs:** each step by argv in the new worktree, never through a shell, with its output on stderr
   and a 10 minute limit per step. The first failing step stops the rest.
 - **Nothing to run:** with no `postCreate` and no lockfile, or when the program of your own `postCreate` or
@@ -553,9 +554,9 @@ animates; progress goes to stderr as plain lines.
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`), and a `--linear` with no identifier
   (`--linear <identifier>`), which is refused before the fetch and before any request.
-- Dependencies are installed by default, from `postCreate` or the lockfile; `--no-install` skips it. Steps from `.worktree.yml` that you have not approved stop the run with exit `2` and `missing_value` before anything is created; the message names `worktree config --approve` and `--no-install`.
+- Dependencies are installed by default, from `postCreate` (git config, `.worktree.yml` or your user config file) or the lockfile; `--no-install` skips it. Steps from `.worktree.yml` that you have not approved stop the run with exit `2` and `missing_value` before anything is created; the message names `worktree config --approve` and `--no-install`.
 - A branch name that is already taken is refused, exit `2` with `invalid_value`, naming the existing worktree's path and `worktree open <branch>`; it is never opened unasked.
-- Missing config is not offered to `config`: `defaultSourceBranch` unset in both your git config and `.worktree.yml` warns and falls back to `origin/main`.
+- Missing config is not offered to `config`: `defaultSourceBranch` unset in your git config, `.worktree.yml` and your user config file warns and falls back to `origin/main`.
 
 ## What It Does
 
@@ -628,7 +629,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, or a Jira issue is held by someone else); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
 | `started` | `true` once the Linear issue, ClickUp task or Jira issue is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (none of `--linear`, `--clickup` or `--jira`, `--no-start`, a configured `false`, or a declined prompt) |
 | `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
-| `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`) or `"lockfile"` |
+| `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`), `"user"` (the steps in your user config file) or `"lockfile"` |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |
 | `rex` | `{session, block}` for the Rex session that was opened; `null` when no Rex session was opened. `block` is the session's first terminal as `rex new` reported it, `null` when the session was found instead: one that was already open, or one whose `rex new` timed out and turned up after. Whether an agent started is `agent`'s to say |
 | `agent` | `{name, kind, command, prompted}` for the agent that was started; `null` when none was. `command` leaves out the brief. `name` is the session name, `null` where `worktree` named nothing (a detached start or a Rex session). `prompted` is the receipt for the brief: with Herdr the agent was given it, with Rex the session was created with it |

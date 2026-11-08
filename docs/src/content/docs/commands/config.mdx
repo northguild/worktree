@@ -18,12 +18,18 @@ worktree config --missing --names <comma-separated-keys>
 worktree config --yes --names <comma-separated-keys>
 worktree config --approve
 worktree config --project
+worktree config --user <key> <value>
 ```
 
 `--list` shows `github.token`, `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret` and `clickup.apiToken` as `<key>=***` when set, so a listing is safe to
 paste or screen-share. `worktree config <key>` with no value prints the current value and nothing else, secrets
 included, so `token=$(worktree config github.token)` works in a script. A key with no value prints nothing and
 exits `0`.
+
+The value `worktree config <key>` prints is the one `worktree` would use: your git config first, then, for a key
+the file can set, the repository's `.worktree.yml`, then your [user config file](#user-config-file). Two
+exceptions: a secret, and `postCreate`, print what your git config holds and nothing from a file. The files'
+`postCreate` step lists show in `--list`.
 
 `--missing` filters to values that are not configured yet.
 
@@ -89,7 +95,10 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
   ```
 
   A value only the file supplies carries `(.worktree.yml)`. A value in your git config that differs from the
-  file's carries `(overrides .worktree.yml: <the file's value>)`. Keys only the file can set follow, one line
+  file's carries `(overrides .worktree.yml: <the file's value>)`. Values from your
+  [user config file](#user-config-file) are marked the same way with `(user config)` and
+  `(overrides user config: <the file's value>)`; where `.worktree.yml` sets the key too, only it is named,
+  since it outranks the user file. Keys only the file can set follow, one line
   each: `jira.branchType: 4 rules`, `branchType: 2 rules` (the shared list), `branchName=<template>`, `copy: 1 pattern` and `postCreate: 2 steps`,
   each marked `(.worktree.yml)`. A value the file supplies is not missing, so `--list --missing` leaves it
   out. Secrets stay masked as `<key>=***`.
@@ -117,6 +126,29 @@ most once. Nothing is offered under `--json`, `--yes`, `--non-interactive`, `CI`
 These answers are kept under `northguild.worktree.*` in local git config. They are not configuration keys, so
 `--list` does not show them and `worktree config <key> <value>` cannot set them.
 
+## User config file
+
+Your user config file holds personal defaults for every repository, and a personal fallback for the team keys; see
+[Configuration](/worktree/configuration/#user-config-file) for where it lives, what it may hold and why it takes
+no secrets.
+
+- **`worktree config --user <key> <value>`** writes one key to the file. It takes exactly a key and a value, and
+  cannot be combined with `--list`, `--missing` or `--names`. The value is checked like the one
+  `worktree config <key> <value>` takes, a dotted key such as `herdr.focus` is written nested, and `postCreate`
+  is written as a one-step list. It keeps the file's comments and key order, writes the file atomically, creates
+  its directory with mode `0700` and the file with `0600`, and puts a short header on a file it creates. A value
+  the file already holds changes nothing and says so.
+- **Refused with exit `2`**, naming the key and never the value: a secret (`github.token` and the other
+  tokens), and a key the file cannot hold (`worktree config <key> <value>` sets those in git config). It
+  also refuses to rewrite a file that is not valid YAML, and leaves it as it was.
+- **The wizard asks nothing the user file answers.** A bare `worktree config` says once which keys your user
+  file sets and skips them, naming `worktree config --user <key> <value>` to change one and
+  `worktree config <key> <value>` to override it for this repository only. `--names` is the exception: naming a
+  key is asking for it.
+- **A file `worktree config` cannot use** (a user file or a `.worktree.yml` that is invalid) is warned about, and
+  `worktree config` carries on as though it were absent, so you can still repair it. Every other command that reads the file
+  stops with exit `2`.
+
 ## Examples
 
 ```bash
@@ -141,6 +173,7 @@ worktree config --missing
 worktree config --missing --names defaultSourceBranch
 worktree config --missing --yes --names branchPrefix.feature,branchPrefix.bugfix,branchPrefix.chore
 worktree config --project
+worktree config --user opener herdr
 ```
 
 Configuration is stored in Git config under `northguild.worktree.*`. A team can also set some keys for
@@ -216,7 +249,7 @@ whitespace is refused with exit `2`, and nothing is stored.
   [Configuration](/worktree/configuration/#jira-integration-notes) and
   [Moving the issue to in progress](/worktree/guides/jira-integration/#moving-the-issue-to-in-progress).
 
-When `jira.deployment` is `datacenter` (from git config or `.worktree.yml`), the wizard does not ask for `jira.email`, a bare run, `--missing` and `--list --missing` do not count it as missing, and the token prompt reads "Jira personal access token" and shows the steps for creating one in Jira instead of the Atlassian Cloud ones. The token still goes in `jira.apiToken`. See [Jira Data Center](/worktree/guides/jira-integration/#jira-data-center). With `cloud` or unset, nothing changes. Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given.
+When `jira.deployment` is `datacenter` (from git config, `.worktree.yml` or your [user config file](/worktree/configuration/#user-config-file)), the wizard does not ask for `jira.email`, a bare run, `--missing` and `--list --missing` do not count it as missing, and the token prompt reads "Jira personal access token" and shows the steps for creating one in Jira instead of the Atlassian Cloud ones. The token still goes in `jira.apiToken`. See [Jira Data Center](/worktree/guides/jira-integration/#jira-data-center). With `cloud` or unset, nothing changes. Naming `jira.email` with `--names` still asks for it, unless `--missing` is also given.
 
 The Jira keys are asked together when you tick Jira in the checklist. The `jira.autoAssign` prompt is asked after the token
 and has the same three choices as `github.autoAssign`: "Yes, always", "No, never" and "Ask me each time".
@@ -256,7 +289,7 @@ by the wizard (a bare run and `--missing` skip them), and none can be set from `
 
 - `postCreate` a command to run in every new worktree, such as `pnpm install`. Read by
   [`branch`](/worktree/commands/branch/#installing-dependencies); when it is unset the steps under `postCreate`
-  in `.worktree.yml` run instead (after you approve them), else the command is inferred from the lockfile. It is validated like `agent.command`: its first word has to be on `PATH`. See
+  in `.worktree.yml` run instead (after you approve them), then the steps in your [user config file](#user-config-file) (no approval), else the command is inferred from the lockfile. It is validated like `agent.command`: its first word has to be on `PATH`. See
   [Configuration](/worktree/configuration/#post-create-command). The prompt accepts an empty answer, which leaves
   it unset.
 

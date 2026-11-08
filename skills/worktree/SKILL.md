@@ -13,7 +13,8 @@ description: >
 CLI wrapper for `git worktree` that turns the common branch-create,
 env-copy, editor-open, and cleanup cycle into single commands. Config
 is stored in git config under `northguild.worktree.*`; a committed `.worktree.yml`
-can supply the team keys (see Configuration Reference). Worktrees
+can supply the team keys and a user config file your personal defaults (see
+Configuration Reference). Worktrees
 are created in a sibling directory named `<repo>.worktrees/`.
 
 ## Setup
@@ -40,7 +41,7 @@ worktree config
 # opener answer, follow the same rule for the `rex` CLI (found on PATH, in
 # $REX_BIN_DIR or in the Rex app bundle).
 # `worktree config <key>` prints one value, for scripts.
-# It skips any key the project's .worktree.yml sets and says which.
+# It skips any key the project's .worktree.yml or your user config file sets and says which.
 
 # Create your first worktree
 worktree branch feature/my-feature
@@ -338,7 +339,7 @@ Defaults when non-interactive:
   move warns and changes no exit code.
 - **Install:** on. The command is your `postCreate`, else the steps under
   `postCreate` in `.worktree.yml` (run in order, the first failure stops the
-  rest), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`,
+  rest), else the `postCreate` steps in the user config file (no approval), else inferred from the lockfile (`pnpm-lock.yaml`, `package-lock.json`,
   `yarn.lock`, `bun.lock`). With nothing to run it says so and carries on. A
   failure keeps the worktree, starts nothing and exits `1`.
 - **Approval of the file's steps:** checked before anything is created. A
@@ -348,7 +349,7 @@ Defaults when non-interactive:
   to approve for the person: run `branch --no-install`, or tell them to run
   `worktree config --approve` in a terminal. A personal `postCreate` and
   `--dry-run` need no approval.
-- **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`), else `origin/main` with a warning.
+- **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`, else your user config file), else `origin/main` with a warning.
 - **A branch name that is already taken** (a re-run of `branch`) is refused: exit
   `2`, `invalid_value`, naming the existing worktree's path and
   `worktree open <branch>`. A branch with no worktree, one checked out outside
@@ -391,7 +392,7 @@ document:
   pane.
 - `installed` is `{ran:false,reason}` when skipped. `steps` are the commands
   that ran, in order; `command` is the one that failed, else the last that ran;
-  `from` is `"git-config"`, `"project"` or `"lockfile"`. A failed install still
+  `from` is `"git-config"`, `"project"`, `"user"` or `"lockfile"`. A failed install still
   prints the whole document, with `installed.ok` `false` and a `reason`, and
   exits `1`.
 - A brief that was given and not delivered does the same: the whole document,
@@ -619,7 +620,8 @@ under `northguild.worktree.*`.
 A repository can commit a `.worktree.yml` at its root that supplies the team keys:
 `defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host`, `jira.deployment`,
 `clickup.workspaceId`, `github.repository` and `github.host` (written nested: `jira: { host: ... }`). Precedence per key:
-flag, then git config (any scope), then the file, then the built-in default. The
+flag, then git config (any scope), then the file, then the user config file (below),
+then the built-in default; the user file ranks below the team file. The
 file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
 that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
@@ -636,7 +638,11 @@ personal `postCreate` included when the file has steps). `worktree config <key>
 <value>` for a key the file sets shows both values and asks; non-interactive it sets
 the value and warns. `worktree config --list` prints `<key>=<value> (.worktree.yml)`
 or `<key>=<value> (overrides .worktree.yml: <file value>)`, then one summary line per
-file-only key (rules per provider, `branchName`, `copy`, `postCreate` steps).
+file-only key (rules per provider, `branchName`, `copy`, `postCreate` steps). Values
+from the user config file read `(user config)` or `(overrides user config: <value>)`.
+`worktree config <key>` prints the resolved value (git config, then `.worktree.yml`,
+then the user file), not git config alone; `postCreate` and secrets are excepted:
+they print git config's value only (the files' step lists show in `--list`).
 `worktree config --project` writes a commented `.worktree.yml` at the current
 worktree's top level from the team keys in git config (never a personal or secret
 key; a personal `postCreate` becomes a one-step list), uncommitted, and refuses to
@@ -646,6 +652,24 @@ worktree is open), two offers each appear at most once: `--project` when the
 repository has no file and git config holds a team key, and removal of the local
 keys the file repeats with the same value. Their answers live under
 `northguild.worktree.*` outside the config keys, so an agent cannot set them.
+
+A user config file holds personal defaults for every repository: `$WORKTREE_USER_CONFIG`,
+else `$XDG_CONFIG_HOME/worktree/config.yml` (only when set, non-empty and absolute), else
+`~/.config/worktree/config.yml`. It is YAML, with a dotted key written nested
+(`herdr: { focus: false }`). It takes the personal keys above (`jira.autoStart`,
+`github.autoAssign` and the rest) and, as a fallback below `.worktree.yml`, the team keys
+`defaultSourceBranch`, `branchPrefix.*`, `jira.host`, `jira.deployment`,
+`clickup.workspaceId`, `github.repository`, `github.host` and `postCreate` (a list);
+`branchType`, `branchName` and `copy` stay in `.worktree.yml`. A secret key in it stops the
+run with exit `2`, naming the key; an unknown key warns and is ignored. Its `postCreate`
+steps run without approval because the file is the user's own, so a file synced between
+machines (dotfiles) can carry commands into every new worktree. Install steps run in the
+order: git config `postCreate`, the approved `.worktree.yml` steps, the user file's steps,
+then the lockfile. `worktree config --user <key> <value>` writes one key (keeps comments,
+atomic, directory `0700`, file `0600`, never rewrites a file that does not parse; it takes
+only a key and a value). The wizard skips keys the file sets and says so. `worktree config`
+warns about a user file or `.worktree.yml` it cannot use and carries on; every other
+command that reads the file stops with exit `2`. With no user file nothing changes.
 
 The file's `copy` list (relative globs such as `config/master.key`) names extra
 files for `branch` and `checkout` to copy with the env files. A path must be
@@ -661,7 +685,7 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `herdr.agent` | `claude` | starting an agent in a new Herdr space; unset means none, unless a brief is given, which falls back to `agent.command`'s program |
 | `rex.focus` | `true` or `false` | whether the app is brought to a new Rex session; defaults to `true`, only `false` turns it off |
 | `agent.command` | `claude --bg` | `--agent`, and the runtime listing behind `list --agents` and `cleanup`'s agent check (`herdr.agent` stands in when unset) |
-| `postCreate` | `pnpm install` | the install step of `branch`; unset means the steps in `.worktree.yml` (once approved with `worktree config --approve`), else infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
+| `postCreate` | `pnpm install` | the install step of `branch`; unset means the steps in `.worktree.yml` (once approved with `worktree config --approve`), then the user config file's, else infer from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`); when set it also runs on a terminal; inferred, it runs by default only when non-interactive, or with `--install`; `--no-install` skips it |
 | `github.token` | `ghp_...` | `--github` flag, for github.com only; a GitHub Enterprise host's token is read from `gh auth token --hostname <host>` |
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `github.repository` | `acme/widgets` | which repository `--github` and `--assign` use: this key (team key, also under `github:` in `.worktree.yml`), else `upstream` if it is on `github.host` (`github.com` unless set), else `origin`; optional, and `worktree config` never asks for it |

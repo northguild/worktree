@@ -44,3 +44,9 @@ Branch-local review notes for #281 (user-config-file). Nothing reads this file; 
 - Untested: `resolve()`'s retry reading the user layer when `.worktree.yml` is broken; checking the key before `validateConfigValue`; the wizard's user-file message omitting keys the project file also sets, and being suppressed under `--names`.
 - Several assertions pin the code's own message wording (`Set <key> in <path>.`, the wizard sentence); D11 requires only which keys and why.
 - `config-audit.test.ts`'s `"deferred"` `Kind` member is now unused; `config.ts` `examples` has no `--user` example.
+
+## Phase 5 — Documentation and release note
+
+- The plan's Files line names `.changeset/user-config-file.md`; `context/release.md` says the note is written once per feature by `/feature-close` and no phase writes one, so phase 5 wrote none.
+- The key list in `configuration.mdx`'s *User config file* section and the reader descriptions in the guides restate `PERSONAL_KEYS`, the team fallback keys and each reader's layering by hand; no test fails if they drift.
+- The §8 manual pass ran against the built CLI with a throwaway `$HOME` on 2026-11-08: `config --user codeEditor code` wrote a `0600` file in a `0700` directory with the §4 header; two repositories both listed `codeEditor=code (user config)`; a local git `vim` listed `codeEditor=vim (overrides user config: code)`; `--user github.token …` exited 2 without echoing the value.
