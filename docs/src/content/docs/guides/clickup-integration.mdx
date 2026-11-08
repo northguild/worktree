@@ -132,8 +132,9 @@ the update.
 - The move counts only when ClickUp's answer shows the new status. Any failure is a warning, `started` is `false`,
   and the worktree and exit code are unaffected.
 - Moving a task needs edit access to it. A write ClickUp refuses with a 400 or a 5xx, or any status not named here,
-  gets a warning that says so. A 401 or 403 reads as the authentication message, a 404 as the not-found message and
-  a 429 as the rate-limit message.
+  gets a warning that says so. On the update, a 401 or 403 reads as the authentication message, a 404 as the
+  not-found message and a 429 as the rate-limit message. A 401 on the two reads is described under
+  [What Is Not Verified Yet](#what-is-not-verified-yet).
 
 ## Authentication Resolution
 
