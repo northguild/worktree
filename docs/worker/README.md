@@ -6,7 +6,7 @@ static site to the Google Gemini API, keeping `GEMINI_API_KEY` out of the browse
 ## How it fits together
 
 ```
-Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev?model=...
+Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev/
                               ↓
                         Cloudflare Worker  (docs/worker/)
                               ↓
@@ -14,6 +14,20 @@ Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev?model
                               ↑
                         SSE stream piped back to browser
 ```
+
+## Routes
+
+`worker.ts` is a router. Every route answers with CORS headers: an allowed origin is reflected, any other gets `https://northguild.dev`.
+
+| Request | Answer |
+|---|---|
+| `OPTIONS` on any path | 204 with CORS headers (`Access-Control-Expose-Headers: Retry-After` included) |
+| `POST /` | the **legacy** protocol (`legacy-handler.ts`): the Gemini SSE stream piped through, with its own copy of the old model list (`gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-3-flash-preview`) and caps (20,000 characters a message, 50 messages). Frozen: the live site's current client speaks it, and it is retired only after a stable release has deployed the new client |
+| `POST /api/chat` | the new protocol. Until the TanStack AI handler lands (plan #257 phase 3) it answers 501 `{ error, retryable: false }` |
+| any other method on `/` or `/api/chat` | 405 `{ error, retryable: false }` |
+| any other path | 404 `{ error, retryable: false }` |
+
+Both `POST` routes spend one `chat:<client>` rate-limit bucket (`rate-limit.ts`), so using both cannot double a client's allowance. The Gemini key is sent in the `x-goog-api-key` header on every upstream call, never in the URL.
 
 The static bundle bakes in `PUBLIC_GEMINI_WORKER_URL` at build time.
 That variable is set as a GitHub repo **variable** (not a secret) and injected
@@ -45,7 +59,7 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 
 | Command | What it does | When to run |
 |---|---|---|
-| `worker:test` | Runs the worker unit tests with vitest | Before deploying, or in CI |
+| `worker:test` | Runs every test under `docs/worker/` (the router, the legacy handler, the rate limiter) with vitest | Before deploying, or in CI |
 
 ### Deployment
 
@@ -183,7 +197,7 @@ The worker allows requests from:
 
 All other origins receive the production origin in `Access-Control-Allow-Origin`,
 so browsers will block unexpected cross-origin requests. Update `CORS_ORIGINS`
-in `worker.ts` if the site moves to another host.
+in `cors.ts` if the site moves to another host.
 
 ## Abuse protection
 

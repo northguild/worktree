@@ -288,7 +288,7 @@ or use the root-level aliases where noted.
 | Command | What it does |
 |---|---|
 | `test` | Run all docs tests with vitest |
-| `worker:test` | Run worker unit tests |
+| `worker:test` | Run every worker test under `worker/` (router, legacy handler, rate limiter) |
 | `worker:setup-secret` | Store `GEMINI_API_KEY` as an encrypted Cloudflare secret (one-time) |
 | `worker:setup-dev-vars` | Write `worker/.dev.vars` from `.env.local` for local wrangler dev |
 | `worker:deploy` | Test → build → `wrangler deploy` |

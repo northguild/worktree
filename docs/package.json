@@ -14,7 +14,7 @@
     "worker:build-context": "node worker/build-context.mjs",
     "worker:build": "pnpm run worker:build-context && cd worker && tsup worker.ts",
     "worker:setup-secret": "wrangler secret put GEMINI_API_KEY --config worker/wrangler.toml",
-    "worker:test": "vitest run worker/worker.test.ts",
+    "worker:test": "vitest run worker/",
     "worker:deploy": "pnpm run worker:test && pnpm run worker:build && wrangler deploy --config worker/wrangler.toml",
     "prebuild": "pnpm -C .. run docs:sync-version && pnpm run worker:build-context",
     "build": "astro build",
