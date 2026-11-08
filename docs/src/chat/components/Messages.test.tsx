@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, vi } from "vitest";
 import { createdAtDate } from "../lib/chat-history";
 import type { UIMessage } from "../lib/chat-types";
@@ -100,5 +100,43 @@ describe("Messages", () => {
     );
 
     expect(container.querySelector("[aria-live=polite]")).toBe(before);
+  });
+});
+
+describe("Messages -- starters", () => {
+  // Expected values: plan #257 Phase 6 and the accessible-name rule (a real button named by its question).
+  const questions = [
+    "How do I create a worktree for a GitHub issue?",
+    "How do I copy my .env files into a new worktree?",
+    "How do I clean up worktrees whose branches are merged?",
+  ];
+
+  it("offers the three starters as buttons in an empty transcript, and sends the one clicked", () => {
+    const onStarter = vi.fn();
+    render(
+      <Messages isStreaming={false} messages={[]} onStarter={onStarter} />,
+    );
+
+    for (const name of questions) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole("button", { name: questions[1] }));
+    expect(onStarter).toHaveBeenCalledExactlyOnceWith(questions[1]);
+  });
+
+  it("drops the starters once there is a question", () => {
+    render(
+      <Messages
+        isStreaming={false}
+        messages={[text("user", "hi", "u1")]}
+        onStarter={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: questions[0] })).toBeNull();
+  });
+
+  it("offers no starters while an answer is arriving", () => {
+    render(<Messages isStreaming messages={[]} onStarter={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: questions[0] })).toBeNull();
   });
 });

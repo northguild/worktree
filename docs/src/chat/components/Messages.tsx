@@ -5,15 +5,18 @@ import { type ScrollTarget, useBottomScroll } from "../hooks/useBottomScroll";
 import { messageText } from "../lib/chat-history";
 import type { UIMessage } from "../lib/chat-types";
 import { AssistantMessage } from "./AssistantMessage";
+import { ChatStarters } from "./ChatStarters";
 import { UserMessage } from "./UserMessage";
 
 interface MessagesProps {
   messages: ReadonlyArray<UIMessage>;
   /** True from the moment a question is sent until its answer ends. */
   isStreaming: boolean;
+  /** Sends a starter question; without it the empty transcript offers none. */
+  onStarter?: (text: string) => void;
 }
 
-export function Messages({ messages, isStreaming }: MessagesProps) {
+export function Messages({ messages, isStreaming, onStarter }: MessagesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const lastSnapshotRef = useRef<string | undefined>(undefined);
@@ -59,6 +62,9 @@ export function Messages({ messages, isStreaming }: MessagesProps) {
       className="flex-1 overflow-y-auto p-4 scroll-smooth"
       style={{ WebkitOverflowScrolling: "touch" }}
     >
+      {shown.length === 0 && !isStreaming && onStarter && (
+        <ChatStarters onPick={onStarter} />
+      )}
       {shown.map((message) =>
         message.role === "assistant" ? (
           <AssistantMessage

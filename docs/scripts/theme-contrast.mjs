@@ -346,6 +346,24 @@ export const PAIRS = [
     "var(--color-chat-fg)",
     onChat("var(--color-chat-danger-wash)"),
   ),
+  // Plan #257 phase 6: the starters (ChatStarters: text on --color-chat-fill, hover --color-chat-fill-strong, edge
+  // --color-chat-control-border) and the accuracy note (ChatInfo: muted text on the panel, measured above). The
+  // boundary's notice paints --color-chat-fg on --color-chat-bg, also measured above.
+  text(
+    "chat: text on a starter",
+    "var(--color-chat-fg)",
+    onChat("var(--color-chat-fill)"),
+  ),
+  text(
+    "chat: text on a starter under the pointer",
+    "var(--color-chat-fg)",
+    onChat("var(--color-chat-fill-strong)"),
+  ),
+  shape(
+    "chat: a starter's edge",
+    "var(--color-chat-control-border)",
+    onChat("var(--color-chat-fill)"),
+  ),
   shape("focus ring on the page", "var(--gmt-spring-ink)", PAGE),
   shape("focus ring on the sidebar", "var(--gmt-spring-ink)", SIDEBAR),
   shape("focus ring on a raised surface", "var(--gmt-spring-ink)", RAISED),

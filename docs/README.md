@@ -79,6 +79,13 @@ On the page, the pieces are:
 - **Failures.** They are never messages. A status before the stream opens, a `RUN_ERROR` inside it or a dropped
   connection becomes one warning under the transcript (`components/ChatWarning.tsx`) with "Try again" when asking
   again can help. An answer that is silent for 30 s, or runs for 120 s, is stopped and warned about.
+- **The empty chat and its limits.** With no question yet, the transcript offers three starter questions
+  (`lib/chat-starters.ts`, each paired with the docs page that answers it), sent through the same guarded
+  `submit` as the composer; focus moves to the message field when they go. A line under the composer
+  (`components/ChatInfo.tsx`) says the answers can be wrong. `Chat.tsx` wraps the provider and drawer in
+  `ChatErrorBoundary`: a render error shows a `role="alert"` notice, with "Reload the page" when the error is
+  a failed module load and "Try again" otherwise. A chat chunk missing on first open never reaches it: the
+  launcher's `import()` fails first and shows its own load error (`launcher.ts`).
 - **Rendering.** Only text parts render, the assistant's through `MarkdownContent` (see below). The bubble is a
   polite live region; a recoverable warning is `role="status"`, one that retrying will not fix is `role="alert"`.
 

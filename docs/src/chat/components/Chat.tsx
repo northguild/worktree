@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { ChatProvider } from "./ChatContext";
 import { ChatDrawer } from "./ChatDrawer";
+import { ChatErrorBoundary } from "./ChatErrorBoundary";
 
 interface ChatProps {
   /** Mount with the drawer already open: the launcher's first activation opens the chat it has just loaded. */
@@ -9,9 +10,11 @@ interface ChatProps {
 
 export function Chat({ defaultOpen = false }: ChatProps) {
   return (
-    <ChatProvider defaultOpen={defaultOpen}>
-      <ChatDrawer />
-    </ChatProvider>
+    <ChatErrorBoundary>
+      <ChatProvider defaultOpen={defaultOpen}>
+        <ChatDrawer />
+      </ChatProvider>
+    </ChatErrorBoundary>
   );
 }
 

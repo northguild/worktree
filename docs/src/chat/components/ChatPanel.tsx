@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { useChatContext } from "./ChatContext";
 import { ChatForm } from "./ChatForm";
+import { ChatInfo } from "./ChatInfo";
 import { ChatWarning } from "./ChatWarning";
 import { Messages } from "./Messages";
 
@@ -39,10 +40,20 @@ export function ChatPanel() {
     }
   }
 
+  // The starters unmount once the question is in the transcript, and with them the button the reader is on. The
+  // field takes focus, as it does after a typed send. A refused question leaves the starters, and focus, in place.
+  function handleStarter(text: string) {
+    if (submit(text)) inputRef.current?.focus();
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-2">
       <div className="flex flex-col h-full max-h-[90vh] border border-chat-border rounded-lg bg-chat-bg text-chat-fg">
-        <Messages messages={messages} isStreaming={isStreaming} />
+        <Messages
+          messages={messages}
+          isStreaming={isStreaming}
+          onStarter={handleStarter}
+        />
         {warning && <ChatWarning state={warning} onRetry={handleRetry} />}
         <ChatForm
           onSubmit={submit}
@@ -51,6 +62,7 @@ export function ChatPanel() {
           submitRef={submitRef}
           inputRef={inputRef}
         />
+        <ChatInfo />
       </div>
     </div>
   );
