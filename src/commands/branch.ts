@@ -82,6 +82,7 @@ import type {
   ConfigName,
   OpenOutcome,
 } from "../lib/types.js";
+import { loadUserConfig } from "../lib/user-config.js";
 import { isValidBranchName } from "../lib/validators.js";
 
 /** A name derived from an issue; `naming` is set only on a dry run. */
@@ -1402,6 +1403,12 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // assigned, saved or created.
     const project = await loadProjectConfig();
     for (const warning of project.warnings) {
+      this.warn(warning);
+    }
+    // The user file stops the run here too and warns where the project file
+    // does (#281 D6): nothing has been created yet.
+    const user = await loadUserConfig();
+    for (const warning of user.warnings) {
       this.warn(warning);
     }
 

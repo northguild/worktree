@@ -1,4 +1,7 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: Allow any in tests */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { select } from "@inquirer/prompts";
 import * as herdr from "../integrations/herdr.js";
 import * as config from "../lib/config.js";
@@ -10,6 +13,7 @@ import {
   resetProjectConfigCache,
 } from "../lib/project-config.js";
 import { MissingValueError } from "../lib/prompt.js";
+import { resetUserConfigCache } from "../lib/user-config.js";
 import Checkout from "./checkout.js";
 
 vi.mock("@inquirer/prompts", () => ({
@@ -247,6 +251,85 @@ describe("checkout command", () => {
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain("git remote set-head origin");
+    });
+  });
+
+  // #281 D6 (unknown keys warn once, are ignored) and §5 (a user file that
+  // cannot be used stops the run, exit 2); the precedent is the project file's
+  // warning above. The file is a real one in a temp directory.
+  describe("the user file (#281)", () => {
+    let userDir: string;
+
+    function userFile(yaml: string) {
+      const file = join(userDir, "config.yml");
+      writeFileSync(file, yaml);
+      vi.stubEnv("WORKTREE_USER_CONFIG", file);
+      resetUserConfigCache();
+    }
+
+    beforeEach(() => {
+      userDir = mkdtempSync(join(tmpdir(), "worktree-checkout-user-"));
+      vi.spyOn(git, "gitGetRemoteBranches").mockResolvedValue([
+        "origin/main",
+        "origin/feature/test",
+      ]);
+      vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue(["main"]);
+      vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+      (checkout as any).parse = vi.fn().mockResolvedValue({
+        args: { branchName: "feature/test" },
+        flags: {},
+      });
+    });
+
+    afterEach(() => {
+      rmSync(userDir, { recursive: true, force: true });
+    });
+
+    it("warns once about an unknown key, before a worktree exists", async () => {
+      userFile("herdr:\n  focus: false\nmysteryKey: 1\n");
+      const warn = vi
+        .spyOn(checkout, "warn")
+        .mockImplementation((input) => input);
+
+      await checkout.run();
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("`mysteryKey`");
+      expect(warn.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(git.gitCreateWorktree).mock.invocationCallOrder[0] ?? 0,
+      );
+    });
+
+    it("warns once about a dotted key written flat", async () => {
+      userFile("herdr.focus: false\n");
+      const warn = vi
+        .spyOn(checkout, "warn")
+        .mockImplementation((input) => input);
+
+      await checkout.run();
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("`herdr.focus`");
+    });
+
+    it("stops with exit 2 on a malformed file, before a worktree exists", async () => {
+      userFile("opener: [unclosed\n");
+
+      await expect(checkout.run()).rejects.toMatchObject({
+        code: "invalid_value",
+        oclif: { exit: 2 },
+      });
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("prints nothing new when there is no user file", async () => {
+      const warn = vi
+        .spyOn(checkout, "warn")
+        .mockImplementation((input) => input);
+
+      await checkout.run();
+
+      expect(warn).not.toHaveBeenCalled();
     });
   });
 

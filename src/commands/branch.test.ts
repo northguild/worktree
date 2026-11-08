@@ -20,6 +20,7 @@ import * as issueLink from "../lib/issue-link.js";
 import * as projectConfig from "../lib/project-config.js";
 import { resetProjectConfigCache } from "../lib/project-config.js";
 import { InvalidValueError, MissingValueError } from "../lib/prompt.js";
+import { resetUserConfigCache } from "../lib/user-config.js";
 import * as validators from "../lib/validators.js";
 import {
   captureOutput,
@@ -746,6 +747,97 @@ jira:
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("`opener` is a personal setting"),
       );
+    });
+
+    // #281 D6 (unknown keys warn once, are ignored) and §5 (a user file that
+    // cannot be used stops the run, exit 2); the precedent is the project
+    // file's warning above. The file is a real one in a temp directory.
+    describe("the user file (#281)", () => {
+      let userDir: string;
+
+      function userFile(yaml: string) {
+        const file = join(userDir, "config.yml");
+        writeFileSync(file, yaml);
+        vi.stubEnv("WORKTREE_USER_CONFIG", file);
+        resetUserConfigCache();
+      }
+
+      beforeEach(() => {
+        userDir = mkdtempSync(join(tmpdir(), "worktree-branch-user-"));
+        personalConfig();
+      });
+
+      afterEach(() => {
+        rmSync(userDir, { recursive: true, force: true });
+      });
+
+      it("warns once about an unknown key, before anything is created", async () => {
+        userFile("herdr:\n  focus: false\nmysteryKey: 1\n");
+        const warn = vi.spyOn(branch, "warn");
+
+        await run({}, "feature/test");
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("`mysteryKey`"),
+        );
+        expect(warn.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(git.gitCreateWorktree).mock.invocationCallOrder[0] ?? 0,
+        );
+      });
+
+      it("warns once about a dotted key written flat", async () => {
+        userFile("herdr.focus: false\n");
+        const warn = vi.spyOn(branch, "warn");
+
+        await run({}, "feature/test");
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("`herdr.focus`"),
+        );
+      });
+
+      it("stops with exit 2 on a malformed file, before anything is created", async () => {
+        userFile("opener: [unclosed\n");
+
+        await expect(run({}, "feature/test")).rejects.toMatchObject({
+          code: "invalid_value",
+          oclif: { exit: 2 },
+        });
+        expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      });
+
+      it("prints nothing new when there is no user file", async () => {
+        const warn = vi.spyOn(branch, "warn");
+
+        await run({}, "feature/test");
+
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("keeps the warning in the --json document's warnings", async () => {
+        userFile("mysteryKey: 1\n");
+        personalConfig({ defaultSourceBranch: "origin/main" });
+        const command = new Branch(["--json"], await loadConfig());
+        (command as any).parse = vi.fn().mockResolvedValue({
+          args: { branchName: "feature/test" },
+          flags: {},
+        });
+        (command as any).parsed = true;
+        vi.spyOn(command as any, "openWorktreePath").mockResolvedValue({
+          opener: "none",
+        });
+        const output = captureOutput();
+        try {
+          await (command as any)._run();
+          expect(output.document().warnings).toEqual([
+            expect.stringContaining("`mysteryKey`"),
+          ]);
+        } finally {
+          output.restore();
+        }
+      });
     });
   });
 

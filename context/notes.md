@@ -50,3 +50,9 @@ Branch-local review notes for #281 (user-config-file). Nothing reads this file; 
 - The plan's Files line names `.changeset/user-config-file.md`; `context/release.md` says the note is written once per feature by `/feature-close` and no phase writes one, so phase 5 wrote none.
 - The key list in `configuration.mdx`'s *User config file* section and the reader descriptions in the guides restate `PERSONAL_KEYS`, the team fallback keys and each reader's layering by hand; no test fails if they drift.
 - The §8 manual pass ran against the built CLI with a throwaway `$HOME` on 2026-11-08: `config --user codeEditor code` wrote a `0600` file in a `0700` directory with the §4 header; two repositories both listed `codeEditor=code (user config)`; a local git `vim` listed `codeEditor=vim (overrides user config: code)`; `--user github.token …` exited 2 without echoing the value.
+
+## Phase 2, reopened — the user file's warnings in `branch` and `checkout`
+
+- `open` and `linear listen` read the user file (through `getConfigValue`) without printing its warnings, as they never printed `.worktree.yml`'s; the docs sentence "a key the file does not know is ignored with a warning" holds for `branch`, `checkout` and `config` only.
+- On the first-time path `branch` runs `config --skip-offers` in-process, which prints the cached user-file warnings a second time (the project file already double-prints the same way).
+- The `branch` malformed-file test would likely pass without the fix (`ensurePostCreateApproved` already loads the user file before creation); the warning-order test is what pins the new line. `--json` parity is asserted for `branch` only.
