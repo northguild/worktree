@@ -1,8 +1,12 @@
 import { getUnixNow } from "@northguild/gmt";
+import {
+  RATE_LIMIT_MAX_REQUESTS,
+  RATE_LIMIT_WINDOW_SECONDS,
+} from "../src/chat/lib/chat-constants";
 
 // Application-level abuse protection.
-const DEFAULT_RATE_LIMIT_MAX = 30;
-const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60;
+const DEFAULT_RATE_LIMIT_MAX = RATE_LIMIT_MAX_REQUESTS;
+const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = RATE_LIMIT_WINDOW_SECONDS;
 
 // Prune trigger: if the map exceeds this size, sweep expired entries.
 // Prevents unbounded growth from high-cardinality / spoofed client IDs.
