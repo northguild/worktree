@@ -2510,7 +2510,9 @@ describe("config command", () => {
 
       expect(mockConfirm).not.toHaveBeenCalled();
       expect(mockConsoleLog).toHaveBeenCalledWith(
-        expect.stringContaining("avatar -> Settings -> Apps -> API Token"),
+        expect.stringContaining(
+          "avatar -> Settings -> ClickUp API -> API Token",
+        ),
       );
       expect(mockSet).toHaveBeenCalledWith("clickup.apiToken", "pk_prompted");
       expect(mockSet).toHaveBeenCalledWith("clickup.workspaceId", "12345");
