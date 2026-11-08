@@ -275,7 +275,7 @@ export async function configureClickUp(ctx: WizardContext): Promise<void> {
   if (shouldPrompt(ctx, "clickup.apiToken")) {
     const clickUpTokenInstructions = [
       "To find your personal API token, follow these steps:",
-      " - Go to ClickUp -> your avatar -> Settings -> Apps -> API Token",
+      " - Go to ClickUp -> your avatar -> Settings -> ClickUp API -> API Token",
       " - Click 'Generate' (or 'Regenerate') and copy the token",
     ];
 
