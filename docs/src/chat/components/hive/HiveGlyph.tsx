@@ -3,7 +3,7 @@
  * D5). SVG rather than a flat `clip-path` hexagon because facet strokes must meet cleanly at the vertices, the
  * gradient has to run across real geometry to read as ice, and one vector serves a 28px turn marker and the 6rem hub.
  *
- * Geometry is `lib/dox-mark`; presentation is the `.gmt-dox-mark` rules in `styles/dox-hive.css`. Every colour is
+ * Geometry is `lib/dox-mark`; presentation is the `.gmt-dox-mark` rules in `styles/custom.css` (site-wide, as the header's link draws it too). Every colour is
  * `currentColor` or a token, so the mark takes the colour of whatever it sits in (`--gmt-hive-role` in a turn).
  */
 import {

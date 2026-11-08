@@ -342,12 +342,7 @@ export const PAIRS = [
     "var(--color-chat-accent)",
   ]),
   text("chat: error text", "var(--color-chat-danger)", CHAT),
-  // Plan #257 phase 4: what the transcript and the warning paint (AssistantMessage, ChatWarning).
-  text(
-    "chat: text on the assistant bubble",
-    "var(--color-chat-fg)",
-    onChat("var(--color-chat-fill)"),
-  ),
+  // What the warning paints (ChatWarning).
   text(
     "chat: warning text on its wash",
     "var(--color-chat-warn-ink)",
@@ -357,24 +352,6 @@ export const PAIRS = [
     "chat: text on the failure wash",
     "var(--color-chat-fg)",
     onChat("var(--color-chat-danger-wash)"),
-  ),
-  // Plan #257 phase 6: the starters (ChatStarters: text on --color-chat-fill, hover --color-chat-fill-strong, edge
-  // --color-chat-control-border) and the accuracy note (ChatInfo: muted text on the panel, measured above). The
-  // boundary's notice paints --color-chat-fg on --color-chat-bg, also measured above.
-  text(
-    "chat: text on a starter",
-    "var(--color-chat-fg)",
-    onChat("var(--color-chat-fill)"),
-  ),
-  text(
-    "chat: text on a starter under the pointer",
-    "var(--color-chat-fg)",
-    onChat("var(--color-chat-fill-strong)"),
-  ),
-  shape(
-    "chat: a starter's edge",
-    "var(--color-chat-control-border)",
-    onChat("var(--color-chat-fill)"),
   ),
   shape("focus ring on the page", "var(--gmt-spring-ink)", PAGE),
   shape("focus ring on the sidebar", "var(--gmt-spring-ink)", SIDEBAR),
@@ -395,11 +372,16 @@ export const PAIRS = [
     "var(--gmt-ice-dim)",
     HEADER,
   ),
-  shape("chat launcher fill on the page", "var(--gmt-spring)", PAGE),
-  shape("chat launcher border on the page", "var(--gmt-spring-ink)", PAGE),
-  shape("chat launcher glyph on its fill", "var(--gmt-ink-fixed)", [
-    "var(--gmt-spring)",
-  ]),
+  // The Dox link (#309 phase 4): the crystal in the header and the menu is the chip's icon colour, so it is measured as the
+  // theme toggle's is; the bar that marks /dox as the current page is the ink tier (a graphical object, 3:1).
+  shape("header: Dox link icon", "var(--sl-color-text-accent)", HEADER),
+  // The phone menu shows only below 50rem, where Starlight paints the sidebar pane `--sl-color-black` (the page void),
+  // not `--sl-color-bg-sidebar`.
+  shape("menu: Dox link icon", "var(--sl-color-text-accent)", PAGE),
+  shape("header: Dox link, current page bar", "var(--gmt-spring-ink)", HEADER),
+  // The landing's "Ask Dox": white text and a currentColor border (Starlight's secondary LinkButton look) on the page.
+  text("hero: Ask Dox text", "var(--sl-color-white)", PAGE),
+  shape("hero: Ask Dox border", "var(--sl-color-white)", PAGE),
   shape("chat: accent fill on the panel", "var(--color-chat-accent)", CHAT),
   // The hive's text (§4.1 rows 8-11, 16-20): the strip, the turns, the waiting line, the warnings, the composer, the fine print.
   text("hive: environment badge, local", "var(--gmt-signal-ink)", HIVE),

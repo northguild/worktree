@@ -8,12 +8,14 @@
  * beside the graphic (gmt `apps/dox` Hero.astro and HeroGlobe.astro at 6efa06e4). The copy's markup follows
  * Starlight's: one `h1#_top` carrying `data-page-title`, a tagline, and its LinkButtons.
  *
- * An action whose `attrs` carry `data-chat-open` is the "Ask Dox" button (the user, 2026-11-08, after gmt's landing): a
- * `<button>`, since it opens the chat drawer and goes nowhere, which the launcher's script wires up
- * (`chat/launcher.ts`). Its `link` is never rendered; Starlight's schema requires one.
+ * An action whose `attrs` carry `data-dox-cta` is the "Ask Dox" call to action (the user, 2026-11-08, after gmt's landing;
+ * a link since #309 D2): an `<a>` to /dox/ carrying the Dox crystal after its label (gmt's HeroActions `.gmt-dox-cta`).
+ * Starlight does not add `base` to a hero action's link, so the front matter writes it out. It is not a `LinkButton`:
+ * it keeps the pill look of the secondary variant, which the rules below give it (the crystal's own are in custom.css).
  */
 import { LinkButton } from "@astrojs/starlight/components";
 import Default from "@astrojs/starlight/components/Hero.astro";
+import DoxMark from "./DoxMark.astro";
 import HeroLeaves from "./HeroLeaves.astro";
 
 const { entry, id } = Astro.locals.starlightRoute;
@@ -36,31 +38,11 @@ const {
           actions.length > 0 && (
             <div class="actions">
               {actions.map(({ link: href, text, variant, icon, attrs }) =>
-                attrs?.["data-chat-open"] ? (
-                  <button
-                    type="button"
-                    class="ask-dox"
-                    aria-haspopup="dialog"
-                    data-chat-open
-                  >
+                attrs?.["data-dox-cta"] ? (
+                  <a {href} class="ask-dox gmt-dox-cta">
                     {text}
-                    {/* The launcher's chat bubble (heroicons' outline chat-bubble-bottom-center), so both read as the chat. */}
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke-width="1.5"
-                      stroke="currentColor"
-                      aria-hidden="true"
-                      focusable="false"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"
-                      />
-                    </svg>
-                  </button>
+                    <DoxMark id="cta" />
+                  </a>
                 ) : (
                   <LinkButton {href} {variant} icon={icon?.name}>
                     {text}
@@ -113,8 +95,8 @@ const {
     flex-wrap: wrap;
     gap: 0.75rem 1.25rem;
   }
-  /* Starlight's LinkButton `secondary` look (LinkButton.astro, Starlight 0.42.8) on a <button>, which LinkButton
-     cannot render: the same geometry and type, a border in the text's colour, no fill. */
+  /* Starlight's LinkButton `secondary` look (LinkButton.astro, Starlight 0.42.8) on a link that carries the crystal:
+     the same geometry and type, a border in the text's colour, no fill. */
   .ask-dox {
     display: inline-flex;
     align-items: center;
@@ -127,13 +109,8 @@ const {
     font: inherit;
     font-size: var(--sl-text-sm);
     line-height: 1.1875;
+    text-decoration: none;
     outline-offset: 0.25rem;
-    cursor: pointer;
-  }
-  .ask-dox svg {
-    flex-shrink: 0;
-    inline-size: 1.5rem;
-    block-size: 1.5rem;
   }
   /* The copy fades in and rises a little, title, tagline, then the action a beat later, starting just after the first
      paint (the user, 2026-11-04: the button "a bit later, and the whole content slightly later also"). CSS only, so it

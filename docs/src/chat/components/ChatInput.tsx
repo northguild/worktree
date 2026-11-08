@@ -79,8 +79,8 @@ interface ChatInputProps {
   disabled?: boolean;
   /**
    * Hard cap on the value's length, which also drives the remaining-characters
-   * count. Owned by the form rather than the field, for the reason `ChatForm`'s
-   * key handler is: how long a message may be is the form's policy.
+   * count. Owned by the composer (`DoxChat`) rather than the field, for the reason
+   * its key handler is: how long a message may be is the composer's policy.
    */
   maxLength?: number;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;

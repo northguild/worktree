@@ -135,41 +135,9 @@
   flex-direction: column;
 }
 
-/* ------------------------------------------------------------------ *
- * The crystal. Geometry is SVG (hive/HiveGlyph.tsx): facet strokes have to meet at vertices, and `clip-path` removes
- * strokes outright. One vector serves a 28px turn marker and the logo-scale hub.
- * ------------------------------------------------------------------ */
-
-.gmt-dox-mark {
-  display: block;
-  inline-size: 100%;
-  block-size: 100%;
-  overflow: visible;
-}
-
-.gmt-dox-mark-edge {
-  fill: none;
-  stroke: currentcolor;
-  stroke-width: 4;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.gmt-dox-mark-facet line {
-  stroke: currentcolor;
-  stroke-width: 1.5;
-  opacity: 0.5;
-  vector-effect: non-scaling-stroke;
-}
-
-.gmt-dox-mark-table {
-  fill: color(from var(--gmt-ice) srgb r g b / 6%);
-  stroke: currentcolor;
-  stroke-width: 1.5;
-  stroke-linejoin: round;
-  opacity: 0.75;
-  vector-effect: non-scaling-stroke;
-}
+/* The crystal's own rules (`.gmt-dox-mark*`) are site-wide, in custom.css: the header, the menu and the landing draw it
+   too, where this stylesheet is not loaded. Geometry is SVG (hive/HiveGlyph.tsx): facet strokes have to meet at vertices,
+   and `clip-path` removes strokes outright. One vector serves a 28px turn marker and the logo-scale hub. */
 
 /* The stage: `perspective` on the outer box and `transform-style: preserve-3d` on the inner one are what make a
    rotation read as a solid turning and not a flat card squashing. */
@@ -853,7 +821,7 @@
 }
 
 /* Send is the one primary action: the accent's fill tier on the page's own surface, never a solid accent. It is also
-   Stop, and it overrides the utilities `ChatSubmitButton` carries for the drawer (this sheet is unlayered, so it wins). */
+   Stop, and it overrides the utilities `ChatSubmitButton` carries (this sheet is unlayered, so it wins). */
 .gmt-hive-submit {
   display: inline-grid;
   place-items: center;

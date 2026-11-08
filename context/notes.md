@@ -32,9 +32,7 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
 - **Dox and You share one colour.** D5 maps gmt's cyan (Dox) to spring, which was already gmt's user colour, so the
   two speakers' nodes, card tints and labels are the same green; only side and label tell them apart. A maintainer
   call: give one role ice or another tint, or accept it.
-- **The drawer until Phase 4.** `ChatWarning`, `ChatErrorBoundary` (which also loses its toast placement), the code
-  blocks' Copy bar in `MarkdownContent` and `ChatSubmitButton`'s icon now carry the hive look, which the drawer does not
-  load, so they render unstyled there. The branch never merges before Phase 4 deletes the drawer (one PR per feature).
+- **The drawer until Phase 4.** Moot: Phase 4 deleted the drawer.
 - **Layer order on the live site.** `@layer starlight.reset`'s `* { margin: 0 }` is declared after Tailwind's
   `utilities`, so `mb-2` and `space-y-*` do nothing anywhere on the site, the drawer's answers included. `/dox` gets
   its own reading surface; the drawer is retired in Phase 4, so nothing was filed.
@@ -43,8 +41,8 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
   ResizeObserver.
 - **Wording the code chose.** "Jump to latest message", "Copy" / "Copied" / "Copy failed" have no plan source (gmt's
   scroll button has no name). Belongs with §9 Q9.
-- **Rules with no test yet.** The reader's text rendered as text rather than markdown (only `UserMessage.test.tsx`,
-  deleted in Phase 4); "New chat" during a stream stopping it; `scrollToBottom` instant under reduced motion; the
+- **Rules with no test yet.** (The reader's text rendered as text is tested in `DoxChat.test.tsx` since Phase 4.)
+  "New chat" during a stream stopping it; `scrollToBottom` instant under reduced motion; the
   boundary marker `aria-hidden`. The warning's Try again focus ring (spring ink on the signal fill) is not measured.
 - **Model preference.** A model stored by the drawer is ignored on `/dox` until Phase 8's brain menu.
 - **Every code block is a tab stop.** `MarkdownContent`'s `<pre>` is a focusable named region even when it does not
@@ -71,3 +69,16 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
   transcript).
 - **Chunk sizes.** §8 asks for the gzipped `/dox` chunk sizes before and after each UI phase (#304); Phases 1 and 2 did
   not record them. Phase 3's commit records the sizes after it.
+
+## Phase 4
+
+- **Visible differences from gmt, for §9 Q8.** gmt's hero CTA is a ghost `LinkButton`; ours is the site's bordered
+  pill beside "Get started". gmt animates the header Dox link in its landing entrance; ours keeps it static
+  (`a.header-chip:not(.dox-link)` in `custom.css`) while Q8 is open — change those two selectors to animate it.
+- **No Dox link on a phone's 404.** The header's right group is hidden at phone width and splash pages have no mobile
+  menu. gmt has the same shape.
+- **The share image is stale.** `docs/public/og-image.jpg` (last committed 2026-11-04) shows neither the header crystal
+  nor the "Ask Dox" CTA; the og-image comment says to retake it when the landing changes. Needs a person with the
+  capture setup.
+- **Test style.** `DoxChat.test.tsx` queries `.gmt-hive-user-text` to check raw newlines (`toHaveTextContent`
+  collapses whitespace); `react/testing.md` advises against class queries.

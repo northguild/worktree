@@ -104,6 +104,8 @@ export default defineConfig({
         ThemeProvider: "./src/components/ThemeProvider.astro",
         // The header's right group reads theme, language select, GitHub, Discord (#266, D5); Starlight's puts GitHub first.
         Header: "./src/components/Header.astro",
+        // The mobile menu repeats the header's "Chat with Dox" link before the social icons (#309 D2): the right group is hidden on a phone.
+        MobileMenuFooter: "./src/components/MobileMenuFooter.astro",
         Footer: "./src/components/Footer.astro",
         Head: "./src/components/Head.astro",
         // The landing (D17) sets its copy beside the leaf-particle hero; every other splash page (the 404) keeps Starlight's Hero.
@@ -137,7 +139,7 @@ export default defineConfig({
           },
         },
         // The share preview (plan §9 Q3; the user, 2026-11-04: the landing with one of the hero's shapes): the landing in
-        // the dark theme with the hero formed as the git graph. A screenshot of `astro preview` at 1440×756 (DPR 2), the chat launcher and the CLI
+        // the dark theme with the hero formed as the git graph. A screenshot of `astro preview` at 1440×756 (DPR 2), the CLI
         // version hidden so it does not age with a release, scaled to 1200×630. Retake it when the landing changes.
         ...[
           ["og:image", "https://northguild.dev/worktree/og-image.jpg"],

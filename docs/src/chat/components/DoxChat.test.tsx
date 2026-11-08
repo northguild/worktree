@@ -143,6 +143,21 @@ describe("DoxChat -- the transcript", () => {
     expect(screen.getAllByRole("article")).toHaveLength(2);
   });
 
+  // Kept from the drawer's UserMessage test (#257 D7), whose component went with the drawer: what the reader typed is shown as typed.
+  it("shows the reader's question as the characters typed, newlines kept, never as markdown", async () => {
+    whole(answerStream);
+    render(<DoxChat />);
+    ask("*not italic*\n# not a heading");
+
+    const you = await screen.findByRole("article", { name: "You" });
+    expect(you).toHaveTextContent("*not italic* # not a heading");
+    expect(you.querySelector(".gmt-hive-user-text")?.textContent).toBe(
+      "*not italic*\n# not a heading",
+    );
+    expect(you.querySelector("em, h1")).toBeNull();
+    await screen.findByRole("article", { name: "Dox" });
+  });
+
   it("waits on a turn that says it is searching the docs, and drops it when the answer fails with no text", async () => {
     whole(runErrorStream);
     render(<DoxChat />);
@@ -244,6 +259,34 @@ describe("DoxChat -- the composer", () => {
     await waitFor(() => expect(stream.fetchMock).toHaveBeenCalledOnce());
     expect(box).toHaveValue("");
     await stream.end();
+  });
+
+  // Kept from the drawer's ChatInput test (through ChatForm): a blank box sends nothing, by Enter or by the disabled Send.
+  it("sends nothing from a blank box, by Enter or by clicking the disabled Send", () => {
+    const stream = openStream();
+    render(<DoxChat />);
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "   \n " } });
+
+    fireEvent.keyDown(box, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(stream.fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Kept from the drawer's ChatInput test (through ChatForm): a message the guarded send refuses stays in the box. A lone
+  // zero-width space is not empty to `trim()`, so it reaches `submit`, which strips it and refuses it ("Message is empty.").
+  it("keeps a message the guarded send refuses in the box, and says why", () => {
+    const stream = openStream();
+    render(<DoxChat />);
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "\u200b" } });
+
+    fireEvent.keyDown(box, { key: "Enter" });
+
+    expect(stream.fetchMock).not.toHaveBeenCalled();
+    expect(box).toHaveValue("\u200b");
+    expect(screen.getByText("Message is empty.")).toBeInTheDocument();
   });
 
   // WCAG-adjacent and #257 D15: while an IME composition is open, Enter confirms a candidate; it must not send.

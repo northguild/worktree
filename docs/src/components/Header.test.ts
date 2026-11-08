@@ -77,3 +77,31 @@ describe("Header.astro's inline internal-arrival script", () => {
       );
   });
 });
+
+// #309 phase 4 (D2). Header.astro imports Starlight's virtual modules and cannot be rendered here; the built page is held
+// to these rules by `docs/scripts/audit-dist.mjs`, and this pins the source that produces them: the right group lists the
+// Dox link, named "Chat with Dox", ahead of the theme toggle, current on /dox alone (gmt's Header.astro).
+describe("Header.astro's Dox link", () => {
+  const right = source.slice(
+    source.indexOf('<div class="sl-flex social-icons">'),
+  );
+
+  it("is the first of the right group, ahead of the theme toggle", () => {
+    expect(right.indexOf('class="header-chip dox-link"')).toBeGreaterThan(-1);
+    expect(right.indexOf("dox-link")).toBeLessThan(
+      right.indexOf("<ThemeSelect"),
+    );
+    expect(right.indexOf("<ThemeSelect")).toBeLessThan(
+      right.indexOf("<SocialIcons"),
+    );
+  });
+
+  it("is named Chat with Dox and goes to /dox/ under the site base", () => {
+    expect(right).toContain('aria-label="Chat with Dox"');
+    expect(right).toContain("href={`${base}dox/`}");
+  });
+
+  it("is the current page only on /dox", () => {
+    expect(right).toContain('aria-current={onDox ? "page" : undefined}');
+  });
+});

@@ -15,13 +15,12 @@
  * 2026-11-04, replacing phase 8's edit links; gmt's docs have none either); no page carries the project line the
  * footer once had (licence, CLI version, maintainers); and no page shows the northguild organisation's GitHub avatar,
  * the second logo the footer once carried beside the header's mark; no id appears twice on a page; and the landing has one
- * link action ("Get started"), one "Ask Dox" button that opens the chat, and no section below the hero. Per site: `llms.txt`
+ * link action ("Get started"), one "Ask Dox" link to /dox/, and no section below the hero. Per site: `llms.txt`
  * (D13) is a llmstxt.org file listing the same 28 URLs, each with a title and the page's own description.
  *
  * Also (phase 9, accessibility): every button has an accessible name (an icon-only one needs an `aria-label`, an
  * `aria-labelledby` or a `title`), and a name that stands beside visible text contains it (WCAG 2.5.3); every
- * `<select>` is labelled; every page has the search button; the chat launcher announces its shortcut with
- * `aria-keyshortcuts="Alt+Shift+C"` (WAI-ARIA 1.2 syntax); the built CSS gives the package-manager tabs a minimum
+ * `<select>` is labelled; every page has the search button; the built CSS gives the package-manager tabs a minimum
  * height of at least 44px; and `404.html` has the site's search, a link to Getting Started, and no canonical link or
  * JSON-LD (it is not a page of the site, so it must not point at one). The search *input* is made by Pagefind in the
  * browser and is not in the HTML: its label is a real-browser check.
@@ -66,8 +65,15 @@
  * Also (#309 phase 1, the Dox page): `/dox/` is not one of the 28 pages and gets rules of its own (`auditDox`). It is built
  * (`dox/index.html`), `noindex`, listed in neither the sitemap nor `llms.txt`, and shaped as D6 says: the inline script that
  * sets `data-dox-shell`, exactly one `astro-island`, `<title>` `Dox · @northguild/worktree`, the site header, named
- * controls, no footer and no chat launcher (the page is the chat), every graphic hidden or named. No other page or the
+ * controls, no footer (the page is the chat), every graphic hidden or named. No other page or the
  * 404 loads Dox code: the island's chunk, or the stylesheet that carries the hive.
+ *
+ * Also (#309 phase 4, D2, the links to /dox/): the chat is a page, and its entry points are plain links. On every page and
+ * the 404 the `<header>` has one link to /worktree/dox/ named "Chat with Dox", before the theme toggle (so first in the
+ * right group); it carries `aria-current="page"` on /dox/ and nowhere else; where the page has a mobile menu
+ * (`mobile-preferences`, the pages with a sidebar) the menu has the same link before the social icons; and the landing
+ * has one "Ask Dox" link to /worktree/dox/ and no "Ask Dox" button. The launcher, the bubble and the shortcut are gone,
+ * so their rules are too; "Dox code on /dox/ alone" (`auditDox`) is what keeps the chat from loading elsewhere.
  *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
@@ -314,7 +320,6 @@ function jsonLdTypes(html) {
   return { types };
 }
 
-const CHAT_SHORTCUT_ARIA = "Alt+Shift+C";
 const MIN_TAB_HEIGHT_PX = 44;
 // A rem is the root font size, 16px unless the site changes it; the site does not.
 const PX_PER_REM = 16;
@@ -334,6 +339,10 @@ const NEW_TAB_WORDING = "(opens in a new tab)";
 // The northguild organisation's GitHub avatar, at any size (phase 15: one logo, the header's).
 const ORG_AVATAR = /^https:\/\/github\.com\/northguild\.png(\?|$)/;
 
+// #309 D2: the chat is a page, reached by plain links named alike in the header and the mobile menu.
+const DOX_HREF = "/worktree/dox/";
+const DOX_LINK_NAME = "Chat with Dox";
+
 /** The page's `<header>` element, from its opening tag to its closing tag; "" when it has none. */
 function headerOf(html) {
   const open = html.indexOf("<header");
@@ -348,7 +357,7 @@ const linkVisibleText = (inner) => visibleLabel(inner);
  * The header's links (WCAG 4.1.2 name, 2.5.3 label in name): the two NorthGuild links exist, resolve where D17 says and
  * are named by their own text; the community icons open in a new tab, say so, and carry `rel=noopener`.
  */
-function auditHeader(html, where) {
+function auditHeader(html, where, { onDox = false } = {}) {
   const failures = [];
   const fail = (rule) => failures.push(`${where}: header: ${rule}`);
   const header = headerOf(html);
@@ -419,11 +428,66 @@ function auditHeader(html, where) {
   const discordAt = links.find(
     (l) => l.attrs.href === COMMUNITY_LINKS[1].href,
   )?.at;
+  // #309 phase 4, D2: Dox first in the right group, so ahead of the theme toggle (and so of GitHub and Discord).
+  const doxLinks = links.filter((l) => l.attrs.href === DOX_HREF);
+  if (doxLinks.length !== 1)
+    fail(`${doxLinks.length} links to ${DOX_HREF}, expected exactly 1`);
+  else {
+    const [dox] = doxLinks;
+    const name = named(dox);
+    if (name !== DOX_LINK_NAME)
+      fail(
+        `the link to ${DOX_HREF} is named "${name}", expected "${DOX_LINK_NAME}"`,
+      );
+    if (
+      (toggleAt !== -1 && dox.at > toggleAt) ||
+      (githubAt !== undefined && dox.at > githubAt)
+    )
+      fail(
+        "the Dox link comes after the theme toggle or GitHub, expected it first in the right group",
+      );
+    const current = dox.attrs["aria-current"];
+    if (onDox && current !== "page")
+      fail(`the Dox link has no aria-current="page" on /dox/`);
+    if (!onDox && current !== undefined)
+      fail(`the Dox link carries aria-current="${current}" off /dox/`);
+  }
   if (toggleAt === -1) fail("no theme toggle in the header");
   else if (githubAt !== undefined && toggleAt > githubAt)
     fail("the theme toggle comes after the GitHub link, expected it before");
   if (githubAt !== undefined && discordAt !== undefined && githubAt > discordAt)
     fail("the GitHub link comes after the Discord link, expected it before");
+  return failures;
+}
+
+/**
+ * The mobile menu (Starlight's `mobile-preferences`, on the pages with a sidebar) repeats the Dox link before the social
+ * icons, because the header's right group is hidden below the `md` breakpoint (gmt's MobileMenuFooter.astro). A page with
+ * no such menu (the landing, the 404, /dox/) has nothing to check.
+ */
+function auditMobileMenu(html, where) {
+  const start = html.indexOf('class="mobile-preferences');
+  if (start === -1) return [];
+  const menu = html.slice(start);
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: mobile menu: ${rule}`);
+  const link = [...menu.matchAll(/<a\b([^>]*)>/g)]
+    .map((m) => ({ at: m.index, attrs: attributes(m[1]) }))
+    .find((l) => l.attrs.href === DOX_HREF);
+  if (link === undefined) {
+    fail(`no link to ${DOX_HREF}`);
+    return failures;
+  }
+  const name = (link.attrs["aria-label"] ?? "").trim();
+  if (name !== DOX_LINK_NAME)
+    fail(
+      `the link to ${DOX_HREF} is named "${name}", expected "${DOX_LINK_NAME}"`,
+    );
+  const github = menu.indexOf(COMMUNITY_LINKS[0].href);
+  if (github !== -1 && link.at > github)
+    fail(
+      "the Dox link comes after the social icons, expected it before the social icons",
+    );
   return failures;
 }
 
@@ -932,17 +996,15 @@ export async function entranceCssFindings(dist) {
   return findings;
 }
 
-/** Failures in how a page's controls are named (WCAG 4.1.2 and 2.5.3) and in the chat launcher's announced shortcut. */
-function auditControls(html, where, { launcher: wantsLauncher = true } = {}) {
+/** Failures in how a page's controls are named (WCAG 4.1.2 and 2.5.3). */
+function auditControls(html, where) {
   const failures = [];
   const fail = (rule) => failures.push(`${where}: ${rule}`);
   const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
   let hasSearch = false;
-  let launcher;
   for (const [, rawAttrs, inner] of buttons) {
     const attrs = attributes(rawAttrs);
     if ("data-open-modal" in attrs) hasSearch = true;
-    if ("data-chat-launcher" in attrs) launcher = attrs;
     const ariaLabel = (attrs["aria-label"] ?? "").trim();
     const hidden = (re) => withoutElements(inner, "span", re);
     const contentName = textOf(
@@ -969,21 +1031,6 @@ function auditControls(html, where, { launcher: wantsLauncher = true } = {}) {
       );
   }
   if (!hasSearch) fail("no search button (data-open-modal)");
-
-  if (!wantsLauncher) {
-    // /dox is the chat: a launcher there would open a second one (#309 D6).
-    if (launcher !== undefined)
-      fail("has the chat launcher (data-chat-launcher); this page is the chat");
-  } else if (launcher === undefined)
-    fail("no chat launcher button (data-chat-launcher)");
-  else if (launcher["aria-keyshortcuts"] === undefined)
-    fail(
-      `chat launcher has no aria-keyshortcuts, expected ${CHAT_SHORTCUT_ARIA}`,
-    );
-  else if (launcher["aria-keyshortcuts"] !== CHAT_SHORTCUT_ARIA)
-    fail(
-      `chat launcher aria-keyshortcuts is ${launcher["aria-keyshortcuts"]}, expected ${CHAT_SHORTCUT_ARIA}`,
-    );
 
   const labels = [
     ...html.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/g),
@@ -1016,7 +1063,6 @@ function tabMinHeightPx(css) {
   return largest;
 }
 
-const isChatChunk = (reference) => /(^|\/)Chat\.[^/]*$/.test(reference);
 // The hero's loader is the page script Astro builds from HeroLeaves.astro; the effect (OGL and the particles) is
 // src/hero/particles.ts, a chunk of its own that only the loader's dynamic import reaches.
 const isHeroLoader = (reference) => /(^|\/)HeroLeaves\.[^/]*$/.test(reference);
@@ -1061,9 +1107,6 @@ async function loadedUpFront(html, dist, isChunk) {
   }
   return false;
 }
-
-const chatLoadedUpFront = (html, dist) =>
-  loadedUpFront(html, dist, isChatChunk);
 
 // D18's budget: the loader at most 2 KB gzipped, everything it imports, together, at most 32 KB gzipped.
 export const HERO_LOADER_BUDGET = 2 * 1024;
@@ -1269,13 +1312,12 @@ async function auditPage(path, dist, descriptions, options) {
       fail(`JSON-LD types are [${ld.types}], expected [${expected}]`);
   }
 
-  if (await chatLoadedUpFront(html, dist))
-    fail("loads chat code before it is activated");
   for (const rule of await auditHero(html, dist, path === "")) fail(rule);
 
   failures.push(...auditControls(html, label(path)));
   failures.push(...auditThemeControl(html, label(path)));
   failures.push(...auditHeader(html, label(path)));
+  failures.push(...auditMobileMenu(html, label(path)));
   failures.push(...auditEntranceMarkup(html, label(path), path === ""));
   failures.push(...auditSvgs(html, label(path)));
 
@@ -1310,8 +1352,7 @@ async function auditPage(path, dist, descriptions, options) {
   if (tagsOf(html, "a").some((a) => GITHUB_EDIT.test(a.href ?? "")))
     fail("carries an edit link to GitHub; no page has one");
 
-  // The landing has no footer (phase 15): no date. The chat launcher is checked with the other controls above, so it is
-  // still required there.
+  // The landing has no footer (phase 15): no date.
   if (path === "") {
     if (times.length > 0)
       fail("the landing carries a last updated date; it has no footer");
@@ -1497,10 +1538,10 @@ async function auditDox(dist) {
   if (/<footer\b/.test(html))
     fail("renders a footer; the page is full-bleed and has none");
 
-  // The header, the controls and the graphics are the site-wide rules, with the one difference that the page is the chat
-  // and so carries no launcher.
-  failures.push(...auditHeader(html, "/dox/"));
-  failures.push(...auditControls(html, "/dox/", { launcher: false }));
+  // The header, the controls and the graphics are the site-wide rules, with the one difference that the page is the chat,
+  // so its header's Dox link is the current page.
+  failures.push(...auditHeader(html, "/dox/", { onDox: true }));
+  failures.push(...auditControls(html, "/dox/"));
   failures.push(...auditSvgs(html, "/dox/"));
   const ids = new Map();
   for (const [, id] of html.matchAll(/\sid="([^"]*)"/g))
@@ -1616,23 +1657,27 @@ async function auditSite(dist) {
       failures.push(
         `/ (root): the landing has ${actions} actions, expected only "Get started"`,
       );
-    // The user, 2026-11-08: "we are missing an 'Ask Dox' button in the landing page", as gmt's landing has. It is a
-    // <button> beside the one link action, not a second one: it opens the chat drawer (`data-chat-open`, which
-    // chat/launcher.ts wires) and goes nowhere.
-    const askDox = [
-      ...root.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g),
-    ].filter(([, , inner]) => /^ask dox$/i.test(textOf(inner)));
-    if (askDox.length !== 1)
+    // The user, 2026-11-08: "we are missing an 'Ask Dox' button in the landing page", as gmt's landing has. Since #309 D2 it is
+    // a link to /dox/ (the chat is a page), beside the one link action and not counted as a second: it is no
+    // `sl-link-button`. A button of that name would be the drawer's.
+    const askDoxLinks = [
+      ...root.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g),
+    ].filter(
+      ([, attrs, inner]) =>
+        attributes(attrs).href === DOX_HREF && /^ask dox$/i.test(textOf(inner)),
+    );
+    if (askDoxLinks.length !== 1)
       failures.push(
-        `/ (root): the landing has ${askDox.length} "Ask Dox" buttons, expected 1`,
+        `/ (root): the landing has ${askDoxLinks.length} "Ask Dox" links to ${DOX_HREF}, expected 1`,
       );
-    else {
-      const attrs = attributes(askDox[0][1]);
-      if (attrs.type !== "button" || !("data-chat-open" in attrs))
-        failures.push(
-          '/ (root): the "Ask Dox" button does not open the chat (it needs type="button" and data-chat-open)',
-        );
-    }
+    if (
+      [...root.matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)].some(
+        ([, inner]) => /^ask dox$/i.test(textOf(inner)),
+      )
+    )
+      failures.push(
+        `/ (root): "Ask Dox" is a button; it must be a link to ${DOX_HREF}`,
+      );
     const sections = (root.match(/<h2\b/g) ?? []).length;
     if (sections > 0)
       failures.push(

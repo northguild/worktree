@@ -11,11 +11,11 @@ hero:
       link: /worktree/getting-started/
       icon: right-arrow
       variant: primary
-    # Opens the chat drawer: Hero.astro renders an action carrying `data-chat-open` as a button, so this `link` is
-    # never followed. Starlight requires one.
+    # The call to Dox: Hero.astro renders an action carrying `data-dox-cta` as a link with the Dox crystal. Starlight does not
+    # add `base` to a hero action's link, so it is written out.
     - text: Ask Dox
-      link: "#"
+      link: /worktree/dox/
       variant: secondary
       attrs:
-        data-chat-open: true
+        data-dox-cta: true
 ---

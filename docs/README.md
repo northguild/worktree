@@ -65,13 +65,12 @@ useChat folds the events into messages;  docs/src/chat/  renders them
 
 On the page, the pieces are:
 
-- **Opening it.** The launcher button (`components/ChatLauncher.astro`, on every page) imports the chat on first use,
-  by click or Alt+Shift+C, mounts it open and hands over to the chat's own trigger (`launcher.ts`). A control marked
-  `data-chat-open` opens it too: the landing's "Ask Dox", which `Hero.astro` renders as a button from the hero action
-  carrying that attribute. Before the chat has loaded it loads it, as the launcher does; after, it sends
-  `docs-chat:open`, which the drawer listens for. In dev the launcher's script first imports
-  `@vitejs/plugin-react/preamble`: `@astrojs/react` injects React's refresh preamble only on a page that hydrates an
-  island, and none does, so without it the chat chunk throws "can't detect preamble".
+- **Opening it.** The chat is a page, `/worktree/dox/` (see *The Dox page*), and every way in is a plain link, so no other page
+  loads chat code. The header's right group reads Dox, theme, GitHub, Discord: the first is the "Chat with Dox" crystal
+  (`components/Header.astro`), a link named "Chat with Dox" that carries `aria-current="page"` on `/dox/`, and the mobile menu
+  (`components/MobileMenuFooter.astro`, on the pages with a sidebar) repeats it before the social icons, because the header's
+  group is hidden on a phone. The landing's "Ask Dox" is a link too (*The landing hero*). There is no launcher button, bubble,
+  drawer, keyboard shortcut or open event.
 - **The connection.** `fetchServerSentEvents` posts to `PUBLIC_GEMINI_WORKER_URL` plus `/api/chat`
   (`lib/chat-endpoint.ts`; unset, it is `http://localhost:8787`). Its `fetchClient` is `chatFetch`
   (`lib/chat-fetch.ts`), which does three things the library does not: it reads the Worker's `{ error, retryable }`
@@ -80,20 +79,18 @@ On the page, the pieces are:
   alone. The chosen model travels as `forwardedProps.model`.
 - **The transcript.** One conversation (`threadId` `docs-chat`), kept in `localStorage` by `useChat`'s
   persistence under `docs_chat_transcript:docs-chat`. Only text parts are stored; anything else read back is
-  refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). Switching model keeps it; "Clear chat" stops a stream and removes
-  it. The model preference is `docs_chat_model`, and a stored value that is not one of the two models on offer
-  reads as the default. The retired client's three `docs_chat_history_<model>` keys are removed on first mount.
+  refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). "New chat" (on `/dox/`) stops a stream and removes it. The page asks the default model; a model the drawer stored under
+  `docs_chat_model` is ignored. The retired client's three `docs_chat_history_<model>` keys are removed on first mount.
 - **Failures.** They are never messages. A status before the stream opens, a `RUN_ERROR` inside it or a dropped
   connection becomes one warning under the transcript (`components/ChatWarning.tsx`) with "Try again" when asking
   again can help. An answer that is silent for 30 s, or runs for 120 s, is stopped and warned about.
-- **The empty chat and its limits.** With no question yet, the transcript offers three starter questions
-  (`lib/chat-starters.ts`, each paired with the docs page that answers it), sent through the same guarded
-  `submit` as the composer; focus moves to the message field when they go. A line under the composer
-  (`AccuracyNote` in `components/ChatInfo.tsx`) says the answers can be wrong. `Chat.tsx` wraps the provider and drawer in
+- **The empty chat and its limits.** With no question yet, the page shows the hub and the examples rail, whose three starter
+  questions (`lib/chat-starters.ts`, each paired with the docs page that answers it) are sent through the same guarded
+  `submit` as the composer; focus moves to the message field when one is sent. A line under the composer
+  (`AccuracyNote` in `components/ChatInfo.tsx`) says the answers can be wrong. `DoxPage.tsx` wraps the chat in
   `ChatErrorBoundary`: a render error shows a `role="alert"` notice, with "Reload the page" when the error is
-  a failed module load and "Try again" otherwise. A chat chunk missing on first open never reaches it: the
-  launcher's `import()` fails first and shows its own load error (`launcher.ts`).
-- **Rendering.** Only text parts render, the assistant's through `MarkdownContent` (see below). The bubble is a
+  a failed module load and "Try again" otherwise.
+- **Rendering.** Only text parts render, the assistant's through `MarkdownContent` (see below). The answer's card is a
   polite live region; a recoverable warning is `role="status"`, one that retrying will not fix is `role="alert"`.
 
 `POST /` on the Worker still speaks the old protocol for the site that is live until the next release; see
@@ -199,7 +196,7 @@ spring green. The vendored tokens define both families (`--gmt-cyan`, `--gmt-spr
 tier that the light theme darkens for text). **The accent is chosen in one place, `src/styles/theme.css`**:
 `--sl-color-accent` (fills, borders, rings: 3:1) takes the fill tier and `--sl-color-text-accent`,
 `--sl-color-accent-high` and the chat's `--color-chat-accent-ink` (in `globals.css`) take the ink tier (text: 4.5:1).
-To move to another family, change those mappings, the focus-ring colour, the launcher in `globals.css`, the
+To move to another family, change those mappings, the focus-ring colour, the Dox mark's glow and current-page bar in `custom.css`, the
 re-derived hairline, border and selection tokens, and the two `--gmt-teal` lines in `theme.css` (the vendored tokens
 tint hairlines, glass and fills with cyan, and the vendored files are never edited). Then run:
 
@@ -258,19 +255,17 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 
 `src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (last updated,
 pagination; there is no edit link, since `astro.config.mjs` sets no `editLink`) through `Default` and nothing else; the licence line, the CLI version and the maintainers it once
-added are gone (the CLI version is in the header). The landing renders no footer at all: it is the hero alone. The chat
-launcher is rendered from the same file on every page, the landing included, because Starlight has no slot of its own
-for it, and not on `/dox/` (below). Its script then moves it to the end of `<body>`: Starlight's page pane is `isolation: isolate`, so inside it the
-right sidebar ("On this page") painted over the button on wide pages whatever its z-index (#266). `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
-checked in `dist/` instead (`pnpm docs:audit-dist`). On `/dox/` it renders neither Starlight's footer nor the launcher, told by
-the URL because `/dox/` is a `StarlightPage` and not a collection entry, so it has no route id.
+added are gone (the CLI version is in the header). The landing renders no footer at all: it is the hero alone, and `/dox/` renders none either, told by the URL
+because `/dox/` is a `StarlightPage` and not a collection entry, so it has no route id. `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
+checked in `dist/` instead (`pnpm docs:audit-dist`). The chat launcher it once rendered is gone (#309): the chat is the page `/dox/`.
 
 ## The Dox page
 
 `/worktree/dox/` (`src/pages/dox.astro`) is the page the chat is becoming (plan #309): a full-bleed hive of its own under the
 site header, with a strip holding "New chat" (once there is a transcript) and the environment badge (`● local` or `● live`, set after
 mount so the server markup matches), and, below it, the chat: the empty hub (the Dox crystal at logo scale and the prompt line) or the
-transcript, and the pinned composer, with the examples rail beside it. The drawer and its launcher still open the chat on every other page.
+transcript, and the pinned composer, with the examples rail beside it. It is the only chat surface: the drawer, its launcher and the
+shortcut are gone, and every other page links to it (*Opening it* above).
 
 - **Shape.** A `StarlightPage` with `template: splash`, title "Dox", `noindex`, `pagefind: false`, an inline `<head>` script that sets
   `data-dox-shell` on `<html>`, and one `client:load` island, `DoxPage` (`src/chat/components/`). The page's global `<style>` keys
@@ -280,8 +275,8 @@ transcript, and the pinned composer, with the examples rail beside it. The drawe
 - **Kept out of lists.** The sitemap is `@astrojs/sitemap`, configured in `astro.config.mjs` with a `filter` that drops `/worktree/dox/`
   (Starlight adds its own sitemap only when none is configured). `llms.txt` is built from the content collection, which `/dox/` is not
   part of, and it is not one of the audit's 28 `PAGE_PATHS`.
-- **The chat (`chat/components/DoxChat.tsx`).** The engine is the one the drawer uses, `useDocsChat`; only the parts are restyled
-  into the hive. Each question and answer is a turn: the crystal's node, labelled "You" or "Dox", beside a card (a zigzag from 48rem
+- **The chat (`chat/components/DoxChat.tsx`).** The engine is `useDocsChat`; the parts (`ChatInput`, `ChatSubmitButton`, `ChatWarning`, `MarkdownContent`) are the
+  site's own, restyled into the hive. Each question and answer is a turn: the crystal's node, labelled "You" or "Dox", beside a card (a zigzag from 48rem
   of the transcript's own width; one column below). The answer is `MarkdownContent`, whose fenced code carries the language and a
   "Copy" button, and no download. The reader's question is text, never markdown.
   - **Waiting.** From the send until the first text, the newest turn is Dox's, with "Searching docs…", a scanline and the crystal
@@ -297,8 +292,8 @@ transcript, and the pinned composer, with the examples rail beside it. The drawe
     Under it, the accuracy note on a wide screen; at 60rem and below it moves into a popup the info button opens (`ChatInfo.tsx`).
   - **"New chat"** stops a stream, empties the transcript, shows the hub and puts focus in the composer. The transcript is kept in
     `localStorage` as before; per-message times are not shown.
-  - **The examples rail** (`ExamplesRail.tsx`, `ExamplesPanel.tsx`) holds the three starters of `lib/chat-starters.ts`, which the
-    drawer's empty transcript offers too. Each has an `area` ("Issues", "Environment files", "Cleanup"; the rail groups by it and
+  - **The examples rail** (`ExamplesRail.tsx`, `ExamplesPanel.tsx`) holds the three starters of `lib/chat-starters.ts`, which
+    are the page's examples. Each has an `area` ("Issues", "Environment files", "Cleanup"; the rail groups by it and
     draws an icon per area in `ExamplesPanel.tsx`) and a `route`, the docs page that answers it, shown as the card's chip. A card is a
     button named by its question and described by its chip. It sends through `DoxChat`'s handle (`send`), which is the composer's own
     guarded send: refused while an answer is coming (focus stays on the card), otherwise sent, with a draft in the field left alone
@@ -317,16 +312,21 @@ transcript, and the pinned composer, with the examples rail beside it. The drawe
 - **Style.** `src/styles/dox-hive.css` is gmt's hive stylesheet, recoloured to the spring tier (`--gmt-spring` for fills and borders,
   `--gmt-spring-ink` for text) and imported by the island, so Vite ships it with that page only. The three tokens the vendored theme lacks
   (`--gmt-motion-scan-duration`, `--gmt-motion-sheen-duration`, `--gmt-z-behind`) are declared in `theme.css`. The crystal's geometry
-  is `src/lib/dox-mark.ts`, ported unchanged from gmt and drawn in `currentColor` by `chat/components/hive/HiveGlyph.tsx`.
+  is `src/lib/dox-mark.ts`, ported unchanged from gmt and drawn in `currentColor` by `chat/components/hive/HiveGlyph.tsx` in the hive and by
+  `components/DoxMark.astro` in the header, the menu and the landing, where the hive's stylesheet is not loaded: the mark's own rules
+  (`.gmt-dox-mark*`) are therefore site-wide, in `custom.css`, with the Dox link's chip, glow and current-page bar.
 - **Audit.** `pnpm docs:audit-dist` holds `/dox/` to rules of its own (`auditDox`): `noindex`, the `data-dox-shell` script, exactly one
-  `astro-island`, the title `Dox · @northguild/worktree`, the site header, named controls, no footer, no chat launcher, hidden or named
+  `astro-island`, the title `Dox · @northguild/worktree`, the site header, named controls, no footer, hidden or named
   graphics, unique ids, absent from the sitemap and `llms.txt`, and no other page (the 404 included) loading the island's chunk or the
-  stylesheet that carries the hive.
+  stylesheet that carries the hive. Its header's Dox link is the current page (`aria-current="page"`); on every other page and the
+  404 the header has one link to `/worktree/dox/` named "Chat with Dox", before the theme toggle, without `aria-current`, and a page
+  with a mobile menu has the same link there before the social icons.
 
 ## The landing hero
 
-The copy has two actions: "Get started", a link to Getting Started, and "Ask Dox", a button that opens the chat (see
-*Opening it* above). `pnpm docs:audit-dist` holds both, and no other link action.
+The copy has two actions: "Get started", a link to Getting Started, and "Ask Dox", a link to `/worktree/dox/` with the Dox crystal
+after its label (`Hero.astro` renders the hero action carrying `data-dox-cta` as that link; it is not a `LinkButton`, so it is not
+counted as a second link action). `pnpm docs:audit-dist` holds both, and no other link action, and no "Ask Dox" button.
 
 The landing's art box (`src/components/HeroLeaves.astro`, rendered by the landing branch of `Hero.astro` only) is a field of
 leaf-shaped WebGL particles (D18): on load they gust in from every edge of the viewport and from behind the header, build one
@@ -348,6 +348,7 @@ long as the page is visible. The pointer pushes leaves near the art box.
   are an invented palette), and re-tint when the header's theme toggle (`ThemeSelect.astro`, `ThemeProvider.astro`) changes `data-theme` on `<html>`.
 - **Drawing** pauses, with the clock, while the tab is hidden or the art box is off screen; the device pixel ratio is capped at 1.5.
 - Both the canvas and the SVG are `aria-hidden`: the heading and the link carry the meaning.
+- **The Dox link and the entrance.** The Dox link (`.dox-link`) takes part in neither the fade nor the colour pass of the landing header's entrance: custom.css excludes it with `a.header-chip:not(.dox-link)`. No audit rule checks this; plan §9 Q8 asks whether it should enter.
 - **The header's entrance** (#266, 2026-11-06): on the landing only, and on an arrival from outside the docs site and on every reload, the header's
   `/ worktree vX.Y.Z` (the shield and the "NorthGuild" wordmark stay static), search button and theme toggle fade up like the hero copy (`hero-copy-in`), left to right. Once they are
   in, a second pass paints the theme toggle, GitHub and Discord, one after another, from northguild.dev's resting icon colour

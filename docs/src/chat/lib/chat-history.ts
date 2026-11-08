@@ -28,7 +28,7 @@ export function sendableHistory<T extends { role: string }>(
 }
 
 /**
- * A message's creation time in milliseconds, for `MessageMeta` (D17). The
+ * A message's creation time in milliseconds, for the stored-message schema below. The
  * library stamps a `Date`; a transcript read back from storage may carry a
  * number or an ISO string. A message with no readable time shows none.
  */

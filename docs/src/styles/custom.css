@@ -40,6 +40,99 @@ starlight-tabs .tab > [role="tab"] {
 }
 
 /*
+ * The Dox crystal (plan #309 D2, D5), ported from gmt's gmt-primitives.css. It is drawn on every page, in the header's and the
+ * menu's "Chat with Dox" link (`.dox-link`, a `.header-chip`, so one size and one hover with the theme toggle and the two
+ * links) and in the landing's "Ask Dox" (`.gmt-dox-cta`), and in the hive on /dox. The stylesheet that carries the hive is
+ * loaded on /dox alone, so the mark's presentation is here. Every colour is `currentColor` or a token: spring where gmt
+ * has cyan (the site's accent), the ice token for the sheen.
+ */
+.gmt-dox-mark {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+}
+
+.gmt-dox-mark-edge {
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 4;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.gmt-dox-mark-facet line {
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.gmt-dox-mark-table {
+  fill: color(from var(--gmt-ice) srgb r g b / 6%);
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  opacity: 0.75;
+  vector-effect: non-scaling-stroke;
+}
+
+/* The link is the current page on /dox (`aria-current="page"`, set by Header.astro and MobileMenuFooter.astro). A 2px bar
+   along its bottom edge marks it, so the state is not colour alone (WCAG 2.2 SC 1.4.1). It is drawn over the box, never
+   part of it, so the link is the size of its neighbours on every page; and it exists on /dox only, as a border reserved
+   everywhere would show on all pages in forced colours. A border survives forced colours, so the bar stays visible there. */
+.dox-link {
+  position: relative;
+}
+.dox-link[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0.25em;
+  inset-block-end: 0;
+  border-block-end: 2px solid var(--gmt-spring-ink);
+  pointer-events: none;
+}
+/* The mark in the chip needs a size of its own: `.header-chip svg` sizes in `em`, which the mark's own 100% would not meet. */
+.header-chip.dox-link .gmt-dox-mark {
+  inline-size: 1.4rem;
+  block-size: 1.4rem;
+  filter: drop-shadow(0 0 4px color(from var(--gmt-spring) srgb r g b / 45%));
+  transition: filter var(--gmt-duration-fast) var(--gmt-easing);
+}
+.dox-link:hover .gmt-dox-mark,
+.dox-link:focus-visible .gmt-dox-mark {
+  filter: drop-shadow(0 0 7px color(from var(--gmt-spring) srgb r g b / 75%));
+}
+
+/* The landing's call to action: the mark sits after the label, at the size a `.sl-link-button` gives its own icons, so
+   "Ask Dox" reads as a peer of "Get started". */
+.gmt-dox-cta .gmt-dox-mark {
+  flex-shrink: 0;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  margin-inline-start: 2px;
+  filter: drop-shadow(0 0 5px color(from var(--gmt-spring) srgb r g b / 50%));
+  transition:
+    filter var(--gmt-duration-fast) var(--gmt-easing),
+    transform var(--gmt-duration-fast) var(--gmt-easing);
+}
+.gmt-dox-cta:hover .gmt-dox-mark,
+.gmt-dox-cta:focus-visible .gmt-dox-mark {
+  filter: drop-shadow(0 0 9px color(from var(--gmt-spring) srgb r g b / 80%));
+  transform: scale(1.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dox-link .gmt-dox-mark,
+  .gmt-dox-cta .gmt-dox-mark {
+    transition: none;
+  }
+  .gmt-dox-cta:hover .gmt-dox-mark,
+  .gmt-dox-cta:focus-visible .gmt-dox-mark {
+    transform: none;
+  }
+}
+
+/*
  * The docs as a git repository (plan #235, phase 13, D17). Everything below is decoration drawn with CSS on
  * markup Starlight already renders: pseudo-elements with `content: ""`, so nothing is added to the DOM, nothing
  * decorative can take focus, and nothing is announced. Meaning stays in the existing markup: the links, the
@@ -302,6 +395,8 @@ a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)) {
  *   2. once they are in, the theme button, GitHub and Discord paint, one after another, from northguild.dev's resting icon
  *      colour (--gmt-ice-dim) into their own resting colour (.header-chip). GitHub and Discord do not fade: they are
  *      there throughout and only change colour.
+ * The Dox link (.dox-link, #309) takes part in neither pass: it is a plain link, there from the first paint (the plan's §9 Q8,
+ * whether it should enter, is open).
  * Only opacity, transform and colour animate. The `backwards` fill holds the first frame during the delay and releases
  * the element at the end, so the rest style (and :hover, :focus-visible) is what remains. Nothing is ever set to
  * opacity 0 outside a keyframe, and everything is inside the no-preference query, so a visitor who asks for no motion,
@@ -345,13 +440,15 @@ a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)) {
       header-entrance-ink var(--entrance-ink-duration) ease-out
       var(--entrance-ink-start) backwards;
   }
-  :root:not([data-entrance-off]) .header[data-landing-entrance] a.header-chip {
+  :root:not([data-entrance-off])
+    .header[data-landing-entrance]
+    a.header-chip:not(.dox-link) {
     animation: header-entrance-ink var(--entrance-ink-duration) ease-out
       calc(var(--entrance-ink-start) + var(--entrance-ink-step)) backwards;
   }
   :root:not([data-entrance-off])
     .header[data-landing-entrance]
-    a.header-chip
+    a.header-chip:not(.dox-link)
     + a.header-chip {
     animation-delay: calc(
       var(--entrance-ink-start) +

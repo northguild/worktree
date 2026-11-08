@@ -5,7 +5,7 @@
  * The route keeps the site header, the same one as every page (WCAG 2.2 SC 3.2.3 Consistent Navigation), and hides only
  * the page `<h1>`; the page itself never scrolls and the chat fills the viewport below the header. It is kept out of
  * search engines and the site's page lists: `noindex` below, a sitemap `filter` in astro.config.mjs, no content-collection
- * entry (so no `llms.txt` line), `pagefind: false`, and no footer or launcher (Footer.astro).
+ * entry (so no `llms.txt` line), `pagefind: false`, and no footer (Footer.astro).
  *
  * `<StarlightPage>` is still the wrapper though none of its chrome is wanted: `customCss` is injected only by Starlight's
  * own page component, reachable only through StarlightPage. The prose chrome is removed with CSS keyed off the

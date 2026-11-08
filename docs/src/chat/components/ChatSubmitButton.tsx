@@ -17,8 +17,8 @@ interface ChatSubmitButtonProps {
 /**
  * Send while idle, Stop while an answer is arriving (plan #257 D15). It is one
  * element in both states, so focus on it survives the swap: after "Try again"
- * (ChatPanel moves focus here) the keyboard user can stop without finding it.
- * An accepted send returns focus to the message field (ChatForm), not here.
+ * (`DoxChat` moves focus here) the keyboard user can stop without finding it.
+ * An accepted send returns focus to the message field (`DoxChat`), not here.
  */
 export function ChatSubmitButton({
   ref,

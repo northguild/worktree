@@ -178,6 +178,36 @@ describe("every pair the theme puts on screen", () => {
   });
 });
 
+// Plan #309 Phase 4: the links to /dox are measured on the surfaces they sit on. The thresholds are WCAG 2.2's (an icon, a
+// ring or a bar that marks the current page is a graphical object, 3:1; text, 4.5:1). The header's glass is what the theme
+// toggle's icon is measured on, so the Dox crystal is measured on the same.
+describe("the links to /dox (the header, the menu and the landing)", () => {
+  const named = (name) => PAIRS.find((p) => p.name === name);
+
+  it.each([
+    ["header: Dox link icon", "non-text"],
+    ["menu: Dox link icon", "non-text"],
+    ["header: Dox link, current page bar", "non-text"],
+    ["hero: Ask Dox text", "text"],
+    ["hero: Ask Dox border", "non-text"],
+  ])("measures %s", (name, kind) => {
+    expect(named(name)?.kind).toBe(kind);
+  });
+
+  it("measures the icon in the colour the theme toggle's is, on the same header glass", () => {
+    expect(named("header: Dox link icon")?.fg).toBe(
+      named("header: theme toggle icon")?.fg,
+    );
+    expect(named("header: Dox link icon")?.bg).toEqual(
+      named("header: theme toggle icon")?.bg,
+    );
+  });
+
+  it("no longer measures the launcher's bubble, which is gone", () => {
+    expect(PAIRS.filter((p) => /launcher/.test(p.name))).toEqual([]);
+  });
+});
+
 // Plan #309 Phase 2: the hive's pairs are measured, not assumed. The expected thresholds are WCAG 2.2's (text 4.5:1, a
 // control's boundary or glyph 3:1); the figure for the composer's edge is worked by hand below.
 describe("the hive's pairs (the Dox page)", () => {

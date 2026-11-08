@@ -1,7 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import { validateChatRequest } from "../../../worker/validation";
-import { ChatProvider, useChatContext } from "../components/ChatContext";
 import { messageText, TRANSCRIPT_KEY_PREFIX } from "../lib/chat-history";
 import answerStream from "./fixtures/chat-answer.sse?raw";
 import runErrorStream from "./fixtures/chat-run-error.sse?raw";
@@ -402,75 +401,6 @@ describe("useDocsChat -- the transcript", () => {
       expect(
         [...storage.keys()].filter((k) => k.startsWith("docs_chat_history_")),
       ).toEqual([]),
-    );
-  });
-});
-
-/**
- * `useLocalStorage` re-reads on a "storage" event it dispatches itself, but jsdom's `StorageEvent` refuses the
- * Map-backed stub as a `storageArea` and the hook swallows that, so the dispatch is repeated here with a plain event.
- * A real browser needs none of this.
- */
-function announceStorageChange(key: string) {
-  const event = new Event("storage");
-  Object.assign(event, { key, storageArea: window.localStorage });
-  act(() => {
-    window.dispatchEvent(event);
-  });
-}
-
-describe("the model preference (through ChatProvider)", () => {
-  function setupProvider() {
-    return renderHook(() => useChatContext(), { wrapper: ChatProvider });
-  }
-
-  it("falls back to the default when the stored model is one the retired client offered", async () => {
-    storage.set("docs_chat_model", JSON.stringify("gemini-2.5-flash"));
-    const sent = stubFetch(answerStream);
-    const { result } = setupProvider();
-
-    expect(result.current.model).toBe("gemini-3.5-flash-lite");
-    await act(() => result.current.sendMessage(QUESTION));
-
-    expect(sent[0]?.body.forwardedProps.model).toBe("gemini-3.5-flash-lite");
-  });
-
-  it("falls back to the default when the stored value is not a model id at all", () => {
-    storage.set("docs_chat_model", JSON.stringify({ model: 3 }));
-
-    expect(setupProvider().result.current.model).toBe("gemini-3.5-flash-lite");
-  });
-
-  it("keeps a stored model that is one of the two on offer, and sends it", async () => {
-    storage.set("docs_chat_model", JSON.stringify("gemini-3.6-flash"));
-    const sent = stubFetch(answerStream);
-    const { result } = setupProvider();
-
-    expect(result.current.model).toBe("gemini-3.6-flash");
-    await act(() => result.current.sendMessage(QUESTION));
-
-    expect(sent[0]?.body.forwardedProps.model).toBe("gemini-3.6-flash");
-  });
-
-  it("switching model keeps the transcript and the next request uses the new model", async () => {
-    const sent = stubFetch(answerStream, answerStream);
-    const { result } = setupProvider();
-    await act(() => result.current.sendMessage(QUESTION));
-    await waitFor(() => expect(result.current.messages).toHaveLength(2));
-
-    act(() => result.current.setModel("gemini-3.6-flash"));
-    announceStorageChange("docs_chat_model");
-    await act(() => result.current.sendMessage("And again?"));
-
-    expect(result.current.messages.length).toBeGreaterThanOrEqual(4);
-    expect(sent[1]?.body.forwardedProps.model).toBe("gemini-3.6-flash");
-    expect(sent[1]?.body.messages.map((m) => m.role)).toEqual([
-      "user",
-      "assistant",
-      "user",
-    ]);
-    expect(storage.get("docs_chat_model")).toBe(
-      JSON.stringify("gemini-3.6-flash"),
     );
   });
 });
