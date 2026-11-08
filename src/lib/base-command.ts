@@ -3,7 +3,6 @@ import { basename } from "node:path";
 import { inspect } from "node:util";
 import { Command, Flags, ux } from "@oclif/core";
 import type { CommandError, OclifError } from "@oclif/core/interfaces";
-import chalk from "chalk";
 // `lib/` importing `integrations/` inverts the layering in
 // context/standards/architecture/dependency-boundaries.md. It is a deliberate
 // deviation, recorded in §4.2 of the plan: BaseCommand is the composition point
@@ -28,6 +27,7 @@ import {
 } from "../integrations/rex.js";
 import { rexMultiplexer } from "../integrations/rex-multiplexer.js";
 import { run, spawnDetached } from "./cli.js";
+import chalk from "./color.js";
 import { getConfigValue, gitGetConfigValue } from "./config.js";
 import { gitGetAbsoluteWorktreesPath, gitGetRootPath } from "./git.js";
 import {

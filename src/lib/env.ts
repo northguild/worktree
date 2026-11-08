@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import chalk from "chalk";
 import { run } from "./cli.js";
+import chalk from "./color.js";
 import { gitGetRootPath } from "./git.js";
 import { createSpinner } from "./progress.js";
 
