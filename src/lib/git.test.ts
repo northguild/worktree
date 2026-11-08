@@ -548,9 +548,9 @@ describe("gitCreateWorktree", () => {
       "git rev-parse --show-toplevel",
       `git fetch (cwd: ${gitRootPath})`,
       `git fetch (cwd: ${spacedGitRootPath})`,
-      `git worktree add --no-track -b ${branchName} ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
-      `git worktree add --track -b ${branchName} ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
-      `git worktree add --no-track -b ${branchName} "../my project.worktrees/feature/test" ${sourceBranch} (cwd: ${spacedGitRootPath})`,
+      `git worktree add --no-track -b ${branchName} --end-of-options ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
+      `git worktree add --track -b ${branchName} --end-of-options ${relativeWorktreePath} ${sourceBranch} (cwd: ${gitRootPath})`,
+      `git worktree add --no-track -b ${branchName} --end-of-options "../my project.worktrees/feature/test" ${sourceBranch} (cwd: ${spacedGitRootPath})`,
     );
   });
 
@@ -580,6 +580,7 @@ describe("gitCreateWorktree", () => {
         "--no-track",
         "-b",
         branchName,
+        "--end-of-options",
         relativeWorktreePath,
         sourceBranch,
       ],
@@ -620,11 +621,28 @@ describe("gitCreateWorktree", () => {
         "--track",
         "-b",
         branchName,
+        "--end-of-options",
         relativeWorktreePath,
         sourceBranch,
       ],
       { cwd: gitRootPath },
     );
+  });
+
+  // #319: a source branch from config may start with "-"; it has to reach git
+  // after --end-of-options, as a ref and never as an option.
+  it("passes a source branch starting with - behind --end-of-options", async () => {
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+    runSpy.mockResolvedValueOnce(gitRootPath);
+
+    await gitCreateWorktree(branchName, "--detach", { fetch: false });
+
+    const args = runSpy.mock.calls[1]?.[1] as string[];
+    expect(args.indexOf("--end-of-options")).toBeGreaterThan(-1);
+    expect(args.indexOf("--end-of-options")).toBeLessThan(
+      args.indexOf("--detach"),
+    );
+    expect(args.at(-1)).toBe("--detach");
   });
 
   it("keeps a git root containing a space in one cwd and one argv entry", async () => {
@@ -647,6 +665,7 @@ describe("gitCreateWorktree", () => {
         "--no-track",
         "-b",
         branchName,
+        "--end-of-options",
         "../my project.worktrees/feature/test",
         sourceBranch,
       ],

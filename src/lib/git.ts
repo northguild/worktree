@@ -816,6 +816,10 @@ export async function gitCreateWorktree(
     // If checking out a remote branch, create a local tracking branch. Awaiting
     // in sequence keeps the short-circuit the `&&` chain had: a rejection here
     // is only reached once the fetch has resolved.
+    //
+    // `--end-of-options` because `sourceBranch` can come from config
+    // (`defaultSourceBranch`, including a committed `.worktree.yml`) and may
+    // start with "-", which git would otherwise read as an option (#319).
     await run(
       "git",
       [
@@ -824,6 +828,7 @@ export async function gitCreateWorktree(
         isCheckout ? "--track" : "--no-track",
         "-b",
         branchName,
+        "--end-of-options",
         worktreePath,
         sourceBranch,
       ],
