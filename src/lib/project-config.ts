@@ -292,14 +292,28 @@ async function resolveRef() {
   );
 }
 
-async function workingCopyWarning(ref: string, content: string) {
-  const working = path.join(await gitGetTopLevelPath(), PROJECT_CONFIG_FILE);
+// `content` is the merged copy, or undefined when the ref holds none.
+async function workingCopyWarning(ref: string, content: string | undefined) {
+  let top: string;
+  try {
+    top = await gitGetTopLevelPath();
+  } catch {
+    // No work tree (a bare repository, or its .git directory): there is no
+    // working copy to compare, and a hint must never fail the read.
+    return [];
+  }
+  const working = path.join(top, PROJECT_CONFIG_FILE);
   let workingContent: string;
   try {
     workingContent = fs.readFileSync(working, "utf8");
   } catch {
     // No copy of its own in this worktree: nothing to disagree with.
     return [];
+  }
+  if (content === undefined) {
+    return [
+      `${working} exists, but ${ref} has no ${PROJECT_CONFIG_FILE}, so it is ignored. Only the merged copy applies; use ${OVERRIDE_ENV}=${working} to try your edit.`,
+    ];
   }
   if (workingContent.trim() === content.trim()) {
     return [];
@@ -353,6 +367,7 @@ export async function readProjectConfig(
     }
     source = { kind: "ref", ref };
     if (blob.status === "absent-path") {
+      warnings.push(...(await workingCopyWarning(ref, undefined)));
       return { status: "none", reason: "no-file", source, warnings };
     }
     content = blob.content;

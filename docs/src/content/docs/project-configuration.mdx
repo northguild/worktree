@@ -43,6 +43,8 @@ nothing until it is merged, and two worktrees of one repository always agree.
 - `worktree branch` fetches once before it reads the file, so a change merged an hour ago applies to the
   next branch you create. Other commands use the ref as it was last fetched.
 - If your working copy of `.worktree.yml` differs from the one in use, the run warns once and names both.
+  If the default branch has no `.worktree.yml` at all, a copy in your working tree is still ignored, and the
+  run warns once that it is.
 
 To try an edit before it merges, point `WORKTREE_PROJECT_CONFIG` at the file:
 
