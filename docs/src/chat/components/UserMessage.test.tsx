@@ -1,13 +1,14 @@
 import { render, screen } from "@testing-library/react";
-import type { ChatMessage } from "../types";
+import { createdAtDate } from "../lib/chat-history";
+import type { UIMessage } from "../lib/chat-types";
 import { UserMessage } from "./UserMessage";
 
 function renderMessage(content: string) {
-  const message: ChatMessage = {
+  const message: UIMessage = {
     id: "m1",
     role: "user",
-    content,
-    createdAt: 1_757_500_000_000,
+    parts: [{ type: "text", content }],
+    createdAt: createdAtDate(1_757_500_000_000),
   };
   render(<UserMessage message={message} />);
 }
@@ -55,5 +56,37 @@ describe("UserMessage", () => {
     expect(
       screen.getByText("*not italic* # not a heading"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("UserMessage -- the time (plan #257 D17)", () => {
+  it("is stamped from createdAt; 1_757_500_000_000 ms is 2025-09-10T10:26:40Z", () => {
+    const { container } = render(
+      <UserMessage
+        message={{
+          id: "m1",
+          role: "user",
+          parts: [{ type: "text", content: "hi" }],
+          createdAt: createdAtDate(1_757_500_000_000),
+        }}
+      />,
+    );
+    expect(container.querySelector("time")).toHaveAttribute(
+      "datetime",
+      "2025-09-10T10:26:40Z",
+    );
+  });
+
+  it("is absent when the message has no createdAt", () => {
+    const { container } = render(
+      <UserMessage
+        message={{
+          id: "m1",
+          role: "user",
+          parts: [{ type: "text", content: "hi" }],
+        }}
+      />,
+    );
+    expect(container.querySelector("time")).toBeNull();
   });
 });

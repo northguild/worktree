@@ -1,0 +1,4 @@
+data: {"type":"RUN_STARTED","runId":"RUN-ID","threadId":"docs-chat","timestamp":1794150645993,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"gemini-3.5-flash-lite"},"model":"gemini-3.5-flash-lite"}}}
+
+data: {"type":"RUN_ERROR","timestamp":1700000000000,"message":"The assistant has reached its daily limit. Try again tomorrow, or pick the other model.","code":"rate_limited_daily"}
+

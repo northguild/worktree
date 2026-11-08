@@ -18,7 +18,7 @@ export function LoadingDots({
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
-      aria-label="Loading..."
+      aria-hidden="true"
     >
       <circle cx={size / 2} cy={height / 2} r={r} fill="currentColor">
         <animate

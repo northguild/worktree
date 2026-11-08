@@ -1,7 +1,10 @@
 name = "worktree-gemini-proxy"
 main = "dist/worker.js"
 compatibility_date = "2026-01-01"
-compatibility_flags = ["nodejs_compat"]
+# nodejs_compat: the TanStack AI packages import node:events and node:process.
+# enable_request_signal: makes request.signal fire when the client disconnects,
+# which is how a closed chat tab cancels the upstream Gemini call (plan #257 §4.2).
+compatibility_flags = ["nodejs_compat", "enable_request_signal"]
 workers_dev = true
 # Live URL: https://worktree-gemini-proxy.northguild.workers.dev
 

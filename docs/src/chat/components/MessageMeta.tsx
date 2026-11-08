@@ -5,31 +5,36 @@ import {
   convertUnixToUtc,
   formatTime,
 } from "@northguild/gmt";
+import { createdAtMs } from "../lib/chat-history";
 
 interface MessageMetaProps {
   titleId: string;
   title: string;
   titleClass?: string;
-  createdAt: number;
+  /** A `Date`, a number of milliseconds or an ISO string: whatever the transcript holds. None shows no time. */
+  createdAt?: unknown;
 }
 
 export function MessageMeta({
   titleId,
   title,
   titleClass = "font-semibold",
-  createdAt, // unix
+  createdAt,
 }: MessageMetaProps) {
+  const ms = createdAtMs(createdAt);
   return (
     <div className="flex items-baseline justify-between mb-1">
       <div id={titleId} className={titleClass}>
         {title}
       </div>
-      <time
-        dateTime={convertUnixToUtc(createdAt)}
-        className="text-xs text-chat-muted ml-2"
-      >
-        {formatTime(convertUnixToPlainTime(createdAt))}
-      </time>
+      {ms !== undefined && (
+        <time
+          dateTime={convertUnixToUtc(ms)}
+          className="text-xs text-chat-muted ml-2"
+        >
+          {formatTime(convertUnixToPlainTime(ms))}
+        </time>
+      )}
     </div>
   );
 }

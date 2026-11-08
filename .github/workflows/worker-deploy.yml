@@ -6,6 +6,10 @@ on:
       - main
     paths:
       - "docs/worker/**"
+      - "docs/src/chat/lib/**"
+      # The Worker bundles its dependencies, so a bump that touches only these ships nothing without a deploy.
+      - "docs/package.json"
+      - "pnpm-lock.yaml"
   workflow_dispatch:
 
 jobs:

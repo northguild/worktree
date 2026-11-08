@@ -1,25 +1,33 @@
 import { type RefObject, useLayoutEffect } from "react";
-import type { ChatMessage } from "../types";
+
+/** The last thing in the transcript, as far as scrolling cares. */
+export interface ScrollTarget {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  /** True while this is the answer being written, or the wait for it. */
+  streaming: boolean;
+}
 
 interface UseBottomScrollProps {
   containerRef: RefObject<HTMLElement | null>;
   endRef: RefObject<HTMLElement | null>;
   lastSnapshotRef: RefObject<string | undefined>;
-  lastMsg?: ChatMessage;
+  last?: ScrollTarget;
 }
 
 export function useBottomScroll({
   containerRef,
   endRef,
   lastSnapshotRef,
-  lastMsg,
+  last,
 }: UseBottomScrollProps) {
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    const snapshot = lastMsg
-      ? `${lastMsg.id}:${lastMsg.content.length}:${String(lastMsg.streaming)}`
+    const snapshot = last
+      ? `${last.id}:${last.text.length}:${String(last.streaming)}`
       : "empty";
 
     if (lastSnapshotRef.current === snapshot) return;
@@ -29,15 +37,15 @@ export function useBottomScroll({
     const isAtBottom =
       el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
 
-    // Placeholder just appeared (streaming, no content yet) — always scroll
-    // so the user sees the loading dots immediately after submitting.
-    if (lastMsg?.streaming && !lastMsg.content) {
+    // The wait for an answer just appeared (streaming, no text yet) — always
+    // scroll so the user sees the loading dots immediately after submitting.
+    if (last?.streaming && !last.text) {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
       return;
     }
 
     // Finished assistant reply — jump to it unconditionally.
-    if (lastMsg?.role === "assistant" && !lastMsg.streaming) {
+    if (last?.role === "assistant" && !last.streaming) {
       endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
       return;
     }

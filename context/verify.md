@@ -14,7 +14,9 @@ under `@baldurpan/create-ai-workflow` 0.26.0, in this worktree and in a fresh cl
 later addition, `pnpm --filter docs typecheck`, was added on 2026-10-26 for #152 and run from the repo
 root of a worktree that day, exiting 0; it has not been run in a fresh clone.
 `astro check` in Typecheck and `pnpm docs:build` in Build were added on 2026-11-04 for #235 and run from the repo
-root of a worktree that day, exiting 0.
+root of a worktree that day, exiting 0. `pnpm --filter docs worker:bundle-check` in Build was added on 2026-11-08 for #257
+(phase 3) and run from the repo root of a worktree that day with no `CLOUDFLARE_*` variable set, exiting 0; it has not
+been run in a fresh clone.
 
 ## Prerequisites
 
@@ -77,6 +79,7 @@ belongs in the change. It needs no `PUBLIC_GEMINI_WORKER_URL`. CI runs both type
 ```bash
 pnpm build
 pnpm docs:build
+pnpm --filter docs worker:bundle-check
 ```
 
 `pnpm docs:build` syncs the version, regenerates the Worker context, then runs `astro build` into `docs/dist/`,
@@ -85,6 +88,10 @@ a sitemap and the Pagefind index included. It needs no environment: verified wit
 variable for the real build). Like `pnpm --filter docs typecheck`, it rewrites `docs-routes.generated.ts` in place. It also runs
 `docs:sync-version`, which is a no-op while `docs/src/lib/site-meta.ts` is current with `package.json`; a modified
 `site-meta.ts` after Build is drift to commit, not a by-product.
+
+`pnpm --filter docs worker:bundle-check` builds the chat Worker and runs `wrangler deploy --dry-run` on it
+(output under the gitignored `docs/worker/dist/dry-run/`): it proves the Worker still bundles for Cloudflare and needs **no credentials**,
+because a dry run builds the upload and sends nothing. It does not run the Worker; that is `wrangler dev --local` (plan #257 §8).
 
 ## Audit
 
@@ -183,7 +190,7 @@ test that genuinely has to be skipped is a conversation, not an edit to this pat
   times, 10 s apart (about a minute), so it needs the network and a deployed site; `docs-deploy.yml` runs it after the deploy.
 - **`pnpm --filter docs stage:deploy`** and **`pnpm --filter docs build:legacy`** — produce the gitignored
   `docs/.deploy/` and `docs/legacy/` for the deploy jobs; neither verifies anything.
-- **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` (the chat Worker's and the site's) — need `CLOUDFLARE_API_TOKEN` and
+- **`pnpm --filter docs worker:deploy`** and any `wrangler deploy` without `--dry-run` (the chat Worker's and the site's) — need `CLOUDFLARE_API_TOKEN` and
   `CLOUDFLARE_ACCOUNT_ID`. Never run against production from a workstation; `worker-deploy.yml` owns it.
 
 ## Prepare a fresh tree

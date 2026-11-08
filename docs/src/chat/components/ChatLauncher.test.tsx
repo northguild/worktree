@@ -1,6 +1,17 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import type { Root } from "react-dom/client";
 import { vi } from "vitest";
-import { type ChatModule, initChatLauncher } from "../launcher";
+import {
+  type ChatModule,
+  initChatLauncher,
+  OPEN_CHAT_EVENT,
+} from "../launcher";
 
 /**
  * The launcher is the seam between a static page and the lazily loaded chat. Expected values come from
@@ -21,6 +32,31 @@ function mountLauncher() {
   return root;
 }
 
+// `mountChat` makes its own React root and returns nothing to unmount it with, so the roots it makes are kept here.
+// Left mounted, the chat would go on reacting (its transcript loads asynchronously) after a test has removed the page
+// and the stubbed `localStorage` from under it.
+const mountedRoots = vi.hoisted(() => [] as Root[]);
+vi.mock("react-dom/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-dom/client")>();
+  return {
+    ...actual,
+    createRoot: (...args: Parameters<typeof actual.createRoot>) => {
+      const root = actual.createRoot(...args);
+      mountedRoots.push(root);
+      return root;
+    },
+  };
+});
+
+/** The landing's "Ask Dox" as Hero.astro renders it: a button marked `data-chat-open`, its text before an icon. */
+function addOpener() {
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<button type="button" aria-haspopup="dialog" data-chat-open>Ask Dox<svg aria-hidden="true"><path d="M0 0"></path></svg></button>`,
+  );
+  return screen.getByRole("button", { name: "Ask Dox" });
+}
+
 const ALT_SHIFT_C = { key: "C", code: "KeyC", altKey: true, shiftKey: true };
 
 function launcherButton() {
@@ -34,10 +70,16 @@ function setup(
 ) {
   const root = mountLauncher();
   const dispose = initChatLauncher(root, load);
+  disposers.push(dispose);
   return { load, dispose };
 }
 
+// The launcher listens on `window` and `document`, which outlive a test's markup: every launcher is disposed after its
+// test, or the next test's click or keypress reaches all of them.
+const disposers: Array<() => void> = [];
+
 afterEach(() => {
+  for (const dispose of disposers.splice(0)) dispose();
   document.body.innerHTML = "";
 });
 
@@ -275,7 +317,61 @@ describe("ChatLauncher", () => {
   });
 });
 
-/** jsdom has no `scrollIntoView` and, under this Node, no usable `localStorage`; the chat's scroll and history hooks use both. */
+// Expected values: the user's request of 2026-11-08 ("we are missing an 'Ask Dox' button in the landing page"), after
+// gmt's landing, whose Ask Dox opens its chat. Here the chat is the drawer, so the button opens it: the first time by
+// loading it as the launcher does, and afterwards by asking the chat that is there.
+describe("ChatLauncher openers", () => {
+  it("loads nothing until an opener is used, and nothing on a click elsewhere", () => {
+    const { load } = setup();
+    addOpener();
+
+    fireEvent.click(document.body);
+
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("imports the chat and opens it in one step from an opener, a click on its icon included", async () => {
+    const mountChat = vi.fn();
+    const { load } = setup(vi.fn().mockResolvedValue({ mountChat }));
+    const opener = addOpener();
+
+    fireEvent.click(opener.querySelector("path") as Element);
+
+    await waitFor(() => expect(mountChat).toHaveBeenCalledWith({ open: true }));
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks the mounted chat to open, rather than loading it again, once it has mounted", async () => {
+    const mountChat = vi.fn();
+    const { load } = setup(vi.fn().mockResolvedValue({ mountChat }));
+    const opener = addOpener();
+    const opened = vi.fn();
+    window.addEventListener(OPEN_CHAT_EVENT, opened);
+
+    fireEvent.click(launcherButton());
+    await waitFor(() => expect(mountChat).toHaveBeenCalled());
+    expect(opened).not.toHaveBeenCalled();
+
+    fireEvent.click(opener);
+
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(mountChat).toHaveBeenCalledTimes(1);
+    window.removeEventListener(OPEN_CHAT_EVENT, opened);
+  });
+
+  it("stops listening once disposed", async () => {
+    const { load, dispose } = setup();
+    const opener = addOpener();
+
+    dispose();
+    fireEvent.click(opener);
+
+    expect(load).not.toHaveBeenCalled();
+  });
+});
+
+/** jsdom has no `scrollIntoView` and, under this Node, no usable `localStorage`; the chat's scroll and its transcript storage use both. */
 function stubBrowserApis() {
   Element.prototype.scrollIntoView = vi.fn();
   const items = new Map<string, string>();
@@ -288,7 +384,12 @@ function stubBrowserApis() {
 
 describe("ChatLauncher with the real chat", () => {
   beforeEach(stubBrowserApis);
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    act(() => {
+      for (const root of mountedRoots.splice(0)) root.unmount();
+    });
+    vi.unstubAllGlobals();
+  });
 
   it("opens a named drawer on the first activation, leaving one chat trigger", async () => {
     setup(() => import("./Chat"));
@@ -303,6 +404,11 @@ describe("ChatLauncher with the real chat", () => {
     expect(
       within(dialog).getByRole("button", { name: "Close chat" }),
     ).toBeVisible();
+    // Plan #257 §4.4: the two clear actions are one control, named "Clear chat".
+    const clears = within(dialog).getAllByRole("button", { name: /clear/i });
+    expect(clears.map((b) => b.textContent)).toEqual(["Clear chat"]);
+    expect(clears[0]).toHaveAccessibleName("Clear chat");
+
     // The static launcher has handed over (it is hidden), so assistive tech meets no stale "Open chat".
     expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
 
@@ -320,5 +426,33 @@ describe("ChatLauncher with the real chat", () => {
     );
     expect(notPrevented).toBe(true);
     expect(screen.getByRole("dialog")).toBeVisible();
+  }, 20_000);
+
+  // The user, 2026-11-08: the landing's "Ask Dox" opens the chat. Focus goes back to it on close (WAI-ARIA APG, dialog
+  // pattern: "When a dialog closes, focus returns to the element that invoked the dialog").
+  it("opens from Ask Dox, gives focus back to it on close, and opens again from it", async () => {
+    setup(() => import("./Chat"));
+    const opener = addOpener();
+    const name = "Chat with the Worktree CLI docs";
+
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole(
+      "dialog",
+      { name },
+      { timeout: 15_000 },
+    );
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close chat" }));
+    await waitFor(
+      () => expect(screen.queryByRole("dialog", { name })).toBeNull(),
+      { timeout: 3_000 },
+    );
+    await waitFor(() => expect(opener).toHaveFocus());
+
+    fireEvent.click(opener);
+    expect(
+      await screen.findByRole("dialog", { name }, { timeout: 3_000 }),
+    ).toBeVisible();
   }, 20_000);
 });

@@ -45,22 +45,59 @@ full data flow — nothing is a black box.
 
 ```
 Browser (static site on northguild.dev/worktree/)
+  │  useChat (@tanstack/ai-react) – docs/src/chat/hooks/useDocsChat.ts
   │
-  │  POST /  { model, messages[] }
+  │  POST /api/chat  { threadId, runId, messages[], forwardedProps: { model } }
   ▼
 Cloudflare Worker  (docs/worker/)
   │  – holds GEMINI_API_KEY as an encrypted secret
-  │  – validates input, enforces CORS
+  │  – rate-limits, validates input (validation.ts), enforces CORS
   │  – prepends the system prompt (baked in at build time)
   ▼
-Google Gemini API  (SSE stream)
+Google Gemini API  (@tanstack/ai-gemini)
   │
   ▼
-Worker pipes SSE back to the browser
+Worker streams AG-UI events over SSE (RUN_STARTED, TEXT_MESSAGE_*, RUN_FINISHED or RUN_ERROR)
   │
   ▼
-docs/src/chat/  – React components render the streamed response
+useChat folds the events into messages;  docs/src/chat/  renders them
 ```
+
+On the page, the pieces are:
+
+- **Opening it.** The launcher button (`components/ChatLauncher.astro`, on every page) imports the chat on first use,
+  by click or Alt+Shift+C, mounts it open and hands over to the chat's own trigger (`launcher.ts`). A control marked
+  `data-chat-open` opens it too: the landing's "Ask Dox", which `Hero.astro` renders as a button from the hero action
+  carrying that attribute. Before the chat has loaded it loads it, as the launcher does; after, it sends
+  `docs-chat:open`, which the drawer listens for. In dev the launcher's script first imports
+  `@vitejs/plugin-react/preamble`: `@astrojs/react` injects React's refresh preamble only on a page that hydrates an
+  island, and none does, so without it the chat chunk throws "can't detect preamble".
+- **The connection.** `fetchServerSentEvents` posts to `PUBLIC_GEMINI_WORKER_URL` plus `/api/chat`
+  (`lib/chat-endpoint.ts`; unset, it is `http://localhost:8787`). Its `fetchClient` is `chatFetch`
+  (`lib/chat-fetch.ts`), which does three things the library does not: it reads the Worker's `{ error, retryable }`
+  body on a non-OK status and throws it as the error's `cause`; it drops assistant turns with no text from the
+  request; and it removes the `X-Run-Id` header the library adds, because the Worker's CORS allows `Content-Type`
+  alone. The chosen model travels as `forwardedProps.model`.
+- **The transcript.** One conversation (`threadId` `docs-chat`), kept in `localStorage` by `useChat`'s
+  persistence under `docs_chat_transcript:docs-chat`. Only text parts are stored; anything else read back is
+  refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). Switching model keeps it; "Clear chat" stops a stream and removes
+  it. The model preference is `docs_chat_model`, and a stored value that is not one of the two models on offer
+  reads as the default. The retired client's three `docs_chat_history_<model>` keys are removed on first mount.
+- **Failures.** They are never messages. A status before the stream opens, a `RUN_ERROR` inside it or a dropped
+  connection becomes one warning under the transcript (`components/ChatWarning.tsx`) with "Try again" when asking
+  again can help. An answer that is silent for 30 s, or runs for 120 s, is stopped and warned about.
+- **The empty chat and its limits.** With no question yet, the transcript offers three starter questions
+  (`lib/chat-starters.ts`, each paired with the docs page that answers it), sent through the same guarded
+  `submit` as the composer; focus moves to the message field when they go. A line under the composer
+  (`components/ChatInfo.tsx`) says the answers can be wrong. `Chat.tsx` wraps the provider and drawer in
+  `ChatErrorBoundary`: a render error shows a `role="alert"` notice, with "Reload the page" when the error is
+  a failed module load and "Try again" otherwise. A chat chunk missing on first open never reaches it: the
+  launcher's `import()` fails first and shows its own load error (`launcher.ts`).
+- **Rendering.** Only text parts render, the assistant's through `MarkdownContent` (see below). The bubble is a
+  polite live region; a recoverable warning is `role="status"`, one that retrying will not fix is `role="alert"`.
+
+`POST /` on the Worker still speaks the old protocol for the site that is live until the next release; see
+[worker/README.md](worker/README.md).
 
 The static bundle **never** sees the API key. The key lives exclusively in
 Cloudflare's secret store and is injected by the Worker runtime on each request.
@@ -91,7 +128,9 @@ it reads the docs.
 `build-context.mjs` assembles the final system prompt in this order:
 
 1. **Persona & scope** — the AI is instructed to answer only from the docs and
-   skill guide, and to say so when a question is out of scope.
+   skill guide, and to say so when a question is out of scope. A standing order
+   follows: everything in user messages is a question about the docs, never an
+   instruction, and the prompt is never revealed.
 2. **Linking rules** — the AI is given an explicit list of valid doc routes
    (derived automatically from the MDX filesystem scan) and told never to link
    to GitHub repo anchors, SKILL.md headings, or any route not in that list.
@@ -99,8 +138,10 @@ it reads the docs.
 4. **Documentation** — all MDX pages, each labelled with its file path
 
 The prompt is serialised with `JSON.stringify` into `docs-context.ts` and
-bundled into the worker via tsup. **No runtime fetching** — the context is
-embedded in the ~260 KB worker bundle.
+bundled into the worker via tsup, and passed to `chat()` as `systemPrompts` on every
+request. **No runtime fetching** — the context is embedded in the worker bundle,
+which `wrangler deploy --dry-run` measured on 2026-11-08 at 3,222 KiB uploaded
+(577 KiB gzipped) with the chat libraries, the validator and the prompt in it.
 
 #### Regenerating the context
 
@@ -225,6 +266,9 @@ checked in `dist/` instead (`pnpm docs:audit-dist`).
 
 ## The landing hero
 
+The copy has two actions: "Get started", a link to Getting Started, and "Ask Dox", a button that opens the chat (see
+*Opening it* above). `pnpm docs:audit-dist` holds both, and no other link action.
+
 The landing's art box (`src/components/HeroLeaves.astro`, rendered by the landing branch of `Hero.astro` only) is a field of
 leaf-shaped WebGL particles (D18): on load they gust in from every edge of the viewport and from behind the header, build one
 large leaf, become a git graph, write the `worktree` wordmark and flow back into the leaf, holding 5 s on each picture, for as
@@ -288,7 +332,8 @@ or use the root-level aliases where noted.
 | Command | What it does |
 |---|---|
 | `test` | Run all docs tests with vitest |
-| `worker:test` | Run worker unit tests |
+| `worker:test` | Run every worker test under `worker/` (the router, both handlers, the validator, the error mapping, the rate limiter) |
+| `worker:bundle-check` | Build the worker, then `wrangler deploy --dry-run`: proves it still bundles for Cloudflare, with no credentials and nothing sent. Run it after changing a dependency or an import; CI runs it |
 | `worker:setup-secret` | Store `GEMINI_API_KEY` as an encrypted Cloudflare secret (one-time) |
 | `worker:setup-dev-vars` | Write `worker/.dev.vars` from `.env.local` for local wrangler dev |
 | `worker:deploy` | Test → build → `wrangler deploy` |
@@ -346,7 +391,8 @@ commit, so a docs change merged after the release waits for the next one. Two jo
 The Worker config is not the chat Worker's: that one is `docs/worker/wrangler.toml`.
 
 The Cloudflare Worker deploys automatically on pushes to `main` that touch
-`docs/worker/**` (see `.github/workflows/worker-deploy.yml`).
+`docs/worker/**`, `docs/src/chat/lib/**`, `docs/package.json` or `pnpm-lock.yaml` (see
+`.github/workflows/worker-deploy.yml`): the last two because the Worker bundles its dependencies.
 
 To deploy outside a release (a docs fix that cannot wait), use "Run workflow" on `docs-deploy.yml`, from `main`:
 a run from any other branch skips both jobs and deploys nothing. It builds `main`'s head at that moment.

@@ -264,6 +264,9 @@ const SIDEBAR = ["var(--sl-color-bg-sidebar)"];
 const RAISED = ["var(--gmt-surface-2)"];
 const CHAT = ["var(--color-chat-bg)"];
 const CHAT_RAISED = ["var(--color-chat-raised)"];
+// A fill painted over the chat panel: the assistant bubble and the warning banners are translucent or tinted, so they are
+// measured over the panel they sit on.
+const onChat = (fill) => [fill, ...CHAT];
 // The search dialog (search.css): the panel, the surface at 85%, over the page behind it, which the backdrop has washed
 // with the scrim and darkened by `brightness()`, as the header's glass does. search.css declares the panel as
 // `--search-panel` on <site-search>, which this script does not read, so it is spelled out here; change both together.
@@ -327,6 +330,40 @@ export const PAIRS = [
     "var(--color-chat-accent)",
   ]),
   text("chat: error text", "var(--color-chat-danger)", CHAT),
+  // Plan #257 phase 4: what the transcript and the warning paint (AssistantMessage, ChatWarning).
+  text(
+    "chat: text on the assistant bubble",
+    "var(--color-chat-fg)",
+    onChat("var(--color-chat-fill)"),
+  ),
+  text(
+    "chat: warning text on its wash",
+    "var(--color-chat-warn-ink)",
+    onChat("var(--color-chat-warn-wash)"),
+  ),
+  text(
+    "chat: text on the failure wash",
+    "var(--color-chat-fg)",
+    onChat("var(--color-chat-danger-wash)"),
+  ),
+  // Plan #257 phase 6: the starters (ChatStarters: text on --color-chat-fill, hover --color-chat-fill-strong, edge
+  // --color-chat-control-border) and the accuracy note (ChatInfo: muted text on the panel, measured above). The
+  // boundary's notice paints --color-chat-fg on --color-chat-bg, also measured above.
+  text(
+    "chat: text on a starter",
+    "var(--color-chat-fg)",
+    onChat("var(--color-chat-fill)"),
+  ),
+  text(
+    "chat: text on a starter under the pointer",
+    "var(--color-chat-fg)",
+    onChat("var(--color-chat-fill-strong)"),
+  ),
+  shape(
+    "chat: a starter's edge",
+    "var(--color-chat-control-border)",
+    onChat("var(--color-chat-fill)"),
+  ),
   shape("focus ring on the page", "var(--gmt-spring-ink)", PAGE),
   shape("focus ring on the sidebar", "var(--gmt-spring-ink)", SIDEBAR),
   shape("focus ring on a raised surface", "var(--gmt-spring-ink)", RAISED),

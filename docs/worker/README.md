@@ -1,19 +1,57 @@
-# Cloudflare Worker: Gemini API Proxy
+# Cloudflare Worker: Gemini chat
 
-This worker runs on Cloudflare Workers and proxies chat requests from the docs
-static site to the Google Gemini API, keeping `GEMINI_API_KEY` out of the browser.
+This worker runs on Cloudflare Workers and answers chat requests from the docs
+static site with Google's Gemini models, keeping `GEMINI_API_KEY` out of the browser.
 
 ## How it fits together
 
 ```
-Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev?model=...
+Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev/api/chat
                               ↓
                         Cloudflare Worker  (docs/worker/)
+                          1. rate limit        → 429 + Retry-After
+                          2. key present       → else 500
+                          3. JSON, then validate (validation.ts) → 400
+                          4. chat()  (@tanstack/ai) with createGeminiChat
                               ↓
                         Gemini REST API  (SSE stream)
-                              ↑
-                        SSE stream piped back to browser
+                              ↓
+                        error-mapping.ts wraps the stream, so a failure is a curated RUN_ERROR
+                              ↓
+                        toServerSentEventsResponse → AG-UI events over SSE, back to the browser
 ```
+
+`POST /` still speaks the legacy protocol (Gemini's own SSE piped through) for the live site's current client.
+
+## Routes
+
+`worker.ts` is a router. Every route answers with CORS headers: an allowed origin is reflected, any other gets `https://northguild.dev`.
+
+| Request | Answer |
+|---|---|
+| `OPTIONS` on any path | 204 with CORS headers (`Access-Control-Expose-Headers: Retry-After` included) |
+| `POST /` | the **legacy** protocol (`legacy-handler.ts`): the Gemini SSE stream piped through, with its own copy of the old model list (`gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-3-flash-preview`) and caps (20,000 characters a message, 50 messages). Frozen: the live site's current client speaks it, and it is retired only after a stable release has deployed the new client |
+| `POST /api/chat` | the new protocol (`chat-handler.ts`). The body is the AG-UI shape `useChat` sends (`threadId`, `runId`, `messages`, optional `forwardedProps.model`), validated by `validation.ts`; only `{ role, content }` pairs reach `chat()`. The answer is AG-UI events over SSE (`RUN_STARTED`, `TEXT_MESSAGE_*`, `RUN_FINISHED`). Before the stream opens a failure is an HTTP status with `{ error, retryable }`: 429 with `Retry-After`, 500 when the key is missing, 400 for bad JSON, a bad request or a conversation over the cap. A refusal the history causes rather than the new question — more than 50 messages, an earlier turn over 20,000 characters, or over 100,000 together — says "Conversation is too long. Start a new chat.", since the client replays the whole transcript and every later question would fail the same way. Once the stream is open, a failure is one `RUN_ERROR` event with our own text and a `code` (see below) |
+| any other method on `/` or `/api/chat` | 405 `{ error, retryable: false }` |
+| any other path | 404 `{ error, retryable: false }` |
+
+Both `POST` routes spend one `chat:<client>` rate-limit bucket (`rate-limit.ts`), so using both cannot double a client's allowance. The Gemini key is sent in the `x-goog-api-key` header on every upstream call, never in the URL.
+
+### Errors inside the stream
+
+Google's error text never reaches the reader. `error-mapping.ts` reads the HTTP status inside the failure (the Gemini adapter puts Google's JSON body in the `RUN_ERROR`'s `message` and sets no `code`) and replaces the event:
+
+| Upstream | `code` | Retryable |
+|---|---|---|
+| 401, 403, or an invalid API key | `misconfigured` | no |
+| 429 whose body says "per day" | `rate_limited_daily` | yes |
+| any other 429 | `rate_limited` | yes |
+| any other API error | `upstream_unavailable` | yes |
+| anything else | `failed` | no |
+
+Each mapped failure is logged once as a JSON line (`chat.failed`, with the code, model, thread and run ids) and never with the key or any message text. `retry` is left unset so a 429 is not repeated against the quota.
+
+The model is called with `reasoning: { level: "low", summary: false }`: the bare string `"low"` is normalised by `@tanstack/ai` to `summary: true`, which asks Gemini for thought summaries.
 
 The static bundle bakes in `PUBLIC_GEMINI_WORKER_URL` at build time.
 That variable is set as a GitHub repo **variable** (not a secret) and injected
@@ -45,7 +83,8 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 
 | Command | What it does | When to run |
 |---|---|---|
-| `worker:test` | Runs the worker unit tests with vitest | Before deploying, or in CI |
+| `worker:test` | Runs every test under `docs/worker/` (the router, both handlers, the validator, the error mapping, the rate limiter) with vitest | Before deploying, or in CI |
+| `worker:bundle-check` | Builds the worker, then `wrangler deploy --dry-run`: proves it still bundles for Cloudflare. Needs no credentials and sends nothing | After changing a dependency or an import; CI runs it |
 
 ### Deployment
 
@@ -183,12 +222,17 @@ The worker allows requests from:
 
 All other origins receive the production origin in `Access-Control-Allow-Origin`,
 so browsers will block unexpected cross-origin requests. Update `CORS_ORIGINS`
-in `worker.ts` if the site moves to another host.
+in `cors.ts` if the site moves to another host.
 
 ## Abuse protection
 
 CORS controls browser behavior, but it is **not** authentication. This worker
-also applies app-level rate limiting before calling Gemini.
+also applies app-level rate limiting before calling Gemini, with **one limiter shared by both routes**.
+The limiter lives in the isolate's memory, so it is **per isolate, not global**:
+Cloudflare may run several isolates, each with its own count, and anyone who can
+reach the URL can spend the key's daily Gemini quota. The visible effect would be
+daily-limit warnings for everyone. Stronger controls are a decision for the
+account holder (plan #257 §9 Q5).
 
 - Limit key: client IP (`CF-Connecting-IP`, fallback to first `X-Forwarded-For` value)
 - Default policy: `30` requests per `60` seconds per client
@@ -208,7 +252,8 @@ of this endpoint.
 ## CI auto-deployment (optional)
 
 See `.github/workflows/worker-deploy.yml`. Deploys automatically on pushes to
-`main` that change `docs/worker/**`. A manual "Run workflow" deploys only from `main`: a run from any other
+`main` that change `docs/worker/**`, `docs/src/chat/lib/**` (the contract the worker bundles), or
+`docs/package.json` or `pnpm-lock.yaml` (the dependencies it bundles, so a bump alone redeploys it). A manual "Run workflow" deploys only from `main`: a run from any other
 branch deploys nothing, provided that branch's copy of the workflow still has the guard (a manual run uses the
 selected branch's file). Requires two GitHub **repository secrets**:
 
@@ -217,10 +262,16 @@ selected branch's file). Requires two GitHub **repository secrets**:
 | `CLOUDFLARE_API_TOKEN` | CF dashboard → My Profile → API Tokens → *Edit Cloudflare Workers* template |
 | `CLOUDFLARE_ACCOUNT_ID` | `wrangler whoami` or CF dashboard right sidebar |
 
-## Bundle size
+## Bundle size and dependencies
 
-Zero npm dependencies — the worker calls the Gemini REST API directly with
-`fetch()`. Typical bundle size: ~30 KB.
+The worker depends on `@tanstack/ai` and `@tanstack/ai-gemini` (and `zod`, `@northguild/gmt`).
+`tsup` bundles everything except the two TanStack packages, which `wrangler deploy` then
+bundles itself: only wrangler resolves the packages' `workerd` export conditions, and the
+Node build that tsup would inline hung under `wrangler dev --local`. `compatibility_flags`
+holds `nodejs_compat` (the packages import `node:events` and `node:process`) and
+`enable_request_signal` (a closed tab aborts the Gemini call).
+`wrangler deploy --dry-run` measured 3,222 KiB uploaded, 577 KiB gzipped, on 2026-11-08;
+`worker:bundle-check` re-runs it.
 
 ---
 
@@ -242,4 +293,4 @@ The system prompt embedded in this worker contains, in order:
 4. **Doc pages** — every `*.mdx` file under `src/content/docs/`, stripped of JSX
 
 The prompt is baked in at build time via `worker:build-context`. The worker
-never fetches content at runtime — all context is in the ~260 KB bundle.
+never fetches content at runtime — all context is in the bundle. It is passed to `chat()` as `systemPrompts`, and its persona paragraph ends with the standing order that user messages are questions, never instructions.

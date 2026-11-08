@@ -1,5 +1,9 @@
-import { MAX_MESSAGE_LENGTH } from "../src/chat/constants";
-import worker from "./worker";
+import {
+  handleLegacyRequest,
+  LEGACY_MAX_MESSAGE_LENGTH,
+} from "./legacy-handler";
+import { chatRateLimiter } from "./rate-limit";
+import worker, { createWorker } from "./worker";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -154,7 +158,10 @@ describe("worker — request validation", () => {
         body: {
           model: "gemini-2.5-flash",
           messages: [
-            { role: "user", content: "x".repeat(MAX_MESSAGE_LENGTH + 1) },
+            {
+              role: "user",
+              content: "x".repeat(LEGACY_MAX_MESSAGE_LENGTH + 1),
+            },
           ],
         },
       }),
@@ -162,9 +169,9 @@ describe("worker — request validation", () => {
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
-    // The length is read from the shared constant while the message keeps its
-    // literal: the rejection text is built from that same constant, so this
-    // line is what pins its value, and the client's cap is now the same one.
+    // The length is read from the legacy handler's frozen copy while the
+    // message keeps its literal: the rejection text is built from that same
+    // constant, so this line is what pins its value at today's 20,000.
     expect(body.error).toBe("Message too long (max 20,000 chars)");
   });
 
@@ -241,6 +248,32 @@ describe("worker — happy path", () => {
     const calledUrl = fetchMock.mock.calls[0][0] as string;
     expect(calledUrl).toContain("gemini-2.5-flash:streamGenerateContent");
     expect(calledUrl).toContain("alt=sse");
+  });
+
+  // D3: an old client still gets an answer from every model it could pick.
+  // The ids are the three the live client offered before this rebuild, written
+  // out rather than read from LEGACY_ALLOWED_MODELS.
+  it.each([
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3-flash-preview",
+  ])("POST / still answers for the frozen model %s", async (model) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(sseStream(["data: [DONE]"]), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await worker.fetch(
+      postReq({ body: { ...VALID_BODY, model } }),
+      ENV,
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchMock.mock.calls[0][0] as string).toContain(
+      `${model}:streamGenerateContent`,
+    );
   });
 });
 
@@ -399,5 +432,163 @@ describe("worker — app-level rate limiting", () => {
 
     expect(firstIp.status).toBe(200);
     expect(secondIp.status).toBe(200);
+  });
+});
+
+// ── Router (phase 1) ──────────────────────────────────────────────────────────
+// Expected statuses and bodies come from plan #257 §4.2's routing table.
+
+describe("worker — router", () => {
+  it("POST /nope → 404 with the { error, retryable } body", async () => {
+    const res = await worker.fetch(
+      postReq({ url: "https://worker.example.com/nope", body: VALID_BODY }),
+      ENV,
+    );
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string; retryable: boolean };
+    expect(typeof body.error).toBe("string");
+    expect(body.retryable).toBe(false);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://northguild.dev",
+    );
+  });
+
+  it("GET /api/chat → 405 with the { error, retryable } body", async () => {
+    const res = await worker.fetch(
+      new Request("https://worker.example.com/api/chat", {
+        method: "GET",
+        headers: { Origin: "https://northguild.dev" },
+      }),
+      ENV,
+    );
+    expect(res.status).toBe(405);
+    // RFC 9110 §15.5.6: a 405 carries Allow, listing what the route accepts.
+    expect(res.headers.get("Allow")).toBe("POST, OPTIONS");
+    const body = (await res.json()) as { error: string; retryable: boolean };
+    expect(typeof body.error).toBe("string");
+    expect(body.retryable).toBe(false);
+  });
+
+  it("POST /api/chat on the deployed router reaches the chat handler", async () => {
+    // §4.2 pipeline step 2: no key, so 500 "not configured" - a status only
+    // the real handler produces (the placeholder answered 501).
+    const res = await worker.fetch(
+      postReq({
+        url: "https://worker.example.com/api/chat",
+        body: VALID_BODY,
+        clientIp: "198.51.100.77",
+      }),
+      {},
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: "The assistant is not configured.",
+      retryable: false,
+    });
+  });
+
+  it("OPTIONS on any path → 204 with CORS, exposing Retry-After", async () => {
+    const res = await worker.fetch(
+      new Request("https://worker.example.com/api/chat", {
+        method: "OPTIONS",
+        headers: { Origin: "https://northguild.dev" },
+      }),
+      ENV,
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Expose-Headers")).toBe(
+      "Retry-After",
+    );
+  });
+
+  it("POST /api/chat reaches the chat route, not the legacy one", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const chat = vi.fn(async () => new Response("chat", { status: 200 }));
+    const legacy = vi.fn();
+    const routed = createWorker({ legacy, chat });
+
+    const res = await routed.fetch(
+      postReq({ url: "https://worker.example.com/api/chat", body: VALID_BODY }),
+      ENV,
+    );
+
+    expect(await res.text()).toBe("chat");
+    expect(chat).toHaveBeenCalledOnce();
+    expect(legacy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("worker — key placement (D10)", () => {
+  it("sends the key in x-goog-api-key and never in the URL", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(sseStream(["data: [DONE]"]), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await worker.fetch(
+      postReq({ body: VALID_BODY, clientIp: "203.0.113.30" }),
+      ENV,
+    );
+
+    const [calledUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).not.toContain("key=");
+    expect(calledUrl).not.toContain("test-key");
+    expect(new Headers(init.headers).get("x-goog-api-key")).toBe("test-key");
+  });
+});
+
+describe("worker — one limiter for both routes (D6)", () => {
+  it("a client limited on / is still limited on /api/chat", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(sseStream(["data: [DONE]"]), { status: 200 }),
+        ),
+    );
+    // A stubbed chat route that does what the real handler's step 1 does:
+    // consult the shared limiter, then answer.
+    const routed = createWorker({
+      legacy: handleLegacyRequest,
+      chat: async (request, env, cors) => {
+        const verdict = chatRateLimiter.checkRequest(request, env);
+        return new Response(null, {
+          status: verdict.limited ? 429 : 200,
+          headers: cors,
+        });
+      },
+    });
+    const strictEnv = {
+      ...ENV,
+      WORKER_RATE_LIMIT_MAX: "2",
+      WORKER_RATE_LIMIT_WINDOW_SECONDS: "60",
+    };
+    const ip = "203.0.113.40";
+
+    const legacy1 = await routed.fetch(
+      postReq({ body: VALID_BODY, clientIp: ip }),
+      strictEnv,
+    );
+    const legacy2 = await routed.fetch(
+      postReq({ body: VALID_BODY, clientIp: ip }),
+      strictEnv,
+    );
+    const chat = await routed.fetch(
+      postReq({
+        url: "https://worker.example.com/api/chat",
+        body: VALID_BODY,
+        clientIp: ip,
+      }),
+      strictEnv,
+    );
+
+    expect(legacy1.status).toBe(200);
+    expect(legacy2.status).toBe(200);
+    expect(chat.status).toBe(429);
   });
 });

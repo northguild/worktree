@@ -1,26 +1,42 @@
 import { Button } from "@base-ui/react";
-import {
-  CubeTransparentIcon,
-  RocketLaunchIcon,
-} from "@heroicons/react/24/outline";
+import { RocketLaunchIcon, StopIcon } from "@heroicons/react/24/outline";
+import type { Ref } from "react";
 import { cn } from "../../utils";
-import { useFormStore } from "../form/FormContext";
 
 interface ChatSubmitButtonProps {
-  disabled?: boolean;
+  ref?: Ref<HTMLButtonElement>;
+  /** An answer is on its way: the button stops it instead of sending. */
+  answering: boolean;
+  /** Nothing to send yet (blank or only whitespace). */
+  empty: boolean;
+  onStop: () => void;
 }
 
-export function ChatSubmitButton({ disabled }: ChatSubmitButtonProps) {
-  const value = useFormStore((s) => s.values?.message);
-  const isSubmitting = useFormStore((s) => s.isSubmitting);
-
+/**
+ * Send while idle, Stop while an answer is arriving (plan #257 D15). It is one
+ * element in both states, so focus on it survives the swap: after "Try again"
+ * (ChatPanel moves focus here) the keyboard user can stop without finding it.
+ * An accepted send returns focus to the message field (ChatForm), not here.
+ */
+export function ChatSubmitButton({
+  ref,
+  answering,
+  empty,
+  onStop,
+}: ChatSubmitButtonProps) {
   return (
     <Button
-      type="submit"
-      disabled={!!(disabled || isSubmitting || !String(value ?? "").trim())}
+      ref={ref}
+      type={answering ? "button" : "submit"}
+      aria-label={answering ? "Stop answer" : "Send message"}
+      onClick={answering ? onStop : undefined}
+      disabled={!answering && empty}
+      // aria-disabled rather than the native attribute, so a Stop that gives
+      // way to a Send with nothing to send keeps the keyboard user's focus.
+      focusableWhenDisabled
       className={cn(
         "bg-chat-accent text-chat-on-accent hover:brightness-110 rounded-lg transition-colors",
-        "disabled:opacity-80 disabled:cursor-not-allowed",
+        "disabled:opacity-80 disabled:cursor-not-allowed aria-disabled:opacity-80 aria-disabled:cursor-not-allowed",
         // The transparent border is load-bearing: it is the second half of the
         // arithmetic below, matching the 1px the field spends on its own.
         "p-2 ml-2 border border-transparent",
@@ -36,10 +52,10 @@ export function ChatSubmitButton({ disabled }: ChatSubmitButtonProps) {
         the glyph to the text scale, which is not what is being matched here.
       */}
       <span className="flex h-[1lh] items-center">
-        {isSubmitting ? (
-          <CubeTransparentIcon className="w-5 h-5 animate-spin" />
+        {answering ? (
+          <StopIcon className="w-5 h-5" aria-hidden="true" />
         ) : (
-          <RocketLaunchIcon className="w-5 h-5" />
+          <RocketLaunchIcon className="w-5 h-5" aria-hidden="true" />
         )}
       </span>
     </Button>

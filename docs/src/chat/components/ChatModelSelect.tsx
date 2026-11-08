@@ -6,13 +6,13 @@ import {
 } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import { cn } from "../../utils";
-import type { AllowedModel, FREE_MODELS } from "../constants";
+import type { CHAT_MODELS, ChatModelId } from "../lib/chat-constants";
 
 interface ChatModelSelectProps {
   label: string;
-  models: typeof FREE_MODELS;
-  onChange: (model: AllowedModel) => void;
-  selectedModel?: string;
+  models: typeof CHAT_MODELS;
+  onChange: (model: ChatModelId) => void;
+  selectedModel?: ChatModelId;
 }
 
 export function ChatModelSelect({
@@ -30,7 +30,7 @@ export function ChatModelSelect({
   return (
     <Select.Root
       value={selectedModel}
-      onValueChange={(m: unknown) => m && onChange(m as AllowedModel)}
+      onValueChange={(m) => m && onChange(m)}
       onOpenChange={handleOpenChange}
       id="model-select"
     >
@@ -66,10 +66,10 @@ export function ChatModelSelect({
           <Select.Popup className="bg-chat-bg border border-chat-border rounded shadow-lg">
             <Select.ScrollUpArrow className="text-chat-fg" />
             <Select.List>
-              {models.map(({ label, value }) => (
+              {models.map(({ label, id }) => (
                 <Select.Item
-                  key={value}
-                  value={value}
+                  key={id}
+                  value={id}
                   className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-chat-fill data-[highlighted]:bg-chat-fill"
                 >
                   <Select.ItemIndicator>

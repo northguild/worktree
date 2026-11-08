@@ -15,7 +15,7 @@
  * 2026-11-04, replacing phase 8's edit links; gmt's docs have none either); no page carries the project line the
  * footer once had (licence, CLI version, maintainers); and no page shows the northguild organisation's GitHub avatar,
  * the second logo the footer once carried beside the header's mark; no id appears twice on a page; and the landing has one
- * action ("Get started") and no section below the hero. Per site: `llms.txt`
+ * link action ("Get started"), one "Ask Dox" button that opens the chat, and no section below the hero. Per site: `llms.txt`
  * (D13) is a llmstxt.org file listing the same 28 URLs, each with a title and the page's own description.
  *
  * Also (phase 9, accessibility): every button has an accessible name (an icon-only one needs an `aria-label`, an
@@ -1508,6 +1508,23 @@ async function auditSite(dist) {
       failures.push(
         `/ (root): the landing has ${actions} actions, expected only "Get started"`,
       );
+    // The user, 2026-11-08: "we are missing an 'Ask Dox' button in the landing page", as gmt's landing has. It is a
+    // <button> beside the one link action, not a second one: it opens the chat drawer (`data-chat-open`, which
+    // chat/launcher.ts wires) and goes nowhere.
+    const askDox = [
+      ...root.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g),
+    ].filter(([, , inner]) => /^ask dox$/i.test(textOf(inner)));
+    if (askDox.length !== 1)
+      failures.push(
+        `/ (root): the landing has ${askDox.length} "Ask Dox" buttons, expected 1`,
+      );
+    else {
+      const attrs = attributes(askDox[0][1]);
+      if (attrs.type !== "button" || !("data-chat-open" in attrs))
+        failures.push(
+          '/ (root): the "Ask Dox" button does not open the chat (it needs type="button" and data-chat-open)',
+        );
+    }
     const sections = (root.match(/<h2\b/g) ?? []).length;
     if (sections > 0)
       failures.push(
