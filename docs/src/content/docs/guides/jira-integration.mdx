@@ -84,7 +84,8 @@ worktree branch --jira DEV-123 --no-start
 worktree config jira.autoStart true
 ```
 
-Jira workflows are per project and the statuses are renamed and translated freely, so nothing is matched by name.
+Jira workflows are per project and the statuses are renamed and translated freely, so the move goes by category, and
+a name is read only to pick between several in-progress statuses.
 Jira groups every status into a category (To Do, In Progress, Done), and `worktree` goes by that. Up to three
 requests follow, each cut off after 15 seconds: the issue's status, the transitions Jira offers from it, and the
 transition itself.
@@ -94,8 +95,10 @@ transition itself.
 - An issue already in the In Progress category is not moved, and the document's `started` is `true`. That costs
   one request.
 - An issue in the Done category, or in any other category, is left alone with a warning and `started` is `false`.
-- When the available transitions lead to more than one in-progress status, `worktree` does not guess which is
-  "in progress" and writes nothing. The warning lists the statuses, `started` is `false`, and you move it in Jira.
+- When the available transitions lead to more than one in-progress status, `worktree` takes the one named
+  "In Progress" (any capitalisation), which is how Jira's default Scrum project, with its In Progress and In Review,
+  moves. If none is named that, or two statuses are, it does not guess and writes nothing. The warning lists the
+  statuses, `started` is `false`, and you move it in Jira.
 - When Jira offers no in-progress transition, the warning says so and `started` is `false`. Jira answers with an
   empty list both when the workflow has no such transition and when the account lacks the permission, so the
   warning names both causes.

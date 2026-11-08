@@ -1948,11 +1948,89 @@ jira:
       });
     });
 
-    it("refuses to choose between transitions that lead to different statuses", async () => {
+    it("takes the status named In Progress when a default Scrum workflow also offers In Review (#291)", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("21", "In Progress", inProgress),
+          transition("31", "In Review", inReview),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "started",
+        from: "To Do",
+        to: "In Progress",
+      });
+      expect(JSON.parse(posts(fetchSpy)[0][1].body as string)).toEqual({
+        transition: { id: "21" },
+      });
+    });
+
+    it("takes the status named In Progress whatever order Jira lists it in", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("31", "In Review", inReview),
+          transition("21", "In Progress", inProgress),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toMatchObject({ outcome: "started", to: "In Progress" });
+      expect(JSON.parse(posts(fetchSpy)[0][1].body as string)).toEqual({
+        transition: { id: "21" },
+      });
+    });
+
+    it("matches In Progress on the status name whatever its case and spacing", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("31", "In Review", inReview),
+          transition(
+            "21",
+            "Begin",
+            status("10005", " IN PROGRESS ", "indeterminate"),
+          ),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toMatchObject({ outcome: "started", to: " IN PROGRESS " });
+      expect(JSON.parse(posts(fetchSpy)[0][1].body as string)).toEqual({
+        transition: { id: "21" },
+      });
+    });
+
+    it("goes by the status name, not the transition name, and takes the first transition to it", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("31", "In Progress", inReview),
+          transition("21", "Start progress", inProgress),
+          transition("22", "Pick up", inProgress, { isGlobal: true }),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toMatchObject({ outcome: "started", to: "In Progress" });
+      expect(JSON.parse(posts(fetchSpy)[0][1].body as string)).toEqual({
+        transition: { id: "21" },
+      });
+    });
+
+    it("refuses to choose between two different statuses both named In Progress", async () => {
       const fetchSpy = stubJira({
         transitions: [
           transition("21", "Start progress", inProgress),
-          transition("22", "Send to review", inReview),
+          transition(
+            "23",
+            "Start other",
+            status("10006", "In Progress", "indeterminate"),
+          ),
+          transition("31", "In Review", inReview),
         ],
       });
 
@@ -1961,7 +2039,25 @@ jira:
       expect(result).toEqual({
         outcome: "ambiguous",
         status: "To Do",
-        targets: ["In Progress", "In Review"],
+        targets: ["In Progress", "In Progress", "In Review"],
+      });
+      expect(posts(fetchSpy)).toHaveLength(0);
+    });
+
+    it("refuses to choose between statuses when none is named In Progress", async () => {
+      const fetchSpy = stubJira({
+        transitions: [
+          transition("22", "Send to review", inReview),
+          transition("23", "Test", status("10004", "Testing", "indeterminate")),
+        ],
+      });
+
+      const result = await startJiraIssue("DEV-123");
+
+      expect(result).toEqual({
+        outcome: "ambiguous",
+        status: "To Do",
+        targets: ["In Review", "Testing"],
       });
       expect(posts(fetchSpy)).toHaveLength(0);
     });

@@ -953,10 +953,11 @@ async function jiraStartFailure(
   return new Error(`Jira: Failed to move issue ${issueKey}. ${detail}`);
 }
 
-// D1-D7: moves a not-yet-begun issue to the one in-progress status its
-// workflow offers. Reads the status first and the transitions only when the
-// issue is in the "new" category (D5), then writes only when exactly one
-// distinct in-progress target exists (D3). A 204 is success (D6).
+// D1-D7: moves a not-yet-begun issue to the in-progress status its workflow
+// offers. Reads the status first and the transitions only when the issue is in
+// the "new" category (D5), then writes only when one in-progress target can be
+// chosen (D3): the only distinct one, or, among several, the one status named
+// "In Progress" (#291). A 204 is success (D6).
 export async function startJiraIssue(issueId: string): Promise<JiraStart> {
   const { issueKey, site } = await resolveJiraTarget(issueId);
   const unexpected = () =>
@@ -1036,14 +1037,26 @@ export async function startJiraIssue(issueId: string): Promise<JiraStart> {
     }
   }
 
-  const chosen = candidates[0];
+  let chosen = candidates[0];
 
   if (!chosen) {
     return { outcome: "no-in-progress-transition", status };
   }
 
   if (targetIds.size > 1) {
-    return { outcome: "ambiguous", status, targets: targetNames };
+    // #291: a default Scrum project offers In Progress and In Review, both in
+    // the in-progress category. Exactly one target literally named "In
+    // Progress" is the unambiguous choice; any other mix still is not.
+    const named = candidates.filter(
+      (candidate) => candidate.to?.name?.trim().toLowerCase() === "in progress",
+    );
+    const namedIds = new Set(named.map((candidate) => candidate.to?.id));
+
+    if (namedIds.size !== 1) {
+      return { outcome: "ambiguous", status, targets: targetNames };
+    }
+
+    chosen = named[0];
   }
 
   const postResponse = await fetchJira(transitionsPath, site, {
@@ -1061,5 +1074,9 @@ export async function startJiraIssue(issueId: string): Promise<JiraStart> {
     );
   }
 
-  return { outcome: "started", from: status, to: targetNames[0] };
+  return {
+    outcome: "started",
+    from: status,
+    to: chosen.to?.name ?? "unknown",
+  };
 }
