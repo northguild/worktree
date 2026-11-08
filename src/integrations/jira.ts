@@ -740,10 +740,15 @@ export async function validateJiraCredentials(): Promise<boolean> {
   }
 }
 
-/** `displayName` is the caller's own; `heldBy` is whoever has the issue. */
+/**
+ * `displayName` is the caller's own; `heldBy` is whoever has the issue.
+ * `assignee-hidden` is an issue whose assignee the API would not show (#290),
+ * so nobody can say whether it is free.
+ */
 export type JiraAssignment =
   | { outcome: "assigned" | "already-yours"; displayName: string }
-  | { outcome: "held-by-other"; displayName: string; heldBy: string };
+  | { outcome: "held-by-other"; displayName: string; heldBy: string }
+  | { outcome: "assignee-hidden"; displayName: string };
 
 interface JiraUser {
   accountId?: string;
@@ -842,6 +847,15 @@ export async function assignJiraIssue(
     fields?: { assignee?: JiraUser | null };
   }>(assigneePath, site, issueResponse);
   const assignee = issue.fields?.assignee;
+  // #290: `assignee: null` is an issue that is free. A project whose field
+  // scheme leaves Assignee out answers 200 with no `fields` object at all, or
+  // one with no `assignee` key, while the issue may still have an assignee. The
+  // two are different answers, and only the first one lets a write through.
+  const assigneeHidden = !(
+    issue.fields !== null &&
+    typeof issue.fields === "object" &&
+    "assignee" in issue.fields
+  );
   const displayName = me.displayName ?? "you";
 
   // D8: Cloud goes by accountId. Data Center goes by `key`, which survives a
@@ -860,6 +874,10 @@ export async function assignJiraIssue(
       ? assignee.key === me.key
       : assignee?.name === me.name
     : assignee?.accountId === me.accountId;
+
+  if (assigneeHidden) {
+    return { outcome: "assignee-hidden", displayName };
+  }
 
   if (isMine) {
     return { outcome: "already-yours", displayName };

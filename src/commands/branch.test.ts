@@ -4559,6 +4559,28 @@ jira:
           );
         });
 
+        it("leaves an issue whose assignee Jira hides alone: a warning, assigned: false, worktree created (#290)", async () => {
+          spyAssign({
+            outcome: "assignee-hidden",
+            displayName: "Ada Lovelace",
+          });
+          jiraRun({ assign: true });
+          const mockGitCreateWorktree = vi
+            .spyOn(git, "gitCreateWorktree")
+            .mockResolvedValue("/path/to/worktree");
+
+          const document = await branch.run();
+
+          const message =
+            "Jira does not show who holds DEV-123 (its project's field scheme leaves out Assignee), so it was left alone. Assign it in Jira if it should be yours.";
+          expect(document?.assigned).toBe(false);
+          expect(document?.path).toBe("/path/to/worktree");
+          expect(mockGitCreateWorktree).toHaveBeenCalled();
+          expect(lastSpinner().warn).toHaveBeenCalledWith(message);
+          expect(lastSpinner().succeed).not.toHaveBeenCalled();
+          expect(document?.warnings).toContain(message);
+        });
+
         it("shows control characters in a holder's name and in a rejection visibly (#228)", async () => {
           spyAssign({
             outcome: "held-by-other",

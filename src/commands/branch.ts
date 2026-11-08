@@ -189,8 +189,8 @@ issue: {provider:"github", number, url|null}, {provider:"jira", key,
 url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
 url|null} or null
 assigned: true if the issue is yours after the run (assigned or already yours),
-false if it is not (held by someone else, or the attempt failed), null if none
-was attempted
+false if it is not (held by someone else, a Jira assignee Jira hides, or the
+attempt failed), null if none was attempted
 started: true if the Linear issue, ClickUp task or Jira issue is in a started
 state after the run (moved or already there), false if it is not (left alone,
 no started state to move to, or the attempt failed), null if none was attempted
@@ -846,7 +846,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
   /**
    * Same contract as `assignGithubIssue`: nothing here aborts `branch`. Jira
    * holds one assignee, so `assignJiraIssue` never writes over a colleague's
-   * (D1); that outcome warns and reports `false`, as does every failure (D6).
+   * (D1); that outcome warns and reports `false`, as does an issue whose
+   * assignee Jira does not show (#290) and every failure (D6).
    * Errors from the integration carry the API's own text and never a header.
    */
   private async assignJiraIssue(issueIdFlag: string): Promise<boolean> {
@@ -855,7 +856,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
     try {
       const result = await assignJiraIssue(issueIdFlag);
-      if (result.outcome !== "held-by-other") {
+      if (
+        result.outcome !== "held-by-other" &&
+        result.outcome !== "assignee-hidden"
+      ) {
         spinner.succeed(
           result.outcome === "assigned"
             ? `Assigned ${issueKey} to ${showVisibly(redactSecrets(result.displayName))}`
@@ -863,7 +867,10 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         );
         return true;
       }
-      const message = `${issueKey} is already assigned to ${showVisibly(redactSecrets(result.heldBy))}, so it was left alone. Reassign it in Jira if it should be yours.`;
+      const message =
+        result.outcome === "held-by-other"
+          ? `${issueKey} is already assigned to ${showVisibly(redactSecrets(result.heldBy))}, so it was left alone. Reassign it in Jira if it should be yours.`
+          : `Jira does not show who holds ${issueKey} (its project's field scheme leaves out Assignee), so it was left alone. Assign it in Jira if it should be yours.`;
       spinner.warn(message);
       this.recordWarning(message);
     } catch (error) {

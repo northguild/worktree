@@ -63,6 +63,10 @@ worktree config jira.autoAssign true
   branch; `--assign` does not override this. An issue already assigned to you is reported as such and nothing
   is written. In the `--json` document, `assigned` is `true` when the issue is assigned now or was already
   yours, and `false` when someone else holds it.
+- **An issue whose assignee Jira will not show is left alone too.** A project whose field scheme leaves out
+  *Assignee* answers the read with no assignee at all, even when someone holds the issue, so `worktree` cannot tell
+  a free issue from a held one. It warns, writes nothing and creates the branch, and `assigned` is `false`. Add
+  *Assignee* to the project's field scheme, or assign the issue in Jira.
 - **The account needs the *Browse Projects* and *Assign Issues* permissions** on the issue's project. Without
   them, or when the issue is not found or Jira does not accept the account, `worktree` warns with what Jira
   said.
