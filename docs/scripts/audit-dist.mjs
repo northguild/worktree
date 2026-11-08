@@ -63,6 +63,12 @@
  * keyframes animate only opacity, transform and color; and the fade never targets `.wordmark`, `.title-wrapper` or
  * `header-chip`, and on search only `site-search > button[data-open-modal]`.
  *
+ * Also (#309 phase 1, the Dox page): `/dox/` is not one of the 28 pages and gets rules of its own (`auditDox`). It is built
+ * (`dox/index.html`), `noindex`, listed in neither the sitemap nor `llms.txt`, and shaped as D6 says: the inline script that
+ * sets `data-dox-shell`, exactly one `astro-island`, `<title>` `Dox · @northguild/worktree`, the site header, named
+ * controls, no footer and no chat launcher (the page is the chat), every graphic hidden or named. No other page or the
+ * 404 loads Dox code: the island's chunk, or the stylesheet that carries the hive.
+ *
  * Usage: node docs/scripts/audit-dist.mjs [distDir]   (default: docs/dist, after `pnpm docs:build`)
  */
 
@@ -927,7 +933,7 @@ export async function entranceCssFindings(dist) {
 }
 
 /** Failures in how a page's controls are named (WCAG 4.1.2 and 2.5.3) and in the chat launcher's announced shortcut. */
-function auditControls(html, where) {
+function auditControls(html, where, { launcher: wantsLauncher = true } = {}) {
   const failures = [];
   const fail = (rule) => failures.push(`${where}: ${rule}`);
   const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
@@ -964,7 +970,11 @@ function auditControls(html, where) {
   }
   if (!hasSearch) fail("no search button (data-open-modal)");
 
-  if (launcher === undefined)
+  if (!wantsLauncher) {
+    // /dox is the chat: a launcher there would open a second one (#309 D6).
+    if (launcher !== undefined)
+      fail("has the chat launcher (data-chat-launcher); this page is the chat");
+  } else if (launcher === undefined)
     fail("no chat launcher button (data-chat-launcher)");
   else if (launcher["aria-keyshortcuts"] === undefined)
     fail(
@@ -1432,6 +1442,103 @@ function auditNotFound(html) {
   return failures;
 }
 
+// The Dox page (#309 D6): the one page that is neither one of the 28 nor the 404.
+const DOX_URL = `${ORIGIN}dox/`;
+const DOX_TITLE = "Dox · @northguild/worktree";
+/** The island's chunk, `DoxPage.<hash>.js`; the hive's stylesheet is told by what it holds, below. */
+const isDoxChunk = (reference) => /(^|\/)DoxPage\.[^/]*$/.test(reference);
+
+/** True when `html` loads Dox code: the island's chunk, however referenced, or the stylesheet that carries the hive. */
+async function loadsDoxCode(html, dist) {
+  if (await loadedUpFront(html, dist, isDoxChunk)) return true;
+  if (/\bcomponent-url="[^"]*\/DoxPage\.[^"/]*"/.test(html)) return true;
+  for (const { rel, href } of tagsOf(html, "link")) {
+    if (rel !== "stylesheet" || !href) continue;
+    try {
+      if (
+        (await readFile(fileOf(dist, href), "utf8")).includes("gmt-hive-shell")
+      )
+        return true;
+    } catch {
+      // A stylesheet that cannot be read cannot carry the hive.
+    }
+  }
+  return false;
+}
+
+/** `/dox/`: not one of the 28 pages, so none of `auditPage`'s rules apply; these are its own. Returns failure rules. */
+async function auditDox(dist) {
+  const failures = [];
+  const fail = (rule) => failures.push(`/dox/: ${rule}`);
+  let html;
+  try {
+    html = await readFile(join(dist, "dox/index.html"), "utf8");
+  } catch {
+    fail("dox/index.html is missing from the build");
+    return failures;
+  }
+
+  const robots = tagsOf(html, "meta").find((m) => m.name === "robots");
+  if (!robots || !/\bnoindex\b/.test(robots.content ?? ""))
+    fail(
+      'no <meta name="robots" content="noindex">; the chat shell is kept out of search',
+    );
+  // The inline script that marks the document, in <head> before <body> parses; every layout override keys off it.
+  if (!/<script\b[^>]*>[^<]*data-dox-shell/.test(html))
+    fail("no inline script setting data-dox-shell");
+  const islands = (html.match(/<astro-island\b/g) ?? []).length;
+  if (islands !== 1)
+    fail(`${islands} astro-island elements, expected exactly 1`);
+  const title = html.match(/<title>([^<]*)<\/title>/)?.[1];
+  if (title === undefined || decode(title) !== DOX_TITLE)
+    fail(
+      `title is "${title === undefined ? "(none)" : decode(title)}", expected "${DOX_TITLE}"`,
+    );
+  if (/<footer\b/.test(html))
+    fail("renders a footer; the page is full-bleed and has none");
+
+  // The header, the controls and the graphics are the site-wide rules, with the one difference that the page is the chat
+  // and so carries no launcher.
+  failures.push(...auditHeader(html, "/dox/"));
+  failures.push(...auditControls(html, "/dox/", { launcher: false }));
+  failures.push(...auditSvgs(html, "/dox/"));
+  const ids = new Map();
+  for (const [, id] of html.matchAll(/\sid="([^"]*)"/g))
+    ids.set(id, (ids.get(id) ?? 0) + 1);
+  for (const [id, count] of ids)
+    if (count > 1) fail(`id "${id}" appears ${count} times`);
+
+  try {
+    if ((await sitemapUrls(dist)).includes(DOX_URL))
+      fail("is listed in the sitemap; it is kept out");
+  } catch {
+    // auditSite reports an unreadable sitemap.
+  }
+  try {
+    if ((await readFile(join(dist, "llms.txt"), "utf8")).includes(DOX_URL))
+      fail("is listed in llms.txt; it is kept out");
+  } catch {
+    // auditLlms reports an unreadable llms.txt.
+  }
+
+  // Dox code ships on /dox/ alone: the chunk and the stylesheet are code-split into the island.
+  const others = [
+    ...PAGE_PATHS.map((p) => [label(p), pageFile(p)]),
+    ["404.html", "404.html"],
+  ];
+  for (const [name, file] of others) {
+    let other;
+    try {
+      other = await readFile(join(dist, file), "utf8");
+    } catch {
+      continue; // a missing page is its own rule's failure
+    }
+    if (await loadsDoxCode(other, dist))
+      failures.push(`${name}: loads Dox code; only /dox/ may`);
+  }
+  return failures;
+}
+
 async function auditSite(dist) {
   const failures = [];
 
@@ -1467,6 +1574,7 @@ async function auditSite(dist) {
     failures.push("404.html is missing");
   }
 
+  failures.push(...(await auditDox(dist)));
   failures.push(...(await cyanFindings(dist)));
   failures.push(...(await entranceCssFindings(dist)));
 

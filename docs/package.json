@@ -32,6 +32,7 @@
   "packageManager": "pnpm@12.15.0",
   "dependencies": {
     "@astrojs/react": "^7.1.2",
+    "@astrojs/sitemap": "3.7.4",
     "@astrojs/starlight": "^0.42.8",
     "@base-ui/react": "^1.9.0",
     "@heroicons/react": "^2.2.0",

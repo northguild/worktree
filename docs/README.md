@@ -260,9 +260,34 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 pagination; there is no edit link, since `astro.config.mjs` sets no `editLink`) through `Default` and nothing else; the licence line, the CLI version and the maintainers it once
 added are gone (the CLI version is in the header). The landing renders no footer at all: it is the hero alone. The chat
 launcher is rendered from the same file on every page, the landing included, because Starlight has no slot of its own
-for it. Its script then moves it to the end of `<body>`: Starlight's page pane is `isolation: isolate`, so inside it the
+for it, and not on `/dox/` (below). Its script then moves it to the end of `<body>`: Starlight's page pane is `isolation: isolate`, so inside it the
 right sidebar ("On this page") painted over the button on wide pages whatever its z-index (#266). `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
-checked in `dist/` instead (`pnpm docs:audit-dist`).
+checked in `dist/` instead (`pnpm docs:audit-dist`). On `/dox/` it renders neither Starlight's footer nor the launcher, told by
+the URL because `/dox/` is a `StarlightPage` and not a collection entry, so it has no route id.
+
+## The Dox page
+
+`/worktree/dox/` (`src/pages/dox.astro`) is the page the chat is becoming (plan #309): a full-bleed hive of its own under the
+site header, with a strip holding the environment badge (`● local` or `● live`, set after mount so the server markup matches)
+and, below it, the empty hub: the Dox crystal at logo scale and the prompt line. The transcript, the composer and the examples
+rail arrive in the later phases of #309; until they do, the drawer and its launcher still open the chat on every other page.
+
+- **Shape.** A `StarlightPage` with `template: splash`, title "Dox", `noindex`, `pagefind: false`, an inline `<head>` script that sets
+  `data-dox-shell` on `<html>`, and one `client:load` island, `DoxPage` (`src/chat/components/`). The page's global `<style>` keys
+  every layout override off that attribute, so none of it can reach another page. Those overrides name Starlight's own wrappers
+  (`.page`, `.main-frame`, `.content-panel`, `.sl-container`, `.sl-markdown-content`): after a Starlight upgrade, open `/dox/` and check
+  the page does not scroll and the hub is centred.
+- **Kept out of lists.** The sitemap is `@astrojs/sitemap`, configured in `astro.config.mjs` with a `filter` that drops `/worktree/dox/`
+  (Starlight adds its own sitemap only when none is configured). `llms.txt` is built from the content collection, which `/dox/` is not
+  part of, and it is not one of the audit's 28 `PAGE_PATHS`.
+- **Style.** `src/styles/dox-hive.css` is gmt's hive stylesheet, recoloured to the spring tier (`--gmt-spring` for fills and borders,
+  `--gmt-spring-ink` for text) and imported by the island, so Vite ships it with that page only. The three tokens the vendored theme lacks
+  (`--gmt-motion-scan-duration`, `--gmt-motion-sheen-duration`, `--gmt-z-behind`) are declared in `theme.css`. The crystal's geometry
+  is `src/lib/dox-mark.ts`, ported unchanged from gmt and drawn in `currentColor` by `chat/components/hive/HiveGlyph.tsx`.
+- **Audit.** `pnpm docs:audit-dist` holds `/dox/` to rules of its own (`auditDox`): `noindex`, the `data-dox-shell` script, exactly one
+  `astro-island`, the title `Dox · @northguild/worktree`, the site header, named controls, no footer, no chat launcher, hidden or named
+  graphics, unique ids, absent from the sitemap and `llms.txt`, and no other page (the 404 included) loading the island's chunk or the
+  stylesheet that carries the hive.
 
 ## The landing hero
 

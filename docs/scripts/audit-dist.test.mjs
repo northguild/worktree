@@ -273,6 +273,36 @@ function notFoundPage(overrides = {}) {
   ].join("\n");
 }
 
+// #309 phase 1 (D6): `/dox/` is built by Astro as a StarlightPage that is not one of the 28 pages. What it carries is what
+// the build renders (read off dist/dox/index.html): `noindex`, the inline script that marks the document, the site header,
+// the search and menu buttons and the theme toggle but no chat launcher, no footer, and one `astro-island` holding the
+// island's chunk (`DoxPage.<hash>.js`), whose stylesheet is linked from this page alone.
+const DOX_TITLE = "Dox · @northguild/worktree";
+const DOX_SHELL_SCRIPT =
+  "<script>document.documentElement.setAttribute('data-dox-shell','')</script>";
+const DOX_ISLAND =
+  '<astro-island component-url="/worktree/_astro/DoxPage.mno.js" client="load"><svg aria-hidden="true" focusable="false"></svg></astro-island>';
+const DOX_CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${THEME_SELECT}`;
+const DOX_STYLESHEET =
+  '<link rel="stylesheet" href="/worktree/_astro/dox.pqr.css"/>';
+
+function doxPage(overrides = {}) {
+  return [
+    "<!doctype html><html><head>",
+    THEME_PROVIDER,
+    `<title>${overrides.title ?? DOX_TITLE}</title>`,
+    overrides.robots ?? '<meta name="robots" content="noindex"/>',
+    overrides.shell ?? DOX_SHELL_SCRIPT,
+    DOX_STYLESHEET,
+    "</head><body>",
+    overrides.header ?? HEADER,
+    overrides.controls ?? DOX_CONTROLS,
+    overrides.island ?? DOX_ISLAND,
+    overrides.extra ?? "",
+    "</body></html>",
+  ].join("\n");
+}
+
 function sitemap(paths) {
   return `<?xml version="1.0"?><urlset>${paths.map((p) => `<url><loc>${url(p)}</loc></url>`).join("")}</urlset>`;
 }
@@ -291,6 +321,9 @@ beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), "audit-dist-"));
   for (const path of PATHS) await write(dist, htmlPath(path), page(path));
   await write(dist, "404.html", notFoundPage());
+  await write(dist, "dox/index.html", doxPage());
+  await write(dist, "_astro/DoxPage.mno.js", "export const dox = 1;");
+  await write(dist, "_astro/dox.pqr.css", ".gmt-hive-shell{position:fixed}");
   await write(
     dist,
     "_astro/common.abc.css",
@@ -2384,5 +2417,191 @@ describe("the landing header's entrance (#266)", () => {
       ),
     );
     expect(failures.some((f) => /style.*opacity/.test(f))).toBe(true);
+  });
+});
+
+// Expected values: plan #309 Phase 1, scope item 6 and "Done when": `/dox/` is `noindex`, in neither the sitemap nor
+// `llms.txt`, has the `data-dox-shell` script and exactly one `astro-island`, the title `Dox · @northguild/worktree`, the
+// header and named controls, no footer or launcher (scope item 4), and no other page loads Dox code. Each rule has a
+// fixture that breaks it alone.
+describe("the Dox page (#309)", () => {
+  const doxFailures = async () =>
+    (await audit()).filter((f) => f.startsWith("/dox/"));
+  const withDox = async (overrides) => {
+    await write(dist, "dox/index.html", doxPage(overrides));
+    return doxFailures();
+  };
+
+  it("passes a /dox/ that meets every rule, and the 28 pages do not list it", async () => {
+    expect(await audit()).toEqual([]);
+  });
+
+  it("fails a build with no /dox/", async () => {
+    await rm(join(dist, "dox"), { recursive: true });
+    expect(await doxFailures()).toEqual([
+      "/dox/: dox/index.html is missing from the build",
+    ]);
+  });
+
+  it.each([
+    ["no robots meta", { robots: "" }],
+    [
+      "a robots meta that allows indexing",
+      { robots: '<meta name="robots" content="index,follow"/>' },
+    ],
+  ])("fails %s", async (_name, overrides) => {
+    expect((await withDox(overrides)).some((f) => /noindex/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("accepts noindex among other robots directives", async () => {
+    expect(
+      await withDox({
+        robots: '<meta name="robots" content="noindex, nofollow"/>',
+      }),
+    ).toEqual([]);
+  });
+
+  it("fails a page without the script that sets data-dox-shell", async () => {
+    expect(
+      (await withDox({ shell: "" })).some((f) => /data-dox-shell/.test(f)),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["none", "", 0],
+    ["two", DOX_ISLAND + DOX_ISLAND, 2],
+  ])("fails %s astro-island elements", async (_name, island, count) => {
+    expect(await withDox({ island })).toContain(
+      `/dox/: ${count} astro-island elements, expected exactly 1`,
+    );
+  });
+
+  it.each([
+    ["Dox"],
+    ["Dox | @northguild/worktree"],
+    ["Dox · @northguild/worktree · @northguild/worktree"],
+  ])("fails the title %j", async (title) => {
+    expect((await withDox({ title })).some((f) => /title is/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails a footer", async () => {
+    expect(
+      (await withDox({ extra: "<footer>Last updated</footer>" })).some((f) =>
+        /footer/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a page without the site header", async () => {
+    expect(
+      (await withDox({ header: "" })).some((f) => /no <header>/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a header that lost a link", async () => {
+    const failures = await withDox({ header: header({ github: "" }) });
+    expect(failures.some((f) => /header: .*github\.com/.test(f))).toBe(true);
+  });
+
+  it("fails a control with no accessible name", async () => {
+    const failures = await withDox({
+      controls: `${DOX_CONTROLS}<button type="button"><svg aria-hidden="true"></svg></button>`,
+    });
+    expect(failures.some((f) => /has no accessible name/.test(f))).toBe(true);
+  });
+
+  it("fails a page with no search button", async () => {
+    const failures = await withDox({
+      controls: `${MENU_BUTTON}${THEME_SELECT}`,
+    });
+    expect(failures.some((f) => /no search button/.test(f))).toBe(true);
+  });
+
+  it("fails the chat launcher: the page is the chat, and a launcher would open a second one", async () => {
+    const failures = await withDox({ controls: `${DOX_CONTROLS}${LAUNCHER}` });
+    expect(failures.some((f) => /chat launcher/.test(f))).toBe(true);
+  });
+
+  it("fails a graphic that is neither hidden nor named", async () => {
+    const failures = await withDox({ extra: '<svg viewBox="0 0 1 1"></svg>' });
+    expect(failures.some((f) => /svg/i.test(f))).toBe(true);
+  });
+
+  it("fails an id that appears twice (the crystal's gradients are found by id)", async () => {
+    const failures = await withDox({ extra: '<i id="a"></i><i id="a"></i>' });
+    expect(failures.some((f) => /id "a" appears 2 times/.test(f))).toBe(true);
+  });
+
+  it("fails a sitemap that lists /dox/", async () => {
+    await write(dist, "sitemap-0.xml", sitemap([...PATHS, "dox"]));
+    expect(await doxFailures()).toContain(
+      "/dox/: is listed in the sitemap; it is kept out",
+    );
+  });
+
+  it("fails an llms.txt that lists /dox/", async () => {
+    await write(
+      dist,
+      "llms.txt",
+      `${llmsTxt(PATHS)}- [Dox](${url("dox")}): Chat.\n`,
+    );
+    expect(await doxFailures()).toContain(
+      "/dox/: is listed in llms.txt; it is kept out",
+    );
+  });
+
+  it.each([
+    [
+      "a script for the island's chunk",
+      (html) =>
+        html.replace(
+          "</body>",
+          '<script type="module" src="/worktree/_astro/DoxPage.mno.js"></script></body>',
+        ),
+    ],
+    [
+      "a modulepreload of the island's chunk",
+      (html) =>
+        html.replace(
+          "</head>",
+          '<link rel="modulepreload" href="/worktree/_astro/DoxPage.mno.js"/></head>',
+        ),
+    ],
+    [
+      "an island for the island's chunk",
+      (html) => html.replace("</body>", `${DOX_ISLAND}</body>`),
+    ],
+    [
+      "the stylesheet that carries the hive",
+      (html) => html.replace("</head>", `${DOX_STYLESHEET}</head>`),
+    ],
+  ])("fails another page that loads Dox code through %s", async (_name, change) => {
+    await rewrite("commands/branch", change);
+    expect(await audit()).toContain(
+      "/commands/branch/: loads Dox code; only /dox/ may",
+    );
+  });
+
+  it("fails a page whose script imports the island's chunk statically", async () => {
+    await write(dist, "_astro/page.abc.js", 'import"./DoxPage.mno.js";');
+    expect(
+      (await audit()).some((f) => /loads Dox code; only \/dox\/ may/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails the 404 when it loads Dox code", async () => {
+    const file = join(dist, "404.html");
+    await writeFile(
+      file,
+      (await readFile(file, "utf8")).replace(
+        "</head>",
+        `${DOX_STYLESHEET}</head>`,
+      ),
+    );
+    expect(await audit()).toContain("404.html: loads Dox code; only /dox/ may");
   });
 });

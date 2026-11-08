@@ -1,4 +1,5 @@
 import react from "@astrojs/react";
+import sitemap from "@astrojs/sitemap";
 import starlight from "@astrojs/starlight";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
@@ -8,7 +9,7 @@ const PREVIEW_ALT =
   "The worktree docs landing: “A git worktree for every branch” beside a git graph drawn in green leaves.";
 
 // One URL form: https://northguild.dev/worktree/<path>/ — no /docs/ prefix.
-// `site` is what makes Starlight emit a sitemap.
+// `site` is required by the sitemap integration below (it writes absolute URLs).
 export default defineConfig({
   site: "https://northguild.dev",
   base: "/worktree",
@@ -165,6 +166,12 @@ export default defineConfig({
       },
     }),
     react(),
+    // Listed after starlight(): Starlight adds its own sitemap only when none is configured (0.42.8, `dist/index.js`), and
+    // this one differs by the filter. `/dox/` is the chat shell and carries `noindex` (plan #309 D6), so it is not listed.
+    // `filter` receives the absolute URL; the audit checks the built sitemap.
+    sitemap({
+      filter: (page) => new URL(page).pathname !== "/worktree/dox/",
+    }),
   ],
   vite: { plugins: [tailwindcss()] },
 });

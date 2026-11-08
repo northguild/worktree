@@ -1,0 +1,308 @@
+/**
+ * The hive: layout and ornament for the Dox page (plan #309 D5), ported from gmt's `gmt-hive.css` (gmt d479dca8) and
+ * recoloured: every cyan role is the spring tier, `--gmt-spring` for fills, borders and rings and `--gmt-spring-ink`
+ * for text. This phase carries the shell, the strip, the hub and the crystal; the transcript, the composer and the rail
+ * come with their phases.
+ *
+ * Imported by `DoxPage.tsx`, never from `astro.config.mjs`'s `customCss`, so Vite code-splits it into the island's chunk
+ * and a page that never loads the island pays nothing for it (`docs/scripts/audit-dist.mjs` checks that).
+ */
+
+/* ------------------------------------------------------------------ *
+ * Shell: the full viewport below the header, with no scrolling of its own
+ * ------------------------------------------------------------------ */
+
+.gmt-hive-shell {
+  /* Pinned to the viewport rather than sized in flow: Starlight's content wrappers add margins this island cannot see,
+     which would push a `100dvh` box down and clip the bottom edge. Out of flow, the fit is exact whatever the
+     ancestors' box model. It starts below Starlight's fixed header, whose height `--sl-nav-height` already changes at
+     the desktop breakpoint. */
+  position: fixed;
+  inset: var(--sl-nav-height) 0 0 0;
+
+  /* Starlight's prose rhythm reaches this element through the island's `display: contents` wrapper, and a margin on a
+     fixed box shrinks it away from its inset edges. */
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  background: var(--gmt-void);
+  color: var(--gmt-ice);
+  isolation: isolate;
+}
+
+/* The hex lattice: purely atmospheric, so a background on a fixed, non-interactive layer and not markup. The stroke is
+   the spring tier (`#4ade80`, `--gmt-spring` in the dark theme), where gmt's is cyan. */
+.gmt-hive-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: var(--gmt-z-behind);
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='96' viewBox='0 0 56 96'%3E%3Cpath d='M28 0 L56 16 L56 48 L28 64 L0 48 L0 16 Z M28 64 L56 80 L56 112 M28 64 L0 80 L0 112' fill='none' stroke='%234ade80' stroke-width='1'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 56px 96px;
+}
+
+/* The site drops every blurred or decorative surface under this query; the lattice follows the same rule. */
+@media (prefers-reduced-transparency: reduce) {
+  .gmt-hive-shell::before {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Strip: chat status only. Deliberately not a nav bar; the site header
+ * above it gives the way back.
+ * ------------------------------------------------------------------ */
+
+.gmt-hive-strip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gmt-space-3);
+  flex: 0 0 auto;
+  padding: var(--gmt-space-3) clamp(var(--gmt-space-3), 3vw, var(--gmt-space-6));
+  border-block-end: 1px solid var(--gmt-hairline);
+  font-size: var(--gmt-text-sm);
+}
+
+.gmt-hive-strip-end {
+  display: flex;
+  align-items: center;
+  gap: var(--gmt-space-3);
+  min-inline-size: 0;
+  color: var(--gmt-ice-dim);
+}
+
+/* "Pointed at a local Worker": cheap, and it stops the "why is the AI stale?" confusion against `wrangler dev`. */
+.gmt-hive-env {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gmt-space-1);
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Amber for local, because the theme reserves `--gmt-signal` for "this is not the real thing" and a Worker on your
+   laptop is exactly that; spring green for the deployed one, the colour the theme gives live values. Both are the ink
+   tier: this is text. */
+.gmt-hive-env[data-env="local"] {
+  color: var(--gmt-signal-ink);
+}
+
+.gmt-hive-env[data-env="live"] {
+  color: var(--gmt-spring-ink);
+}
+
+/* ------------------------------------------------------------------ *
+ * Body: the chat, growing to fill what the shell leaves
+ * ------------------------------------------------------------------ */
+
+.gmt-hive-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 auto;
+
+  /* Without this the chat's own scroll container cannot shrink and the composer is pushed off the bottom. */
+  min-block-size: 0;
+}
+
+.gmt-hive-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+/* A container, not a media query: the same transcript is narrow on a phone and narrow beside the rail on a wide
+   monitor, and only the container's own width tells those apart. `cqi` units in the hub and the stage read from it. */
+.gmt-hive {
+  container-type: inline-size;
+  container-name: gmt-hive;
+  inline-size: 100%;
+  min-block-size: 100%;
+  margin: 0 auto;
+  padding: clamp(var(--gmt-space-4), 3vw, var(--gmt-space-8))
+    clamp(var(--gmt-space-3), 3vw, var(--gmt-space-6));
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------ *
+ * The crystal. Geometry is SVG (hive/HiveGlyph.tsx): facet strokes have to meet at vertices, and `clip-path` removes
+ * strokes outright. One vector serves a 28px turn marker and the logo-scale hub.
+ * ------------------------------------------------------------------ */
+
+.gmt-dox-mark {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+}
+
+.gmt-dox-mark-edge {
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 4;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.gmt-dox-mark-facet line {
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.gmt-dox-mark-table {
+  fill: color(from var(--gmt-ice) srgb r g b / 6%);
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  opacity: 0.75;
+  vector-effect: non-scaling-stroke;
+}
+
+/* The stage: `perspective` on the outer box and `transform-style: preserve-3d` on the inner one are what make a
+   rotation read as a solid turning and not a flat card squashing. */
+.gmt-hive-stage {
+  --hex: clamp(2rem, 3.4cqi, 2.75rem);
+
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: var(--hex);
+  aspect-ratio: 1 / 0.866;
+  flex: 0 0 auto;
+  perspective: 320px;
+}
+
+.gmt-hive-node {
+  grid-area: 1 / 1;
+  inline-size: 100%;
+  block-size: 100%;
+  color: var(--gmt-hive-role);
+  transform-style: preserve-3d;
+
+  /* The resting state, and the only transform CSS owns: the entrance, the working spin and the landing are Web
+     Animations (hive/use-crystal-spin.ts), because CSS cannot stop an infinite spin gracefully. */
+  transform: rotateX(10deg);
+}
+
+.gmt-hive-node .gmt-dox-mark {
+  filter: drop-shadow(
+    0 0 6px color(from var(--gmt-hive-role) srgb r g b / 50%)
+  );
+}
+
+/* The halo is a box-shadow and the crystal an SVG with transparent corners, so a shadow on it would trace a rectangle:
+   a separate centred layer. */
+.gmt-hive-halo {
+  grid-area: 1 / 1;
+  inline-size: 46%;
+  block-size: 46%;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gmt-hive-stage[data-pending] .gmt-hive-halo {
+  opacity: 1;
+  animation: gmt-hive-halo var(--gmt-motion-sonar-loop-duration)
+    var(--gmt-easing) infinite;
+}
+
+@keyframes gmt-hive-halo {
+  0% {
+    box-shadow: 0 0 0 0 color(from var(--gmt-hive-role) srgb r g b / 55%);
+  }
+
+  60%,
+  100% {
+    box-shadow: 0 0 0 18px color(from var(--gmt-hive-role) srgb r g b / 0%);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * The empty page: the hub and the prompt line
+ * ------------------------------------------------------------------ */
+
+.gmt-hive-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gmt-space-4);
+  padding: clamp(var(--gmt-space-6), 8vh, var(--gmt-space-12)) 0;
+  text-align: center;
+
+  /* Auto block margins centre it in the flex column and not at the top of a tall empty one. */
+  margin-block: auto;
+}
+
+/* The hub is the same crystal at logo scale, one component, so the mark a reader meets on the empty page is literally
+   the mark beside every answer. The fill tier: the crystal is non-text. */
+.gmt-hive-hub {
+  --hex: clamp(4rem, 11cqi, 6rem);
+  --gmt-hive-role: var(--gmt-spring);
+}
+
+/* Arrival: a fade and scale, deliberately not a spin (a logo that spins in reads as a loading indicator; spinning is
+   reserved for "Dox is working"). Played from CSS alone, so the server-rendered hub arrives without script;
+   `--gmt-enter-transform` keeps the crystal's tilt through it. */
+@keyframes gmt-enter {
+  from {
+    opacity: 0;
+    transform: var(--gmt-enter-transform, ) scale(var(--gmt-enter-scale));
+  }
+
+  to {
+    opacity: 1;
+    transform: var(--gmt-enter-transform, ) scale(1);
+  }
+}
+
+.gmt-hive-hub .gmt-hive-node {
+  --gmt-enter-transform: rotateX(10deg);
+
+  animation: gmt-enter var(--gmt-enter-duration) var(--gmt-enter-easing) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gmt-hive-hub .gmt-hive-node {
+    animation: none;
+  }
+}
+
+.gmt-hive-prompt {
+  font-size: clamp(1.1rem, 2.5cqi, 1.5rem);
+  color: var(--gmt-ice);
+  max-inline-size: 40ch;
+  line-height: 1.5;
+}
+
+/* Inline code in the prompt: chrome, not rendered markdown, so it takes the code tokens directly. */
+.gmt-hive-prompt code {
+  background: var(--gmt-code-bg);
+  color: var(--gmt-spring-ink);
+  border: 1px solid var(--gmt-code-border);
+  border-radius: var(--gmt-radius-sm);
+  /* biome-ignore lint/correctness/noUnknownProperty: corner-shape is not yet in Biome's property list; a browser without it draws round corners */
+  corner-shape: bevel;
+  padding: 0.1em 0.35em;
+  font-family: var(--gmt-font-mono);
+  font-size: max(0.85em, var(--gmt-text-xs));
+}
+
+/* The character's own name takes the colour the crystal beside it speaks in, so "Dox" here and every Dox crystal are
+   visibly the same entity. */
+.gmt-hive-name {
+  color: var(--gmt-spring-ink);
+  border-color: var(--gmt-border-strong);
+}
