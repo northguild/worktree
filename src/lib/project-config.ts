@@ -5,7 +5,16 @@ import { LineCounter, parseDocument, stringify } from "yaml";
 import { z } from "zod";
 import { run } from "./cli.js";
 import { gitGetConfigValue } from "./config.js";
-import { JIRA_DEPLOYMENTS, SECRET_CONFIG_NAMES } from "./constants.js";
+import {
+  PERSONAL_KEYS,
+  PERSONAL_SECTIONS,
+  SECRET_KEYS,
+  showVisibly,
+  step,
+  TEAM_SCALARS,
+  TEAM_SECTIONS,
+} from "./config-keys.js";
+import { JIRA_DEPLOYMENTS } from "./constants.js";
 import {
   gitGetTopLevelPath,
   gitHasOriginRemote,
@@ -25,6 +34,8 @@ import {
 // Imports git.ts and is never imported by it (or by agent.ts): git.ts and
 // agent.ts already import each other (#59), and this file must not close
 // another loop.
+
+export { showVisibly };
 
 export const PROJECT_CONFIG_FILE = ".worktree.yml";
 export const PROJECT_CONFIG_SCHEMA_URL =
@@ -111,17 +122,6 @@ const copyPattern = z
         "a copy pattern is a relative glob: no leading / or :, and no .. segment",
     },
   );
-
-// The approval prompt prints a step as text, so one that redraws the terminal
-// (\r, ESC) or reorders it (bidi overrides) would hide what runs (D16).
-const step = z
-  .string()
-  .refine((value) => value.trim() !== "", {
-    message: "a step cannot be empty",
-  })
-  .refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), {
-    message: "a step cannot hold control or formatting characters",
-  });
 
 const GITHUB_HOST_MESSAGE =
   "host must be a bare hostname, for example ghe.example.com (no scheme, port or path), and not a subdomain of github.com";
@@ -223,42 +223,6 @@ export function projectConfigJsonSchema() {
 // ---------------------------------------------------------------------------
 // Key classes (D3)
 // ---------------------------------------------------------------------------
-
-// Sections that hold team keys, and which children they may hold.
-const TEAM_SECTIONS: Record<string, readonly string[]> = {
-  branchPrefix: ["feature", "bugfix", "chore"],
-  jira: ["host", "deployment", "branchType"],
-  github: ["repository", "host", "branchType"],
-  linear: ["branchType"],
-  clickup: ["workspaceId", "branchType"],
-};
-const TEAM_SCALARS = new Set([
-  "defaultSourceBranch",
-  "branchType",
-  "branchName",
-  "copy",
-  "postCreate",
-]);
-// Per-person keys: ignored in the file, with a warning that names where to set them.
-const PERSONAL_KEYS = new Set([
-  "opener",
-  "codeEditor",
-  "herdr.focus",
-  "herdr.agent",
-  "rex.focus",
-  "agent.command",
-  "jira.email",
-  "jira.autoAssign",
-  "jira.autoStart",
-  "github.autoAssign",
-  "linear.autoStart",
-  "linear.agentAllow",
-  "linear.agentContext",
-  "clickup.autoAssign",
-  "clickup.autoStart",
-]);
-const PERSONAL_SECTIONS = new Set(["herdr", "rex", "agent"]);
-const SECRET_KEYS = new Set<string>(SECRET_CONFIG_NAMES);
 
 // ---------------------------------------------------------------------------
 // Result and error types
@@ -550,21 +514,6 @@ export async function renderBranchName(parts: {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Text from the file, made safe to print: every control (`\p{Cc}`) and
- * formatting (`\p{Cf}`) character becomes a visible escape such as `\x1b` or
- * `\u{202e}`, so a key or value cannot redraw the terminal or reorder what a
- * warning, an error or the approval prompt shows (D16).
- */
-export function showVisibly(text: string) {
-  return text.replace(/[\p{Cc}\p{Cf}]/gu, (char) => {
-    const code = char.codePointAt(0) ?? 0;
-    return code < 0x100
-      ? `\\x${code.toString(16).padStart(2, "0")}`
-      : `\\u{${code.toString(16)}}`;
-  });
 }
 
 /**
