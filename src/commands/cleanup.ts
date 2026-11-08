@@ -10,7 +10,7 @@ import {
 import { createSpinner } from "../lib/progress.js";
 import { askConfirm } from "../lib/prompt.js";
 import type { WorktreeListEntry } from "../lib/types.js";
-import { worktreeListEntryToListName } from "../lib/utils.js";
+import { formatCount, worktreeListEntryToListName } from "../lib/utils.js";
 
 // A worktree cleanup would have swept but for the work sitting in it. Asking the
 // predicate about a zeroed copy keeps the safety rule in one place rather than
@@ -130,7 +130,7 @@ export default class Cleanup extends BaseCommand {
   private logSkipped(skipped: WorktreeListEntry[]) {
     const count = skipped.length;
     this.log(
-      `Skipped ${chalk.bold(count)} worktree ${count === 1 ? "branch that has" : "branches that have"} uncommitted changes:`,
+      `Skipped ${chalk.bold(formatCount(count))} worktree ${count === 1 ? "branch that has" : "branches that have"} uncommitted changes:`,
     );
     skipped.forEach((wt) => {
       this.log(`- ${worktreeListEntryToListName(wt, "yellow")}`);
@@ -143,7 +143,7 @@ export default class Cleanup extends BaseCommand {
   private logSkippedForAgents(skipped: WorktreeListEntry[]) {
     const count = skipped.length;
     this.log(
-      `Skipped ${chalk.bold(count)} worktree ${count === 1 ? "branch" : "branches"} with a live agent session:`,
+      `Skipped ${chalk.bold(formatCount(count))} worktree ${count === 1 ? "branch" : "branches"} with a live agent session:`,
     );
     skipped.forEach((wt) => {
       this.log(
@@ -160,7 +160,7 @@ export default class Cleanup extends BaseCommand {
   private logUncountable(uncountable: WorktreeListEntry[]) {
     const count = uncountable.length;
     this.log(
-      `Skipped ${chalk.bold(count)} worktree ${count === 1 ? "branch whose unpushed commits could not be counted" : "branches whose unpushed commits could not be counted"}:`,
+      `Skipped ${chalk.bold(formatCount(count))} worktree ${count === 1 ? "branch whose unpushed commits could not be counted" : "branches whose unpushed commits could not be counted"}:`,
     );
     uncountable.forEach((wt) => {
       // Agents on, like the session report below and unlike the uncommitted
@@ -183,7 +183,7 @@ export default class Cleanup extends BaseCommand {
   private logRemovingDespiteAgents(carried: WorktreeListEntry[]) {
     const count = carried.length;
     this.log(
-      `Removing ${chalk.bold(count)} worktree ${count === 1 ? "branch" : "branches"} despite a live agent session:`,
+      `Removing ${chalk.bold(formatCount(count))} worktree ${count === 1 ? "branch" : "branches"} despite a live agent session:`,
     );
     carried.forEach((wt) => {
       this.log(
@@ -202,7 +202,7 @@ export default class Cleanup extends BaseCommand {
   private logCanceledUnconfirmed(held: WorktreeListEntry[]) {
     const count = held.length;
     this.log(
-      `Skipped ${chalk.bold(count)} worktree ${count === 1 ? "branch whose Linear issue is canceled but whose commits are not confirmed on its remote" : "branches whose Linear issue is canceled but whose commits are not confirmed on their remote"}:`,
+      `Skipped ${chalk.bold(formatCount(count))} worktree ${count === 1 ? "branch whose Linear issue is canceled but whose commits are not confirmed on its remote" : "branches whose Linear issue is canceled but whose commits are not confirmed on their remote"}:`,
     );
     held.forEach((wt) => {
       this.log(
@@ -305,7 +305,7 @@ export default class Cleanup extends BaseCommand {
       spinner.stop();
     } else {
       spinner.info(
-        `Found ${chalk.bold(count)} worktree ${count === 1 ? "branch that is" : "branches that are"} marked safe to remove.`,
+        `Found ${chalk.bold(formatCount(count))} worktree ${count === 1 ? "branch that is" : "branches that are"} marked safe to remove.`,
       );
       worktrees.forEach((wt) => {
         this.log(`- ${wt.branchName} ${chalk.gray(`(${removalReason(wt)})`)}`);

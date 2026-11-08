@@ -241,3 +241,11 @@ export function splitCommandValue(value: string): string[] {
 
   return tokens;
 }
+
+// Formats a count with the reader's digit grouping (1,234 / 1.234 / 1 234).
+// Counts only, no styling: callers wrap the result in chalk themselves. Omit
+// `locale` to use the runtime default; tests pass one so they never depend on
+// the machine they run on.
+export function formatCount(n: number, locale?: string): string {
+  return new Intl.NumberFormat(locale).format(n);
+}
