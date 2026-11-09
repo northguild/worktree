@@ -26,6 +26,10 @@ import {
   conversationLength,
   sanitizeUserText,
 } from "../src/chat/lib/chat-sanitize";
+import {
+  MAX_PAGE_CONTEXT_LENGTH,
+  PAGE_CONTEXT_PATTERN,
+} from "../src/chat/lib/page-context";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -33,7 +37,15 @@ export interface ChatMessage {
 }
 
 export type ChatRequestResult =
-  | { ok: true; value: { messages: ChatMessage[]; model: ChatModelId } }
+  | {
+      ok: true;
+      value: {
+        messages: ChatMessage[];
+        model: ChatModelId;
+        /** The route of the page the reader came from, without the base: only a bias for the search (D3, D8). */
+        pageContext?: string;
+      };
+    }
   | { ok: false; status: 400; error: string };
 
 const TOO_LONG_CONVERSATION = "Conversation is too long. Start a new chat.";
@@ -57,6 +69,13 @@ const emptyList = z
   .max(0, "Tools and context are not accepted.")
   .optional();
 
+// The page the reader came from. It never reaches a prompt: the Worker reads one word of it (its section). So it is held
+// to the shape of a route, and anything else is refused, not repaired.
+const pageContextSchema = z
+  .string()
+  .max(MAX_PAGE_CONTEXT_LENGTH, "The page context is too long.")
+  .regex(PAGE_CONTEXT_PATTERN, "The page context is not a page route.");
+
 const envelopeSchema = z.object({
   threadId: z.string().max(200),
   runId: z.string().max(200),
@@ -70,6 +89,7 @@ const envelopeSchema = z.object({
   forwardedProps: z
     .strictObject({
       model: z.enum(CHAT_MODEL_IDS, { error: "Unknown model." }).optional(),
+      pageContext: pageContextSchema.optional(),
     })
     .optional(),
 });
@@ -123,6 +143,9 @@ export function validateChatRequest(body: unknown): ChatRequestResult {
     value: {
       messages: sendable,
       model: forwardedProps?.model ?? DEFAULT_MODEL_ID,
+      ...(forwardedProps?.pageContext !== undefined && {
+        pageContext: forwardedProps.pageContext,
+      }),
     },
   };
 }

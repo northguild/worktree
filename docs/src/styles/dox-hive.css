@@ -460,6 +460,104 @@
   }
 }
 
+/* The empty page's status line: the corpus counts, as a quiet label under the crystal (plan #309 §4.1 row 6; gmt's). */
+.gmt-hive-status {
+  margin: 0;
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gmt-ice-dim);
+}
+
+/* The retrieval trace, at the top of an answer's card (plan #309 §4.1 row 12; gmt's `.gmt-hive-trace`). Collapsed it is
+   one HUD line; open, the chunk titles and the stage timings. The muted text colour on the card measures like the waiting
+   line (theme-contrast.mjs, "hive: the retrieval trace"). The `margin: 0` is not decoration: Starlight's reset layer zeroes
+   margins and this sheet is unlayered, so what is set here wins and what is not set stays zero. */
+.gmt-hive-trace {
+  margin-block: 0 var(--gmt-space-3);
+  padding-block-end: var(--gmt-space-2);
+  border-block-end: 1px solid var(--gmt-hairline);
+  font-size: var(--gmt-text-xs);
+  color: var(--gmt-ice-dim);
+}
+
+/* The trigger is a native button around an icon, the summary and a chevron; the rest of this is HUD typography. */
+.gmt-hive-trace-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--gmt-space-2);
+  inline-size: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: start;
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.04em;
+  color: var(--gmt-ice-dim);
+}
+
+.gmt-hive-trace-trigger:hover {
+  color: var(--gmt-ice);
+}
+
+.gmt-hive-trace-trigger:focus-visible {
+  outline: 2px solid var(--gmt-spring);
+  outline-offset: 2px;
+}
+
+.gmt-hive-trace-trigger svg {
+  inline-size: 1em;
+  block-size: 1em;
+  flex: 0 0 auto;
+}
+
+/* The chevron to the end of the row, turned over while the panel is open. */
+.gmt-hive-trace-trigger svg:last-of-type {
+  margin-inline-start: auto;
+  transition: transform var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+.gmt-hive-trace-trigger[data-panel-open] svg:last-of-type {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gmt-hive-trace-trigger svg:last-of-type {
+    transition: none;
+  }
+}
+
+.gmt-hive-trace-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gmt-space-1);
+  padding-block-start: var(--gmt-space-2);
+  font-family: var(--gmt-font-mono);
+}
+
+.gmt-hive-trace-panel p,
+.gmt-hive-trace-panel ul {
+  margin: 0;
+}
+
+.gmt-hive-trace-panel ul {
+  padding: 0;
+  list-style: none;
+}
+
+.gmt-hive-trace-panel li {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The stage timings, a step quieter than the titles above them. */
+.gmt-hive-trace-timing {
+  padding-block-start: var(--gmt-space-1);
+  letter-spacing: 0.04em;
+}
+
 /* The waiting turn: transcript-shaped on purpose, so the scroll follows it for free and the layout does not jump when the
    real answer replaces it. */
 .gmt-hive-pending {

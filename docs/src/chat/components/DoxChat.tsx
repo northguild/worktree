@@ -24,11 +24,12 @@ import {
   useState,
   ViewTransition,
 } from "react";
+import { CORPUS_COUNTS } from "../docs-routes.generated";
 import { type ScrollTarget, useBottomScroll } from "../hooks/useBottomScroll";
-import { useDocsChat } from "../hooks/useDocsChat";
+import { type RetrievalTraces, useDocsChat } from "../hooks/useDocsChat";
 import { DEFAULT_MODEL_ID, MAX_MESSAGE_LENGTH } from "../lib/chat-constants";
 import { messageText } from "../lib/chat-history";
-import type { UIMessage } from "../lib/chat-types";
+import type { RetrievalTraceData, UIMessage } from "../lib/chat-types";
 import { AccuracyNote, ChatInfo } from "./ChatInfo";
 import { ChatInput } from "./ChatInput";
 import { ChatSubmitButton } from "./ChatSubmitButton";
@@ -36,6 +37,7 @@ import { ChatWarning } from "./ChatWarning";
 import { HiveHub } from "./hive/HiveHub";
 import { HiveNode } from "./hive/HiveNode";
 import { MarkdownContent } from "./MarkdownContent";
+import { RetrievalTrace } from "./RetrievalTrace";
 
 /** What the field asks for. The package is `@northguild/worktree` where gmt's is `@northguild/gmt`. */
 const PLACEHOLDER = "Ask about @northguild/worktree…";
@@ -51,6 +53,8 @@ interface Turn {
   text: string;
   /** Dox is working on this one: no text yet, and the newest turn. */
   pending: boolean;
+  /** What the Worker retrieved for this answer, once it has said (it does so before the first text). */
+  trace?: RetrievalTraceData;
 }
 
 /**
@@ -65,15 +69,18 @@ interface Turn {
 function buildTurns(
   messages: ReadonlyArray<UIMessage>,
   isStreaming: boolean,
+  traces: RetrievalTraces,
 ): Turn[] {
   const turns: Turn[] = [];
   const used = new Set<string>();
   let questionId: string | undefined;
+  let questionNumber = 0;
 
   messages.forEach((message, index) => {
     const text = messageText(message);
     if (message.role === "user") {
       questionId = message.id;
+      questionNumber += 1;
       turns.push({ key: message.id, speaker: "user", text, pending: false });
       return;
     }
@@ -84,7 +91,13 @@ function buildTurns(
     const replyKey = questionId ? `reply:${questionId}` : message.id;
     const key = used.has(replyKey) ? message.id : replyKey;
     used.add(key);
-    turns.push({ key, speaker: "assistant", text, pending });
+    turns.push({
+      key,
+      speaker: "assistant",
+      text,
+      pending,
+      trace: traces[questionNumber],
+    });
   });
 
   const last = turns.at(-1);
@@ -94,6 +107,7 @@ function buildTurns(
       speaker: "assistant",
       text: "",
       pending: true,
+      trace: traces[questionNumber],
     });
   }
   return turns;
@@ -161,7 +175,7 @@ export function DoxChat({
   onEmptyChange,
   aboveComposer,
 }: DoxChatProps = {}) {
-  const { messages, isStreaming, warning, submit, retry, stop, clear } =
+  const { messages, traces, isStreaming, warning, submit, retry, stop, clear } =
     useDocsChat(DEFAULT_MODEL_ID);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -175,7 +189,7 @@ export function DoxChat({
   const [value, setValue] = useState("");
   const empty = value.trim() === "";
 
-  const turns = buildTurns(messages, isStreaming);
+  const turns = buildTurns(messages, isStreaming, traces);
   const noTurns = turns.length === 0;
   // Deferred, so the swap from the hub to the transcript runs as a transition and its `<ViewTransition>`s animate:
   // `useChat` pushes the first message as a plain synchronous update, which never starts one.
@@ -295,6 +309,10 @@ export function DoxChat({
               <ViewTransition key="empty" exit="gmt-hive-out" default="none">
                 <div className="gmt-hive-empty">
                   <HiveHub />
+                  {/* What the Worker indexes, counted when the docs were built (plan #309 §4.1 row 6). */}
+                  <p className="gmt-hive-status">
+                    {`Dox // ${CORPUS_COUNTS.pages} pages · ${CORPUS_COUNTS.chunks} sections indexed`}
+                  </p>
                   {/* Names the character: the code treatment ties "Dox" to the crystal above it and to the package
                       name, so both read as identifiers and not as prose. */}
                   <p className="gmt-hive-prompt">
@@ -370,7 +388,7 @@ export function DoxChat({
 
 function TurnView({ turn }: { turn: Turn }) {
   const labelId = useId();
-  const { speaker, text, pending } = turn;
+  const { speaker, text, pending, trace } = turn;
 
   return (
     <article
@@ -379,30 +397,30 @@ function TurnView({ turn }: { turn: Turn }) {
       aria-labelledby={labelId}
     >
       <HiveNode speaker={speaker} pending={pending} labelId={labelId} />
-      {/* The answer card is a polite live region from the wait on, so the first text is announced as it lands: a region
-          announces changes, not what it holds when inserted. */}
-      <div
-        className="gmt-hive-card"
-        data-pending={pending ? "" : undefined}
-        aria-live={speaker === "assistant" ? "polite" : undefined}
-        aria-atomic={speaker === "assistant" ? false : undefined}
-      >
-        {pending ? (
-          <>
-            <p className="gmt-hive-pending">
-              <MagnifyingGlassIcon aria-hidden="true" />
-              {WAITING}
-            </p>
-            <span className="gmt-hive-scanline" aria-hidden="true" />
-          </>
-        ) : speaker === "assistant" ? (
-          <div className="gmt-hive-response">
-            <MarkdownContent content={text} />
+      <div className="gmt-hive-card" data-pending={pending ? "" : undefined}>
+        {/* Outside the live region below: the trace lands before the first text, and a reader should hear the answer
+            announced, not the retrieval log. It is there to open, not to be read out. */}
+        {trace && <RetrievalTrace data={trace} />}
+        {speaker === "assistant" ? (
+          // A polite live region from the wait on, so the first text is announced as it lands: a region announces
+          // changes, not what it holds when inserted.
+          <div className="gmt-hive-live" aria-live="polite" aria-atomic={false}>
+            {pending ? (
+              <p className="gmt-hive-pending">
+                <MagnifyingGlassIcon aria-hidden="true" />
+                {WAITING}
+              </p>
+            ) : (
+              <div className="gmt-hive-response">
+                <MarkdownContent content={text} />
+              </div>
+            )}
           </div>
         ) : (
           // The reader's own text is rendered as text, never as markdown: someone who types * or # means those characters.
           <p className="gmt-hive-user-text">{text}</p>
         )}
+        {pending && <span className="gmt-hive-scanline" aria-hidden="true" />}
       </div>
     </article>
   );

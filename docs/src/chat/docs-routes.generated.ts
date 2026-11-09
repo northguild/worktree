@@ -31,3 +31,9 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/guides/team-conventions/",
   "/project-configuration/",
 ]);
+
+/** What the Worker indexes: the hub's status line reads it. */
+export const CORPUS_COUNTS: { pages: number; chunks: number } = {
+  pages: 28,
+  chunks: 210,
+};

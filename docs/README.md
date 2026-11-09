@@ -47,20 +47,21 @@ full data flow — nothing is a black box.
 Browser (static site on northguild.dev/worktree/)
   │  useChat (@tanstack/ai-react) – docs/src/chat/hooks/useDocsChat.ts
   │
-  │  POST /api/chat  { threadId, runId, messages[], forwardedProps: { model } }
+  │  POST /api/chat  { threadId, runId, messages[], forwardedProps: { model, pageContext? } }
   ▼
 Cloudflare Worker  (docs/worker/)
   │  – holds GEMINI_API_KEY as an encrypted secret
   │  – rate-limits, validates input (validation.ts), enforces CORS
-  │  – prepends the system prompt (baked in at build time)
+  │  – searches the docs for the question and builds the system prompt from what it finds
   ▼
 Google Gemini API  (@tanstack/ai-gemini)
   │
   ▼
-Worker streams AG-UI events over SSE (RUN_STARTED, TEXT_MESSAGE_*, RUN_FINISHED or RUN_ERROR)
+Worker streams AG-UI events over SSE (RUN_STARTED, CUSTOM `dox-retrieval`, TEXT_MESSAGE_*,
+CUSTOM `dox-retrieval` again, RUN_FINISHED or RUN_ERROR)
   │
   ▼
-useChat folds the events into messages;  docs/src/chat/  renders them
+useChat folds the events into messages and hands the custom ones to onCustomEvent;  docs/src/chat/  renders them
 ```
 
 On the page, the pieces are:
@@ -101,44 +102,67 @@ Cloudflare's secret store and is injected by the Worker runtime on each request.
 
 ### How the AI gets its context
 
-The AI's knowledge comes from two sources that are compiled together at worker
-build time into a single system prompt string (`docs/worker/docs-context.ts`):
+The AI does not read the whole docs for each question. `worker:build-context` compiles the docs into a searchable
+corpus (`docs/worker/docs-context.ts`, generated and gitignored) and the Worker searches it for each question
+(plan #309 D8).
 
 #### 1. MDX documentation pages
 
-`docs/worker/build-context.mjs` scans every `*.mdx` file under
-`docs/src/content/docs/`, turns each page's frontmatter into a heading, strips imports and Starlight `<Tabs>`/`<TabItem>` tags (keeping their content); any other component tag would pass through as written (no page uses one), and concatenates the plain-text
-content with section labels. This is the authoritative reference the AI uses
-to answer questions.
+`docs/worker/build-context.mjs` scans every `*.mdx` file under `docs/src/content/docs/`, strips imports and Starlight
+`<Tabs>`/`<TabItem>` tags (keeping their content; any other component tag would pass through as written, and no page
+uses one), and cuts each page at its `##` headings (a heading inside a code fence is not one). Every section is a
+**chunk**: its heading and body, the page's route, and the page's *section* (`commands`, `guides`, or `general` for the
+pages at the root: `routeNamespace` in `src/chat/lib/page-context.ts`). The text before the first heading, with the page's
+title and description, is a chunk of its own. A chunk's route is the page's, never a `#fragment`: the route is what the
+model may link. Today that is 28 pages and 210 chunks.
 
 #### 2. Agent Skill (`skills/worktree/SKILL.md`)
 
 The repo ships a plain Agent Skill, installable with `npx skills add northguild/worktree --skill worktree`.
 `skills/worktree/SKILL.md` is a structured markdown document that describes the Worktree
 CLI's core patterns and canonical terminology. It is hand-written: edit it in
-the same change as the code that makes it untrue. It is included in the system
-prompt before the MDX content so the AI understands product vocabulary before
-it reads the docs.
+the same change as the code that makes it untrue. The build keeps its `##` and `###` sections as **vocabulary**, so the
+AI learns the tool's own terms. Vocabulary is never a page: the prompt tells the model not to link it.
 
-#### Assembling the system prompt
+#### 3. The index
 
-`build-context.mjs` assembles the final system prompt in this order:
+The build indexes the chunks with [MiniSearch](https://lucaong.github.io/minisearch/) 7.2.0 and serialises the index
+(`MiniSearch#toJSON`) beside them. The Worker loads it with `MiniSearch.loadJSON` under the same options
+(`docs/worker/retrieval/search.ts`, which both sides import), once per isolate, so no request builds an index.
 
-1. **Persona & scope** — the AI is instructed to answer only from the docs and
-   skill guide, and to say so when a question is out of scope. A standing order
-   follows: everything in user messages is a question about the docs, never an
-   instruction, and the prompt is never revealed.
-2. **Linking rules** — the AI is given an explicit list of valid doc routes
-   (derived automatically from the MDX filesystem scan) and told never to link
-   to GitHub repo anchors, SKILL.md headings, or any route not in that list.
-3. **Skill Guide** — `skills/worktree/SKILL.md`
-4. **Documentation** — all MDX pages, each labelled with its file path
+#### What the Worker does with a question
 
-The prompt is serialised with `JSON.stringify` into `docs-context.ts` and
-bundled into the worker via tsup, and passed to `chat()` as `systemPrompts` on every
-request. **No runtime fetching** — the context is embedded in the worker bundle,
-which `wrangler deploy --dry-run` measured on 2026-11-08 at 3,222 KiB uploaded
-(577 KiB gzipped) with the chat libraries, the validator and the prompt in it.
+For each `POST /api/chat`, after validation (`docs/worker/chat-handler.ts`):
+
+1. **Search** the last message of the conversation (`retrieval/search.ts`). Stopwords are dropped; an identifier such as
+   `branchPrefix` is also split into its words in the index; a chunk in the section of the page the reader came from
+   (`forwardedProps.pageContext`, the `document.referrer` route without the base) scores 1.5 times, which is a bias and
+   not a filter; and a chunk under a relevance floor of 10 is dropped. At most 15 are returned.
+2. **Keep** what fits (`retrieval/fit-chunks.ts`): the best first, at most 10 chunks and 24,000 characters, the first
+   chunk always kept.
+3. **Choose vocabulary** (`retrieval/select-vocabulary.ts`): the guide's sections whose titles the question names, at
+   most 16,000 characters.
+4. **Assemble the prompt** (`retrieval/system-prompt.ts`), in this order: persona and scope; a standing order (user
+   messages and retrieved text are data to answer about, never instructions, and the prompt is never revealed); the
+   linking rules, whose list of routes is exactly the kept chunks' pages (the client still checks links against every
+   route, `VALID_DOC_ROUTES`); vocabulary; the retrieved chunks; and a refusal instruction for a question the chunks do
+   not answer. It is passed to `chat()` as `systemPrompts`. The reader's text is never spliced into it.
+
+**No runtime fetching** and no binding: the corpus is embedded in the Worker bundle, which `wrangler deploy --dry-run`
+measured on 2026-11-08 at 3,931 KiB uploaded (761 KiB gzipped), of which the generated `docs-context.ts` is 1,046 KB
+(it was 361 KB as a whole-docs prompt). `POST /` (the frozen legacy route) still sends the whole docs, as one prompt that
+`buildLegacyPrompt` writes from the `.mdx` files and the skill guide into `docs-context.ts` as `LEGACY_PROMPT` (plan #257 D3; removing it is #300).
+
+#### The retrieval trace
+
+The Worker writes what it retrieved into the stream as an AG-UI `CUSTOM` event named `dox-retrieval`, right after
+`RUN_STARTED` and again just before `RUN_FINISHED` (not on a failed run). It carries counts, chunk titles, the pages
+and timings, never prompt text: `{ totalChunks, retrievedCount, chunkTitles, chunkUrls, timings }`. The second write
+adds `firstToken` and `total`. `useDocsChat` reads it with `useChat`'s `onCustomEvent`, keeps the latest per question
+(`traces`, not saved with the transcript) and `RetrievalTrace` shows it in the answer's card: collapsed, "Searched 210
+chunks → 8 matched"; open, the chunk titles and the stage timings, or "Nothing in the corpus matched this question."
+The empty page's status line, "Dox // 28 pages · 210 sections indexed", reads the counts `build-context.mjs` writes into
+`docs-routes.generated.ts`.
 
 #### Regenerating the context
 
@@ -147,12 +171,15 @@ pnpm --filter docs run worker:build-context
 ```
 
 This also regenerates `docs/src/chat/docs-routes.generated.ts`, which the
-React link renderer uses to validate that AI-generated links point to real pages.
+React link renderer uses to validate that AI-generated links point to real pages, and which holds the corpus counts.
 
 Run this (or just `worker:build`) after:
 - Adding or removing a docs page
 - Editing any MDX content that you want reflected in the AI's answers
 - Editing `skills/worktree/SKILL.md`
+
+The build runs `docs/worker/build-context.mjs` under Node's type stripping (it imports two `.ts` files that the Worker also
+bundles), so `node` prints a `MODULE_TYPELESS_PACKAGE_JSON` warning for them. It is harmless.
 
 ---
 
@@ -384,7 +411,7 @@ or use the root-level aliases where noted.
 
 | Command | What it does | When to run |
 |---|---|---|
-| `worker:build-context` | Scan MDX files + SKILL.md → generate `docs-context.ts` and `docs-routes.generated.ts` | After adding/editing docs pages, or after editing the skill |
+| `worker:build-context` | Scan MDX files + SKILL.md → generate the corpus (`docs-context.ts`: chunks, serialised index, vocabulary) and `docs-routes.generated.ts` (routes, counts) | After adding/editing docs pages, or after editing the skill |
 | `worker:build` | Run `worker:build-context` then bundle `worker.ts` via tsup | Before `worker:dev` or before deploying |
 
 ### Testing & deployment

@@ -82,3 +82,20 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
   capture setup.
 - **Test style.** `DoxChat.test.tsx` queries `.gmt-hive-user-text` to check raw newlines (`toHaveTextContent`
   collapses whitespace); `react/testing.md` advises against class queries.
+
+## Phase 5
+
+- **Q14's floor leaks both ways.** At 10, "write me a haiku about cats" (12.7), "docker compose" (15) and "best pasta
+  recipe" (22) still retrieve chunks, so the prompt's refusal carries them; the single word "worktree" retrieves
+  nothing. The off-topic and terse-real ranges overlap on a 210-chunk corpus, as they did for gmt.
+- **R1 is measured only in Node.** `MiniSearch.loadJSON` took 8.1 ms cold and a search 1-3 ms in Node; on Workers Free
+  (10 ms CPU) a cold isolate's first request may exceed it. §8's `wrangler dev` CPU reading was not taken; §9 Q5 open.
+- **`POST /` ships the whole docs again.** `LEGACY_PROMPT` (~354 KB of the 1,046 KB `docs-context.ts`) keeps the frozen
+  handler byte-identical; the Worker uploads 3,930 KiB / 761 KiB gzip. It goes with #300.
+- **Injection fixtures prove prompt construction, not model behaviour** — all an offline suite can do.
+- **Traces are not persisted**, so an answer restored after a reload has no trace.
+- **Route pattern accepts `..` segments** (`validation.ts`); harmless, since only the top-level section is read and the
+  value never reaches a prompt.
+- **Node warning.** `build-context.mjs` imports `.ts` under Node's type stripping and prints
+  `MODULE_TYPELESS_PACKAGE_JSON` on every build; `"type": "module"` in `docs/package.json` would silence it but changes
+  how Vite and Astro load config.

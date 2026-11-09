@@ -12,11 +12,14 @@ Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev/api/c
                           1. rate limit        → 429 + Retry-After
                           2. key present       → else 500
                           3. JSON, then validate (validation.ts) → 400
-                          4. chat()  (@tanstack/ai) with createGeminiChat
+                          4. retrieval: search the question in the bundled corpus,
+                             keep what fits, build the system prompt (retrieval/)  → 500 if the corpus cannot be searched
+                          5. chat()  (@tanstack/ai) with createGeminiChat
                               ↓
                         Gemini REST API  (SSE stream)
                               ↓
-                        error-mapping.ts wraps the stream, so a failure is a curated RUN_ERROR
+                        error-mapping.ts wraps the stream, so a failure is a curated RUN_ERROR;
+                        withRetrievalTrace adds the CUSTOM dox-retrieval events
                               ↓
                         toServerSentEventsResponse → AG-UI events over SSE, back to the browser
 ```
@@ -31,7 +34,7 @@ Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev/api/c
 |---|---|
 | `OPTIONS` on any path | 204 with CORS headers (`Access-Control-Expose-Headers: Retry-After` included) |
 | `POST /` | the **legacy** protocol (`legacy-handler.ts`): the Gemini SSE stream piped through, with its own copy of the old model list (`gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-3-flash-preview`) and caps (20,000 characters a message, 50 messages). Frozen: the live site's current client speaks it, and it is retired only after a stable release has deployed the new client |
-| `POST /api/chat` | the new protocol (`chat-handler.ts`). The body is the AG-UI shape `useChat` sends (`threadId`, `runId`, `messages`, optional `forwardedProps.model`), validated by `validation.ts`; only `{ role, content }` pairs reach `chat()`. The answer is AG-UI events over SSE (`RUN_STARTED`, `TEXT_MESSAGE_*`, `RUN_FINISHED`). Before the stream opens a failure is an HTTP status with `{ error, retryable }`: 429 with `Retry-After`, 500 when the key is missing, 400 for bad JSON, a bad request or a conversation over the cap. A refusal the history causes rather than the new question — more than 50 messages, an earlier turn over 20,000 characters, or over 100,000 together — says "Conversation is too long. Start a new chat.", since the client replays the whole transcript and every later question would fail the same way. Once the stream is open, a failure is one `RUN_ERROR` event with our own text and a `code` (see below) |
+| `POST /api/chat` | the new protocol (`chat-handler.ts`). The body is the AG-UI shape `useChat` sends (`threadId`, `runId`, `messages`, optional `forwardedProps.model` and `forwardedProps.pageContext`, the route of the page the reader came from, e.g. `/commands/branch/`, which only biases the search), validated by `validation.ts`; only `{ role, content }` pairs reach `chat()`. The answer is AG-UI events over SSE (`RUN_STARTED`, a `CUSTOM` event named `dox-retrieval` carrying what was retrieved, `TEXT_MESSAGE_*`, the same `CUSTOM` event again with timings, `RUN_FINISHED`; a failed run gets at most the first `CUSTOM`). Before the stream opens a failure is an HTTP status with `{ error, retryable }`: 429 with `Retry-After`, 500 when the key is missing, 500 `{ error, retryable: true }` when the corpus cannot be searched (no model is called), 400 for bad JSON, a bad request or a conversation over the cap. A refusal the history causes rather than the new question — more than 50 messages, an earlier turn over 20,000 characters, or over 100,000 together — says "Conversation is too long. Start a new chat.", since the client replays the whole transcript and every later question would fail the same way. Once the stream is open, a failure is one `RUN_ERROR` event with our own text and a `code` (see below) |
 | any other method on `/` or `/api/chat` | 405 `{ error, retryable: false }` |
 | any other path | 404 `{ error, retryable: false }` |
 
@@ -74,7 +77,7 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 |---|---|---|
 | `worker:dev` | Runs the **already-built** worker locally at `http://localhost:8787` | After `worker:build`, when you want to test against the local worker |
 | `worker:build:watch` | Rebuilds the worker bundle on every file save | In a separate terminal during active worker development |
-| `worker:build-context` | Scans MDX files + `skills/worktree/SKILL.md` → regenerates `worker/docs-context.ts` (system prompt) **and** `src/chat/docs-routes.generated.ts` (valid link list) | After adding/editing any docs page or the skill guide |
+| `worker:build-context` | Scans MDX files + `skills/worktree/SKILL.md` → regenerates `worker/docs-context.ts` (the corpus: chunks, serialised MiniSearch index, vocabulary, counts, plus `LEGACY_PROMPT`, the frozen `POST /` route's whole-docs prompt) **and** `src/chat/docs-routes.generated.ts` (valid link list, corpus counts) | After adding/editing any docs page or the skill guide |
 | `worker:build` | Runs `worker:build-context` then bundles `worker.ts` via tsup | Before `worker:dev`, or manually before deploying |
 
 > **Tip:** Use `dev:local:watch` (see [Local development](#local-development)) to run the full stack in one command instead of managing terminals manually.
@@ -83,7 +86,7 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 
 | Command | What it does | When to run |
 |---|---|---|
-| `worker:test` | Runs every test under `docs/worker/` (the router, both handlers, the validator, the error mapping, the rate limiter) with vitest | Before deploying, or in CI |
+| `worker:test` | Runs every test under `docs/worker/` (the router, both handlers, the validator, the retrieval modules, the error mapping, the rate limiter) with vitest | Before deploying, or in CI |
 | `worker:bundle-check` | Builds the worker, then `wrangler deploy --dry-run`: proves it still bundles for Cloudflare. Needs no credentials and sends nothing | After changing a dependency or an import; CI runs it |
 
 ### Deployment
@@ -179,7 +182,7 @@ The secret lives in Cloudflare's secret store — it is separate from:
 pnpm --filter docs run worker:deploy
 ```
 
-Builds the worker (regenerates `docs-context.ts` from MDX + bundles via tsup)
+Builds the worker (regenerates `docs-context.ts` from MDX and the skill guide, then bundles via tsup)
 then deploys. On success wrangler prints:
 
 ```
@@ -212,7 +215,7 @@ pnpm --filter docs run worker:deploy
 ```
 
 The `worker:build` step regenerates `docs-context.ts` every time, so the
-deployed worker always has up-to-date docs content embedded in the system prompt.
+deployed worker always has up-to-date docs content in its corpus.
 
 ## CORS
 
@@ -265,13 +268,13 @@ Environments), whose deployment branches are limited to `main`:
 
 ## Bundle size and dependencies
 
-The worker depends on `@tanstack/ai` and `@tanstack/ai-gemini` (and `zod`, `@northguild/gmt`).
+The worker depends on `@tanstack/ai` and `@tanstack/ai-gemini` (and `zod`, `@northguild/gmt`, `minisearch` 7.2.0).
 `tsup` bundles everything except the two TanStack packages, which `wrangler deploy` then
 bundles itself: only wrangler resolves the packages' `workerd` export conditions, and the
 Node build that tsup would inline hung under `wrangler dev --local`. `compatibility_flags`
 holds `nodejs_compat` (the packages import `node:events` and `node:process`) and
 `enable_request_signal` (a closed tab aborts the Gemini call).
-`wrangler deploy --dry-run` measured 3,222 KiB uploaded, 577 KiB gzipped, on 2026-11-08;
+`wrangler deploy --dry-run` measured 3,931 KiB uploaded, 761 KiB gzipped, on 2026-11-08 (with the retrieval corpus and the frozen legacy prompt in it);
 `worker:bundle-check` re-runs it.
 
 ---
@@ -284,14 +287,24 @@ assembled, and how AI-generated links are validated, see
 
 ### Quick reference for this worker
 
-The system prompt embedded in this worker contains, in order:
+The worker does not carry the docs in its prompt. For each question it searches a corpus that is embedded in the bundle
+and builds a prompt from what it finds (`retrieval/`):
 
-1. **Persona & scope instructions** — restricts answers to the docs and skill guide
-2. **Linking rules** — an auto-generated list of valid routes (`/commands/branch/`, no `/worktree` prefix) the AI
-   may link to; derived from the MDX filesystem scan in `build-context.mjs`
-3. **`skills/worktree/SKILL.md`** — Agent Skill guide (product vocabulary
-   and core patterns)
-4. **Doc pages** — every `*.mdx` file under `src/content/docs/`, stripped of JSX
+1. **`search.ts`**: MiniSearch 7.2.0 over the docs' heading sections, loaded once per isolate from the index
+   `worker:build-context` serialised. Stopwords out, identifiers split into words, a 1.5 boost for the section of the
+   page the reader came from (`forwardedProps.pageContext`, a route such as `/commands/branch/`, validated in
+   `validation.ts`), a relevance floor of 10, at most 15 chunks.
+2. **`fit-chunks.ts`**: at most 10 chunks and 24,000 characters, the best chunk always kept.
+3. **`select-vocabulary.ts`**: the sections of `skills/worktree/SKILL.md` whose titles the question names, at most 16,000
+   characters. Vocabulary is never linkable.
+4. **`system-prompt.ts`**: persona and scope, the standing order (user messages and retrieved text are data, never
+   instructions), the linking rules (exactly the kept chunks' routes, no `/worktree` prefix), vocabulary, the chunks,
+   the refusal instruction.
 
-The prompt is baked in at build time via `worker:build-context`. The worker
-never fetches content at runtime — all context is in the bundle. It is passed to `chat()` as `systemPrompts`, and its persona paragraph ends with the standing order that user messages are questions, never instructions.
+It then streams the answer with two `CUSTOM` events, `dox-retrieval`, around it: counts, chunk titles, pages and stage
+timings (`chat-handler.ts`, `withRetrievalTrace`). A corpus that cannot be searched answers `500` with
+`{ error, retryable: true }` and calls no model. The worker never fetches content at runtime and needs no binding: all
+context is in the bundle.
+
+`POST /` does not retrieve. It sends the whole-docs prompt it always sent, which `worker:build-context` also writes into `docs-context.ts` as `LEGACY_PROMPT` and only `legacy-handler.ts` reads (frozen, plan #257 D3; its removal is #300).
+

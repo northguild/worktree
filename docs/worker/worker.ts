@@ -3,7 +3,7 @@
 import { createGeminiChat } from "@tanstack/ai-gemini";
 import { createChatHandler } from "./chat-handler.js";
 import { getCorsHeaders } from "./cors.js";
-import { SYSTEM_PROMPT } from "./docs-context.js";
+import { CHUNKS, SEARCH_INDEX_JSON, VOCABULARY } from "./docs-context.js";
 import { handleLegacyRequest } from "./legacy-handler.js";
 import { nowMs } from "./rate-limit.js";
 
@@ -64,7 +64,11 @@ export default createWorker({
   legacy: handleLegacyRequest,
   chat: createChatHandler({
     createAdapter: createGeminiChat,
-    systemPrompt: SYSTEM_PROMPT,
+    corpus: {
+      chunks: CHUNKS,
+      searchIndexJson: SEARCH_INDEX_JSON,
+      vocabulary: VOCABULARY,
+    },
     now: nowMs,
   }),
 });

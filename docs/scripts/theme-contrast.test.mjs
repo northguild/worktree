@@ -218,6 +218,8 @@ describe("the hive's pairs (the Dox page)", () => {
     for (const covered of [
       "hive: text in a turn's card",
       "hive: the waiting line",
+      "hive: the retrieval trace",
+      "hive: the status line",
       "hive: a warning",
       "hive: typed text in the composer",
       "hive: the composer's placeholder",

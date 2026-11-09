@@ -462,3 +462,87 @@ describe("DoxChat -- the scroller", () => {
     ).toBeNull();
   });
 });
+
+// Plan #309 Phase 5: the trace in the answer's card (§4.1 row 12) and the hub's status line (§4.1 row 6). The trace
+// frames are AG-UI `CUSTOM` events named `dox-retrieval`, written by hand to the shape `chat-types.ts` documents; the
+// 28 is the number of docs pages (`find docs/src/content/docs -name '*.mdx'`).
+const TRACE_FRAME = `data: ${JSON.stringify({
+  type: "CUSTOM",
+  name: "dox-retrieval",
+  value: {
+    totalChunks: 210,
+    retrievedCount: 2,
+    chunkTitles: ["Cleanup › Usage", "Cleanup › Flags"],
+    chunkUrls: ["/commands/cleanup/"],
+    timings: { corpus: 0, search: 4, prompt: 1 },
+  },
+  timestamp: 1,
+})}`;
+
+describe("DoxChat -- the retrieval trace", () => {
+  it("shows the counts, collapsed, in the answer's card as soon as the Worker says, before any text", async () => {
+    const stream = openStream();
+    render(<DoxChat />);
+    ask(QUESTION);
+
+    await stream.push(RUN_STARTED, TRACE_FRAME);
+
+    const trigger = await screen.findByRole("button", {
+      name: "Searched 210 chunks → 2 matched",
+    });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Searching docs…")).toBeInTheDocument();
+    await stream.end();
+  });
+
+  it("opens to the chunk titles", async () => {
+    const stream = openStream();
+    render(<DoxChat />);
+    ask(QUESTION);
+    await stream.push(RUN_STARTED, TRACE_FRAME);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Searched 210 chunks/ }),
+    );
+
+    expect(screen.getByText("Cleanup › Usage")).toBeInTheDocument();
+    await stream.end();
+  });
+
+  it("stays outside the answer's live region, so the answer is announced and the trace is not", async () => {
+    const stream = openStream();
+    render(<DoxChat />);
+    ask(QUESTION);
+    await stream.push(RUN_STARTED, TRACE_FRAME, TEXT_START, FIRST_DELTA);
+
+    const trigger = await screen.findByRole("button", {
+      name: /Searched 210 chunks/,
+    });
+    const live = screen
+      .getByRole("article", { name: "Dox" })
+      .querySelector('[aria-live="polite"]');
+
+    await waitFor(() => expect(live).toHaveTextContent("To r"));
+    expect(live?.contains(trigger)).toBe(false);
+    await stream.end();
+  });
+
+  it("shows no trace for a question the Worker said nothing about", async () => {
+    whole(answerStream);
+    render(<DoxChat />);
+    ask(QUESTION);
+
+    await screen.findByText(/To remove a worktree/);
+    expect(screen.queryByRole("button", { name: /Searched/ })).toBeNull();
+  });
+});
+
+describe("DoxChat -- the hub's status line", () => {
+  it("counts the pages and sections the Worker indexes", () => {
+    render(<DoxChat />);
+
+    expect(
+      screen.getByText(/^Dox \/\/ 28 pages · \d+ sections indexed$/),
+    ).toBeInTheDocument();
+  });
+});

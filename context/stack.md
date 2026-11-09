@@ -4,7 +4,7 @@
 [oclif](https://oclif.io/docs/api_reference). The repository is a two-package pnpm workspace: the CLI at
 the root, and an Astro/Starlight documentation site under `docs/` that deploys to Cloudflare as a Worker with static assets and talks to
 a small Cloudflare Worker for its chat feature. The chat runs on TanStack AI: the client uses `useChat`
-against the Worker's `POST /api/chat`, and the Worker answers through Gemini. `POST /` stays as the frozen
+against the Worker's `POST /api/chat`, and the Worker answers through Gemini, from the few docs sections it retrieves per question (MiniSearch over a corpus compiled into the Worker bundle by `docs/worker/build-context.mjs`; `docs/worker/retrieval/`). `POST /` stays as the frozen
 legacy route for clients from before the change.
 
 One piece of history explains a lot of the current shape: the project moved from the `@burglekitt` org to
@@ -87,7 +87,7 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | `docs/src/content/docs/` | users looking something up, at https://northguild.dev/worktree/ | any user-visible CLI behaviour. One page per command under `commands/` (9), plus `configuration.mdx`, `project-configuration.mdx`, `index.mdx` (the landing), `getting-started.mdx`, `faq.mdx`, and `guides/` (11) |
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
-| `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |
+| `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; its sections are also the docs chat's vocabulary, searched per question | a command or flag change that the skill describes — **but see the caveat below** |
 | `docs/src/content/docs/changelog.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
 | [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/content/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
 

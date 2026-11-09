@@ -395,6 +395,9 @@ export const PAIRS = [
   text("hive: a role label (Dox, You)", "var(--gmt-spring-ink)", HIVE),
   text("hive: text in a turn's card", "var(--gmt-ice)", HIVE_CARD),
   text("hive: the waiting line", "var(--gmt-ice-dim)", HIVE_CARD),
+  // Plan #309 Phase 5: the retrieval trace sits in the answer's card, and the status line on the empty page.
+  text("hive: the retrieval trace", "var(--gmt-ice-dim)", HIVE_CARD),
+  text("hive: the status line", "var(--gmt-ice-dim)", HIVE),
   text("hive: a link in an answer", "var(--gmt-spring-ink)", HIVE_CARD),
   text("hive: code in an answer", "var(--gmt-ice)", HIVE_CODE),
   text("hive: a heading in an answer", "var(--gmt-spring-ink)", HIVE_CARD),
