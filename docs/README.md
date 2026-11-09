@@ -53,6 +53,7 @@ Cloudflare Worker  (docs/worker/)
   │  – holds GEMINI_API_KEY as an encrypted secret, and the Workers AI binding `AI`
   │  – rate-limits, validates input (validation.ts), enforces CORS
   │  – searches the docs for the question and builds the system prompt from what it finds
+  │  – reads the day's usage ledger (Workers KV, optional), refuses a visitor's sixth question of a UTC day
   │  – walks its brains in order until one starts answering (brains.ts)
   ▼
 Workers AI (@tanstack/ai-cloudflare): Gemma 4 26B, GLM 4.7 Flash
@@ -61,6 +62,7 @@ Google Gemini API (@tanstack/ai-gemini): 3.5 Flash-Lite, 3.6 Flash, 3.5 Flash
   ▼
 Worker streams AG-UI events over SSE (RUN_STARTED, CUSTOM `dox-retrieval`, CUSTOM `dox-progress` for
 each step of the walk, TEXT_MESSAGE_*, CUSTOM `dox-retrieval` again, RUN_FINISHED or RUN_ERROR;
+CUSTOM `dox-usage` with the counts once a brain has accepted the question;
 CUSTOM `dox-refusal` when every brain is out)
   │
   ▼
@@ -96,6 +98,14 @@ On the page, the pieces are:
   `useDocsChat` (`progress`) hands the last to the waiting turn, which shows it in place of "Searching docs…". The trace's
   summary names the brain that answered: "Searched 210 chunks → 8 matched · GLM 4.7 Flash". How the walk works, and what the
   Worker needs for it, is in [worker/README.md](worker/README.md#brains).
+- **The usage ledger.** The Worker keeps a best-effort count of what is spent today in a Workers KV namespace,
+  `DOX_USAGE` (`worker/usage.ts`). It is advisory: it picks a brain that probably has room and feeds the badge, and the
+  provider's own refusal is still the only real gate. A brain the ledger has marked out is not asked; a visitor's sixth
+  question of a UTC day is refused with a 429 before any brain is asked. Without the namespace the Worker takes the first
+  brain and counts nothing. `GET /api/brains` returns the counts (`BrainsInfo`, `lib/chat-types.ts`) and, after each
+  question, the same shape arrives as a `dox-usage` event. The page does not read either yet (the badge and the menu are
+  a later phase of #309); `lib/day-clock.ts` is the clock they share. Keys, TTLs and the setup are in
+  [worker/README.md](worker/README.md#the-usage-ledger).
 - **The empty chat and its limits.** With no question yet, the page shows the hub and the examples rail, whose three starter
   questions (`lib/chat-starters.ts`, each paired with the docs page that answers it) are sent through the same guarded
   `submit` as the composer; focus moves to the message field when one is sent. A line under the composer

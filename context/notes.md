@@ -121,3 +121,16 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
 - **`withRunId` is broader than it needs to be.** It rewrites any top-level `runId`; safe today because `chat()` gets no
   tools or subagents. Limiting it to `RUN_STARTED`/`RUN_FINISHED`/`RUN_ERROR` and skipping chunks with `parentRunId` or
   `subagentRunId` would keep it safe if tools ever arrive.
+
+## Phase 7
+
+- **The visitor hash is reversible.** D10's unkeyed, truncated SHA-256 of `dox:<ip>` can be reversed for IPv4 by trying
+  all 2^32 addresses, so "the ledger cannot name a visitor" overstates it. A keyed HMAC with a secret would be a separate
+  decision for the maintainer.
+- **`POST /` skips the cap.** The frozen route has no visitor cap or ledger, so a visitor can bypass 5-a-day through it
+  until #300 retires it. Worth one line when #299 is closed or narrowed (§9 item 18).
+- **KV write budget.** About 2 writes (and 2 reads) per answered question, plus one per brain marked out; R2's 1,000
+  free writes a day is about 500 answered questions per account, shared with gmt if the account is (§9 Q4).
+- **Awaited ledger writes.** `recordRequest` and `markBrain` are awaited (gmt uses `void`): one KV round trip before the
+  answer, well inside the client's idle clock; nothing pins await vs void.
+- **The visitor-cap 429 sends no `Retry-After`** (gmt neither; the client does not need it).

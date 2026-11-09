@@ -5,15 +5,19 @@
 //   3. JSON parse      -> 400
 //   4. validation      -> 400 (D7, incl. the whole-conversation cap)
 //   5. { role, content } pairs only; metadata, tools and context never pass
-//   6. retrieval: search the question, keep what fits, choose the vocabulary, assemble the prompt (D8)
-//   7. the walk past the brains (D9) -> withRetrievalTrace -> mapStreamErrors -> toServerSentEventsResponse
+//   6. the ledger (D10): read what is spent today -> the visitor's cap, 429 before any brain is asked
+//   7. retrieval: search the question, keep what fits, choose the vocabulary, assemble the prompt (D8)
+//   8. the walk past the brains the ledger has not marked out (D9) -> record the answer and send the counts as a
+//      `CUSTOM` usage event -> withRetrievalTrace -> mapStreamErrors -> toServerSentEventsResponse
 //
 // Failures before the stream keep an HTTP status and `{ error, retryable }`.
 // Once the stream is open a failure is a RUN_ERROR event whose text is ours,
 // never the provider's (D9). The walk is inside the stream, so each step of it
 // is a `CUSTOM` progress event and an allowance spent on every brain is a
-// `CUSTOM` refusal (D3).
+// `CUSTOM` refusal (D3). The ledger is advisory and optional: with no `DOX_USAGE` binding the first brain is asked and
+// no counts are sent, and a store that throws is never the reason a question goes unanswered.
 
+import { convertUnixToUtc } from "@northguild/gmt/unix/convert";
 import {
   type AnyTextAdapter,
   chat,
@@ -21,7 +25,7 @@ import {
   type StreamChunk,
   toServerSentEventsResponse,
 } from "@tanstack/ai";
-import type { Brain } from "../src/chat/lib/chat-constants";
+import { type Brain, VISITOR_DAILY_MAX } from "../src/chat/lib/chat-constants";
 import {
   PROGRESS_EVENT,
   REFUSAL_EVENT,
@@ -30,8 +34,10 @@ import {
   type RetrievalChunk,
   type RetrievalTimings,
   type RetrievalTraceData,
+  USAGE_EVENT,
   type VocabularySection,
 } from "../src/chat/lib/chat-types";
+import { nextVisitorMidnightMs } from "../src/chat/lib/day-clock";
 import { namespaceFromPageContext } from "../src/chat/lib/page-context";
 import {
   type AiBinding,
@@ -45,13 +51,19 @@ import {
   stringVars,
   walkBrains,
 } from "./brains";
+import { brainsPayload, isUsable, withRecordedRequest } from "./brains-payload";
 import {
   ALLOWANCE_SPENT_CODE,
   describeThrown,
   type MappedError,
   mapUpstreamError,
 } from "./error-mapping";
-import { chatRateLimiter, nowMs, retryAfterSeconds } from "./rate-limit";
+import {
+  chatRateLimiter,
+  getClientId,
+  nowMs,
+  retryAfterSeconds,
+} from "./rate-limit";
 import { fitChunks } from "./retrieval/fit-chunks";
 import { loadIndex, searchChunks } from "./retrieval/search";
 import { selectVocabulary } from "./retrieval/select-vocabulary";
@@ -59,6 +71,15 @@ import {
   assembleSystemPrompt,
   routeAllowlist,
 } from "./retrieval/system-prompt";
+import {
+  type BrainState,
+  EMPTY_SNAPSHOT,
+  hashVisitor,
+  markBrain,
+  readUsage,
+  recordRequest,
+  type UsageSnapshot,
+} from "./usage";
 import { validateChatRequest } from "./validation";
 
 type Cors = Record<string, string>;
@@ -332,6 +353,35 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       });
     }
 
+    // The ledger (D10): what is spent today. A store that is missing or fails reads as nothing spent.
+    const usage = env.DOX_USAGE;
+    const ledgerNow = deps.now();
+    const visitorHash = usage
+      ? await hashVisitor(getClientId(request))
+      : undefined;
+    const snapshot: UsageSnapshot =
+      usage && visitorHash !== undefined
+        ? await readUsage(usage, brains, visitorHash, ledgerNow, {
+            threadId,
+            runId,
+          })
+        : EMPTY_SNAPSHOT;
+
+    // The visitor's cap, before any brain is asked. Dox's own, so always on the UTC day.
+    if (snapshot.visitor >= VISITOR_DAILY_MAX) {
+      return new Response(
+        JSON.stringify({
+          error: `You have used your ${VISITOR_DAILY_MAX} questions for today. They reset at midnight UTC.`,
+          retryable: false,
+          resetsAt: convertUnixToUtc(nextVisitorMidnightMs(ledgerNow)),
+        }),
+        {
+          status: 429,
+          headers: { "Content-Type": "application/json", ...cors },
+        },
+      );
+    }
+
     // Retrieval (D8): the question is the last message, which the validator has made a non-empty user turn.
     const clock = deps.clock ?? (() => performance.now());
     const started = clock();
@@ -393,7 +443,11 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       ...(answeredBy && { brainLabel: answeredBy.label }),
     });
 
-    const candidates = orderCandidates(brains, requestedBrain);
+    // A brain the ledger has marked out is not asked: the walk would only learn again what a provider told us earlier.
+    const candidates = orderCandidates(
+      brains.filter((brain) => isUsable(brain, snapshot)),
+      requestedBrain,
+    );
     const errorContext: StreamErrorContext = {
       threadId,
       runId,
@@ -434,6 +488,8 @@ export function createChatHandler(deps: ChatHandlerDeps) {
         timestamp: deps.now(),
       } as StreamChunk;
 
+      /** Every brain this walk found out, so the usage event can show them out without waiting on KV. */
+      const markedOut: Record<string, Exclude<BrainState, "ok">> = {};
       const walk = walkBrains({
         candidates,
         open,
@@ -457,6 +513,22 @@ export function createChatHandler(deps: ChatHandlerDeps) {
             runId,
           });
           yield progressChunk(movedOn(value.brain, value.outcome), deps.now);
+          if (
+            usage &&
+            (value.outcome === "spent" || value.outcome === "unavailable")
+          ) {
+            // Workers AI's Neurons are one pool per account, so an exhausted allocation takes every brain of it.
+            const out = value.allocation
+              ? brains.filter((b) => b.provider === value.brain.provider)
+              : [value.brain];
+            for (const brain of out) {
+              markedOut[brain.id] = value.outcome;
+              await markBrain(usage, brain, value.outcome, ledgerNow, {
+                threadId,
+                runId,
+              });
+            }
+          }
         }
         step = await walk.next();
       }
@@ -464,6 +536,24 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       const end = step.value;
       if (end.kind === "answered") {
         answeredBy = end.brain;
+        if (usage && visitorHash !== undefined) {
+          // Counted once a brain has accepted the question, whether or not it is read. Never throws (`usage.ts`).
+          await recordRequest(usage, end.brain, visitorHash, ledgerNow, {
+            threadId,
+            runId,
+          });
+          // The counts as they stand now, from memory: KV's reads can lag a write, so a re-read would show the old ones.
+          yield {
+            type: EventType.CUSTOM,
+            name: USAGE_EVENT,
+            value: brainsPayload({
+              brains,
+              snapshot: withRecordedRequest(snapshot, end.brain, markedOut),
+              nowMs: ledgerNow,
+            }),
+            timestamp: deps.now(),
+          } as StreamChunk;
+        }
         yield* end.stream;
       } else if (end.kind === "failed") {
         yield {

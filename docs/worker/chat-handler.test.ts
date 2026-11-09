@@ -9,10 +9,12 @@ import { createGeminiChat } from "@tanstack/ai-gemini";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHAT_STARTERS } from "../src/chat/lib/chat-starters";
 import {
+  type BrainsInfo,
   PROGRESS_EVENT,
   REFUSAL_EVENT,
   RETRIEVAL_TRACE_EVENT,
   type RefusalData,
+  USAGE_EVENT,
 } from "../src/chat/lib/chat-types";
 import { buildCorpus, buildLegacyPrompt } from "./build-context.mjs";
 import {
@@ -1435,4 +1437,374 @@ describe("createChatHandler — the brains (D9)", () => {
     expect(answerText(all)).toBe("Hi");
     expect(all.find((e) => e.type === "RUN_FINISHED")?.runId).toBe("run-1");
   });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Plan #309 Phase 7: the usage ledger (D10). Expected values: D10's key scheme and §8's TTL rule, worked by hand for
+// `now` = 1,700,000,000,000 ms (2023-11-14T22:13:20Z). That is 14:13:20 on 2023-11-14 in Pacific (PST, UTC-8: the
+// clocks went back on 2023-11-05), so both clocks are on 2023-11-14. UTC midnight is 1 h 46 m 40 s = 6,400 s away, so a
+// UTC key's TTL is 6,700; Pacific midnight is 2023-11-15T08:00Z, 9 h 46 m 40 s = 35,200 s away, so a Gemini key's is
+// 35,500. The visitor ids are `printf %s 'dox:<ip>' | shasum -a 256 | cut -c1-16`.
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe("createChatHandler — the usage ledger (D10)", () => {
+  const NOW = 1_700_000_000_000;
+  const DAY = "2023-11-14";
+  const UTC_TTL = 6_700;
+  const PACIFIC_TTL = 35_500;
+  const HASH_OF: Record<string, string> = {
+    "203.0.113.251": "328dd250ababcbdd",
+    "203.0.113.252": "fe8daf05100a6061",
+    "203.0.113.253": "07a95f2f67ec6e74",
+    "203.0.113.254": "f63541b2afb20c9b",
+    "203.0.113.255": "20e2bd61a0113ca3",
+  };
+  const ALLOCATION = "429 3036: you have used up your daily free allocation";
+  const GEMINI_429 = JSON.stringify({ error: { code: 429, message: "quota" } });
+  const AI = { run: vi.fn() };
+
+  type Reply = Parameters<ReturnType<typeof fakeText>["setResponses"]>[0];
+
+  function ledger(initial: Record<string, string> = {}) {
+    const data = new Map(Object.entries(initial));
+    const puts: Array<{ key: string; value: string; ttl?: number }> = [];
+    const store = {
+      get: async (key: string) => data.get(key) ?? null,
+      put: async (
+        key: string,
+        value: string,
+        options?: { expirationTtl?: number },
+      ) => {
+        data.set(key, value);
+        puts.push({ key, value, ttl: options?.expirationTtl });
+      },
+    };
+    return { store, data, puts };
+  }
+
+  function setup(replies: Record<string, Reply>) {
+    const fakes: Record<string, ReturnType<typeof fakeText>> = {};
+    for (const [id, responses] of Object.entries(replies)) {
+      fakes[id] = fakeText({ model: id });
+      fakes[id].setResponses(responses);
+    }
+    const asked: string[] = [];
+    const fake = (id: string) => {
+      asked.push(id);
+      const found = fakes[id];
+      if (!found) throw new Error(`unexpected call to ${id}`);
+      return found;
+    };
+    const handler = createChatHandler({
+      createAdapter: ((model: string) => fake(model)) as never,
+      createWorkersAIAdapter: ((brain: { id: string }) =>
+        fake(brain.id)) as never,
+      corpus: CORPUS,
+      now: () => NOW,
+      startTimeoutMs: () => 30,
+      log: vi.fn(),
+    });
+    return { handler, asked };
+  }
+
+  const ask = (
+    handler: ReturnType<typeof createChatHandler>,
+    env: Parameters<ReturnType<typeof createChatHandler>>[1],
+    ip: string,
+  ) => handler(post(chatBody(), { ip }), env, CORS);
+
+  const usageEvent = (all: Event[]) =>
+    all.find((e) => e.type === "CUSTOM" && e.name === USAGE_EVENT)?.value as
+      | BrainsInfo
+      | undefined;
+
+  it("refuses the sixth question of a UTC day from one visitor with 429 and the UTC-midnight reset, asking no brain", async () => {
+    const ip = "203.0.113.251";
+    const { store } = ledger({ [`visitor:${DAY}:${HASH_OF[ip]}`]: "5" });
+    const { handler, asked } = setup({});
+
+    const res = await ask(handler, { AI, DOX_USAGE: store }, ip);
+
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({
+      error:
+        "You have used your 5 questions for today. They reset at midnight UTC.",
+      retryable: false,
+      resetsAt: "2023-11-15T00:00:00Z",
+    });
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://northguild.dev",
+    );
+    expect(asked).toEqual([]);
+  });
+
+  it("answers the fifth question, which is what makes the sixth refused", async () => {
+    const ip = "203.0.113.252";
+    const { store, data } = ledger({ [`visitor:${DAY}:${HASH_OF[ip]}`]: "4" });
+    const env = { AI, DOX_USAGE: store };
+
+    const fifth = await ask(
+      setup({ "cf-gemma-4-26b": [{ text: "Fifth" }] }).handler,
+      env,
+      ip,
+    );
+    expect(fifth.status).toBe(200);
+    await events(fifth);
+    expect(data.get(`visitor:${DAY}:${HASH_OF[ip]}`)).toBe("5");
+
+    const sixth = await ask(setup({}).handler, env, ip);
+    expect(sixth.status).toBe(429);
+  });
+
+  it("does not count another visitor's questions against this one", async () => {
+    const { store } = ledger({
+      [`visitor:${DAY}:${HASH_OF["203.0.113.253"]}`]: "5",
+    });
+    const res = await ask(
+      setup({ "cf-gemma-4-26b": [{ text: "Hi" }] }).handler,
+      { AI, DOX_USAGE: store },
+      "203.0.113.254",
+    );
+    expect(res.status).toBe(200);
+    await events(res);
+  });
+
+  it("records an answer under D10's keys, each with its TTL, once a brain has accepted it", async () => {
+    const ip = "203.0.113.255";
+    const { store, puts } = ledger();
+    const { handler } = setup({ "gemini-3.5-flash-lite": [{ text: "Hi" }] });
+
+    await events(
+      await ask(handler, { GEMINI_API_KEY: "k", DOX_USAGE: store }, ip),
+    );
+
+    expect(puts).toHaveLength(2);
+    // Gemini's count is on its provider's (Pacific) day; the visitor is on the UTC day.
+    expect(puts).toContainEqual({
+      key: `model:${DAY}:gemini-3.5-flash-lite`,
+      value: "1",
+      ttl: PACIFIC_TTL,
+    });
+    expect(puts).toContainEqual({
+      key: `visitor:${DAY}:${HASH_OF[ip]}`,
+      value: "1",
+      ttl: UTC_TTL,
+    });
+  });
+
+  it("sends the counts after the question as a dox-usage CUSTOM event, before the answer", async () => {
+    const { store } = ledger({ [`model:${DAY}:cf-gemma-4-26b`]: "9" });
+    const { handler } = setup({ "cf-gemma-4-26b": [{ text: "Hi" }] });
+
+    const all = await events(
+      await ask(handler, { AI, DOX_USAGE: store }, nextIp()),
+    );
+
+    const usage = usageEvent(all);
+    expect(usage?.brains[0]).toMatchObject({
+      id: "cf-gemma-4-26b",
+      remaining: 30,
+      limit: 40,
+    });
+    expect(usage?.visitor).toMatchObject({ used: 1, remaining: 4, limit: 5 });
+    expect(usage?.activeBrainId).toBe("cf-gemma-4-26b");
+    const at = all.findIndex((e) => e.name === USAGE_EVENT);
+    expect(at).toBeLessThan(
+      all.findIndex((e) => e.type === "TEXT_MESSAGE_CONTENT"),
+    );
+  });
+
+  it("skips a brain the ledger has marked out, without asking it or writing a line about it", async () => {
+    const { store } = ledger({ [`state:${DAY}:cf-gemma-4-26b`]: "spent" });
+    const { handler, asked } = setup({
+      "cf-glm-4.7-flash": [{ text: "From GLM" }],
+    });
+
+    const all = await events(
+      await ask(handler, { AI, DOX_USAGE: store }, nextIp()),
+    );
+
+    expect(asked).toEqual(["cf-glm-4.7-flash"]);
+    expect(
+      all.filter((e) => e.name === PROGRESS_EVENT).map((e) => e.value),
+    ).toEqual([{ text: "Asking GLM 4.7 Flash\u2026" }]);
+  });
+
+  it("ignores a reader's pick that the ledger has marked out", async () => {
+    const { store } = ledger({
+      [`state:${DAY}:gemini-3.6-flash`]: "unavailable",
+    });
+    const { handler, asked } = setup({
+      "cf-gemma-4-26b": [{ text: "From Gemma" }],
+    });
+
+    const res = await handler(
+      post(chatBody("hi", { forwardedProps: { brain: "gemini-3.6-flash" } }), {
+        ip: nextIp(),
+      }),
+      { AI, GEMINI_API_KEY: "k", DOX_USAGE: store },
+      CORS,
+    );
+    await events(res);
+
+    expect(asked).toEqual(["cf-gemma-4-26b"]);
+  });
+
+  it("every brain marked out ends in the refusal event with the soonest reset, asking none", async () => {
+    const { store } = ledger({
+      [`state:${DAY}:cf-gemma-4-26b`]: "spent",
+      [`state:${DAY}:cf-glm-4.7-flash`]: "spent",
+    });
+    const { handler, asked } = setup({});
+
+    const all = await events(
+      await ask(handler, { AI, DOX_USAGE: store }, nextIp()),
+    );
+
+    expect(asked).toEqual([]);
+    expect(all.find((e) => e.name === REFUSAL_EVENT)?.value).toMatchObject({
+      status: 429,
+      payload: { resetsAt: "2023-11-15T00:00:00Z" },
+    });
+    expect(usageEvent(all)).toBeUndefined();
+  });
+
+  it("marks a brain the walk found spent, on its provider's day, and shows it out in the event", async () => {
+    const { store, puts } = ledger();
+    const { handler } = setup({
+      "gemini-3.5-flash-lite": [{ error: GEMINI_429 }],
+      "gemini-3.6-flash": [{ text: "From 3.6" }],
+    });
+
+    const all = await events(
+      await ask(handler, { GEMINI_API_KEY: "k", DOX_USAGE: store }, nextIp()),
+    );
+
+    expect(puts).toContainEqual({
+      key: `state:${DAY}:gemini-3.5-flash-lite`,
+      value: "spent",
+      ttl: PACIFIC_TTL,
+    });
+    const usage = usageEvent(all);
+    expect(usage?.brains[0]).toMatchObject({ remaining: 0, state: "spent" });
+    expect(usage?.activeBrainId).toBe("gemini-3.6-flash");
+  });
+
+  it("marks every Workers AI brain spent when the allocation is gone, since the Neurons are per account", async () => {
+    const { store, puts } = ledger();
+    const { handler } = setup({
+      "cf-gemma-4-26b": [{ error: ALLOCATION }],
+      "gemini-3.5-flash-lite": [{ text: "From Gemini" }],
+    });
+
+    await events(
+      await ask(
+        handler,
+        { AI, GEMINI_API_KEY: "k", DOX_USAGE: store },
+        nextIp(),
+      ),
+    );
+
+    const marks = puts.filter((put) => put.key.startsWith("state:"));
+    expect(marks).toEqual(
+      expect.arrayContaining([
+        { key: `state:${DAY}:cf-gemma-4-26b`, value: "spent", ttl: UTC_TTL },
+        { key: `state:${DAY}:cf-glm-4.7-flash`, value: "spent", ttl: UTC_TTL },
+      ]),
+    );
+    expect(marks).toHaveLength(2);
+  });
+
+  it("without DOX_USAGE takes the first brain and sends no usage event", async () => {
+    const { handler, asked } = setup({ "cf-gemma-4-26b": [{ text: "Hi" }] });
+
+    const res = await ask(handler, { AI, GEMINI_API_KEY: "k" }, nextIp());
+    const all = await events(res);
+
+    expect(res.status).toBe(200);
+    expect(asked).toEqual(["cf-gemma-4-26b"]);
+    expect(usageEvent(all)).toBeUndefined();
+  });
+
+  it("a store that throws on every call still answers, with the first brain", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = {
+      get: () => Promise.reject(new Error("KV is down")),
+      put: () => Promise.reject(new Error("KV is down")),
+    };
+    const { handler, asked } = setup({
+      "cf-gemma-4-26b": [{ text: "Still here" }],
+    });
+
+    const res = await ask(handler, { AI, DOX_USAGE: store }, nextIp());
+    const all = await events(res);
+
+    expect(res.status).toBe(200);
+    expect(asked).toEqual(["cf-gemma-4-26b"]);
+    expect(
+      all
+        .filter((e) => e.type === "TEXT_MESSAGE_CONTENT")
+        .map((e) => e.delta)
+        .join(""),
+    ).toBe("Still here");
+    expect(all.at(-1)?.type).toBe("RUN_FINISHED");
+    // The ledger's warn line carries the request's ids (chatBody: "docs-chat", "run-1"), so a KV outage can be traced
+    // to the questions it touched (tooling/observability.md).
+    const lines = warn.mock.calls.map(([line]) => JSON.parse(String(line)));
+    expect(lines).toContainEqual(
+      expect.objectContaining({
+        event: "usage.read_failed",
+        threadId: "docs-chat",
+        runId: "run-1",
+      }),
+    );
+  });
+
+  it("a store whose reads work and writes throw still answers", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = {
+      get: async () => null,
+      put: () => Promise.reject(new Error("KV write limit")),
+    };
+    const { handler } = setup({ "cf-gemma-4-26b": [{ text: "Hi" }] });
+
+    const res = await ask(handler, { AI, DOX_USAGE: store }, nextIp());
+
+    expect(res.status).toBe(200);
+    expect((await events(res)).at(-1)?.type).toBe("RUN_FINISHED");
+  });
+
+  it("records nothing when no brain answered", async () => {
+    const { store, puts } = ledger();
+    const { handler } = setup({
+      "gemini-3.5-flash-lite": [
+        { error: JSON.stringify({ error: { code: 500, message: "boom" } }) },
+      ],
+    });
+
+    await events(
+      await ask(handler, { GEMINI_API_KEY: "k", DOX_USAGE: store }, nextIp()),
+    );
+
+    expect(puts.filter((put) => !put.key.startsWith("state:"))).toEqual([]);
+  });
+
+  it("does not look at the ledger for a request that fails validation", async () => {
+    const get = vi.fn(async () => null);
+    const res = await handler400({ get, put: vi.fn() });
+    expect(res.status).toBe(400);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  async function handler400(store: {
+    get: () => Promise<null>;
+    put: () => Promise<void>;
+  }) {
+    const { handler } = setup({});
+    return handler(
+      post(chatBody("hi"), { raw: "{not json", ip: nextIp() }),
+      { AI, DOX_USAGE: store as never },
+      CORS,
+    );
+  }
 });

@@ -64,6 +64,12 @@ export interface Brain {
    * (Gemma) and 2.5 s (GLM) with thinking off, and 4-21 s with it on (`chat-constants.ts`, `enableThinking`).
    */
   enableThinking?: boolean;
+  /**
+   * What the badge shows as "N left" (D10). Advisory: it never gates a request, because the provider's own refusal is the
+   * only real gate, so a wrong number misprints a digit and nothing more. Sized for gmt's pools (plan §8; open until
+   * §9 Q4 answers).
+   */
+  dailyLimit: number;
 }
 
 /**
@@ -79,6 +85,7 @@ export const BRAINS = [
     model: "@cf/google/gemma-4-26b-a4b-it",
     enableThinking: false,
     maxOutputTokens: 2048,
+    dailyLimit: 40,
   },
   {
     id: "cf-glm-4.7-flash",
@@ -87,14 +94,26 @@ export const BRAINS = [
     model: "@cf/zai-org/glm-4.7-flash",
     enableThinking: false,
     maxOutputTokens: 2048,
+    dailyLimit: 40,
   },
   {
     id: "gemini-3.5-flash-lite",
     label: "3.5 Flash-Lite",
     provider: "google",
+    dailyLimit: 20,
   },
-  { id: "gemini-3.6-flash", label: "3.6 Flash", provider: "google" },
-  { id: "gemini-3.5-flash", label: "3.5 Flash", provider: "google" },
+  {
+    id: "gemini-3.6-flash",
+    label: "3.6 Flash",
+    provider: "google",
+    dailyLimit: 20,
+  },
+  {
+    id: "gemini-3.5-flash",
+    label: "3.5 Flash",
+    provider: "google",
+    dailyLimit: 20,
+  },
 ] as const satisfies readonly Brain[];
 
 export type BrainId = (typeof BRAINS)[number]["id"];
@@ -124,3 +143,15 @@ export const BRAIN_RESET_TIME_ZONE: Readonly<Record<BrainProvider, string>> = {
   google: "America/Los_Angeles",
   "workers-ai": "UTC",
 };
+
+/** What a provider is called beside its reset time in the brain menu (D10; gmt `BRAIN_PROVIDERS`). */
+export const BRAIN_PROVIDER_LABEL: Readonly<Record<BrainProvider, string>> = {
+  google: "Gemini",
+  "workers-ai": "Workers AI",
+};
+
+/**
+ * Questions one visitor may ask in a UTC day (D10; gmt `VISITOR_DAILY_MAX`), sized for gmt's pool and kept until §9 Q4
+ * answers. Enforced before any brain is asked, and advisory in the way the ledger is: it lives in KV.
+ */
+export const VISITOR_DAILY_MAX = 5;

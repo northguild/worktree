@@ -502,12 +502,65 @@ describe("worker — router", () => {
     );
   });
 
+  it("GET /api/brains on the deployed router reaches the brains handler, uncached, with no key needed", async () => {
+    const res = await worker.fetch(
+      new Request("https://worker.example.com/api/brains", {
+        headers: {
+          Origin: "https://northguild.dev",
+          "CF-Connecting-IP": "198.51.100.88",
+        },
+      }),
+      {},
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://northguild.dev",
+    );
+    expect(await res.json()).toMatchObject({
+      brains: [],
+      activeBrainId: null,
+    });
+  });
+
+  it("POST /api/brains → 405 allowing GET", async () => {
+    const res = await worker.fetch(
+      postReq({ url: "https://worker.example.com/api/brains", body: {} }),
+      ENV,
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("GET, OPTIONS");
+  });
+
+  it("the preflight allows GET beside POST, so the page may read /api/brains", async () => {
+    const res = await worker.fetch(
+      new Request("https://worker.example.com/api/brains", {
+        method: "OPTIONS",
+        headers: { Origin: "https://northguild.dev" },
+      }),
+      ENV,
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Methods")).toBe(
+      "GET, POST, OPTIONS",
+    );
+  });
+
+  it("GET / is still refused: the frozen route stays POST only", async () => {
+    const res = await worker.fetch(
+      new Request("https://worker.example.com/", { method: "GET" }),
+      ENV,
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("POST, OPTIONS");
+  });
+
   it("POST /api/chat reaches the chat route, not the legacy one", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const chat = vi.fn(async () => new Response("chat", { status: 200 }));
     const legacy = vi.fn();
-    const routed = createWorker({ legacy, chat });
+    const routed = createWorker({ legacy, chat, brains: vi.fn() });
 
     const res = await routed.fetch(
       postReq({ url: "https://worker.example.com/api/chat", body: VALID_BODY }),
@@ -564,6 +617,7 @@ describe("worker — one limiter for both routes (D6)", () => {
           headers: cors,
         });
       },
+      brains: vi.fn(),
     });
     const strictEnv = {
       ...ENV,
@@ -592,5 +646,36 @@ describe("worker — one limiter for both routes (D6)", () => {
     expect(legacy1.status).toBe(200);
     expect(legacy2.status).toBe(200);
     expect(chat.status).toBe(429);
+  });
+
+  it("/api/brains spends its own bucket: a client at its limit there can still chat", async () => {
+    const env = {
+      WORKER_RATE_LIMIT_MAX: "2",
+      WORKER_RATE_LIMIT_WINDOW_SECONDS: "60",
+    };
+    const ip = "203.0.113.141";
+    const brains = () =>
+      worker.fetch(
+        new Request("https://worker.example.com/api/brains", {
+          headers: { "CF-Connecting-IP": ip },
+        }),
+        env,
+      );
+
+    expect((await brains()).status).toBe(200);
+    expect((await brains()).status).toBe(200);
+    expect((await brains()).status).toBe(429);
+
+    // With no key and no binding the real chat handler answers 500 "not configured" once it is past the limiter; a 429
+    // would mean the brains requests had spent the `chat:` allowance.
+    const chat = await worker.fetch(
+      postReq({
+        url: "https://worker.example.com/api/chat",
+        body: VALID_BODY,
+        clientIp: ip,
+      }),
+      env,
+    );
+    expect(chat.status).toBe(500);
   });
 });

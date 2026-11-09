@@ -1,4 +1,5 @@
 import type { UIMessage as LibraryUIMessage } from "@tanstack/ai/client";
+import type { BrainProvider } from "./chat-constants";
 
 /**
  * The app's message type. This chat sends and renders text only (plan #257
@@ -164,3 +165,44 @@ export function readRetrievalTrace(value: unknown): RetrievalTraceData | null {
     ...(typeof v.brainLabel === "string" && { brainLabel: v.brainLabel }),
   };
 }
+
+/** One brain as the badge and the menu show it (D10). */
+export interface BrainStatus {
+  id: string;
+  label: string;
+  provider: BrainProvider;
+  /** `dailyLimit` less what the ledger counts; 0 for a brain marked out. */
+  remaining: number;
+  limit: number;
+  state: "ok" | "spent" | "unavailable";
+}
+
+/** One provider behind the brains and when its daily allowance refills: midnight Pacific for Gemini, 00:00 UTC for Workers AI. */
+export interface ProviderStatus {
+  id: BrainProvider;
+  label: string;
+  /** The provider's next midnight, as an instant (`2026-11-10T08:00:00Z`). */
+  resetsAt: string;
+}
+
+/** What `GET /api/brains` answers, and what the `USAGE_EVENT` carries once a question has been counted (D10). */
+export interface BrainsInfo {
+  brains: BrainStatus[];
+  /** Configured providers only, each once, in registry order. */
+  providers: ProviderStatus[];
+  /** The brain an unpicked question would be asked first, or `null` when every one is out. */
+  activeBrainId: string | null;
+  visitor: {
+    used: number;
+    limit: number;
+    remaining: number;
+    /** The next UTC midnight, when this visitor's own questions refill. */
+    resetsAt: string;
+  };
+}
+
+/**
+ * The `CUSTOM` event the counts after a question travel under (D10). The ledger is KV, whose reads can lag a write, so
+ * the client takes the new counts from here rather than re-reading `/api/brains`.
+ */
+export const USAGE_EVENT = "dox-usage";

@@ -29,7 +29,8 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function getClientId(request: Request): string {
+/** Who is asking: the address Cloudflare saw, else the first forwarded one, else `unknown`. The ledger hashes it. */
+export function getClientId(request: Request): string {
   const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
   if (cfConnectingIp) return cfConnectingIp;
 

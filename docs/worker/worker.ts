@@ -2,6 +2,7 @@
 
 import { createGeminiChat } from "@tanstack/ai-gemini";
 import { type Env, stringVars } from "./brains.js";
+import { createBrainsHandler } from "./brains-payload.js";
 import { createChatHandler } from "./chat-handler.js";
 import { getCorsHeaders } from "./cors.js";
 import { CHUNKS, SEARCH_INDEX_JSON, VOCABULARY } from "./docs-context.js";
@@ -19,6 +20,8 @@ export interface Routes {
   legacy: RouteHandler;
   /** `POST /api/chat` — the new protocol. */
   chat: RouteHandler;
+  /** `GET /api/brains` — what the badge and the brain menu show (plan #309 D10). */
+  brains: RouteHandler;
 }
 
 function errorResponse(
@@ -42,20 +45,22 @@ export function createWorker(routes: Routes) {
       }
 
       const { pathname } = new URL(request.url);
-      const route =
+      const target =
         pathname === "/"
-          ? routes.legacy
+          ? { handle: routes.legacy, method: "POST" }
           : pathname === "/api/chat"
-            ? routes.chat
-            : null;
-      if (route === null) return errorResponse(404, "Not found.", cors);
-      if (request.method !== "POST") {
+            ? { handle: routes.chat, method: "POST" }
+            : pathname === "/api/brains"
+              ? { handle: routes.brains, method: "GET" }
+              : null;
+      if (target === null) return errorResponse(404, "Not found.", cors);
+      if (request.method !== target.method) {
         return errorResponse(405, "Method not allowed.", {
           ...cors,
-          Allow: "POST, OPTIONS",
+          Allow: `${target.method}, OPTIONS`,
         });
       }
-      return route(request, env, cors);
+      return target.handle(request, env, cors);
     },
   };
 }
@@ -75,4 +80,5 @@ export default createWorker({
     },
     now: nowMs,
   }),
+  brains: createBrainsHandler({ now: nowMs }),
 });

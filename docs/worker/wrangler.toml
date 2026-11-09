@@ -28,6 +28,11 @@ port = 8787
 binding = "AI"
 remote = true
 
+# The usage ledger (plan #309 D10) is the KV binding `DOX_USAGE`. It is deliberately not declared here yet: its namespace ids
+# are created by the maintainer (plan §9 Q3), and a made-up id would fail `wrangler deploy`. The Worker runs without the
+# binding (the first brain is asked, the counts read as empty). The block to add, and the two `wrangler kv namespace create`
+# commands that produce its `id` and `preview_id`, are in `docs/worker/README.md`, "The usage ledger".
+
 [vars]
 # Non-secret env vars go here
 

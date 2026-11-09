@@ -6,12 +6,7 @@
 // walks the AI SDK's `streamText`; this walks TanStack AI's `chat()` stream, where a failure arrives as a `RUN_ERROR`
 // chunk, not as a rejected promise.
 
-import {
-  convertUnixToUtc,
-  convertUnixToZoned,
-} from "@northguild/gmt/unix/convert";
-import { addZoned, startOfZoned } from "@northguild/gmt/zoned/calculate";
-import { convertZonedToUnix } from "@northguild/gmt/zoned/convert";
+import { convertUnixToUtc } from "@northguild/gmt/unix/convert";
 import { type AnyTextAdapter, EventType, type StreamChunk } from "@tanstack/ai";
 import { createCloudflareText } from "@tanstack/ai-cloudflare";
 import {
@@ -21,6 +16,7 @@ import {
   type Brain,
   type BrainProvider,
 } from "../src/chat/lib/chat-constants";
+import { nextMidnightMs } from "../src/chat/lib/day-clock";
 import {
   BRAINS_TIMED_OUT_CODE,
   describeThrown,
@@ -28,6 +24,7 @@ import {
   statusOf,
   type UpstreamError,
 } from "./error-mapping";
+import type { UsageStore } from "./usage";
 
 /**
  * The Workers AI binding, hand-declared: the Worker only calls `run`, and `@cloudflare/workers-types` is an optional
@@ -41,13 +38,18 @@ export interface AiBinding {
   ): Promise<unknown>;
 }
 
-/** What the chat Worker reads from its environment: two secrets and one binding, none required (D9). */
+/** What the chat Worker reads from its environment: two secrets and two bindings, none required (D9, D10). */
 export interface Env {
   GEMINI_API_KEY?: string;
   WORKER_RATE_LIMIT_MAX?: string;
   WORKER_RATE_LIMIT_WINDOW_SECONDS?: string;
   /** Workers AI: `[ai] binding = "AI"` in `wrangler.toml`. */
   AI?: AiBinding;
+  /**
+   * The usage ledger: `[[kv_namespaces]] binding = "DOX_USAGE"` in `wrangler.toml` (plan #309 D10). Advisory and optional:
+   * without it every request takes the first brain and the counts read as empty.
+   */
+  DOX_USAGE?: UsageStore;
 }
 
 /** The string variables, which is all the rate limiter and the frozen legacy route read. */
@@ -420,19 +422,8 @@ export async function* walkBrains({
 // When the allowance comes back
 // ---------------------------------------------------------------------------------------------------------------------
 
-/**
- * The next midnight in a zone, as an instant: the start of tomorrow's date, not 24 hours on, because across a clock
- * change the two differ and only the first lands on midnight (gmt `src/lib/pt-day.ts`). An unknown zone or a bad clock
- * returns `nowMs` rather than throwing: gmt answers `""` for invalid input, never an exception.
- */
-export function nextMidnightMs(nowMs: number, timeZone: string): number {
-  const zoned = convertUnixToZoned(nowMs, timeZone);
-  if (zoned === "") return nowMs;
-  const unix = convertZonedToUnix(
-    addZoned(startOfZoned(zoned, "day"), { days: 1 }),
-  );
-  return typeof unix === "number" ? unix : nowMs;
-}
+// The midnight arithmetic moved to `day-clock.ts`, which the ledger shares (D10); it stays importable from here.
+export { nextMidnightMs };
 
 /** The soonest refill among the providers of `brains` (at least one), as an instant (`2026-11-10T08:00:00Z`). */
 export function soonestReset(brains: readonly Brain[], nowMs: number): string {
