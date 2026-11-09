@@ -9,7 +9,7 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
   with its literal cyan, at 0.04 opacity.
 - **Head on a noindex page.** `Head.astro` still emits a canonical link and a BreadcrumbList JSON-LD on `/dox/`, which
   is `noindex`. Outside Phase 1's Files; decide whether it should go.
-- **Contrast not yet measured.** The hive text pairs Phase 1 already shows (`--gmt-spring-ink` on `--gmt-code-bg`;
+- **Contrast not yet measured** (measured in Phase 8: all pass). The hive text pairs Phase 1 already shows (`--gmt-spring-ink` on `--gmt-code-bg`;
   `--gmt-signal-ink`, `--gmt-spring-ink`, `--gmt-ice-dim` on `--gmt-void`) are not in `theme-contrast.mjs`. §8 schedules
   the hive pairs for Phases 2 and 8.
 - **For Phase 4.** `.gmt-dox-mark` will be needed site-wide for the header link (gmt keeps it in
@@ -62,7 +62,7 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
 - **Rules with no test.** `use-esc-layer.ts` deferring to an open native popover (seam: DoxPage with ChatInfo's
   popover open); the `checkVisibility` gate that keeps the sheet from being an Escape layer on a wide screen (no
   layout in jsdom); a refused card leaving the sheet open.
-- **Contrast unmeasured.** `--gmt-ice` and `--gmt-ice-dim` on `--gmt-fill-subtle` (cards, chip, bar, area titles) and on
+- **Contrast unmeasured** (measured in Phase 8: all pass). `--gmt-ice` and `--gmt-ice-dim` on `--gmt-fill-subtle` (cards, chip, bar, area titles) and on
   `--gmt-fill-strong` (hover, focus), and the chip's `--gmt-border-strong` edge; `theme-contrast.mjs` was not on the
   Files line. §8 gives contrast to Phases 2 and 8.
 - **Long inline code wraps mid-token on a phone** (`--github` broke as `--` / `github` at 390px in the seeded
@@ -140,3 +140,32 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
 - **Awaited ledger writes.** `recordRequest` and `markBrain` are awaited (gmt uses `void`): one KV round trip before the
   answer, well inside the client's idle clock; nothing pins await vs void.
 - **The visitor-cap 429 sends no `Retry-After`** (gmt neither; the client does not need it).
+
+## Phase 8
+
+- **Deviations from gmt the reader can see.**
+  - The zone list opens scrolled to the selected zone (Base UI's Combobox brings the value into view), where gmt's cmdk
+    opens at the top with UTC highlighted.
+  - The format radio's `accent-color` and the focused zone-search edge use the ink tier, not `--gmt-spring` (D5): spring
+    measured 2.79:1 and 2.71:1 in the light theme.
+- **Deviations the reader cannot see.**
+  - An empty brain list is not "out of budget" here (`DoxChat.tsx` `poolSpent` requires a brain); gmt's DoxChat counts it
+    as out. Only a misconfigured deploy reports no brains.
+  - gmt's TanStack Store became a `useSyncExternalStore` store (`time/date-display-store.ts`), since D4 allows no new
+    dependency.
+  - When the chosen format ignores the zone, the hidden zone list is still rendered (gmt renders none). This costs DOM
+    nodes and shows nothing.
+- **Storage keys shared with gmt.** `dox:date-format` and `dox:date-zone` are gmt's keys on the same origin, so a reader's
+  format and zone carry between both Dox pages, like the rail width. Whether to namespace them is the maintainer's call.
+- **Data fetching in an effect.** `use-brains.ts` fetches in `useEffect` + `useState`, as gmt does. That is against
+  `react/state-management.md:54` and `react/use-effect.md:19`, but TanStack Query is not a docs dependency and D4 adds none.
+- **One assertion after validation.** `use-brains.ts` checks every field, then casts (`as unknown as BrainsInfo`). A type
+  predicate would remove the cast.
+- **Escape with two layers.** gmt routes the menu and the reset panel through `useEscLayer`; ours relies on Base UI's own
+  Escape. In headless Chrome at 390 px, with the examples sheet and the brain menu open, one Escape closed only the menu.
+- **Payload (#304).** The `/dox` island (entry plus imports, gzip -9) went from 206,911 B (726,460 raw) to 280,445 B
+  (953,683 raw), mostly Base UI's Menu, Popover and Combobox and the `@northguild/gmt` format and zone modules (subpath
+  imports). The `dox` stylesheet went from 25,627 B to 33,719 B raw (5,925 B gzipped after). Phase 3's 5,784 B counted
+  the entry alone; most likely the drawer still shared those libraries through common chunks then, and Phase 4's deletion
+  folded them into the entry (not measured at Phase 3's commit).
+

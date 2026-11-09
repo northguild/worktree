@@ -1,6 +1,7 @@
 import { fetchServerSentEvents, useChat } from "@tanstack/ai-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { classifyChatError } from "../components/ChatWarning";
+import { type BrainsInfo, readBrainsInfo } from "../components/use-brains";
 import type { ChatModelId } from "../lib/chat-constants";
 import { chatEndpoint } from "../lib/chat-endpoint";
 import { chatFetch } from "../lib/chat-fetch";
@@ -16,6 +17,7 @@ import {
   readRefusal,
   readRetrievalTrace,
   type UIMessage,
+  USAGE_EVENT,
 } from "../lib/chat-types";
 import { pageContextFromReferrer } from "../lib/page-context";
 import { createTranscriptStorage } from "./transcript-storage";
@@ -73,15 +75,28 @@ export interface DocsChat {
   clear: () => void;
 }
 
+/** What the control bar asks of the chat (plan #309 Phase 8). */
+export interface DocsChatOptions {
+  /** The brain the reader picked, sent as `forwardedProps.brain`; `null` or absent is Automatic, which names none. */
+  brain?: string | null;
+  /** The counts the Worker sends once a brain has accepted a question (D10), for the badge. */
+  onUsage?: (info: BrainsInfo) => void;
+  /** An answer ended in a failure or a refusal, either of which can follow brains being marked out on the way: the badge should read the ledger again. */
+  onSpent?: () => void;
+}
+
 /**
  * The chat: TanStack AI's `useChat` over the Worker's `POST /api/chat`, with
  * the one transcript kept in `localStorage`, failures held as a warning rather
  * than as messages, and an answer that goes silent stopped (plan #257 §4.4).
  *
- * `model` pins #306's model. `/dox` passes none, which is Automatic: the Worker walks its brains in D9's order, and
+ * `model` pins #306's model; `/dox` passes none and sends the control bar's pick as `options.brain`, or none, which is Automatic: the Worker walks its brains in D9's order, and
  * every progress line it writes counts as the answer being alive.
  */
-export function useDocsChat(model?: ChatModelId): DocsChat {
+export function useDocsChat(
+  model?: ChatModelId,
+  { brain, onUsage, onSpent }: DocsChatOptions = {},
+): DocsChat {
   const [warning, setWarning] = useState<ChatWarningState | null>(null);
   const [traces, setTraces] = useState<RetrievalTraces>({});
   const [progress, setProgress] = useState<{
@@ -114,10 +129,14 @@ export function useDocsChat(model?: ChatModelId): DocsChat {
     persistence,
     forwardedProps: {
       ...(model ? { model } : {}),
+      ...(brain ? { brain } : {}),
       ...(pageContext ? { pageContext } : {}),
     },
     onError: (error) => {
+      // A refusal has already asked for a re-read, and its `RUN_ERROR` follows for older clients: one read is enough.
       if (refusedRef.current) return;
+      // A failure before the stream opens (the visitor's cap is a 429) leaves the counts out of date the same way.
+      onSpent?.();
       setWarning(classifyChatError(error));
     },
     onCustomEvent: (name, value) => {
@@ -135,10 +154,16 @@ export function useDocsChat(model?: ChatModelId): DocsChat {
         const refusal = readRefusal(value);
         if (refusal === null) return;
         refusedRef.current = true;
+        onSpent?.();
         setWarning({
           message: refusal.payload.error,
           retryable: refusal.payload.retryable,
         });
+        return;
+      }
+      if (name === USAGE_EVENT) {
+        const info = readBrainsInfo(value);
+        if (info !== null) onUsage?.(info);
         return;
       }
       if (name !== RETRIEVAL_TRACE_EVENT) return;

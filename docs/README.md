@@ -82,8 +82,8 @@ On the page, the pieces are:
   (`lib/chat-fetch.ts`), which does three things the library does not: it reads the Worker's `{ error, retryable }`
   body on a non-OK status and throws it as the error's `cause`; it drops assistant turns with no text from the
   request; and it removes the `X-Run-Id` header the library adds, because the Worker's CORS allows `Content-Type`
-  alone. The page names no model, which is Automatic: the Worker picks. (A brain the reader chose would travel as
-  `forwardedProps.brain`, and #306's `forwardedProps.model` is still accepted; the menu that chooses is not on the page yet.)
+  alone. With no pick the page names no brain, which is Automatic: the Worker picks. The control bar's brain menu sends a
+  pick as `forwardedProps.brain` (*The control bar* below), and #306's `forwardedProps.model` is still accepted.
 - **The transcript.** One conversation (`threadId` `docs-chat`), kept in `localStorage` by `useChat`'s
   persistence under `docs_chat_transcript:docs-chat`. Only text parts are stored; anything else read back is
   refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). "New chat" (on `/dox/`) stops a stream and removes it. A model the drawer stored under
@@ -103,8 +103,9 @@ On the page, the pieces are:
   provider's own refusal is still the only real gate. A brain the ledger has marked out is not asked; a visitor's sixth
   question of a UTC day is refused with a 429 before any brain is asked. Without the namespace the Worker takes the first
   brain and counts nothing. `GET /api/brains` returns the counts (`BrainsInfo`, `lib/chat-types.ts`) and, after each
-  question, the same shape arrives as a `dox-usage` event. The page does not read either yet (the badge and the menu are
-  a later phase of #309); `lib/day-clock.ts` is the clock they share. Keys, TTLs and the setup are in
+  question, the same shape arrives as a `dox-usage` event. The page reads both: `use-brains.ts` fetches the route once after
+  mount and takes the event's counts as they come, and the control bar shows them (*The control bar* below);
+  `lib/day-clock.ts` is the clock the Worker keeps the ledger by. Keys, TTLs and the setup are in
   [worker/README.md](worker/README.md#the-usage-ledger).
 - **The empty chat and its limits.** With no question yet, the page shows the hub and the examples rail, whose three starter
   questions (`lib/chat-starters.ts`, each paired with the docs page that answers it) are sent through the same guarded
@@ -310,8 +311,8 @@ checked in `dist/` instead (`pnpm docs:audit-dist`). The chat launcher it once r
 ## The Dox page
 
 `/worktree/dox/` (`src/pages/dox.astro`) is the page the chat is becoming (plan #309): a full-bleed hive of its own under the
-site header, with a strip holding "New chat" (once there is a transcript) and the environment badge (`● local` or `● live`, set after
-mount so the server markup matches), and, below it, the chat: the empty hub (the Dox crystal at logo scale and the prompt line) or the
+site header, with a strip holding "New chat" (once there is a transcript), the reader's local time (`HeaderClock`) and the environment
+badge (`● local` or `● live`; both are set after mount so the server markup matches), and, below it, the chat: the empty hub (the Dox crystal at logo scale and the prompt line) or the
 transcript, and the pinned composer, with the examples rail beside it. It is the only chat surface: the drawer, its launcher and the
 shortcut are gone, and every other page links to it (*Opening it* above).
 
@@ -353,7 +354,27 @@ shortcut are gone, and every other page links to it (*Opening it* above).
     the "Examples · 3" bar above the composer from the first question on (and from the start on a shorter phone). The bar opens the
     sheet; a card whose send succeeds, or Escape (`use-esc-layer.ts`, which puts focus on the bar), folds it. Which docs page a card names is its route,
     not a title: there is no page-title map in the client.
-  - **Model.** The page asks the default model until the brain selector arrives in a later phase of #309.
+  - **The control bar** (`DoxChat.tsx`, in the composer's footer: the info button, then the reset chip and the brain badge, with Send on the
+    right). Everything in it is read from `GET /api/brains` (`BrainsInfo`) by `use-brains.ts` and kept current by the `dox-usage` event after
+    each question; a `dox-refusal` or a failed answer reads the route again. If the route cannot be reached, or answers something else, there is
+    no badge and no chip and the chat is unchanged: the budget is information, never a gate. Nothing in it is rendered on the server, because
+    the build's zone and locale are not the reader's: zone, locale and the clock resolve in an effect (`time/use-reset-clock.ts`), and the
+    first server-and-client render holds none of it.
+    - **The brain badge** (`BrainSelector.tsx`) names the brain that would answer, "You N left" (the reader's own allowance of 5 questions a UTC
+      day) and "Dox N today" (what the five brains have left between them). It opens Base UI's `Menu` upward: Automatic, which sends no brain
+      id and lets the Worker walk its order, then one group per provider (Workers AI, Gemini) headed by when that provider refills, in
+      the reader's zone, each brain with "N left", "spent today" or "not available". A brain that is out stays pickable: asking it falls
+      through to one with budget. A pick is sent as `forwardedProps.brain` and lasts until the page is left.
+    - **The reset chip** (`ResetClock.tsx`) shows the reset that matters now (`time/quota-resets.ts`: the reader's own when nothing is spent,
+      the soonest provider's when the pool is, the later of the two when both are) in a format the reader chooses, and opens a Base UI
+      `Popover` with every reset, the ten formats, a zone search (Base UI `Combobox`, listed inline) and the `@northguild/gmt` call that
+      made the readout, linked to gmt's reference page. Each format is one call (`time/reset-formats.ts`, `formatCalendarUtc`,
+      `formatRelativeUtc`, `convertUtcToZoned` and so on, all on the UTC string the Worker sent). Format and zone are remembered in
+      `localStorage` (`dox:date-format`, `dox:date-zone`, the keys gmt's own Dox page uses, so a pick carries between the two). The header
+      clock reads the same format, and uses the calendar one in place of a relative pick, which would only ever say "now".
+    - **Out of budget.** When every brain is out, or the reader has asked their 5, the bar shows a banner ("Dox has used its free allowance
+      for today. Back <time>." or "You have used your 5 questions for today. Back <time>.") and the field is disabled, with the placeholder
+      "Dox is resting until the quota resets…".
   - **Contrast.** `scripts/theme-contrast.mjs` measures the hive's pairs ("hive: ..."), text at 4.5:1 and glyphs and edges at 3:1. Its
     surfaces are spelled out there (a card is the spring tier at 5% over the page): change `dox-hive.css` and the script together.
     Both roles are the spring tier (plan #309 D5), so a turn is told by its side and label rather than by colour.

@@ -77,6 +77,24 @@
   color: var(--gmt-ice-dim);
 }
 
+/* The reader's local time, in the app's date format (`HeaderClock.tsx`). The same mono voice as the environment badge beside
+   it, ruled off from it by a hairline, and in the spring ink: the site's colour for a live value. Tabular figures so a ticking
+   value never shifts the badge, and it truncates rather than pushing the badge off a narrow strip: an RFC 9557 string is
+   long and the badge cannot shrink. */
+.gmt-hive-now {
+  min-inline-size: 0;
+  padding-inline-end: var(--gmt-space-3);
+  border-inline-end: 1px solid var(--gmt-hairline);
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  color: var(--gmt-spring-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* "Pointed at a local Worker": cheap, and it stops the "why is the AI stale?" confusion against `wrangler dev`. */
 .gmt-hive-env {
   display: inline-flex;
@@ -910,12 +928,481 @@
   );
 }
 
+/* Wraps rather than squeezing Send out at phone width; `min-inline-size: 0` lets the chip and the badge truncate. */
 .gmt-hive-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--gmt-space-2);
   min-inline-size: 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Control bar (plan #309 Phase 8): the reset chip and the brain badge, then the out-of-budget banner above the field.
+ * Ported from gmt's `gmt-hive.css`, with every cyan role the spring tier (D5): fills, borders and rings `--gmt-spring`, text
+ * `--gmt-spring-ink`. The menu and the panel are portalled to the body by Base UI, so they sit outside `.gmt-hive-shell` and
+ * carry their own focus ring.
+ * ------------------------------------------------------------------ */
+
+/* `flex` so the wrapper is exactly the badge's height in the bar. */
+.gmt-hive-brains {
+  position: relative;
+  display: flex;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+/* The brain badge and the reset chip are one family: the same quiet surface, so neither competes with Send. Quiet by default
+   (`--gmt-ice-dim`, which clears 4.5:1 on `--gmt-fill-subtle` in both themes: `theme-contrast.mjs`), full ice on hover and
+   focus. */
+.gmt-hive-brain-badge,
+.gmt-hive-clock {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--gmt-space-2);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  margin: 0;
+  padding: var(--gmt-space-1) var(--gmt-space-3);
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  letter-spacing: 0.06em;
+  color: var(--gmt-ice-dim);
+  background: var(--gmt-fill-subtle);
+  border: 1px solid var(--gmt-border);
+  border-radius: var(--gmt-radius-md);
+
+  /* biome-ignore lint/correctness/noUnknownProperty: corner-shape is not yet in Biome's property list */
+  corner-shape: bevel;
+  cursor: pointer;
+  transition:
+    color var(--gmt-duration-fast) var(--gmt-easing),
+    background var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+.gmt-hive-brain-badge:hover,
+.gmt-hive-brain-badge:focus-visible,
+.gmt-hive-brain-badge[data-popup-open],
+.gmt-hive-clock:hover,
+.gmt-hive-clock:focus-visible,
+.gmt-hive-clock[data-popup-open] {
+  color: var(--gmt-ice);
+  background: var(--gmt-fill-strong);
+}
+
+.gmt-hive-brain-name {
+  color: var(--gmt-spring-ink);
+  text-transform: uppercase;
+}
+
+.gmt-hive-brain-counts {
+  white-space: nowrap;
+}
+
+/* The menu and the panel float over the page: above the site header, which is the only thing that could cover them. */
+.gmt-hive-brain-positioner,
+.gmt-hive-clock-positioner {
+  z-index: 100;
+}
+
+.gmt-hive-brain-list,
+.gmt-hive-clock-panel {
+  box-sizing: border-box;
+  color: var(--gmt-ice);
+  background: var(--gmt-surface-2);
+  border: 1px solid var(--gmt-border-strong);
+  border-radius: var(--gmt-radius-md);
+
+  /* biome-ignore lint/correctness/noUnknownProperty: corner-shape is not yet in Biome's property list */
+  corner-shape: bevel;
+  box-shadow: var(--gmt-shadow-md);
+}
+
+/* The shell's ring does not reach a portalled popup, so it is drawn here, the same one. */
+.gmt-hive-brain-list :focus-visible,
+.gmt-hive-clock-panel :focus-visible {
+  outline: 2px solid var(--gmt-spring-ink);
+  outline-offset: 2px;
+}
+
+.gmt-hive-brain-list {
+  min-inline-size: 16rem;
+  max-block-size: var(--available-height);
+  overflow-y: auto;
+  padding: var(--gmt-space-1);
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+}
+
+.gmt-hive-brain-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gmt-space-4);
+  inline-size: 100%;
+  box-sizing: border-box;
+
+  /* The left inset holds the checked dot. */
+  padding: var(--gmt-space-2) var(--gmt-space-3) var(--gmt-space-2) 2rem;
+  color: var(--gmt-ice);
+  background: none;
+  border: 0;
+  border-radius: var(--gmt-radius-sm);
+  cursor: pointer;
+  text-align: start;
+}
+
+/* A row highlight, not a nested panel: the flat accent wash, a row state that stays distinct from a bordered surface. */
+.gmt-hive-brain-option[data-highlighted] {
+  background: var(--gmt-accent-wash);
+  outline: 2px solid var(--gmt-spring-ink);
+  outline-offset: -2px;
+}
+
+.gmt-hive-brain-option[data-checked] {
+  color: var(--gmt-spring-ink);
+}
+
+/* The dot carries the selection too, so it is not signalled by colour alone. */
+.gmt-hive-brain-check {
+  position: absolute;
+  inset-inline-start: var(--gmt-space-3);
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  background: currentcolor;
+  border-radius: 50%;
+}
+
+.gmt-hive-brain-meta {
+  color: var(--gmt-ice-dim);
+}
+
+/* A brain that is out today reads as unavailable and not merely dimmed. It stays pickable: asking it falls through to one
+   that has budget. */
+.gmt-hive-brain-option[data-brain-state="spent"],
+.gmt-hive-brain-option[data-brain-state="unavailable"] {
+  color: var(--gmt-ice-dim);
+}
+
+.gmt-hive-brain-option[data-brain-state="spent"] .gmt-hive-brain-label,
+.gmt-hive-brain-option[data-brain-state="unavailable"] .gmt-hive-brain-label {
+  text-decoration: line-through;
+}
+
+/* One heading per provider, because the providers refill on different clocks and each heading says when, in the reader's
+   zone. */
+.gmt-hive-brain-separator {
+  block-size: 1px;
+  margin: var(--gmt-space-1) calc(var(--gmt-space-1) * -1);
+  background: var(--gmt-hairline);
+}
+
+.gmt-hive-brain-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--gmt-space-3);
+  padding: var(--gmt-space-2) var(--gmt-space-3) var(--gmt-space-1);
+  font-weight: normal;
+  letter-spacing: 0.08em;
+}
+
+.gmt-hive-brain-group-name {
+  color: var(--gmt-spring-ink);
+  text-transform: uppercase;
+}
+
+.gmt-hive-brain-group-reset {
+  color: var(--gmt-ice-dim);
+  letter-spacing: 0.04em;
+}
+
+/* ---- Out of budget ----
+ * The site's sentinel language (`--gmt-signal*`), the one every "no signal" state uses. Not a failure: Dox has spent what a
+ * free tier gives it, and says when it comes back. */
+.gmt-hive-exhausted {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gmt-space-2);
+  margin-block-end: var(--gmt-space-3);
+  padding: var(--gmt-space-2) var(--gmt-space-3);
+  font-size: var(--gmt-text-sm);
+  color: var(--gmt-signal-ink);
+  background: var(--gmt-signal-fill);
+  border: 1px solid var(--gmt-signal-border);
+  border-radius: var(--gmt-radius-md);
+
+  /* biome-ignore lint/correctness/noUnknownProperty: corner-shape is not yet in Biome's property list */
+  corner-shape: bevel;
+}
+
+.gmt-hive-exhausted-marker {
+  flex: 0 0 auto;
+  letter-spacing: 0.08em;
+}
+
+/* The field the reader cannot type in says so with its placeholder, and looks it. */
+.gmt-hive-field textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* ---- Reset clock ----
+ * The chip shares the badge's surface above; its readout truncates so a long format (an RFC 9557 string) never pushes Send
+ * out of the bar. */
+.gmt-hive-clock-glyph {
+  flex: 0 0 auto;
+  color: var(--gmt-spring-ink);
+}
+
+.gmt-hive-clock-readout {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gmt-hive-clock-panel {
+  scroll-padding-block: var(--gmt-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gmt-space-3);
+  inline-size: min(24rem, calc(100vw - 2 * var(--gmt-space-3)));
+  max-block-size: var(--available-height);
+  overflow-y: auto;
+  padding: var(--gmt-space-3);
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+}
+
+.gmt-hive-clock-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gmt-space-1);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.gmt-hive-clock-heading {
+  margin: 0 0 var(--gmt-space-1);
+  padding: 0;
+  font-size: var(--gmt-text-xs);
+  font-weight: normal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gmt-ice-dim);
+}
+
+/* gmt sets the Resets and Zone headings in the display face; the Format legend stays mono. */
+h3.gmt-hive-clock-heading {
+  font-family: var(--gmt-font-display);
+}
+
+.gmt-hive-clock-zone {
+  margin-inline-start: var(--gmt-space-2);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--gmt-spring-ink);
+}
+
+.gmt-hive-clock-resets {
+  display: grid;
+  gap: var(--gmt-space-1);
+  margin: 0;
+}
+
+.gmt-hive-clock-reset {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--gmt-space-3);
+}
+
+.gmt-hive-clock-reset dt {
+  color: var(--gmt-ice-dim);
+  white-space: nowrap;
+}
+
+.gmt-hive-clock-reset dd {
+  margin: 0;
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
+/* The row the chip is showing. */
+.gmt-hive-clock-reset[data-current] dt,
+.gmt-hive-clock-reset[data-current] dd {
+  color: var(--gmt-spring-ink);
+}
+
+.gmt-hive-clock-format {
+  display: flex;
+  align-items: center;
+  gap: var(--gmt-space-2);
+  padding: var(--gmt-space-1) var(--gmt-space-2);
+  border-radius: var(--gmt-radius-sm);
+  cursor: pointer;
+}
+
+/* The same flat row wash as the brain options. */
+.gmt-hive-clock-format:hover,
+.gmt-hive-clock-format[data-checked],
+.gmt-hive-clock-format:has(input:focus-visible) {
+  background: var(--gmt-accent-wash);
+}
+
+.gmt-hive-clock-format[data-checked] .gmt-hive-clock-format-label {
+  color: var(--gmt-spring-ink);
+}
+
+.gmt-hive-clock-format input {
+  margin: 0;
+
+  /* The ink tier: the fill tier is 2.79:1 on the panel in the light theme, under the 3:1 a control's state needs. */
+  accent-color: var(--gmt-spring-ink);
+}
+
+.gmt-hive-clock-format-fn {
+  margin-inline-start: auto;
+  padding: 0;
+  font-size: var(--gmt-text-xs);
+  color: var(--gmt-ice-dim);
+  background: none;
+}
+
+/* The zone search: the site's bevelled field. Focus is drawn once, on the box, as the composer's panel draws it. */
+.gmt-hive-clock-zones {
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+  background: var(--gmt-fill-subtle);
+  border: 1px solid var(--gmt-border);
+  border-radius: var(--gmt-radius-md);
+
+  /* biome-ignore lint/correctness/noUnknownProperty: corner-shape is not yet in Biome's property list */
+  corner-shape: bevel;
+  transition: border-color var(--gmt-duration-fast) var(--gmt-easing);
+}
+
+.gmt-hive-clock-zones:focus-within {
+  /* The ink tier, as the focus ring everywhere else on the page: the fill tier is 2.71:1 here in the light theme. */
+  border-color: var(--gmt-spring-ink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gmt-spring) 18%, transparent);
+}
+
+/* A format the zone cannot change leaves the search inert; say so visually as well as with the disabled input and its
+   placeholder. */
+.gmt-hive-clock-zones:has(input:disabled) {
+  opacity: 0.6;
+}
+
+/* The row: gmt's magnifier in front of the input, the hairline under both. */
+.gmt-hive-clock-zone-field {
+  display: flex;
+  align-items: center;
+  gap: var(--gmt-space-2);
+  block-size: 2.5rem;
+  padding-inline: var(--gmt-space-3);
+  border-block-end: 1px solid var(--gmt-hairline);
+}
+
+/* A decorative glyph beside a labelled field, so not held to 3:1; the fill tier at 0.7, as in gmt. */
+.gmt-hive-clock-zone-glyph {
+  flex: 0 0 auto;
+  inline-size: 1rem;
+  block-size: 1rem;
+  fill: none;
+  stroke: var(--gmt-spring);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+.gmt-hive-clock-zone-search {
+  box-sizing: border-box;
+  block-size: 100%;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  font-family: var(--gmt-font-mono);
+  font-size: var(--gmt-text-xs);
+  color: var(--gmt-ice);
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.gmt-hive-clock-zone-search::placeholder {
+  color: var(--gmt-ice-dim);
+  opacity: 1;
+}
+
+/* The input draws no ring of its own: the box around it is the field, and two rings on one field is wrong. */
+.gmt-hive-clock-panel .gmt-hive-clock-zone-search:focus-visible {
+  outline-color: transparent;
+}
+
+.gmt-hive-clock-zone-results[hidden] {
+  display: none;
+}
+
+.gmt-hive-clock-zone-list {
+  max-block-size: 9rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.gmt-hive-clock-zone-empty {
+  padding: var(--gmt-space-2) var(--gmt-space-3);
+  color: var(--gmt-ice-dim);
+}
+
+.gmt-hive-clock-zone-empty:empty {
+  display: none;
+}
+
+.gmt-hive-clock-zone-option {
+  padding: var(--gmt-space-1) var(--gmt-space-3);
+  font-size: var(--gmt-text-xs);
+  color: var(--gmt-ice);
+  cursor: pointer;
+}
+
+.gmt-hive-clock-zone-option[data-current] {
+  color: var(--gmt-spring-ink);
+}
+
+.gmt-hive-clock-zone-option[data-highlighted] {
+  color: var(--gmt-spring-ink);
+  background: var(--gmt-accent-wash);
+}
+
+/* The live call, ruled off like the bar itself, wrapping anywhere: a zoned call is longer than the panel is wide. */
+.gmt-hive-clock-call {
+  display: block;
+  padding-block-start: var(--gmt-space-2);
+  border-block-start: 1px solid var(--gmt-hairline);
+  color: var(--gmt-ice-dim);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.gmt-hive-clock-call code {
+  padding: 0;
+  font-size: var(--gmt-text-xs);
+  color: inherit;
+  background: none;
+}
+
+.gmt-hive-clock-call:hover,
+.gmt-hive-clock-call:focus-visible {
+  color: var(--gmt-spring-ink);
 }
 
 /* Send is the one primary action: the accent's fill tier on the page's own surface, never a solid accent. It is also
@@ -1183,10 +1670,30 @@
     border-color: ButtonText;
   }
 
-  .gmt-hive-info-panel {
+  .gmt-hive-info-panel,
+  .gmt-hive-brain-list,
+  .gmt-hive-clock-panel {
     color: CanvasText;
     background: Canvas;
     border-color: CanvasText;
+  }
+
+  .gmt-hive-brain-badge,
+  .gmt-hive-clock {
+    color: ButtonText;
+    background: ButtonFace;
+    border-color: ButtonText;
+  }
+
+  .gmt-hive-exhausted {
+    color: CanvasText;
+    border-color: CanvasText;
+  }
+
+  /* The zone search's magnifier draws in the system text colour, at full strength, like the field it sits in. */
+  .gmt-hive-clock-zone-glyph {
+    stroke: CanvasText;
+    opacity: 1;
   }
 }
 
@@ -1538,6 +2045,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .gmt-hive-brain-badge,
+  .gmt-hive-clock,
+  .gmt-hive-clock-zones,
   .gmt-hive-example,
   .gmt-hive-examples-bar,
   .gmt-hive-examples-bar-chevron,

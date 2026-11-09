@@ -1,6 +1,6 @@
 /**
  * The full-bleed `/dox` surface (plan #309 D6; ported from gmt's `DoxPage`). It is deliberately not a nav bar: the
- * site header shows on this route as on every page and gives the way back, so the strip holds chat status and the one
+ * site header shows on this route as on every page and gives the way back, so the strip holds chat status (the reader's clock, the environment) and the one
  * control that is the conversation's own, "New chat". The body holds the chat (`DoxChat`): the empty hub, or the
  * transcript, and the pinned composer. Beside it (under it, on a phone) is the examples rail (D7): the starter questions,
  * which send through the composer, a resizer to widen it, and on a phone the bar above the composer that folds the sheet.
@@ -12,7 +12,9 @@ import { ChatErrorBoundary } from "./ChatErrorBoundary";
 import { DoxChat, type DoxChatHandle } from "./DoxChat";
 import { ExamplesBar } from "./ExamplesBar";
 import { ExamplesRail } from "./ExamplesRail";
+import { HeaderClock } from "./HeaderClock";
 import { RailResizer } from "./RailResizer";
+import { useBrains } from "./use-brains";
 import { useEscLayer } from "./use-esc-layer";
 
 /**
@@ -35,6 +37,9 @@ function useEnvironment(): Environment | null {
 
 export function DoxPage() {
   const environment = useEnvironment();
+  // What Dox has left today: read once the page has mounted and kept current by the Worker's counts after each question.
+  // Unreachable, it is `null`, and the control bar shows no badge.
+  const { info: brains, refresh, apply } = useBrains();
   const chatRef = useRef<DoxChatHandle>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLButtonElement>(null);
@@ -62,6 +67,8 @@ export function DoxPage() {
     <div className="gmt-hive-shell not-content">
       <div className="gmt-hive-strip">
         <div className="gmt-hive-strip-end">
+          {/* The reader's local time, in the app's date format. Renders after mount. */}
+          <HeaderClock />
           {/* Replaces the drawer's "Clear chat" (D12). Only a transcript can be left, so an empty page has no button. */}
           {!empty && (
             <button
@@ -97,6 +104,9 @@ export function DoxPage() {
           <DoxChat
             ref={chatRef}
             onEmptyChange={setEmpty}
+            brains={brains}
+            onUsage={apply}
+            onSpent={refresh}
             aboveComposer={
               <ExamplesBar
                 ref={barRef}

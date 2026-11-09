@@ -1,7 +1,7 @@
 /**
  * The transcript and the composer, host-agnostic (plan #309 Phase 2; ported from gmt's `DoxChat`). `DoxPage` supplies the
  * shell and the strip; this renders what is under them: the empty hub, or the turns, the warning, the pinned composer
- * and the accuracy note.
+ * with its control bar (the reset chip and the brain badge, phase 8) and the accuracy note.
  *
  * The engine is unchanged (D3): `useDocsChat` over `useChat`. gmt's parts are this site's existing ones (D4): the
  * answer is `MarkdownContent`, the field `ChatInput`, the button `ChatSubmitButton`, the failure `ChatWarning`.
@@ -30,6 +30,10 @@ import { type RetrievalTraces, useDocsChat } from "../hooks/useDocsChat";
 import { MAX_MESSAGE_LENGTH } from "../lib/chat-constants";
 import { messageText } from "../lib/chat-history";
 import type { RetrievalTraceData, UIMessage } from "../lib/chat-types";
+import { nextReset } from "../time/quota-resets";
+import { findResetFormat } from "../time/reset-formats";
+import { useResetClock } from "../time/use-reset-clock";
+import { BrainSelector } from "./BrainSelector";
 import { AccuracyNote, ChatInfo } from "./ChatInfo";
 import { ChatInput } from "./ChatInput";
 import { ChatSubmitButton } from "./ChatSubmitButton";
@@ -37,10 +41,18 @@ import { ChatWarning } from "./ChatWarning";
 import { HiveHub } from "./hive/HiveHub";
 import { HiveNode } from "./hive/HiveNode";
 import { MarkdownContent } from "./MarkdownContent";
+import { ResetClock } from "./ResetClock";
 import { RetrievalTrace } from "./RetrievalTrace";
+import type { BrainsInfo } from "./use-brains";
 
 /** What the field asks for. The package is `@northguild/worktree` where gmt's is `@northguild/gmt`. */
 const PLACEHOLDER = "Ask about @northguild/worktree…";
+
+/** What the field says while Dox is out of budget (plan #309 §4.1 row 23; gmt's wording). */
+const RESTING_PLACEHOLDER = "Dox is resting until the quota resets…";
+
+/** The out-of-budget banner speaks in human wording whatever format the reader picked for the reset clock. */
+const BANNER_FORMAT = findResetFormat("calendar");
 
 /** What the waiting turn says until the Worker says something of its own: its progress lines replace it (plan #309 D9). */
 const WAITING = "Searching docs…";
@@ -173,14 +185,25 @@ interface DoxChatProps {
   onEmptyChange?: (empty: boolean) => void;
   /** Rendered directly above the composer's panel: the phone's examples bar (the host owns it, and CSS shows it). */
   aboveComposer?: ReactNode;
+  /** Today's budget from `GET /api/brains`, for the control bar and the out-of-budget state. `null` while loading or when the Worker cannot be reached: the bar then shows no badge and the chat stays usable. */
+  brains?: BrainsInfo | null;
+  /** The Worker's counts after a question, which the host puts where the badge reads them. */
+  onUsage?: (info: BrainsInfo) => void;
+  /** An answer ended in a refusal or a failure: the host should read the budget again. */
+  onSpent?: () => void;
 }
 
 export function DoxChat({
   ref,
   onEmptyChange,
   aboveComposer,
+  brains = null,
+  onUsage,
+  onSpent,
 }: DoxChatProps = {}) {
-  // No model named: Automatic, the Worker's own order (D9). The brain menu that picks one is phase 8's.
+  // The reader's explicit brain pick, or `null` for Automatic: the Worker's own order (D9), which names no brain.
+  const [selectedBrainId, setSelectedBrainId] = useState<string | null>(null);
+  const clock = useResetClock();
   const {
     messages,
     traces,
@@ -191,7 +214,33 @@ export function DoxChat({
     retry,
     stop,
     clear,
-  } = useDocsChat();
+  } = useDocsChat(undefined, {
+    brain: selectedBrainId,
+    onUsage,
+    onSpent,
+  });
+
+  // Out of budget: the shared pool or this reader's own share (§4.1 row 23). Nothing has gone wrong, Dox has spent what a free
+  // tier gives it today, so it is a state of the composer and not an error.
+  const poolSpent =
+    brains !== null &&
+    brains.brains.length > 0 &&
+    brains.brains.every((brain) => brain.remaining <= 0);
+  const visitorSpent = brains !== null && brains.visitor.remaining <= 0;
+  const outOfBudget = poolSpent || visitorSpent;
+  // When the reader can ask again: the later of their own reset and the soonest provider's when both are spent
+  // (`nextReset`). Empty until the reader's zone is known, and the sentence then ends sooner.
+  const comesBack =
+    outOfBudget && brains !== null && clock.ready
+      ? nextReset(brains)
+      : undefined;
+  const comesBackAt = comesBack
+    ? BANNER_FORMAT.format(comesBack.resetsAt, {
+        timeZone: clock.zone,
+        locale: clock.locale,
+        now: clock.now,
+      })
+    : "";
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -232,13 +281,13 @@ export function DoxChat({
   // The one send: the composer's Enter and button, and the host's example cards, all come through it.
   const sendText = useCallback(
     (text: string) => {
-      if (isStreaming || text.trim() === "") return false;
+      if (isStreaming || outOfBudget || text.trim() === "") return false;
       // A refused message is not sent and the reason is shown as a warning by `useDocsChat`.
       if (!submit(text)) return false;
       inputRef.current?.focus();
       return true;
     },
-    [isStreaming, submit],
+    [isStreaming, outOfBudget, submit],
   );
 
   useImperativeHandle(
@@ -369,13 +418,25 @@ export function DoxChat({
       <div className="gmt-hive-composer">
         <div className="gmt-hive-composer-inner">
           {aboveComposer}
+          {outOfBudget && brains !== null && (
+            <output className="gmt-hive-exhausted">
+              <span className="gmt-hive-exhausted-marker" aria-hidden="true">
+                ⟨ · ⟩
+              </span>
+              {visitorSpent && !poolSpent
+                ? `You have used your ${brains.visitor.limit} questions for today.`
+                : "Dox has used its free allowance for today."}
+              {comesBackAt && ` Back ${comesBackAt}.`}
+            </output>
+          )}
           <form className="gmt-hive-form" onSubmit={handleSubmit}>
             <ChatInput
               ref={inputRef}
               value={value}
               onChange={setValue}
               label="Message"
-              placeholder={PLACEHOLDER}
+              placeholder={outOfBudget ? RESTING_PLACEHOLDER : PLACEHOLDER}
+              disabled={outOfBudget}
               className="gmt-hive-field"
               maxLength={MAX_MESSAGE_LENGTH}
               onKeyDown={handleKeyDown}
@@ -383,11 +444,19 @@ export function DoxChat({
             <div className="gmt-hive-composer-footer">
               <div className="gmt-hive-controls">
                 <ChatInfo />
+                {/* The reset clock first, hard against the left edge: its readout changes width with every format, and at that edge its panel's anchor never moves. */}
+                <ResetClock info={brains} clock={clock} />
+                <BrainSelector
+                  info={brains}
+                  selectedId={selectedBrainId}
+                  onSelect={setSelectedBrainId}
+                  clock={clock}
+                />
               </div>
               <ChatSubmitButton
                 ref={submitRef}
                 answering={isStreaming}
-                empty={empty}
+                empty={empty || outOfBudget}
                 onStop={stop}
                 className="gmt-hive-submit"
               />

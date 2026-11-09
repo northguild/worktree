@@ -6,10 +6,13 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createRef } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, vi } from "vitest";
 import answerStream from "../hooks/fixtures/chat-answer.sse?raw";
 import runErrorStream from "../hooks/fixtures/chat-run-error.sse?raw";
-import { DoxChat } from "./DoxChat";
+import { brainsInfo } from "./brains.fixture";
+import { DoxChat, type DoxChatHandle } from "./DoxChat";
 
 // Expected values: plan #309 Phase 2 "Done when" and §4.1 rows 8-11, 16-20. The engine is the real `useDocsChat` over a
 // stubbed `fetch`, so what is asserted is what a reader sees. The streams are the recorded output of the Worker's
@@ -608,5 +611,283 @@ describe("DoxChat -- the Worker's progress lines", () => {
       }),
     ).toBeInTheDocument();
     await stream.end();
+  });
+});
+
+// Phase 8's control bar (plan #309 §4.1 rows 21-23, D10, and the phase's "Done when"). Expected values: the banner and the
+// placeholder are §4.1 row 23's own words ("Dox has used its free allowance for today. Back <time>." / the visitor variant /
+// "Dox is resting until the quota resets…"); the reset time is `formatCalendarUtc`'s documented "today at <time>" for a value
+// on the reference's day, worked by hand in the reader's zone: with the clock at 2026-06-15T19:00Z (12:00 PM PDT) in Los
+// Angeles, the UTC midnight 2026-06-16T00:00Z is 5:00 PM that day. The pool's soonest refill is Workers AI's (00:00Z, seven
+// hours before Gemini's), and the later of the two is taken when the reader's own questions are gone too (quota-resets.test.ts).
+const LA_NOW_MS = 1_781_550_000_000; // 2026-06-15T19:00:00Z
+const ALL_BRAINS = [
+  "cf-gemma-4-26b",
+  "cf-glm-4.7-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+];
+const allOut = Object.fromEntries(ALL_BRAINS.map((id) => [id, 0]));
+
+/** A fetch that answers with `stream` for every call and keeps the body each request sent. */
+function capture(stream: string) {
+  const bodies: Array<{ forwardedProps?: Record<string, unknown> }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as {
+        runId: string;
+        forwardedProps?: Record<string, unknown>;
+      };
+      bodies.push(body);
+      return new Response(stream.replaceAll(RUN_ID, body.runId), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }),
+  );
+  return bodies;
+}
+
+const customFrame = (name: string, value: unknown) =>
+  `data: ${JSON.stringify({ type: "CUSTOM", name, value, timestamp: 1 })}`;
+
+describe("DoxChat -- the control bar", () => {
+  const realZone = process.env.TZ;
+  beforeEach(() => {
+    process.env.TZ = "America/Los_Angeles";
+    // Only the clock is pinned: the streams and effects run on real timers.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(LA_NOW_MS);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    if (realZone === undefined) delete process.env.TZ;
+    else process.env.TZ = realZone;
+  });
+
+  it("puts the info button, the reset chip and the brain badge on the left of the bar and Send on the right", async () => {
+    render(<DoxChat brains={brainsInfo()} />);
+    const chip = await screen.findByRole("button", { name: /reset/ });
+    const info = screen.getByRole("button", { name: "About Dox's answers" });
+    const badge = screen.getByRole("button", { name: /left/ });
+    const send = screen.getByRole("button", { name: "Send message" });
+    const follows = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(info, chip)).toBe(true);
+    expect(follows(chip, badge)).toBe(true);
+    expect(follows(badge, send)).toBe(true);
+  });
+
+  it("shows no chip and no badge without a budget, and the chat still sends", async () => {
+    const bodies = capture(answerStream);
+    render(<DoxChat brains={null} />);
+    expect(screen.queryByRole("button", { name: /left/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reset/ })).toBeNull();
+    ask(QUESTION);
+    expect(
+      await screen.findByRole("article", { name: "Dox" }),
+    ).toBeInTheDocument();
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("sends no brain id for Automatic", async () => {
+    const bodies = capture(answerStream);
+    render(<DoxChat brains={brainsInfo()} />);
+    ask(QUESTION);
+    await screen.findByRole("article", { name: "Dox" });
+    expect(bodies[0]?.forwardedProps).not.toHaveProperty("brain");
+  });
+
+  it("sends the brain the reader picked, as forwardedProps.brain, and none again after picking Automatic", async () => {
+    const bodies = capture(answerStream);
+    render(<DoxChat brains={brainsInfo()} />);
+    fireEvent.click(screen.getByRole("button", { name: /left/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^3\.6 Flash/ }));
+    ask(QUESTION);
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]?.forwardedProps?.brain).toBe("gemini-3.6-flash");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Send message" }),
+      ).toBeVisible(),
+    );
+    await screen.findByRole("article", { name: "Dox" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Message" }),
+      ).not.toBeDisabled(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /left/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Automatic/ }));
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    // The pick reaches the client in an effect after the commit: let it land before the next question.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    ask("And another?");
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]?.forwardedProps).not.toHaveProperty("brain");
+  });
+
+  it("hands the Worker's counts to the host when they arrive, and asks it to read again after a refusal", async () => {
+    const info = brainsInfo({ visitorRemaining: 4 });
+    const onUsage = vi.fn();
+    const onSpent = vi.fn();
+    const usage = customFrame("dox-usage", info);
+    capture(
+      [RUN_STARTED, usage, ...FRAMES.slice(1)].join("\n\n").concat("\n\n"),
+    );
+    const { unmount } = render(
+      <DoxChat brains={brainsInfo()} onUsage={onUsage} onSpent={onSpent} />,
+    );
+    ask(QUESTION);
+    await waitFor(() => expect(onUsage).toHaveBeenCalledExactlyOnceWith(info));
+    expect(onSpent).not.toHaveBeenCalled();
+    unmount();
+
+    const refusal = customFrame("dox-refusal", {
+      status: 429,
+      payload: {
+        error: "Dox has used its free allowance for today.",
+        retryable: false,
+        resetsAt: "2026-06-16T00:00:00Z",
+      },
+    });
+    // The Worker follows a refusal with a RUN_ERROR for older clients: one re-read is enough, not two.
+    const runError = `data: ${JSON.stringify({ type: "RUN_ERROR", timestamp: 1, message: "Dox has used its free allowance for today.", code: "allowance_spent" })}`;
+    capture([RUN_STARTED, refusal, runError].join("\n\n").concat("\n\n"));
+    render(
+      <DoxChat brains={brainsInfo()} onUsage={onUsage} onSpent={onSpent} />,
+    );
+    ask(QUESTION);
+    await waitFor(() => expect(onSpent).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onSpent).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a usage event that is not the Worker's counts", async () => {
+    const onUsage = vi.fn();
+    capture(
+      [RUN_STARTED, customFrame("dox-usage", { hello: 1 }), ...FRAMES.slice(1)]
+        .join("\n\n")
+        .concat("\n\n"),
+    );
+    render(<DoxChat brains={brainsInfo()} onUsage={onUsage} />);
+    ask(QUESTION);
+    await screen.findByRole("article", { name: "Dox" });
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+});
+
+describe("DoxChat -- out of budget", () => {
+  const realZone = process.env.TZ;
+  beforeEach(() => {
+    process.env.TZ = "America/Los_Angeles";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(LA_NOW_MS);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    if (realZone === undefined) delete process.env.TZ;
+    else process.env.TZ = realZone;
+  });
+
+  it("rests when every brain is out: the banner says when, the field is disabled with the resting placeholder", async () => {
+    render(<DoxChat brains={brainsInfo({ remaining: allOut })} />);
+    const banner = await screen.findByText(/for today/);
+    expect(banner).toHaveTextContent(
+      "Dox has used its free allowance for today. Back today at 5:00 PM.",
+    );
+    // An <output>: a polite live region, so the state is announced when it arrives.
+    expect(banner.tagName).toBe("OUTPUT");
+    const field = screen.getByRole("textbox", { name: "Message" });
+    expect(field).toBeDisabled();
+    expect(field).toHaveAttribute(
+      "placeholder",
+      "Dox is resting until the quota resets…",
+    );
+    expect(
+      screen.getByRole("button", { name: "Send message" }),
+    ).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("says the reader's own questions are used when only theirs are gone", async () => {
+    render(<DoxChat brains={brainsInfo({ visitorRemaining: 0 })} />);
+    expect(await screen.findByText(/for today/)).toHaveTextContent(
+      "You have used your 5 questions for today. Back today at 5:00 PM.",
+    );
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+  });
+
+  it("counts a brain marked out as spent: all five spent or unavailable is out of budget", async () => {
+    const states = Object.fromEntries(
+      ALL_BRAINS.map((id, i) => [id, i % 2 ? "spent" : "unavailable"] as const),
+    );
+    render(<DoxChat brains={brainsInfo({ remaining: allOut, states })} />);
+    expect(await screen.findByText(/for today/)).toHaveTextContent(
+      "Dox has used its free allowance for today.",
+    );
+  });
+
+  it("sends nothing while resting, from the keyboard or an example card", async () => {
+    const bodies = capture(answerStream);
+    const handle = createRef<DoxChatHandle>();
+    render(<DoxChat ref={handle} brains={brainsInfo({ remaining: allOut })} />);
+    await screen.findByText(/for today/);
+    ask(QUESTION);
+    let sent = true;
+    act(() => {
+      sent = handle.current?.send(QUESTION) ?? true;
+    });
+    expect(sent).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(bodies).toHaveLength(0);
+  });
+
+  it("shows no banner and an enabled field while there is budget", async () => {
+    render(<DoxChat brains={brainsInfo()} />);
+    await screen.findByRole("button", { name: /reset/ });
+    expect(screen.queryByText(/for today/)).toBeNull();
+    const field = screen.getByRole("textbox", { name: "Message" });
+    expect(field).not.toBeDisabled();
+    expect(field).toHaveAttribute("placeholder", PLACEHOLDER);
+  });
+
+  it("keeps the banner and the chat when the budget cannot be read: no budget is not an empty budget", () => {
+    render(<DoxChat brains={null} />);
+    expect(screen.queryByText(/for today/)).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Message" })).not.toBeDisabled();
+  });
+});
+
+describe("DoxChat -- on the server", () => {
+  it("renders no time and no control of the build's own, even given the budget: the zone and locale are the reader's", () => {
+    const html = renderToString(<DoxChat brains={brainsInfo()} />);
+    // The chip and the badge's menu read the zone and locale, so neither is in the server's markup; the badge's counts are
+    // not time-based and are shown.
+    expect(html).not.toContain("gmt-hive-clock");
+    expect(html).not.toContain("resets");
+    expect(html).not.toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it("renders the banner without its 'Back <time>' until the reader's zone is known", () => {
+    const html = renderToString(
+      <DoxChat brains={brainsInfo({ remaining: allOut })} />,
+    );
+    expect(html).toContain("Dox has used its free allowance for today.");
+    expect(html).not.toContain("Back ");
+  });
+});
+
+describe("DoxChat -- a deployment that reports no brains", () => {
+  it("is not out of budget: an empty list is nothing to wait for, not a spent pool", () => {
+    const info = brainsInfo();
+    info.brains = [];
+    render(<DoxChat brains={info} />);
+    expect(screen.queryByText(/for today/)).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Message" })).not.toBeDisabled();
   });
 });

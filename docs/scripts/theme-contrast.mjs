@@ -290,6 +290,20 @@ const HIVE_WARNING = ["var(--gmt-signal-fill)", ...HIVE];
 const HIVE_STRIP_BUTTON = ["var(--gmt-fill-subtle)", ...HIVE];
 const HIVE_CODE = ["var(--gmt-code-bg)", ...HIVE_CARD];
 const HIVE_PANEL = ["var(--gmt-surface-2)"];
+// The control bar (#309 phase 8): `.gmt-hive-composer-footer` washes the form's glass with the spring tier, 12% at its top
+// edge and 5% at its foot (the stronger end is measured, where ice-dim is nearest the wash); the chip and the badge lay
+// `--gmt-fill-subtle` over that, `--gmt-fill-strong` on hover. The brain menu and the reset panel are `--gmt-surface-2`; a
+// highlighted row is `--gmt-accent-wash` over it; the zone search is `--gmt-fill-subtle` over it. `dox-hive.css` states
+// these as `color-mix(...)` on classes, which this script does not read, so each is spelled out; change both together.
+const HIVE_BAR = [
+  "color(from var(--gmt-spring) srgb r g b / 0.12)",
+  ...HIVE_FIELD,
+];
+const HIVE_CHIP = ["var(--gmt-fill-subtle)", ...HIVE_BAR];
+const HIVE_CHIP_HOVER = ["var(--gmt-fill-strong)", ...HIVE_BAR];
+const HIVE_ROW = ["var(--gmt-accent-wash)", ...HIVE_PANEL];
+const HIVE_ZONE_FIELD = ["var(--gmt-fill-subtle)", ...HIVE_PANEL];
+const HIVE_ZONE_ROW = ["var(--gmt-accent-wash)", ...HIVE_ZONE_FIELD];
 
 const text = (name, fg, bg) => ({ name, fg, bg, min: TEXT_MIN, kind: "text" });
 const shape = (name, fg, bg) => ({
@@ -439,6 +453,85 @@ export const PAIRS = [
     "hive: the focus ring on the composer",
     "var(--gmt-spring-ink)",
     HIVE_FIELD,
+  ),
+  // Plan #309 Phase 8: the control bar, the brain menu, the reset panel, the banner and the strip's clock. Earlier phases left
+  // `--gmt-ice` and `--gmt-ice-dim` unmeasured on the fill tiers (the cards, the chip, the bar and their hover states).
+  text("hive: the strip's clock", "var(--gmt-spring-ink)", HIVE),
+  text("hive: ice on the subtle fill", "var(--gmt-ice)", HIVE_STRIP_BUTTON),
+  text(
+    "hive: ice-dim on the subtle fill",
+    "var(--gmt-ice-dim)",
+    HIVE_STRIP_BUTTON,
+  ),
+  text("hive: ice on the strong fill", "var(--gmt-ice)", [
+    "var(--gmt-fill-strong)",
+    ...HIVE,
+  ]),
+  text("hive: ice-dim on the strong fill", "var(--gmt-ice-dim)", [
+    "var(--gmt-fill-strong)",
+    ...HIVE,
+  ]),
+  text("hive: the badge and the chip at rest", "var(--gmt-ice-dim)", HIVE_CHIP),
+  text(
+    "hive: the badge and the chip on hover",
+    "var(--gmt-ice)",
+    HIVE_CHIP_HOVER,
+  ),
+  text("hive: the badge's brain name", "var(--gmt-spring-ink)", HIVE_CHIP),
+  text(
+    "hive: the badge's brain name on hover",
+    "var(--gmt-spring-ink)",
+    HIVE_CHIP_HOVER,
+  ),
+  text("hive: the chip's glyph", "var(--gmt-spring-ink)", HIVE_CHIP),
+  text("hive: the menu's and the panel's text", "var(--gmt-ice)", HIVE_PANEL),
+  text(
+    "hive: the menu's and the panel's muted text",
+    "var(--gmt-ice-dim)",
+    HIVE_PANEL,
+  ),
+  text(
+    "hive: a provider heading, the checked brain, the current zone",
+    "var(--gmt-spring-ink)",
+    HIVE_PANEL,
+  ),
+  text("hive: a highlighted row", "var(--gmt-ice)", HIVE_ROW),
+  text("hive: a highlighted row's meta", "var(--gmt-ice-dim)", HIVE_ROW),
+  text(
+    "hive: a highlighted or checked row's ink",
+    "var(--gmt-spring-ink)",
+    HIVE_ROW,
+  ),
+  text("hive: the zone search's typed text", "var(--gmt-ice)", HIVE_ZONE_FIELD),
+  text(
+    "hive: the zone search's placeholder and empty note",
+    "var(--gmt-ice-dim)",
+    HIVE_ZONE_FIELD,
+  ),
+  text("hive: a zone in the list", "var(--gmt-ice)", HIVE_ZONE_FIELD),
+  text(
+    "hive: a zone highlighted or current",
+    "var(--gmt-spring-ink)",
+    HIVE_ZONE_ROW,
+  ),
+  text("hive: the panel's call link", "var(--gmt-ice-dim)", HIVE_PANEL),
+  text("hive: the out-of-budget banner", "var(--gmt-signal-ink)", HIVE_WARNING),
+  shape("hive: a selected format radio", "var(--gmt-spring-ink)", HIVE_PANEL),
+  shape("hive: the checked brain's dot", "var(--gmt-spring-ink)", HIVE_ROW),
+  shape(
+    "hive: the focus ring in the menu and the panel",
+    "var(--gmt-spring-ink)",
+    HIVE_PANEL,
+  ),
+  shape(
+    "hive: the focused zone search's edge",
+    "var(--gmt-spring-ink)",
+    HIVE_ZONE_FIELD,
+  ),
+  shape(
+    "hive: the focus ring on the chip and the badge",
+    "var(--gmt-spring-ink)",
+    HIVE_CHIP,
   ),
   text("search: typed text in the field", "var(--gmt-ice)", SEARCH_FIELD),
   text("search: the field's placeholder", "var(--gmt-ice-dim)", SEARCH_FIELD),

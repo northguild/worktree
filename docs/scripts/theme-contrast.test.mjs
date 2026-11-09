@@ -257,6 +257,95 @@ describe("the hive's pairs (the Dox page)", () => {
     expect(card.ratio).toBeCloseTo(15.1, 0);
   });
 
+  // Plan #309 Phase 8: the control bar's pairs, and the pairs earlier phases left unmeasured (context/notes.md, Phases 1 and 3).
+  it("covers the control bar, the brain menu, the reset panel and the banner", () => {
+    const names = hive.map((p) => p.name);
+    for (const covered of [
+      "hive: the strip's clock",
+      "hive: the badge and the chip at rest",
+      "hive: the badge and the chip on hover",
+      "hive: the badge's brain name",
+      "hive: the menu's and the panel's text",
+      "hive: the menu's and the panel's muted text",
+      "hive: a provider heading, the checked brain, the current zone",
+      "hive: a highlighted row's meta",
+      "hive: the zone search's placeholder and empty note",
+      "hive: a zone highlighted or current",
+      "hive: the panel's call link",
+      "hive: the out-of-budget banner",
+      "hive: the checked brain's dot",
+    ])
+      expect(names).toContain(covered);
+  });
+
+  it("covers what Phases 1 and 3 left unmeasured: spring ink on the code fill, signal ink, spring ink and ice-dim on the void, ice and ice-dim on both fill tiers", () => {
+    const pairOf = (name) => PAIRS.find((p) => p.name === name);
+    const ink = (pair) => (typeof pair.fg === "string" ? pair.fg : "");
+    const code = pairOf("hive: code in the prompt line");
+    expect([ink(code), code.bg[0]]).toEqual([
+      "var(--gmt-spring-ink)",
+      "var(--gmt-code-bg)",
+    ]);
+    for (const [name, fg] of [
+      ["hive: environment badge, local", "var(--gmt-signal-ink)"],
+      ["hive: environment badge, live", "var(--gmt-spring-ink)"],
+      ["hive: the status line", "var(--gmt-ice-dim)"],
+    ]) {
+      const pair = pairOf(name);
+      expect([ink(pair), pair.bg]).toEqual([fg, ["var(--gmt-void)"]]);
+    }
+    for (const [name, fg, fill] of [
+      [
+        "hive: ice on the subtle fill",
+        "var(--gmt-ice)",
+        "var(--gmt-fill-subtle)",
+      ],
+      [
+        "hive: ice-dim on the subtle fill",
+        "var(--gmt-ice-dim)",
+        "var(--gmt-fill-subtle)",
+      ],
+      [
+        "hive: ice on the strong fill",
+        "var(--gmt-ice)",
+        "var(--gmt-fill-strong)",
+      ],
+      [
+        "hive: ice-dim on the strong fill",
+        "var(--gmt-ice-dim)",
+        "var(--gmt-fill-strong)",
+      ],
+    ]) {
+      const pair = pairOf(name);
+      expect([ink(pair), pair.bg]).toEqual([fg, [fill, "var(--gmt-void)"]]);
+    }
+  });
+
+  for (const theme of ["dark", "light"]) {
+    it(`measures every hive control and glyph pair at ${NON_TEXT_MIN}:1 or more in the ${theme} theme`, () => {
+      const measured = measure(theme, hive).filter(
+        (m) => m.kind === "non-text",
+      );
+      expect(measured.length).toBeGreaterThan(0);
+      expect(
+        measured.filter((m) => m.ratio < NON_TEXT_MIN).map((m) => m.name),
+      ).toEqual([]);
+    });
+  }
+
+  it("lays a fill over the void before measuring: ice-dim on the subtle fill, 8.73:1 dark and 8.41:1 light", () => {
+    // Worked by hand with the WCAG 2.2 formula (the same arithmetic as the card above), from the vendored and theme tokens:
+    // dark: void #03080c, --gmt-teal #15803d (theme.css), 6% over it is (4.08, 15.2, 14.94); ice-dim #98b2be, so
+    //   (L(#98b2be) + 0.05) / (L(fill) + 0.05) = 8.73.
+    // light: void #ffffff, --gmt-teal #4ade80, 6% over it is (244.14, 253.02, 247.38); ice-dim #4b4b4b, so
+    //   (L(fill) + 0.05) / (L(#4b4b4b) + 0.05) = 8.41.
+    const pair = hive.filter(
+      (p) => p.name === "hive: ice-dim on the subtle fill",
+    );
+    expect(measure("dark", pair)[0].ratio).toBeCloseTo(8.73, 1);
+    expect(measure("light", pair)[0].ratio).toBeCloseTo(8.41, 1);
+  });
+
   it("keeps the composer's edge off gmt's spring hairline, which fails 3:1 in both themes", () => {
     for (const theme of ["dark", "light"]) {
       const [hairline] = measure(theme, [
