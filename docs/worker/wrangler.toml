@@ -28,10 +28,22 @@ port = 8787
 binding = "AI"
 remote = true
 
-# The usage ledger (plan #309 D10) is the KV binding `DOX_USAGE`. It is deliberately not declared here yet: its namespace ids
-# are created by the maintainer (plan §9 Q3), and a made-up id would fail `wrangler deploy`. The Worker runs without the
-# binding (the first brain is asked, the counts read as empty). The block to add, and the two `wrangler kv namespace create`
-# commands that produce its `id` and `preview_id`, are in `docs/worker/README.md`, "The usage ledger".
+# The usage ledger (plan #309 D10): the per-day brain counts, brain states and visitor counts behind `GET /api/brains`
+# and the visitor cap. The binding name must stay `DOX_USAGE`, which `Env` and `worker/usage.ts` address; it is optional
+# there, so the Worker still runs if the block goes (the first brain is asked, the counts read as empty).
+#
+# The namespaces are titled `worktree-dox-usage` and `worktree-dox-usage_preview`, not `DOX_USAGE`: a namespace with that
+# title already exists on the account, most likely gmt's Dox ledger, which binds that name and writes the same keys, so
+# sharing it would merge both sites' counts and visitor caps. The ids are not secrets (gmt commits its own); `docs/worker/README.md`, "The binding",
+# has the commands that made them.
+#
+# `remote = true` for the same reason as `[ai]`: `worker:dev` runs `wrangler dev --local`, which would otherwise use a
+# simulated local KV. With it, a local question reads and writes the preview namespace on Cloudflare.
+[[kv_namespaces]]
+binding = "DOX_USAGE"
+id = "6622db5e987c41e6a7102b24bb5d5713"
+preview_id = "65578568775d46ca8b24fff3cf78406c"
+remote = true
 
 [vars]
 # Non-secret env vars go here

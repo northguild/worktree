@@ -134,34 +134,39 @@ and TTL come from `@northguild/gmt` (`day-clock.ts`), so a 23- or 25-hour day is
   read, then written: a brain's count and the visitor's), and 1 more write for each brain marked out. KV Free allows 1,000 writes and 100,000 reads a day, shared by every Worker
   on the account (plan #309 R2).
 
-### Adding the binding
+### The binding
 
-`DOX_USAGE` is declared optional on `Env`, so the Worker runs, and is tested, with and without it. **Nothing binds it yet**:
-the namespace ids are created by the maintainer (plan #309 §9 Q3), and `wrangler.toml` carries no `[[kv_namespaces]]` block
-until they exist. A made-up id would make `wrangler deploy` fail. With the Cloudflare credentials in the shell:
+`wrangler.toml` binds `DOX_USAGE` to two namespaces the maintainer created (plan #309 §9 Q3): `worktree-dox-usage` as `id`,
+for the deployed Worker, and `worktree-dox-usage_preview` as `preview_id`, for `wrangler dev`. The ids are not secrets; gmt
+commits its own. `DOX_USAGE` stays optional on `Env`, so the Worker runs, and is tested, with and without it: delete the block
+and `GET /api/brains` answers full limits and chat never records.
+
+The namespaces are not titled `DOX_USAGE`: one with that title already exists on the account (Wrangler refused a second),
+most likely gmt's Dox ledger, which binds a namespace by that name and writes the same keys (`visitor:<day>:<hash>`,
+`model:…`, `state:…`). Sharing it would merge both sites' counts and one visitor cap. Only the title differs; the binding
+name is `DOX_USAGE` in both Workers. The account's 1,000 free writes a day are shared by every Worker on it all the same.
+
+To make them again (a new account, or a lost namespace), with the Cloudflare credentials in the shell (an API token needs the
+*Workers KV Storage Write* permission), from the repository root. Wrangler is the docs package's dev dependency, not a global
+command, and `--config` matters:
 
 ```bash
-wrangler kv namespace create DOX_USAGE
-wrangler kv namespace create DOX_USAGE --preview
+pnpm --filter docs exec wrangler kv namespace create worktree-dox-usage --config worker/wrangler.toml
+pnpm --filter docs exec wrangler kv namespace create worktree-dox-usage --preview --config worker/wrangler.toml
 ```
 
-Each prints an id. Then add this block to `docs/worker/wrangler.toml`, with the first command's id as `id` and the second's as
-`preview_id` (the ids are not secrets; gmt commits its own):
-
-```toml
-[[kv_namespaces]]
-binding = "DOX_USAGE"
-id = "<id from the first command>"
-preview_id = "<id from the second command, the --preview one>"
-remote = true
-```
+Without `--config`, Wrangler runs in `docs/` and finds the docs site's `docs/wrangler.jsonc` (the static-assets Worker, not
+this one), offers to add the binding to it, defaulting to yes, and reformats it. Wrangler 4.152.0 patches only a JSON config,
+so pointed at this TOML file it prints the snippet and writes nothing. Each command prints an id and a snippet whose `binding`
+is derived from the title; ignore that name. Put the first id in `id` and the second in `preview_id`, under
+`binding = "DOX_USAGE"`. A made-up id makes `wrangler deploy` fail.
 
 `remote = true` is stated, as it is for `[ai]`, because `worker:dev` runs `wrangler dev --local`, and a local `wrangler dev`
 defaults to a simulated local KV that ignores both ids (Cloudflare's KV docs: "Wrangler defaults to using a local version of KV
 ... you can set `"remote": true` in the KV binding configuration"; wrangler 4.152.0's `config-schema.json` describes
 `kv_namespaces[].remote` as "Whether the KV namespace should be remote or not in local development"). With it, `wrangler dev`
-reads and writes the `preview_id` namespace on Cloudflare, so a local question spends real KV writes (R2). Leave the line out to
-develop against the simulated local KV instead. Until the block is added, `GET /api/brains` answers full limits and chat never records.
+reads and writes the preview namespace on Cloudflare, so a local question spends real KV writes (R2). Remove the line to
+develop against the simulated local KV instead.
 
 ### Errors inside the stream
 
