@@ -1,16 +1,18 @@
 // POST /api/chat — the TanStack AI handler (plan #257, §4.2 pipeline).
 //
 //   1. rate limit      -> 429 + Retry-After   (the limiter the legacy route shares)
-//   2. key present     -> else 500
+//   2. a brain to ask  -> else 500            (a Gemini key, or the Workers AI binding: D9)
 //   3. JSON parse      -> 400
 //   4. validation      -> 400 (D7, incl. the whole-conversation cap)
 //   5. { role, content } pairs only; metadata, tools and context never pass
 //   6. retrieval: search the question, keep what fits, choose the vocabulary, assemble the prompt (D8)
-//   7. chat() -> withRetrievalTrace -> mapStreamErrors -> toServerSentEventsResponse
+//   7. the walk past the brains (D9) -> withRetrievalTrace -> mapStreamErrors -> toServerSentEventsResponse
 //
 // Failures before the stream keep an HTTP status and `{ error, retryable }`.
 // Once the stream is open a failure is a RUN_ERROR event whose text is ours,
-// never the provider's (D9).
+// never the provider's (D9). The walk is inside the stream, so each step of it
+// is a `CUSTOM` progress event and an allowance spent on every brain is a
+// `CUSTOM` refusal (D3).
 
 import {
   type AnyTextAdapter,
@@ -19,9 +21,12 @@ import {
   type StreamChunk,
   toServerSentEventsResponse,
 } from "@tanstack/ai";
-import type { ChatModelId } from "../src/chat/lib/chat-constants";
+import type { Brain } from "../src/chat/lib/chat-constants";
 import {
+  PROGRESS_EVENT,
+  REFUSAL_EVENT,
   RETRIEVAL_TRACE_EVENT,
+  type RefusalData,
   type RetrievalChunk,
   type RetrievalTimings,
   type RetrievalTraceData,
@@ -29,6 +34,19 @@ import {
 } from "../src/chat/lib/chat-types";
 import { namespaceFromPageContext } from "../src/chat/lib/page-context";
 import {
+  type AiBinding,
+  brainChatOptions,
+  configuredBrains,
+  createWorkersAIAdapter,
+  type Env,
+  type MovedOn,
+  orderCandidates,
+  soonestReset,
+  stringVars,
+  walkBrains,
+} from "./brains";
+import {
+  ALLOWANCE_SPENT_CODE,
   describeThrown,
   type MappedError,
   mapUpstreamError,
@@ -43,18 +61,27 @@ import {
 } from "./retrieval/system-prompt";
 import { validateChatRequest } from "./validation";
 
-type Env = Record<string, string>;
 type Cors = Record<string, string>;
 
-/** One structured line per mapped failure. Never the key, never message text. */
-export interface ChatLogEntry {
-  event: "chat.failed";
-  level: "warn" | "error";
-  code: MappedError["code"];
-  model: ChatModelId;
-  threadId: string;
-  runId: string;
-}
+/** One structured line per mapped failure, and one per brain passed over. Never the key, never message text. */
+export type ChatLogEntry =
+  | {
+      event: "chat.failed";
+      level: "warn" | "error";
+      code: MappedError["code"];
+      /** The brain last asked. */
+      model: string;
+      threadId: string;
+      runId: string;
+    }
+  | {
+      event: "chat.brain_skipped";
+      level: "warn";
+      model: string;
+      outcome: MovedOn;
+      threadId: string;
+      runId: string;
+    };
 
 /** What `build-context.mjs` generates (`docs-context.ts`): the corpus the handler retrieves from. */
 export interface RetrievalCorpus {
@@ -65,19 +92,25 @@ export interface RetrievalCorpus {
 }
 
 export interface ChatHandlerDeps {
-  createAdapter: (model: ChatModelId, apiKey: string) => AnyTextAdapter;
+  /** A Gemini brain's adapter: its model id and the key. */
+  createAdapter: (model: string, apiKey: string) => AnyTextAdapter;
+  /** A Workers AI brain's adapter, over the `AI` binding. Defaults to the real one; tests inject a fake. */
+  createWorkersAIAdapter?: (brain: Brain, binding: AiBinding) => AnyTextAdapter;
   corpus: RetrievalCorpus;
   /** Milliseconds, stamped on the events this handler makes. */
   now: () => number;
   /** A monotonic clock in milliseconds, for the stage timings. */
   clock?: () => number;
+  /** How long a brain may take to begin answering. Defaults to D9's per-provider times; tests shorten it. */
+  startTimeoutMs?: (brain: Brain) => number;
   log?: (entry: ChatLogEntry) => void;
 }
 
 export interface StreamErrorContext {
   threadId: string;
   runId: string;
-  model: ChatModelId;
+  /** The brain last asked, read when a failure is logged. */
+  model: string;
   now: () => number;
   log: (entry: ChatLogEntry) => void;
 }
@@ -103,6 +136,28 @@ function retrieverFor(corpus: RetrievalCorpus): Retriever {
     RETRIEVERS.set(corpus, retriever);
   }
   return retriever;
+}
+
+const SPENT_MESSAGE = "Dox has used its free allowance for today.";
+
+function progressChunk(text: string, now: () => number): StreamChunk {
+  return {
+    type: EventType.CUSTOM,
+    name: PROGRESS_EVENT,
+    value: { text },
+    timestamp: now(),
+  } as StreamChunk;
+}
+
+/** The line for a brain the walk has given up on (D9; gmt `chat-handler.ts`, "Dox" kept). */
+function movedOn(brain: Brain, outcome: MovedOn): string {
+  const reason =
+    outcome === "busy"
+      ? "is busy"
+      : outcome === "slow"
+        ? "is taking too long"
+        : "is out for today";
+  return `${brain.label} ${reason} \u2014 trying the next model\u2026`;
 }
 
 function logToConsole(entry: ChatLogEntry): void {
@@ -142,7 +197,9 @@ function report(mapped: MappedError, context: StreamErrorContext): void {
   context.log({
     event: "chat.failed",
     level:
-      mapped.code === "rate_limited" || mapped.code === "rate_limited_daily"
+      mapped.code === "rate_limited" ||
+      mapped.code === "rate_limited_daily" ||
+      mapped.code === "allowance_spent"
         ? "warn"
         : "error",
     code: mapped.code,
@@ -182,7 +239,7 @@ export async function* mapStreamErrors(
 }
 
 export interface TraceContext {
-  /** The trace as it stands: called once before the answer, and once when the run finishes. */
+  /** The trace as it stands: called once before the answer, and once when the run finishes (by then it names the brain). */
   trace: () => RetrievalTraceData;
   now: () => number;
   /** Told when the first answer text arrives, and when the run finishes, so the timings can say so. */
@@ -236,7 +293,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     env: Env,
     cors: Cors,
   ): Promise<Response> {
-    const verdict = chatRateLimiter.checkRequest(request, env);
+    const verdict = chatRateLimiter.checkRequest(request, stringVars(env));
     if (verdict.limited) {
       return jsonError(
         429,
@@ -247,8 +304,8 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       );
     }
 
-    const apiKey = env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const brains = configuredBrains(env);
+    if (brains.length === 0) {
       return jsonError(500, "The assistant is not configured.", false, cors);
     }
 
@@ -263,7 +320,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     if (!validated.ok) {
       return jsonError(validated.status, validated.error, false, cors);
     }
-    const { messages, model, pageContext } = validated.value;
+    const { messages, brain: requestedBrain, pageContext } = validated.value;
     // validateChatRequest has accepted these as strings.
     const { threadId, runId } = body as { threadId: string; runId: string };
 
@@ -325,31 +382,124 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       );
     }
 
+    let answeredBy: Brain | undefined;
     const trace = (): RetrievalTraceData => ({
       totalChunks: deps.corpus.chunks.length,
       retrievedCount: kept.length,
       chunkTitles: kept.map((chunk) => chunk.title),
       chunkUrls: routeAllowlist(kept),
       timings: { ...timings },
+      // After a failover this is not the brain the reader's pick or the registry named first.
+      ...(answeredBy && { brainLabel: answeredBy.label }),
     });
 
-    const stream = chat({
-      adapter: deps.createAdapter(model, apiKey),
-      messages,
-      systemPrompts: [systemPrompt],
-      // `summary: false`: the string form "low" is normalised to summary: true,
-      // which asks Gemini for thought summaries (includeThoughts). D4 wants none.
-      reasoning: { level: "low", summary: false },
+    const candidates = orderCandidates(brains, requestedBrain);
+    const errorContext: StreamErrorContext = {
       threadId,
       runId,
-      abortController,
-      // The library's own error log prints the provider's body (D9).
-      debug: false,
-    });
+      model: candidates[0]?.id ?? "",
+      now: deps.now,
+      log,
+    };
+    const makeWorkersAIAdapter =
+      deps.createWorkersAIAdapter ?? createWorkersAIAdapter;
+
+    const open = (brain: Brain, brainAbort: AbortController) =>
+      chat({
+        // `configuredBrains` has made sure what each provider needs is there.
+        adapter:
+          brain.provider === "google"
+            ? deps.createAdapter(brain.id, env.GEMINI_API_KEY as string)
+            : makeWorkersAIAdapter(brain, env.AI as AiBinding),
+        messages,
+        systemPrompts: [systemPrompt],
+        ...brainChatOptions(brain),
+        threadId,
+        runId,
+        abortController: brainAbort,
+        // The library's own error log prints the provider's body (D9).
+        debug: false,
+      });
+
+    /**
+     * What the reader's stream is made of: the run's own start, a progress line for each step of the walk, then the
+     * answering brain's chunks, or the failure. The walk comes before any answer text, so a brain that is busy, slow or
+     * out costs the reader a line, never an error.
+     */
+    async function* walked(): AsyncGenerator<StreamChunk> {
+      yield {
+        type: EventType.RUN_STARTED,
+        threadId,
+        runId,
+        timestamp: deps.now(),
+      } as StreamChunk;
+
+      const walk = walkBrains({
+        candidates,
+        open,
+        signal: abortController.signal,
+        runId,
+        startTimeoutMs: deps.startTimeoutMs,
+      });
+      let step = await walk.next();
+      while (!step.done) {
+        const { value } = step;
+        if (value.type === "attempt") {
+          errorContext.model = value.brain.id;
+          yield progressChunk(`Asking ${value.brain.label}\u2026`, deps.now);
+        } else {
+          log({
+            event: "chat.brain_skipped",
+            level: "warn",
+            model: value.brain.id,
+            outcome: value.outcome,
+            threadId,
+            runId,
+          });
+          yield progressChunk(movedOn(value.brain, value.outcome), deps.now);
+        }
+        step = await walk.next();
+      }
+
+      const end = step.value;
+      if (end.kind === "answered") {
+        answeredBy = end.brain;
+        yield* end.stream;
+      } else if (end.kind === "failed") {
+        yield {
+          type: EventType.RUN_ERROR,
+          timestamp: deps.now(),
+          message: end.failure.message ?? "",
+          ...(end.failure.code !== undefined && { code: end.failure.code }),
+        } as StreamChunk;
+      } else if (end.kind === "spent") {
+        const refusal: RefusalData = {
+          status: 429,
+          payload: {
+            error: SPENT_MESSAGE,
+            retryable: false,
+            resetsAt: soonestReset(brains, deps.now()),
+          },
+        };
+        yield {
+          type: EventType.CUSTOM,
+          name: REFUSAL_EVENT,
+          value: refusal,
+          timestamp: deps.now(),
+        } as StreamChunk;
+        // The same refusal, for a client that does not read `CUSTOM` events (#306's): it shows the curated text.
+        yield {
+          type: EventType.RUN_ERROR,
+          timestamp: deps.now(),
+          message: SPENT_MESSAGE,
+          code: ALLOWANCE_SPENT_CODE,
+        } as StreamChunk;
+      }
+    }
 
     return toServerSentEventsResponse(
       mapStreamErrors(
-        withRetrievalTrace(stream, {
+        withRetrievalTrace(walked(), {
           trace,
           now: deps.now,
           onFirstText: () => {
@@ -359,13 +509,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
             timings.total = Math.round(clock() - started);
           },
         }),
-        {
-          threadId,
-          runId,
-          model,
-          now: deps.now,
-          log,
-        },
+        errorContext,
       ),
       { abortController, headers: cors },
     );

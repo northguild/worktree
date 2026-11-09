@@ -11,6 +11,9 @@ const RETRYABLE_BY_CODE: Record<string, boolean> = {
   rate_limited_daily: true,
   rate_limited: true,
   upstream_unavailable: true,
+  upstream_slow: true,
+  // Every brain is out for the day: asking again cannot help.
+  allowance_spent: false,
   misconfigured: false,
   failed: false,
 };

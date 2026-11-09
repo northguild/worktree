@@ -10,7 +10,11 @@ import {
 } from "../../../worker/chat-handler";
 import { validateChatRequest } from "../../../worker/validation";
 import { messageText, TRANSCRIPT_KEY_PREFIX } from "../lib/chat-history";
-import { RETRIEVAL_TRACE_EVENT } from "../lib/chat-types";
+import {
+  PROGRESS_EVENT,
+  REFUSAL_EVENT,
+  RETRIEVAL_TRACE_EVENT,
+} from "../lib/chat-types";
 import answerStream from "./fixtures/chat-answer.sse?raw";
 import runErrorStream from "./fixtures/chat-run-error.sse?raw";
 import { useDocsChat } from "./useDocsChat";
@@ -169,7 +173,8 @@ describe("useDocsChat -- what is sent (R11)", () => {
       ok: true,
       value: {
         messages: [{ role: "user", content: QUESTION }],
-        model: "gemini-3.6-flash",
+        // The Worker's validator names what the reader asked for `brain`, whichever prop it came in.
+        brain: "gemini-3.6-flash",
       },
     });
   });
@@ -720,5 +725,211 @@ describe("useDocsChat -- the page the reader came from (D3)", () => {
     await act(() => result.current.sendMessage(QUESTION));
 
     expect(sent[0]?.body.forwardedProps).toEqual({ model: DEFAULT_MODEL });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Plan #309 Phase 6: the walk past the brains (D9). The streams are the real handler's, over fake adapters; the
+// expected values are the Worker's own lines (gmt's wording, "Dox" kept) and D3's rule that progress and a refusal
+// travel as CUSTOM events.
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe("useDocsChat -- the Worker's brains (D9)", () => {
+  const REPO = join(process.cwd(), "..");
+  const BUILT = buildCorpus(
+    join(REPO, "docs/src/content/docs"),
+    readFileSync(join(REPO, "skills/worktree/SKILL.md"), "utf8"),
+  );
+  const CORPUS: RetrievalCorpus = {
+    chunks: BUILT.chunks,
+    searchIndexJson: BUILT.indexJson,
+    vocabulary: BUILT.vocabulary,
+  };
+  const BUSY = "429 3040: no more data centers";
+  const SPENT = JSON.stringify({ error: { code: 429, message: "quota" } });
+
+  /** A Worker whose brains say what `replies` says, reached through the client's own fetch. */
+  function stubWorker(
+    replies: Record<string, Array<{ text?: string; error?: string }>>,
+  ) {
+    const fakes: Record<string, ReturnType<typeof fakeText>> = {};
+    for (const [id, responses] of Object.entries(replies)) {
+      fakes[id] = fakeText({ model: id });
+      fakes[id].setResponses(responses);
+    }
+    const adapter = (id: string) => {
+      const fake = fakes[id];
+      if (!fake) throw new Error(`unexpected call to ${id}`);
+      return fake;
+    };
+    const handler = createChatHandler({
+      createAdapter: ((model: string) => adapter(model)) as never,
+      createWorkersAIAdapter: ((brain: { id: string }) =>
+        adapter(brain.id)) as never,
+      corpus: CORPUS,
+      now: () => 1_700_000_000_000,
+      log: vi.fn(),
+    });
+    const sent: Array<{ forwardedProps: Record<string, unknown> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        sent.push(JSON.parse(init.body as string));
+        return handler(
+          new Request(url, {
+            ...init,
+            headers: { ...init.headers, "CF-Connecting-IP": "198.51.100.9" },
+          }),
+          { GEMINI_API_KEY: "k", AI: { run: vi.fn() } },
+          {},
+        );
+      }),
+    );
+    return sent;
+  }
+
+  it("names no model when none is given: Automatic, so the Worker starts with its first brain", async () => {
+    const sent = stubWorker({ "cf-gemma-4-26b": [{ text: "From Gemma" }] });
+    const { result } = renderHook(() => useDocsChat());
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() =>
+      expect(texts(result)[1]).toEqual(["assistant", "From Gemma"]),
+    );
+    expect(sent[0]?.forwardedProps).not.toHaveProperty("model");
+    // The body still passes the Worker's own validator, with no brain asked for.
+    expect(validateChatRequest(sent[0])).toEqual({
+      ok: true,
+      value: { messages: [{ role: "user", content: QUESTION }] },
+    });
+  });
+
+  it("holds the Worker's last progress line, and starts it afresh for the next question", async () => {
+    stubWorker({
+      "cf-gemma-4-26b": [{ error: BUSY }, { text: "From Gemma" }],
+      "cf-glm-4.7-flash": [{ text: "From GLM" }],
+    });
+    const { result } = renderHook(() => useDocsChat());
+    expect(result.current.progress).toBeNull();
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() =>
+      expect(texts(result)[1]).toEqual(["assistant", "From GLM"]),
+    );
+    expect(result.current.progress).toBe("Asking GLM 4.7 Flash\u2026");
+
+    // The second question: Gemma answers at once, and the line is the new one, not the old.
+    await act(() => result.current.sendMessage("And how do I make one?"));
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+    expect(result.current.progress).toBe("Asking Gemma 4 26B\u2026");
+  });
+
+  it("shows a refusal as a warning that is not retryable, and the RUN_ERROR that follows it does not replace it", async () => {
+    stubWorker({
+      "cf-gemma-4-26b": [{ error: "429 3036: daily free allocation" }],
+      "gemini-3.5-flash-lite": [{ error: SPENT }],
+      "gemini-3.6-flash": [{ error: SPENT }],
+      "gemini-3.5-flash": [{ error: SPENT }],
+    });
+    const { result } = renderHook(() => useDocsChat());
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+    expect(result.current.warning).toEqual({
+      message: "Dox has used its free allowance for today.",
+      retryable: false,
+    });
+  });
+
+  it("counts a progress line as the answer being alive: 30 s of silence is counted from the last one", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+      const encoder = new TextEncoder();
+      const frame = (event: object) =>
+        controller?.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ timestamp: 1, ...event })}\n\n`,
+          ),
+        );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string, init: RequestInit) => {
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(c) {
+                controller = c;
+                init.signal?.addEventListener("abort", () =>
+                  c.error(new DOMException("Aborted", "AbortError")),
+                );
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "text/event-stream" } },
+          );
+        }),
+      );
+      const { result } = renderHook(() => useDocsChat());
+      act(() => {
+        void result.current.sendMessage(QUESTION);
+      });
+      await waitFor(() => expect(controller).toBeDefined());
+      frame({ type: "RUN_STARTED", threadId: "docs-chat", runId: "r" });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      frame({
+        type: "CUSTOM",
+        name: PROGRESS_EVENT,
+        value: { text: "Asking Gemma 4 26B\u2026" },
+      });
+      await waitFor(() =>
+        expect(result.current.progress).toBe("Asking Gemma 4 26B\u2026"),
+      );
+
+      // 40 s after the start but 20 s after the line: still waiting.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(result.current.isStreaming).toBe(true);
+      expect(result.current.warning).toBeNull();
+
+      // 35 s after the line: stopped.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      await waitFor(() => expect(result.current.isStreaming).toBe(false));
+      expect(result.current.warning?.retryable).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a progress line or refusal that is not the shape it expects", async () => {
+    stubFetch(
+      `${answerStream
+        .split("\n\n")
+        .filter(Boolean)
+        .flatMap((frame, index) =>
+          index === 1
+            ? [
+                frame,
+                `data: ${JSON.stringify({ type: "CUSTOM", name: PROGRESS_EVENT, value: { text: 7 }, timestamp: 1 })}`,
+                `data: ${JSON.stringify({ type: "CUSTOM", name: REFUSAL_EVENT, value: { status: "x" }, timestamp: 1 })}`,
+              ]
+            : [frame],
+        )
+        .join("\n\n")}\n\n`,
+    );
+    const { result } = renderHook(() => useDocsChat());
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() => expect(texts(result)[1]?.[1]).toBe(ANSWER));
+    expect(result.current.progress).toBeNull();
+    expect(result.current.warning).toBeNull();
   });
 });

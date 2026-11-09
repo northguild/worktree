@@ -1,7 +1,8 @@
-# Cloudflare Worker: Gemini chat
+# Cloudflare Worker: Dox chat
 
 This worker runs on Cloudflare Workers and answers chat requests from the docs
-static site with Google's Gemini models, keeping `GEMINI_API_KEY` out of the browser.
+static site, keeping `GEMINI_API_KEY` out of the browser. It answers with the first of five "brains" that is
+available: two Workers AI models, then three Gemini models (see [Brains](#brains)).
 
 ## How it fits together
 
@@ -10,16 +11,22 @@ Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev/api/c
                               ↓
                         Cloudflare Worker  (docs/worker/)
                           1. rate limit        → 429 + Retry-After
-                          2. key present       → else 500
+                          2. a brain to ask    → else 500 "The assistant is not configured."
+                             (a GEMINI_API_KEY, or the AI binding: brains.ts, configuredBrains)
                           3. JSON, then validate (validation.ts) → 400
                           4. retrieval: search the question in the bundled corpus,
                              keep what fits, build the system prompt (retrieval/)  → 500 if the corpus cannot be searched
-                          5. chat()  (@tanstack/ai) with createGeminiChat
-                              ↓
-                        Gemini REST API  (SSE stream)
+                          5. the stream opens: RUN_STARTED, then the walk past the brains (brains.ts, walkBrains):
+                               for each candidate, in order, chat()  (@tanstack/ai) over its adapter
+                                 – createCloudflareText over env.AI for a Workers AI brain
+                                 – createGeminiChat for a Gemini brain
+                               and a CUSTOM dox-progress line for each step
+                               ↓                       ↓
+                   first content from a brain     every brain out → CUSTOM dox-refusal (429, resetsAt)
+                   → its stream is the answer       then a RUN_ERROR "allowance_spent"
                               ↓
                         error-mapping.ts wraps the stream, so a failure is a curated RUN_ERROR;
-                        withRetrievalTrace adds the CUSTOM dox-retrieval events
+                        withRetrievalTrace adds the CUSTOM dox-retrieval events (the last names the brain)
                               ↓
                         toServerSentEventsResponse → AG-UI events over SSE, back to the browser
 ```
@@ -34,27 +41,75 @@ Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev/api/c
 |---|---|
 | `OPTIONS` on any path | 204 with CORS headers (`Access-Control-Expose-Headers: Retry-After` included) |
 | `POST /` | the **legacy** protocol (`legacy-handler.ts`): the Gemini SSE stream piped through, with its own copy of the old model list (`gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-3-flash-preview`) and caps (20,000 characters a message, 50 messages). Frozen: the live site's current client speaks it, and it is retired only after a stable release has deployed the new client |
-| `POST /api/chat` | the new protocol (`chat-handler.ts`). The body is the AG-UI shape `useChat` sends (`threadId`, `runId`, `messages`, optional `forwardedProps.model` and `forwardedProps.pageContext`, the route of the page the reader came from, e.g. `/commands/branch/`, which only biases the search), validated by `validation.ts`; only `{ role, content }` pairs reach `chat()`. The answer is AG-UI events over SSE (`RUN_STARTED`, a `CUSTOM` event named `dox-retrieval` carrying what was retrieved, `TEXT_MESSAGE_*`, the same `CUSTOM` event again with timings, `RUN_FINISHED`; a failed run gets at most the first `CUSTOM`). Before the stream opens a failure is an HTTP status with `{ error, retryable }`: 429 with `Retry-After`, 500 when the key is missing, 500 `{ error, retryable: true }` when the corpus cannot be searched (no model is called), 400 for bad JSON, a bad request or a conversation over the cap. A refusal the history causes rather than the new question — more than 50 messages, an earlier turn over 20,000 characters, or over 100,000 together — says "Conversation is too long. Start a new chat.", since the client replays the whole transcript and every later question would fail the same way. Once the stream is open, a failure is one `RUN_ERROR` event with our own text and a `code` (see below) |
+| `POST /api/chat` | the new protocol (`chat-handler.ts`). The body is the AG-UI shape `useChat` sends (`threadId`, `runId`, `messages`, optional `forwardedProps.brain`, a brain id, optional `forwardedProps.model`, #306's model, still accepted and treated as a brain id, and optional `forwardedProps.pageContext`, the route of the page the reader came from, e.g. `/commands/branch/`, which only biases the search), validated by `validation.ts`; only `{ role, content }` pairs reach `chat()`. With no brain named the Worker walks its brains in order (Automatic). The answer is AG-UI events over SSE (`RUN_STARTED`, a `CUSTOM` event named `dox-retrieval` carrying what was retrieved, any `CUSTOM` `dox-progress` lines from the walk, `TEXT_MESSAGE_*`, the `dox-retrieval` event again with timings and the brain that answered, `RUN_FINISHED`; a failed run gets at most the first `dox-retrieval`). Before the stream opens a failure is an HTTP status with `{ error, retryable }`: 429 with `Retry-After`, 500 when there is neither a key nor the `AI` binding, 500 `{ error, retryable: true }` when the corpus cannot be searched (no model is called), 400 for bad JSON, a bad request or a conversation over the cap. A refusal the history causes rather than the new question — more than 50 messages, an earlier turn over 20,000 characters, or over 100,000 together — says "Conversation is too long. Start a new chat.", since the client replays the whole transcript and every later question would fail the same way. Once the stream is open, a failure is one `RUN_ERROR` event with our own text and a `code` (see below) |
 | any other method on `/` or `/api/chat` | 405 `{ error, retryable: false }` |
 | any other path | 404 `{ error, retryable: false }` |
 
 Both `POST` routes spend one `chat:<client>` rate-limit bucket (`rate-limit.ts`), so using both cannot double a client's allowance. The Gemini key is sent in the `x-goog-api-key` header on every upstream call, never in the URL.
 
+## Brains
+
+`brains.ts` and `src/chat/lib/chat-constants.ts` (`BRAINS`), ported from gmt's `apps/dox` (plan #309 D9). In order:
+
+| Brain id | Model | Provider | Needs |
+|---|---|---|---|
+| `cf-gemma-4-26b` | `@cf/google/gemma-4-26b-a4b-it` | Workers AI | the `AI` binding |
+| `cf-glm-4.7-flash` | `@cf/zai-org/glm-4.7-flash` | Workers AI | the `AI` binding |
+| `gemini-3.5-flash-lite` | same | Gemini | `GEMINI_API_KEY` |
+| `gemini-3.6-flash` | same | Gemini | `GEMINI_API_KEY` |
+| `gemini-3.5-flash` | same | Gemini | `GEMINI_API_KEY` |
+
+- **Only configured brains are offered.** Without the binding the list is the three Gemini brains; without the key, the two
+  Workers AI brains; with neither, `POST /api/chat` answers 500 "The assistant is not configured.". A brain the reader
+  asked for that is not on the list is no request.
+- **Order.** The brain named in `forwardedProps.brain` (or #306's `forwardedProps.model`) goes first, then the rest in the
+  order above. No name is Automatic.
+- **The walk happens before any answer text streams.** Each brain gets 15 s (Gemini) or 20 s (Workers AI) to produce its
+  first content. A brain that is busy (HTTP 503 or 529, or a Workers AI 429 that is not the allocation), slow, spent
+  (a Gemini 429, or a Workers AI allocation error) or unavailable (400 or 404, or a Workers AI 403) is passed over, and a
+  `CUSTOM` event named `dox-progress` with `{ text }` says so: "Asking Gemma 4 26B…", then "Gemma 4 26B is busy — trying the
+  next model…", "… is taking too long — …" or "… is out for today — …". Each pass-over is logged (`chat.brain_skipped`).
+  Nothing is retried within a brain: the next brain is the retry, and the adapter's own retries are switched off
+  (`withoutRetries`: a failed run is marked `x-should-retry: false`).
+- **Workers AI's allowance is one pool.** The 10,000 free Neurons a day belong to the account, not the model, so an
+  allocation error (Cloudflare codes 3036 and 4006) retires both Workers AI brains at once. Code 3040 ("no more data centers")
+  is a capacity blip and retires nothing. Gemini's allowance is per model.
+- **Every brain out** ends the stream with a `CUSTOM` event named `dox-refusal`, `{ status: 429, payload: { error,
+  retryable: false, resetsAt } }`, where `resetsAt` is the soonest refill (Workers AI at 00:00 UTC, Gemini at midnight
+  `America/Los_Angeles`), then a `RUN_ERROR` with code `allowance_spent` for a client that ignores `CUSTOM` events. If the
+  walk ended on busy or slow brains only, nobody's allowance is gone, and it ends in the curated `rate_limited`,
+  `upstream_unavailable` or `upstream_slow` error instead. A failure that says nothing about the brain (a Gemini 500, a bad
+  key) ends the walk at once.
+- **Settings.** Gemini runs with `reasoning: { level: "low", summary: false }`. Workers AI brains run with thinking off and
+  2,048 output tokens, passed as `modelOptions: { max_tokens: 2048, chat_template_kwargs: { enable_thinking: false } }`.
+  `@tanstack/ai-cloudflare` 1.2.0 sets neither by itself, and `chat({ maxTokens })` is not read: `modelOptions` is spread
+  into the request body untouched (`brains.test.ts` asserts what reaches `env.AI.run`). No `reasoning` is given to a
+  Workers AI brain, because the adapter would send `reasoning_effort: null`, which gmt measured not to turn thinking off.
+  gmt measured thinking on at 4-21 s a question against 1.6 s off.
+- **The `AI` binding is remote in dev.** `wrangler.toml` states `[ai] binding = "AI"` with `remote = true`: models never run
+  locally, so `wrangler dev` spends the account's real 10,000-Neuron daily allocation exactly as production does. Staying on
+  the Workers Free plan is what keeps it free: there an exhausted allocation fails with an error, where on Workers Paid it
+  bills.
+- **`POST /` is not part of this.** The legacy route keeps its own model list and speaks to Gemini only.
+
 ### Errors inside the stream
 
-Google's error text never reaches the reader. `error-mapping.ts` reads the HTTP status inside the failure (the Gemini adapter puts Google's JSON body in the `RUN_ERROR`'s `message` and sets no `code`) and replaces the event:
+Provider error text never reaches the reader. `error-mapping.ts` reads the HTTP status inside the failure and replaces the event. Gemini's adapter puts Google's JSON body in the `RUN_ERROR`'s `message` and sets no `code`; the Workers AI adapter's message is the HTTP status, a space and Cloudflare's text, and its `code` is Cloudflare's own number:
 
 | Upstream | `code` | Retryable |
 |---|---|---|
 | 401, 403, or an invalid API key | `misconfigured` | no |
-| 429 whose body says "per day" | `rate_limited_daily` | yes |
+| 429 whose body says "per day", or a Workers AI allocation error (3036, 4006) | `rate_limited_daily` | yes |
 | any other 429 | `rate_limited` | yes |
+| every brain busy or failing with a 5xx or 529 | `upstream_unavailable` | yes |
+| no brain started in time (`brains_timed_out`) | `upstream_slow` | yes |
+| every brain out for the day (after the refusal event) | `allowance_spent` | no |
 | any other API error | `upstream_unavailable` | yes |
 | anything else | `failed` | no |
 
-Each mapped failure is logged once as a JSON line (`chat.failed`, with the code, model, thread and run ids) and never with the key or any message text. `retry` is left unset so a 429 is not repeated against the quota.
+Each mapped failure is logged once as a JSON line (`chat.failed`, with the code, the brain last asked, thread and run ids) and never with the key or any message text. `retry` is left unset so a 429 is not repeated against the quota.
 
-The model is called with `reasoning: { level: "low", summary: false }`: the bare string `"low"` is normalised by `@tanstack/ai` to `summary: true`, which asks Gemini for thought summaries.
+Gemini is called with `reasoning: { level: "low", summary: false }`: the bare string `"low"` is normalised by `@tanstack/ai` to `summary: true`, which asks Gemini for thought summaries.
 
 The static bundle bakes in `PUBLIC_GEMINI_WORKER_URL` at build time.
 That variable is set as a GitHub repo **variable** (not a secret) and injected
@@ -68,7 +123,7 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 
 | Command | What it does | When to run |
 |---|---|---|
-| `worker:setup-secret` | Stores `GEMINI_API_KEY` as an encrypted Cloudflare secret | Once per worker, or when rotating the key |
+| `worker:setup-secret` | Stores `GEMINI_API_KEY` as an encrypted Cloudflare secret. The Workers AI brains need no secret: the `AI` binding in `wrangler.toml` is all they use | Once per worker, or when rotating the key |
 | `worker:setup-dev-vars` | Writes `docs/worker/.dev.vars` from `docs/.env.local` so `wrangler dev` can read the key | Once per machine, or after changing `.env.local` |
 
 ### Normal development
@@ -100,7 +155,8 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 ## Local development
 
 **Prerequisite:** `docs/.env.local` must contain your Gemini API key.
-Copy `docs/.env.local.example` → `docs/.env.local` and fill it in.
+Copy `docs/.env.local.example` → `docs/.env.local` and fill it in. The first two brains use the `AI` binding, which is remote (see [Brains](#brains)): a question asked against `wrangler dev`
+spends the account's real daily allocation. Leave the binding out of `wrangler.toml` to run on Gemini alone.
 
 Two commands cover the common cases:
 
@@ -233,7 +289,7 @@ CORS controls browser behavior, but it is **not** authentication. This worker
 also applies app-level rate limiting before calling Gemini, with **one limiter shared by both routes**.
 The limiter lives in the isolate's memory, so it is **per isolate, not global**:
 Cloudflare may run several isolates, each with its own count, and anyone who can
-reach the URL can spend the key's daily Gemini quota. The visible effect would be
+reach the URL can spend the key's daily Gemini quota and the account's daily Workers AI allocation. The visible effect would be
 daily-limit warnings for everyone. Stronger controls are a decision for the
 account holder (plan #257 §9 Q5).
 
@@ -268,14 +324,19 @@ Environments), whose deployment branches are limited to `main`:
 
 ## Bundle size and dependencies
 
-The worker depends on `@tanstack/ai` and `@tanstack/ai-gemini` (and `zod`, `@northguild/gmt`, `minisearch` 7.2.0).
-`tsup` bundles everything except the two TanStack packages, which `wrangler deploy` then
+The worker depends on `@tanstack/ai`, `@tanstack/ai-gemini` and `@tanstack/ai-cloudflare` (and `zod`, `@northguild/gmt`, `minisearch` 7.2.0).
+`tsup` bundles everything except the three TanStack packages, which `wrangler deploy` then
 bundles itself: only wrangler resolves the packages' `workerd` export conditions, and the
 Node build that tsup would inline hung under `wrangler dev --local`. `compatibility_flags`
 holds `nodejs_compat` (the packages import `node:events` and `node:process`) and
 `enable_request_signal` (a closed tab aborts the Gemini call).
-`wrangler deploy --dry-run` measured 3,931 KiB uploaded, 761 KiB gzipped, on 2026-11-08 (with the retrieval corpus and the frozen legacy prompt in it);
-`worker:bundle-check` re-runs it.
+`wrangler deploy --dry-run` measured 3,931 KiB uploaded, 761 KiB gzipped, on 2026-11-08 (with the retrieval corpus and the frozen legacy prompt in it), and
+5,396 KiB uploaded, 986 KiB gzipped, on 2026-11-09 with `@tanstack/ai-cloudflare` added (+1,466 KiB, +225 KiB gzipped). What accounts for it,
+by the sizes in the unminified bundle, most of it is the `openai` client (about 1,258 KiB), which the adapter's base package,
+`@tanstack/openai-base` (about 77 KiB), uses. `@tanstack/ai-utils` adds about 16 KiB and the adapter package itself about 10 KiB (it exports only `.` and `./byok`, and the bundler drops what the Worker
+does not call). Those three packages and `openai` are the only ones the lockfile gained; the Worker's own section (corpus and legacy prompt, about 2,207 KiB) is not new. Cloudflare's limit is 64 MiB uncompressed on Free
+and Paid with no compressed limit, and a 1 s startup (developers.cloudflare.com/workers/platform/limits/), so the headroom is large; the startup time
+is not measured here. `worker:bundle-check` re-runs it.
 
 ---
 
@@ -301,10 +362,10 @@ and builds a prompt from what it finds (`retrieval/`):
    instructions), the linking rules (exactly the kept chunks' routes, no `/worktree` prefix), vocabulary, the chunks,
    the refusal instruction.
 
-It then streams the answer with two `CUSTOM` events, `dox-retrieval`, around it: counts, chunk titles, pages and stage
+It then walks the brains (see [Brains](#brains)) and streams the answer with two `CUSTOM` events, `dox-retrieval`, around it: counts, chunk titles, pages and stage
 timings (`chat-handler.ts`, `withRetrievalTrace`). A corpus that cannot be searched answers `500` with
-`{ error, retryable: true }` and calls no model. The worker never fetches content at runtime and needs no binding: all
-context is in the bundle.
+`{ error, retryable: true }` and calls no model. The worker never fetches content at runtime: all context is in the bundle
+(the `AI` binding is for the models, not for the corpus).
 
 `POST /` does not retrieve. It sends the whole-docs prompt it always sent, which `worker:build-context` also writes into `docs-context.ts` as `LEGACY_PROMPT` and only `legacy-handler.ts` reads (frozen, plan #257 D3; its removal is #300).
 

@@ -1,3 +1,4 @@
+import { stringVars } from "./brains";
 import {
   handleLegacyRequest,
   LEGACY_MAX_MESSAGE_LENGTH,
@@ -554,9 +555,10 @@ describe("worker — one limiter for both routes (D6)", () => {
     // A stubbed chat route that does what the real handler's step 1 does:
     // consult the shared limiter, then answer.
     const routed = createWorker({
-      legacy: handleLegacyRequest,
+      legacy: (request, env, cors) =>
+        handleLegacyRequest(request, stringVars(env), cors),
       chat: async (request, env, cors) => {
-        const verdict = chatRateLimiter.checkRequest(request, env);
+        const verdict = chatRateLimiter.checkRequest(request, stringVars(env));
         return new Response(null, {
           status: verdict.limited ? 429 : 200,
           headers: cors,

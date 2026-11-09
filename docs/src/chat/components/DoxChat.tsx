@@ -27,7 +27,7 @@ import {
 import { CORPUS_COUNTS } from "../docs-routes.generated";
 import { type ScrollTarget, useBottomScroll } from "../hooks/useBottomScroll";
 import { type RetrievalTraces, useDocsChat } from "../hooks/useDocsChat";
-import { DEFAULT_MODEL_ID, MAX_MESSAGE_LENGTH } from "../lib/chat-constants";
+import { MAX_MESSAGE_LENGTH } from "../lib/chat-constants";
 import { messageText } from "../lib/chat-history";
 import type { RetrievalTraceData, UIMessage } from "../lib/chat-types";
 import { AccuracyNote, ChatInfo } from "./ChatInfo";
@@ -42,7 +42,7 @@ import { RetrievalTrace } from "./RetrievalTrace";
 /** What the field asks for. The package is `@northguild/worktree` where gmt's is `@northguild/gmt`. */
 const PLACEHOLDER = "Ask about @northguild/worktree…";
 
-/** What the waiting turn says while no text has arrived. The Worker's own progress lines replace it in phase 6. */
+/** What the waiting turn says until the Worker says something of its own: its progress lines replace it (plan #309 D9). */
 const WAITING = "Searching docs…";
 
 /** One turn of the transcript: a question, an answer, or the wait for one. */
@@ -55,6 +55,8 @@ interface Turn {
   pending: boolean;
   /** What the Worker retrieved for this answer, once it has said (it does so before the first text). */
   trace?: RetrievalTraceData;
+  /** What the Worker last said it was doing, on the turn still waiting for text. */
+  progress?: string | null;
 }
 
 /**
@@ -70,6 +72,7 @@ function buildTurns(
   messages: ReadonlyArray<UIMessage>,
   isStreaming: boolean,
   traces: RetrievalTraces,
+  progress: string | null,
 ): Turn[] {
   const turns: Turn[] = [];
   const used = new Set<string>();
@@ -97,6 +100,7 @@ function buildTurns(
       text,
       pending,
       trace: traces[questionNumber],
+      progress: pending ? progress : null,
     });
   });
 
@@ -108,6 +112,7 @@ function buildTurns(
       text: "",
       pending: true,
       trace: traces[questionNumber],
+      progress,
     });
   }
   return turns;
@@ -175,8 +180,18 @@ export function DoxChat({
   onEmptyChange,
   aboveComposer,
 }: DoxChatProps = {}) {
-  const { messages, traces, isStreaming, warning, submit, retry, stop, clear } =
-    useDocsChat(DEFAULT_MODEL_ID);
+  // No model named: Automatic, the Worker's own order (D9). The brain menu that picks one is phase 8's.
+  const {
+    messages,
+    traces,
+    isStreaming,
+    progress,
+    warning,
+    submit,
+    retry,
+    stop,
+    clear,
+  } = useDocsChat();
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -189,7 +204,7 @@ export function DoxChat({
   const [value, setValue] = useState("");
   const empty = value.trim() === "";
 
-  const turns = buildTurns(messages, isStreaming, traces);
+  const turns = buildTurns(messages, isStreaming, traces, progress);
   const noTurns = turns.length === 0;
   // Deferred, so the swap from the hub to the transcript runs as a transition and its `<ViewTransition>`s animate:
   // `useChat` pushes the first message as a plain synchronous update, which never starts one.
@@ -388,7 +403,7 @@ export function DoxChat({
 
 function TurnView({ turn }: { turn: Turn }) {
   const labelId = useId();
-  const { speaker, text, pending, trace } = turn;
+  const { speaker, text, pending, trace, progress } = turn;
 
   return (
     <article
@@ -408,7 +423,7 @@ function TurnView({ turn }: { turn: Turn }) {
             {pending ? (
               <p className="gmt-hive-pending">
                 <MagnifyingGlassIcon aria-hidden="true" />
-                {WAITING}
+                {progress ?? WAITING}
               </p>
             ) : (
               <div className="gmt-hive-response">

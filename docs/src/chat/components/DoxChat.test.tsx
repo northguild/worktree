@@ -546,3 +546,67 @@ describe("DoxChat -- the hub's status line", () => {
     ).toBeInTheDocument();
   });
 });
+
+// Plan #309 Phase 6 (§4.1 rows 11 and 12): the Worker's progress lines replace the waiting text, and the trace's last
+// write names the brain that answered. The frames are `CUSTOM` events written by hand to the shape `chat-types.ts`
+// documents (names `dox-progress`, `dox-retrieval`); the wording is the Worker's own, from gmt's `chat-handler.ts`.
+const progressFrame = (text: string) =>
+  `data: ${JSON.stringify({ type: "CUSTOM", name: "dox-progress", value: { text }, timestamp: 1 })}`;
+
+describe("DoxChat -- the Worker's progress lines", () => {
+  it("replaces the waiting text with each line as the Worker says it, and drops it with the first text", async () => {
+    const stream = openStream();
+    render(<DoxChat />);
+    ask(QUESTION);
+
+    await stream.push(RUN_STARTED);
+    expect(await screen.findByText("Searching docs…")).toBeInTheDocument();
+
+    await stream.push(progressFrame("Asking Gemma 4 26B…"));
+    expect(await screen.findByText("Asking Gemma 4 26B…")).toBeInTheDocument();
+    expect(screen.queryByText("Searching docs…")).toBeNull();
+
+    await stream.push(
+      progressFrame("Gemma 4 26B is busy — trying the next model…"),
+    );
+    expect(
+      await screen.findByText("Gemma 4 26B is busy — trying the next model…"),
+    ).toBeInTheDocument();
+
+    await stream.push(TEXT_START, FIRST_DELTA);
+    await waitFor(() =>
+      expect(screen.queryByText(/trying the next model/)).toBeNull(),
+    );
+    expect(screen.getByRole("article", { name: "Dox" })).toHaveTextContent(
+      "To r",
+    );
+    await stream.end();
+  });
+
+  it("names the answering brain in the trace's summary once the Worker has", async () => {
+    const stream = openStream();
+    render(<DoxChat />);
+    ask(QUESTION);
+    const named = `data: ${JSON.stringify({
+      type: "CUSTOM",
+      name: "dox-retrieval",
+      value: {
+        totalChunks: 210,
+        retrievedCount: 2,
+        chunkTitles: ["Cleanup › Usage", "Cleanup › Flags"],
+        chunkUrls: ["/commands/cleanup/"],
+        brainLabel: "GLM 4.7 Flash",
+      },
+      timestamp: 1,
+    })}`;
+
+    await stream.push(RUN_STARTED, TRACE_FRAME, TEXT_START, FIRST_DELTA, named);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Searched 210 chunks → 2 matched · GLM 4.7 Flash",
+      }),
+    ).toBeInTheDocument();
+    await stream.end();
+  });
+});

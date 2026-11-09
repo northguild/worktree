@@ -81,6 +81,10 @@ describe("classifyChatError", () => {
     ["rate_limited_daily", true],
     ["rate_limited", true],
     ["upstream_unavailable", true],
+    // Plan #309 D9, the Worker's table (`error-mapping.ts`): no brain started in time is worth asking again; every brain
+    // out for the day is not.
+    ["upstream_slow", true],
+    ["allowance_spent", false],
     ["misconfigured", false],
     ["failed", false],
   ])("shows a streamed %s error's text, retryable=%s", (code, retryable) => {

@@ -79,6 +79,53 @@ export interface RetrievalTraceData {
 /** The `CUSTOM` event name the trace travels under. */
 export const RETRIEVAL_TRACE_EVENT = "dox-retrieval";
 
+/** The `CUSTOM` event a progress line travels under: one for each step of the Worker's walk past the brains (D9). */
+export const PROGRESS_EVENT = "dox-progress";
+
+/** A value of `PROGRESS_EVENT`, checked: the line to show in place of the waiting text, or `null`. */
+export function readProgress(value: unknown): string | null {
+  if (typeof value !== "object" || value === null) return null;
+  const text = (value as Record<string, unknown>).text;
+  return typeof text === "string" && text.trim() !== "" ? text : null;
+}
+
+/** What a refusal says (D3, D9): the status and body a pre-stream HTTP error would have carried. */
+export interface RefusalData {
+  status: number;
+  payload: {
+    error: string;
+    retryable: boolean;
+    /** When the soonest brain refills, as an instant (`2026-11-10T00:00:00Z`): the client shows it in the reader's zone. */
+    resetsAt?: string;
+  };
+}
+
+/** The `CUSTOM` event a refusal travels under: every brain is out for the day. */
+export const REFUSAL_EVENT = "dox-refusal";
+
+/** A value of `REFUSAL_EVENT`, checked, or `null`. */
+export function readRefusal(value: unknown): RefusalData | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { status, payload } = value as Record<string, unknown>;
+  if (
+    typeof status !== "number" ||
+    typeof payload !== "object" ||
+    payload === null
+  ) {
+    return null;
+  }
+  const { error, retryable, resetsAt } = payload as Record<string, unknown>;
+  if (typeof error !== "string" || typeof retryable !== "boolean") return null;
+  return {
+    status,
+    payload: {
+      error,
+      retryable,
+      ...(typeof resetsAt === "string" && { resetsAt }),
+    },
+  };
+}
+
 /** A value of `RETRIEVAL_TRACE_EVENT`, checked: the wire is the Worker's, but a stale or foreign value must not throw in render. */
 export function readRetrievalTrace(value: unknown): RetrievalTraceData | null {
   if (typeof value !== "object" || value === null) return null;

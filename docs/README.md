@@ -47,18 +47,21 @@ full data flow — nothing is a black box.
 Browser (static site on northguild.dev/worktree/)
   │  useChat (@tanstack/ai-react) – docs/src/chat/hooks/useDocsChat.ts
   │
-  │  POST /api/chat  { threadId, runId, messages[], forwardedProps: { model, pageContext? } }
+  │  POST /api/chat  { threadId, runId, messages[], forwardedProps: { brain?, pageContext? } }
   ▼
 Cloudflare Worker  (docs/worker/)
-  │  – holds GEMINI_API_KEY as an encrypted secret
+  │  – holds GEMINI_API_KEY as an encrypted secret, and the Workers AI binding `AI`
   │  – rate-limits, validates input (validation.ts), enforces CORS
   │  – searches the docs for the question and builds the system prompt from what it finds
+  │  – walks its brains in order until one starts answering (brains.ts)
   ▼
-Google Gemini API  (@tanstack/ai-gemini)
+Workers AI (@tanstack/ai-cloudflare): Gemma 4 26B, GLM 4.7 Flash
+Google Gemini API (@tanstack/ai-gemini): 3.5 Flash-Lite, 3.6 Flash, 3.5 Flash
   │
   ▼
-Worker streams AG-UI events over SSE (RUN_STARTED, CUSTOM `dox-retrieval`, TEXT_MESSAGE_*,
-CUSTOM `dox-retrieval` again, RUN_FINISHED or RUN_ERROR)
+Worker streams AG-UI events over SSE (RUN_STARTED, CUSTOM `dox-retrieval`, CUSTOM `dox-progress` for
+each step of the walk, TEXT_MESSAGE_*, CUSTOM `dox-retrieval` again, RUN_FINISHED or RUN_ERROR;
+CUSTOM `dox-refusal` when every brain is out)
   │
   ▼
 useChat folds the events into messages and hands the custom ones to onCustomEvent;  docs/src/chat/  renders them
@@ -77,14 +80,22 @@ On the page, the pieces are:
   (`lib/chat-fetch.ts`), which does three things the library does not: it reads the Worker's `{ error, retryable }`
   body on a non-OK status and throws it as the error's `cause`; it drops assistant turns with no text from the
   request; and it removes the `X-Run-Id` header the library adds, because the Worker's CORS allows `Content-Type`
-  alone. The chosen model travels as `forwardedProps.model`.
+  alone. The page names no model, which is Automatic: the Worker picks. (A brain the reader chose would travel as
+  `forwardedProps.brain`, and #306's `forwardedProps.model` is still accepted; the menu that chooses is not on the page yet.)
 - **The transcript.** One conversation (`threadId` `docs-chat`), kept in `localStorage` by `useChat`'s
   persistence under `docs_chat_transcript:docs-chat`. Only text parts are stored; anything else read back is
-  refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). "New chat" (on `/dox/`) stops a stream and removes it. The page asks the default model; a model the drawer stored under
+  refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). "New chat" (on `/dox/`) stops a stream and removes it. A model the drawer stored under
   `docs_chat_model` is ignored. The retired client's three `docs_chat_history_<model>` keys are removed on first mount.
 - **Failures.** They are never messages. A status before the stream opens, a `RUN_ERROR` inside it or a dropped
   connection becomes one warning under the transcript (`components/ChatWarning.tsx`) with "Try again" when asking
-  again can help. An answer that is silent for 30 s, or runs for 120 s, is stopped and warned about.
+  again can help. An answer that is silent for 30 s, or runs for 120 s, is stopped and warned about; a progress line from
+  the Worker counts as the answer being alive. When every brain is out for the day the Worker writes a `dox-refusal` event,
+  which `useDocsChat` shows as a warning that asking again will not fix ("Dox has used its free allowance for today.").
+- **Brains and progress.** The Worker tries Workers AI's Gemma 4 26B and GLM 4.7 Flash first, then Gemini's three models, and
+  skips one that is busy, slow or out for the day before any text streams. Each step is a `dox-progress` event, and
+  `useDocsChat` (`progress`) hands the last to the waiting turn, which shows it in place of "Searching docs…". The trace's
+  summary names the brain that answered: "Searched 210 chunks → 8 matched · GLM 4.7 Flash". How the walk works, and what the
+  Worker needs for it, is in [worker/README.md](worker/README.md#brains).
 - **The empty chat and its limits.** With no question yet, the page shows the hub and the examples rail, whose three starter
   questions (`lib/chat-starters.ts`, each paired with the docs page that answers it) are sent through the same guarded
   `submit` as the composer; focus moves to the message field when one is sent. A line under the composer
@@ -148,9 +159,9 @@ For each `POST /api/chat`, after validation (`docs/worker/chat-handler.ts`):
    route, `VALID_DOC_ROUTES`); vocabulary; the retrieved chunks; and a refusal instruction for a question the chunks do
    not answer. It is passed to `chat()` as `systemPrompts`. The reader's text is never spliced into it.
 
-**No runtime fetching** and no binding: the corpus is embedded in the Worker bundle, which `wrangler deploy --dry-run`
+**No runtime fetching**: the corpus is embedded in the Worker bundle (the `AI` binding is for the models only), which `wrangler deploy --dry-run`
 measured on 2026-11-08 at 3,931 KiB uploaded (761 KiB gzipped), of which the generated `docs-context.ts` is 1,046 KB
-(it was 361 KB as a whole-docs prompt). `POST /` (the frozen legacy route) still sends the whole docs, as one prompt that
+(it was 361 KB as a whole-docs prompt). Adding the Workers AI adapter took it to 5,396 KiB (986 KiB gzipped) on 2026-11-09. `POST /` (the frozen legacy route) still sends the whole docs, as one prompt that
 `buildLegacyPrompt` writes from the `.mdx` files and the skill guide into `docs-context.ts` as `LEGACY_PROMPT` (plan #257 D3; removing it is #300).
 
 #### The retrieval trace
@@ -306,7 +317,7 @@ shortcut are gone, and every other page links to it (*Opening it* above).
   site's own, restyled into the hive. Each question and answer is a turn: the crystal's node, labelled "You" or "Dox", beside a card (a zigzag from 48rem
   of the transcript's own width; one column below). The answer is `MarkdownContent`, whose fenced code carries the language and a
   "Copy" button, and no download. The reader's question is text, never markdown.
-  - **Waiting.** From the send until the first text, the newest turn is Dox's, with "Searching docs…", a scanline and the crystal
+  - **Waiting.** From the send until the first text, the newest turn is Dox's, with "Searching docs…" (or the Worker's latest progress line, "Asking Gemma 4 26B…", "… is busy — trying the next model…"), a scanline and the crystal
     spinning (`hive/use-crystal-spin.ts`). It lands square on the first text; under `prefers-reduced-motion` it does not spin and a
     still halo and bar carry the wait. The answer's card is a polite live region from the wait on. An answer with no text (stopped, or
     killed by an error) is not a turn: the failure shows as the warning.

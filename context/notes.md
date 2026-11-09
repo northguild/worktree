@@ -99,3 +99,25 @@ Non-blocking observations from the phase gates. Branch-local; `/feature-close` d
 - **Node warning.** `build-context.mjs` imports `.ts` under Node's type stripping and prints
   `MODULE_TYPELESS_PACKAGE_JSON` on every build; `"type": "module"` in `docs/package.json` would silence it but changes
   how Vite and Astro load config.
+
+## Phase 6
+
+- **Per-minute 429s read as spent for the day.** Every Gemini 429 marks the brain spent, per-minute included (gmt and
+  D9 alike), so a reader who hits only a per-minute limit sees "Dox has used its free allowance for today." where they
+  used to get a retryable `rate_limited`; Phase 7's ledger will carry it over to the whole day. Distinguishing
+  `PerMinute` quota ids would fix it.
+- **D9 read narrowly, as gmt does.** A Workers AI 429 that is not the daily allocation (3040) is "busy", not "spent";
+  a Gemini 400 `API_KEY_INVALID` is "other", not "unavailable" (no plan or gmt source for the latter).
+- **Real binding errors unverified.** How `env.AI.run(…, { returnRawResponse: true })` reports an allocation error
+  (returned or thrown) is unknown offline; `withoutRetries` handles both. §8's live `wrangler dev` pass would confirm it,
+  and spends real Neurons.
+- **The frozen #306 client and slow brains.** Its 30 s idle timer resets only on text, so two slow brains in a row
+  (15 s, then 20 s) could trip it before an answer. Rare; the frozen client cannot change. `/dox` resets on progress.
+- **Type assertions.** `brains.ts` casts the binding (`as never`, `as unknown as AnyTextAdapter`) because the optional
+  workers-types peer is not installed; `typescript/anti-patterns.md` advises against it.
+- **Worker size.** 5,396 KiB uncompressed / 986 KiB gzip after `@tanstack/ai-cloudflare` and `openai`; Cloudflare's limit
+  is 64 MiB uncompressed on both plans, no compressed limit, 1 s startup. The binding constraint is R1's 10 ms CPU on
+  Free (§9 Q5).
+- **`withRunId` is broader than it needs to be.** It rewrites any top-level `runId`; safe today because `chat()` gets no
+  tools or subagents. Limiting it to `RUN_STARTED`/`RUN_FINISHED`/`RUN_ERROR` and skipping chunks with `parentRunId` or
+  `subagentRunId` would keep it safe if tools ever arrive.

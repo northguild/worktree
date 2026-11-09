@@ -8,7 +8,12 @@ import { fakeText } from "@tanstack/ai/testing";
 import { createGeminiChat } from "@tanstack/ai-gemini";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHAT_STARTERS } from "../src/chat/lib/chat-starters";
-import { RETRIEVAL_TRACE_EVENT } from "../src/chat/lib/chat-types";
+import {
+  PROGRESS_EVENT,
+  REFUSAL_EVENT,
+  RETRIEVAL_TRACE_EVENT,
+  type RefusalData,
+} from "../src/chat/lib/chat-types";
 import { buildCorpus, buildLegacyPrompt } from "./build-context.mjs";
 import {
   createChatHandler,
@@ -48,6 +53,15 @@ const GOOGLE_DAILY_429 = JSON.stringify({
         ],
       },
     ],
+  },
+});
+
+// A Google 500: says nothing about the brain, so the walk stops on it and the reader gets our words (D9).
+const GOOGLE_500 = JSON.stringify({
+  error: {
+    code: 500,
+    message: "Internal error. GOOGLE-QUOTA-SENTENCE",
+    status: "INTERNAL",
   },
 });
 
@@ -218,11 +232,14 @@ describe("createChatHandler — failures before the stream", () => {
     const env = { WORKER_RATE_LIMIT_MAX: "1" }; // no key either: the limiter comes first
     const ip = nextIp();
 
-    await handler(
-      post(chatBody(), { ip }),
-      { ...env, GEMINI_API_KEY: "k" },
-      CORS,
-    );
+    // The walk runs as the stream is read, so the first answer is read before the model is counted.
+    await (
+      await handler(
+        post(chatBody(), { ip }),
+        { ...env, GEMINI_API_KEY: "k" },
+        CORS,
+      )
+    ).text();
     const res = await handler(post(chatBody(), { ip }), env, CORS);
 
     expect(res.status).toBe(429);
@@ -319,8 +336,8 @@ describe("createChatHandler — failures before the stream", () => {
 });
 
 describe("createChatHandler — failures inside the stream (D9)", () => {
-  it("a Google daily 429 becomes the curated RUN_ERROR; Google's text appears nowhere", async () => {
-    const { handler, log } = setup([{ error: GOOGLE_DAILY_429 }]);
+  it("a Google 500 becomes the curated RUN_ERROR; Google's text appears nowhere", async () => {
+    const { handler, log } = setup([{ error: GOOGLE_500 }]);
 
     const res = await handler(post(chatBody()), ENV, CORS);
     const raw = await res.clone().text();
@@ -330,24 +347,22 @@ describe("createChatHandler — failures inside the stream (D9)", () => {
     const error = sent.find((e) => e.type === "RUN_ERROR");
     expect(error).toMatchObject({
       type: "RUN_ERROR",
-      code: "rate_limited_daily",
-      message:
-        "The assistant has reached its daily limit. Try again tomorrow, or pick the other model.",
+      code: "upstream_unavailable",
+      message: "The assistant's model is unavailable right now.",
     });
     expect(sent.filter((e) => e.type === "RUN_ERROR")).toHaveLength(1);
     expect(raw).not.toContain("GOOGLE-QUOTA-SENTENCE");
-    expect(raw).not.toContain("RESOURCE_EXHAUSTED");
-    expect(raw).not.toContain("quotaId");
+    expect(raw).not.toContain("INTERNAL");
     // Logged once, structured, with no upstream text.
     expect(log).toHaveBeenCalledTimes(1);
     const entry = JSON.stringify(log.mock.calls[0]);
-    expect(entry).toContain("rate_limited_daily");
+    expect(entry).toContain("upstream_unavailable");
     expect(entry).not.toContain("GOOGLE-QUOTA-SENTENCE");
     expect(entry).not.toContain("test-key");
   });
 
   it("the curated error is stamped with the injected clock", async () => {
-    const { handler } = setup([{ error: GOOGLE_DAILY_429 }]);
+    const { handler } = setup([{ error: GOOGLE_500 }]);
 
     const res = await handler(post(chatBody()), ENV, CORS);
     const error = (await events(res)).find((e) => e.type === "RUN_ERROR");
@@ -355,7 +370,7 @@ describe("createChatHandler — failures inside the stream (D9)", () => {
     expect(error?.timestamp).toBe(1_700_000_000_000);
   });
 
-  it("a real createGeminiChat over a stubbed 429 yields the same curated error", async () => {
+  it("a real createGeminiChat over a stubbed 429 on every brain ends in the refusal, and Google's text appears nowhere", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -375,14 +390,20 @@ describe("createChatHandler — failures inside the stream (D9)", () => {
 
     const res = await handler(post(chatBody()), ENV, CORS);
     const raw = await res.clone().text();
+    const sent = await events(res);
 
-    expect(
-      (await events(res)).find((e) => e.type === "RUN_ERROR"),
-    ).toMatchObject({ code: "rate_limited_daily" });
+    expect(sent.find((e) => e.name === REFUSAL_EVENT)).toMatchObject({
+      value: { status: 429, payload: { retryable: false } },
+    });
+    expect(sent.find((e) => e.type === "RUN_ERROR")).toMatchObject({
+      code: "allowance_spent",
+    });
     expect(raw).not.toContain("GOOGLE-QUOTA-SENTENCE");
+    expect(raw).not.toContain("RESOURCE_EXHAUSTED");
+    expect(raw).not.toContain("quotaId");
   });
 
-  it("does not retry a 429 against the quota (D9: retry stays unset)", async () => {
+  it("asks each Gemini brain once and does not retry a 429 against the quota (D9: retry stays unset)", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(GOOGLE_DAILY_429, {
@@ -400,7 +421,8 @@ describe("createChatHandler — failures inside the stream (D9)", () => {
 
     await (await handler(post(chatBody()), ENV, CORS)).text();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Three Gemini brains, one request each: the next brain is the retry.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("the library's own error logging does not print Google's body", async () => {
@@ -437,7 +459,7 @@ describe("createChatHandler — failures inside the stream (D9)", () => {
       printed.map((spy) => spy.mock.calls),
       { depth: null },
     );
-    expect(everything).toContain("rate_limited_daily"); // our own line is there
+    expect(everything).toContain("allowance_spent"); // our own line is there
     expect(everything).not.toContain("GOOGLE-QUOTA-SENTENCE");
   });
 });
@@ -795,6 +817,9 @@ describe("createChatHandler — the retrieval trace (D3, §4.1 row 12)", () => {
     };
   }
 
+  const isTrace = (e: Event) =>
+    e.type === "CUSTOM" && e.name === RETRIEVAL_TRACE_EVENT;
+
   async function runWithTrace(question: string) {
     const fake = fakeText({ model: "gemini-3.5-flash-lite" });
     fake.setResponses([{ text: "Run `worktree remove`." }]);
@@ -817,9 +842,8 @@ describe("createChatHandler — the retrieval trace (D3, §4.1 row 12)", () => {
     expect(types[1]).toBe("CUSTOM");
     expect(types.at(-1)).toBe("RUN_FINISHED");
     expect(types.at(-2)).toBe("CUSTOM");
-    const custom = all.filter((e) => e.type === "CUSTOM");
+    const custom = all.filter(isTrace);
     expect(custom).toHaveLength(2);
-    expect(custom.every((e) => e.name === RETRIEVAL_TRACE_EVENT)).toBe(true);
     // The first is there before any answer text; the second after all of it.
     expect(types.indexOf("TEXT_MESSAGE_CONTENT")).toBeGreaterThan(1);
     expect(types.lastIndexOf("TEXT_MESSAGE_CONTENT")).toBeLessThan(
@@ -829,9 +853,7 @@ describe("createChatHandler — the retrieval trace (D3, §4.1 row 12)", () => {
 
   it("counts the corpus, what matched and which pages, the same in both writes", async () => {
     const all = await runWithTrace(CHAT_STARTERS[2]?.text ?? "");
-    const [first, last] = all.filter(
-      (e) => e.type === "CUSTOM",
-    ) as unknown as Array<{
+    const [first, last] = all.filter(isTrace) as unknown as Array<{
       value: Record<string, unknown>;
     }>;
 
@@ -853,9 +875,7 @@ describe("createChatHandler — the retrieval trace (D3, §4.1 row 12)", () => {
 
   it("times the stages before the stream in the first write and adds first token and total in the second", async () => {
     const all = await runWithTrace(CHAT_STARTERS[2]?.text ?? "");
-    const [first, last] = all.filter(
-      (e) => e.type === "CUSTOM",
-    ) as unknown as Array<{
+    const [first, last] = all.filter(isTrace) as unknown as Array<{
       value: { timings: Record<string, number> };
     }>;
 
@@ -876,7 +896,7 @@ describe("createChatHandler — the retrieval trace (D3, §4.1 row 12)", () => {
   });
   it("says nothing matched for a question the docs do not cover", async () => {
     const all = await runWithTrace("What is the capital of Peru?");
-    const [first] = all.filter((e) => e.type === "CUSTOM") as unknown as Array<{
+    const [first] = all.filter(isTrace) as unknown as Array<{
       value: {
         retrievedCount: number;
         chunkTitles: string[];
@@ -894,8 +914,8 @@ describe("createChatHandler — the retrieval trace (D3, §4.1 row 12)", () => {
       "fetch",
       vi.fn(
         async () =>
-          new Response(GOOGLE_DAILY_429, {
-            status: 429,
+          new Response(GOOGLE_500, {
+            status: 500,
             headers: { "content-type": "application/json" },
           }),
       ),
@@ -910,14 +930,14 @@ describe("createChatHandler — the retrieval trace (D3, §4.1 row 12)", () => {
     const all = await events(await handler(post(chatBody()), ENV, CORS));
     const types = all.map((e) => e.type);
 
-    expect(types.filter((t) => t === "CUSTOM")).toHaveLength(1);
+    expect(all.filter(isTrace)).toHaveLength(1);
     expect(types.at(-1)).toBe("RUN_ERROR");
     expect(types).not.toContain("RUN_FINISHED");
   });
 
   it("carries counts, titles, pages and times only", async () => {
     const all = await runWithTrace(CHAT_STARTERS[0]?.text ?? "");
-    const [first] = all.filter((e) => e.type === "CUSTOM") as unknown as Array<{
+    const [first] = all.filter(isTrace) as unknown as Array<{
       value: Record<string, unknown>;
     }>;
 
@@ -1016,5 +1036,403 @@ describe("the frozen legacy prompt", () => {
       "searchIndexJson",
       "vocabulary",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Plan #309 Phase 6: the brains (D9). Expected values: D9's list, order and timeouts; the progress lines are gmt's
+// (`chat-handler.ts`: "… is busy — trying the next model…"); a refusal is a 429 carrying the soonest refill, which for
+// `now` = 1,700,000,000,000 ms (2023-11-14T22:13:20Z) is UTC midnight, 2023-11-15T00:00:00Z, for Workers AI and Pacific
+// midnight, 2023-11-15T08:00:00Z (PST is UTC-8 in November), for Gemini.
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe("createChatHandler — the brains (D9)", () => {
+  const AI = { run: vi.fn() };
+  const BOTH = { GEMINI_API_KEY: "test-key", AI };
+  const BUSY_3040 = "429 3040: no more data centers to forward the request";
+  const ALLOCATION = "429 3036: you have used up your daily free allocation";
+  const GEMINI_429 = JSON.stringify({ error: { code: 429, message: "quota" } });
+  const NOW = 1_700_000_000_000;
+
+  type Reply = Parameters<ReturnType<typeof fakeText>["setResponses"]>[0];
+
+  /** One fake per brain, so a test can say what each says and count what each was asked. */
+  function brainsSetup(replies: Record<string, Reply>) {
+    const fakes: Record<string, ReturnType<typeof fakeText>> = {};
+    for (const [id, responses] of Object.entries(replies)) {
+      fakes[id] = fakeText({ model: id });
+      fakes[id].setResponses(responses);
+    }
+    const fake = (id: string) => {
+      const found = fakes[id];
+      if (!found) throw new Error(`unexpected call to ${id}`);
+      return found;
+    };
+    const createAdapter = vi.fn((model: string) => fake(model));
+    const createWorkersAIAdapter = vi.fn((brain: { id: string }) =>
+      fake(brain.id),
+    );
+    const log = vi.fn();
+    const handler = createChatHandler({
+      createAdapter: createAdapter as never,
+      createWorkersAIAdapter: createWorkersAIAdapter as never,
+      corpus: CORPUS,
+      now: () => NOW,
+      startTimeoutMs: () => 30,
+      log,
+    });
+    return { handler, fakes, createAdapter, createWorkersAIAdapter, log };
+  }
+
+  const run = async (
+    handler: ReturnType<typeof createChatHandler>,
+    env: Parameters<ReturnType<typeof createChatHandler>>[1] = BOTH,
+    extra: Record<string, unknown> = {},
+  ) =>
+    events(
+      await handler(
+        post(chatBody("How do I remove a worktree?", extra)),
+        env,
+        CORS,
+      ),
+    );
+
+  const progress = (all: Event[]) =>
+    all
+      .filter((e) => e.type === "CUSTOM" && e.name === PROGRESS_EVENT)
+      .map((e) => (e.value as { text: string }).text);
+  const answerText = (all: Event[]) =>
+    all
+      .filter((e) => e.type === "TEXT_MESSAGE_CONTENT")
+      .map((e) => e.delta)
+      .join("");
+
+  it("starts with Workers AI, brain 1, when nothing is picked, and names it in the trace", async () => {
+    const { handler, createAdapter } = brainsSetup({
+      "cf-gemma-4-26b": [{ text: "From Gemma" }],
+    });
+
+    const all = await run(handler);
+
+    expect(answerText(all)).toBe("From Gemma");
+    expect(progress(all)).toEqual(["Asking Gemma 4 26B…"]);
+    expect(createAdapter).not.toHaveBeenCalled();
+    const traces = all.filter(
+      (e) => e.type === "CUSTOM" && e.name === RETRIEVAL_TRACE_EVENT,
+    ) as unknown as Array<{ value: { brainLabel?: string } }>;
+    // The first write is before any brain has answered; the second names the one that did.
+    expect(traces[0]?.value.brainLabel).toBeUndefined();
+    expect(traces[1]?.value.brainLabel).toBe("Gemma 4 26B");
+  });
+
+  it("a 429 on brain 1 answers from brain 2, with the busy line written before the answer", async () => {
+    const { handler, log } = brainsSetup({
+      "cf-gemma-4-26b": [{ error: BUSY_3040 }],
+      "cf-glm-4.7-flash": [{ text: "From GLM" }],
+    });
+
+    const all = await run(handler);
+    const types = all.map((e) => e.type);
+
+    expect(answerText(all)).toBe("From GLM");
+    expect(progress(all)).toEqual([
+      "Asking Gemma 4 26B…",
+      "Gemma 4 26B is busy — trying the next model…",
+      "Asking GLM 4.7 Flash…",
+    ]);
+    // The lines come after RUN_STARTED and before any answer text.
+    const lastProgress = all.findLastIndex((e) => e.name === PROGRESS_EVENT);
+    expect(types[0]).toBe("RUN_STARTED");
+    expect(lastProgress).toBeLessThan(types.indexOf("TEXT_MESSAGE_CONTENT"));
+    // One RUN_STARTED: the second brain's own is left out.
+    expect(types.filter((t) => t === "RUN_STARTED")).toHaveLength(1);
+    expect(types.at(-1)).toBe("RUN_FINISHED");
+    expect(types).not.toContain("RUN_ERROR");
+    expect(log).toHaveBeenCalledWith({
+      event: "chat.brain_skipped",
+      level: "warn",
+      model: "cf-gemma-4-26b",
+      outcome: "busy",
+      threadId: "docs-chat",
+      runId: "run-1",
+    });
+    const trace = all.findLast(
+      (e) => e.name === RETRIEVAL_TRACE_EVENT,
+    ) as unknown as { value: { brainLabel: string } };
+    expect(trace.value.brainLabel).toBe("GLM 4.7 Flash");
+  });
+
+  it("a brain silent past its timeout is skipped with its own line", async () => {
+    const { handler } = brainsSetup({
+      "cf-gemma-4-26b": [() => new Promise(() => {})],
+      "cf-glm-4.7-flash": [{ text: "From GLM" }],
+    });
+
+    const all = await run(handler);
+
+    expect(progress(all)).toContain(
+      "Gemma 4 26B is taking too long — trying the next model…",
+    );
+    expect(answerText(all)).toBe("From GLM");
+  });
+
+  it("Workers AI allocation exhausted skips both Workers AI brains and answers from Gemini", async () => {
+    const { handler, createWorkersAIAdapter } = brainsSetup({
+      "cf-gemma-4-26b": [{ error: ALLOCATION }],
+      "gemini-3.5-flash-lite": [{ text: "From Gemini" }],
+    });
+
+    const all = await run(handler);
+
+    expect(answerText(all)).toBe("From Gemini");
+    // GLM was never asked: the pool is per account.
+    expect(createWorkersAIAdapter).toHaveBeenCalledTimes(1);
+    expect(progress(all)).toEqual([
+      "Asking Gemma 4 26B…",
+      "Gemma 4 26B is out for today — trying the next model…",
+      "Asking 3.5 Flash-Lite…",
+    ]);
+  });
+
+  it("every brain out ends in a refusal event: 429, and when the soonest allowance returns", async () => {
+    const { handler } = brainsSetup({
+      "cf-gemma-4-26b": [{ error: ALLOCATION }],
+      "gemini-3.5-flash-lite": [{ error: GEMINI_429 }],
+      "gemini-3.6-flash": [{ error: GEMINI_429 }],
+      "gemini-3.5-flash": [{ error: GEMINI_429 }],
+    });
+
+    const all = await run(handler);
+
+    const refusal = all.find((e) => e.name === REFUSAL_EVENT);
+    expect(refusal?.value).toEqual({
+      status: 429,
+      payload: {
+        error: "Dox has used its free allowance for today.",
+        retryable: false,
+        resetsAt: "2023-11-15T00:00:00Z",
+      },
+    });
+    // The same refusal as a curated RUN_ERROR, for a client that ignores CUSTOM events.
+    expect(all.at(-1)).toMatchObject({
+      type: "RUN_ERROR",
+      code: "allowance_spent",
+      message: "Dox has used its free allowance for today.",
+    });
+    expect(all.map((e) => e.type)).not.toContain("TEXT_MESSAGE_CONTENT");
+  });
+
+  it("Gemini alone refuses with Pacific midnight, not UTC", async () => {
+    const out = [{ error: GEMINI_429 }];
+    const { handler } = brainsSetup({
+      "gemini-3.5-flash-lite": out,
+      "gemini-3.6-flash": out,
+      "gemini-3.5-flash": out,
+    });
+
+    const all = await run(handler, { GEMINI_API_KEY: "k" });
+
+    expect(
+      (all.find((e) => e.name === REFUSAL_EVENT)?.value as RefusalData).payload
+        .resetsAt,
+    ).toBe("2023-11-15T08:00:00Z");
+  });
+
+  it("with no AI binding offers Gemini only, flash-lite first", async () => {
+    const { handler, createAdapter, createWorkersAIAdapter } = brainsSetup({
+      "gemini-3.5-flash-lite": [{ text: "From Gemini" }],
+    });
+
+    const all = await run(handler, { GEMINI_API_KEY: "k" });
+
+    expect(answerText(all)).toBe("From Gemini");
+    expect(createAdapter).toHaveBeenCalledWith("gemini-3.5-flash-lite", "k");
+    expect(createWorkersAIAdapter).not.toHaveBeenCalled();
+  });
+
+  it("with the binding and no key offers Workers AI only", async () => {
+    const { handler, createAdapter } = brainsSetup({
+      "cf-gemma-4-26b": [{ error: BUSY_3040 }],
+      "cf-glm-4.7-flash": [{ error: BUSY_3040 }],
+    });
+
+    const all = await run(handler, { AI });
+
+    // Both busy and nobody spent: the last overload, in our words, not a refusal about the allowance.
+    expect(all.at(-1)).toMatchObject({
+      type: "RUN_ERROR",
+      code: "rate_limited",
+    });
+    expect(all.some((e) => e.name === REFUSAL_EVENT)).toBe(false);
+    expect(createAdapter).not.toHaveBeenCalled();
+  });
+
+  it("with no key and no binding answers 500 'The assistant is not configured.'", async () => {
+    const { handler } = brainsSetup({});
+
+    const res = await handler(post(chatBody()), {}, CORS);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: "The assistant is not configured.",
+      retryable: false,
+    });
+  });
+
+  it("asks the brain the reader picked first, then the rest in order", async () => {
+    const { handler, createWorkersAIAdapter, createAdapter } = brainsSetup({
+      "gemini-3.6-flash": [{ error: GEMINI_429 }],
+      "cf-gemma-4-26b": [{ text: "From Gemma" }],
+    });
+
+    const all = await run(handler, BOTH, {
+      forwardedProps: { brain: "gemini-3.6-flash" },
+    });
+
+    expect(progress(all)[0]).toBe("Asking 3.6 Flash…");
+    expect(createAdapter).toHaveBeenCalledWith("gemini-3.6-flash", "test-key");
+    expect(answerText(all)).toBe("From Gemma");
+    expect(createWorkersAIAdapter).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a pick the deployment cannot reach", async () => {
+    const { handler } = brainsSetup({
+      "gemini-3.5-flash-lite": [{ text: "From Gemini" }],
+    });
+
+    const all = await run(
+      handler,
+      { GEMINI_API_KEY: "k" },
+      {
+        forwardedProps: { brain: "cf-gemma-4-26b" },
+      },
+    );
+
+    expect(answerText(all)).toBe("From Gemini");
+  });
+
+  it("gives Workers AI brains thinking off and 2,048 tokens, and no reasoning level", async () => {
+    let received: TextOptions | undefined;
+    const { handler } = brainsSetup({
+      "cf-gemma-4-26b": [
+        ({ request }) => {
+          received = request;
+          return { text: "ok" };
+        },
+      ],
+    });
+
+    await run(handler);
+
+    expect(received?.modelOptions).toEqual({
+      max_tokens: 2048,
+      chat_template_kwargs: { enable_thinking: false },
+    });
+    expect(received?.reasoning).toBeUndefined();
+  });
+
+  it("an unrelated failure ends the walk in our words; the next brain is not asked", async () => {
+    const { handler, createWorkersAIAdapter, log } = brainsSetup({
+      "cf-gemma-4-26b": [{ error: "500 internal boom PROVIDER-TEXT" }],
+    });
+
+    const res = await handler(post(chatBody()), BOTH, CORS);
+    const raw = await res.clone().text();
+    const all = await events(res);
+
+    expect(all.at(-1)).toMatchObject({
+      type: "RUN_ERROR",
+      code: "upstream_unavailable",
+    });
+    expect(raw).not.toContain("PROVIDER-TEXT");
+    expect(createWorkersAIAdapter).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "chat.failed",
+        model: "cf-gemma-4-26b",
+      }),
+    );
+  });
+
+  it("only slow brains end in the slow-to-respond error", async () => {
+    const hang = [() => new Promise<never>(() => {})];
+    const { handler } = brainsSetup({
+      "cf-gemma-4-26b": hang,
+      "cf-glm-4.7-flash": hang,
+    });
+
+    const all = await run(handler, { AI });
+
+    expect(all.at(-1)).toMatchObject({
+      type: "RUN_ERROR",
+      code: "upstream_slow",
+      message:
+        "The assistant is slow to respond right now. Please try again in a moment.",
+    });
+  });
+
+  it("still accepts #306's forwardedProps.model and starts with that model", async () => {
+    const { handler, createAdapter } = brainsSetup({
+      "gemini-3.6-flash": [{ text: "From 3.6" }],
+    });
+
+    const all = await run(handler, BOTH, {
+      forwardedProps: { model: "gemini-3.6-flash" },
+    });
+
+    expect(createAdapter).toHaveBeenCalledWith("gemini-3.6-flash", "test-key");
+    expect(answerText(all)).toBe("From 3.6");
+  });
+
+  it("answers an old client's request as before: its pinned model first, one stream, RUN_STARTED first", async () => {
+    const { handler } = brainsSetup({
+      "gemini-3.5-flash-lite": [{ text: "From Gemini" }],
+    });
+
+    const all = await run(
+      handler,
+      { GEMINI_API_KEY: "k" },
+      {
+        forwardedProps: { model: "gemini-3.5-flash-lite" },
+      },
+    );
+
+    expect(all[0]?.type).toBe("RUN_STARTED");
+    expect(all.at(-1)?.type).toBe("RUN_FINISHED");
+  });
+
+  it("a real Workers AI adapter's RUN_FINISHED carries the request's run id, not the adapter's own", async () => {
+    // `fakeText` echoes the run id it is given, so only the real adapter (which makes its own) can show the walk
+    // rewriting it. The binding records nothing and answers one OpenAI-shaped SSE chunk.
+    const chunk = (delta: object, finish: string | null) => ({
+      id: "c1",
+      object: "chat.completion.chunk",
+      model: "m",
+      choices: [{ index: 0, delta, finish_reason: finish }],
+    });
+    const body = `${[chunk({ content: "Hi" }, null), chunk({}, "stop")]
+      .map((e) => `data: ${JSON.stringify(e)}\n\n`)
+      .join("")}data: [DONE]\n\n`;
+    const binding = {
+      run: async () =>
+        new Response(body, {
+          headers: { "content-type": "text/event-stream" },
+        }),
+    };
+    const handler = createChatHandler({
+      createAdapter: (() => {
+        throw new Error("Gemini is not asked");
+      }) as never,
+      corpus: CORPUS,
+      now: () => NOW,
+      log: vi.fn(),
+    });
+
+    const all = await events(
+      await handler(post(chatBody()), { AI: binding }, CORS),
+    );
+
+    expect(answerText(all)).toBe("Hi");
+    expect(all.find((e) => e.type === "RUN_FINISHED")?.runId).toBe("run-1");
   });
 });

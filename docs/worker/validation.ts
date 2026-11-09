@@ -15,9 +15,9 @@
 
 import { z } from "zod";
 import {
+  BRAIN_IDS,
+  type BrainId,
   CHAT_MODEL_IDS,
-  type ChatModelId,
-  DEFAULT_MODEL_ID,
   MAX_CONVERSATION_CHARS,
   MAX_MESSAGES,
 } from "../src/chat/lib/chat-constants";
@@ -41,7 +41,8 @@ export type ChatRequestResult =
       ok: true;
       value: {
         messages: ChatMessage[];
-        model: ChatModelId;
+        /** The brain the reader asked for, if they did: `brain`, else #306's `model`. Absent is Automatic (D3, D9). */
+        brain?: BrainId;
         /** The route of the page the reader came from, without the base: only a bias for the search (D3, D8). */
         pageContext?: string;
       };
@@ -88,7 +89,9 @@ const envelopeSchema = z.object({
   context: emptyList,
   forwardedProps: z
     .strictObject({
+      // #306's client names a model; `/dox` names a brain. Both stay accepted (D3), and `brain` wins when both come.
       model: z.enum(CHAT_MODEL_IDS, { error: "Unknown model." }).optional(),
+      brain: z.enum(BRAIN_IDS, { error: "Unknown model." }).optional(),
       pageContext: pageContextSchema.optional(),
     })
     .optional(),
@@ -138,11 +141,12 @@ export function validateChatRequest(body: unknown): ChatRequestResult {
     return refuse(TOO_LONG_CONVERSATION);
   }
 
+  const brain = forwardedProps?.brain ?? forwardedProps?.model;
   return {
     ok: true,
     value: {
       messages: sendable,
-      model: forwardedProps?.model ?? DEFAULT_MODEL_ID,
+      ...(brain !== undefined && { brain }),
       ...(forwardedProps?.pageContext !== undefined && {
         pageContext: forwardedProps.pageContext,
       }),
