@@ -62,6 +62,27 @@ describe("BrainSelector", () => {
     expect(badge).toHaveTextContent("You 3 left · Dox 140 today");
   });
 
+  // A browser names the badge from its inline content: the text with the hidden parts left out, run together where nothing
+  // separates it. `getByRole`'s name cannot show that here, because jsdom gives a span no `display` and the name is then
+  // worked as though every span were a block, with a space between each; so the test builds the browser's version.
+  it("gives the badge a name whose words do not run together, the hidden dot left out", () => {
+    render(
+      <BrainSelector
+        info={brainsInfo({ visitorRemaining: 3 })}
+        selectedId={null}
+        onSelect={() => {}}
+        clock={LOS_ANGELES}
+      />,
+    );
+    const shown = screen.getByRole("button", { name: /left/ }).cloneNode(true);
+    if (!(shown instanceof Element)) throw new Error("the badge is an element");
+    for (const hidden of shown.querySelectorAll('[aria-hidden="true"]'))
+      hidden.remove();
+    expect(shown.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "Gemma 4 26B You 3 left Dox 140 today",
+    );
+  });
+
   it("sums the pool from what each brain has left", () => {
     render(
       <BrainSelector

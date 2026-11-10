@@ -114,6 +114,51 @@ describe("RailResizer", () => {
     expect(storage.has(STORAGE_KEY)).toBe(false);
   });
 
+  describe("with the pointer", () => {
+    // jsdom has no PointerEvent (testing-library's `fireEvent.pointerDown` then sends a bare Event, with no `button` or
+    // `clientX`) and no pointer capture. A MouseEvent named for the pointer event carries both, and React reads them off it;
+    // the handle only needs the three capture calls to exist.
+    const pointer = (type: string, clientX: number) =>
+      fireEvent(
+        handle(),
+        new MouseEvent(type, { bubbles: true, button: 0, clientX }),
+      );
+    beforeEach(() => {
+      Object.assign(Element.prototype, {
+        setPointerCapture: vi.fn(),
+        releasePointerCapture: vi.fn(),
+        hasPointerCapture: vi.fn(() => false),
+      });
+    });
+    afterEach(() => {
+      for (const name of [
+        "setPointerCapture",
+        "releasePointerCapture",
+        "hasPointerCapture",
+      ])
+        Reflect.deleteProperty(Element.prototype, name);
+    });
+
+    it("remembers the width a drag ends at", () => {
+      render(<Harness />);
+      pointer("pointerdown", 1000);
+      pointer("pointermove", 900);
+      pointer("pointerup", 900);
+      // 100px left of where it started: 489.6 + 100 = 589.6, stored as 590.
+      expect(Number.parseFloat(widthSet())).toBeCloseTo(MIN + 100, 5);
+      expect(storage.get(STORAGE_KEY)).toBe("590");
+    });
+
+    it("stores nothing for a click that never moved, so the rail keeps following the default", () => {
+      render(<Harness />);
+      pointer("pointerdown", 1000);
+      pointer("pointermove", 1000);
+      pointer("pointerup", 1000);
+      expect(storage.has(STORAGE_KEY)).toBe(false);
+      expect(widthSet()).toBe("");
+    });
+  });
+
   it("still works when storage is blocked", () => {
     vi.stubGlobal("localStorage", {
       getItem: () => {

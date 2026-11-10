@@ -66,7 +66,12 @@ interface RailResizerProps {
 
 export function RailResizer({ railId, container }: RailResizerProps) {
   const [measured, setMeasured] = useState<Measured | null>(null);
-  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+  /** The drag under way: where it started, and whether the pointer has moved since (a click is not a resize). */
+  const drag = useRef<{
+    startX: number;
+    startWidth: number;
+    moved: boolean;
+  } | null>(null);
   const frame = useRef(0);
   /** The width the last pointer move asked for, until its frame is drawn. */
   const pending = useRef<number | undefined>(undefined);
@@ -126,14 +131,19 @@ export function RailResizer({ railId, container }: RailResizerProps) {
     if (!current) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { startX: event.clientX, startWidth: current.width };
+    drag.current = {
+      startX: event.clientX,
+      startWidth: current.width,
+      moved: false,
+    };
     elements()?.body.setAttribute("data-resizing", "");
     event.currentTarget.setAttribute("data-resizing", "");
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const start = drag.current;
-    if (!start) return;
+    if (!start || event.clientX === start.startX) return;
+    start.moved = true;
     // The rail is on the right: moving the pointer left widens it.
     const width = start.startWidth + (start.startX - event.clientX);
     pending.current = width;
@@ -145,7 +155,8 @@ export function RailResizer({ railId, container }: RailResizerProps) {
   };
 
   const endDrag = (event: PointerEvent<HTMLDivElement>) => {
-    if (!drag.current) return;
+    const ended = drag.current;
+    if (!ended) return;
     drag.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -158,6 +169,9 @@ export function RailResizer({ railId, container }: RailResizerProps) {
       apply(pending.current);
       pending.current = undefined;
     }
+    // A click that never moved, or the first click of the double-click that resets, leaves the rail where it was: storing
+    // its width would pin the CSS default, in px, for every later visit at any window width.
+    if (!ended.moved) return;
     const width = measure()?.width;
     if (width !== undefined) storeWidth(width);
   };

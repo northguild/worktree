@@ -69,10 +69,11 @@ export function BrainSelector({
     <div className="gmt-hive-brains">
       <Menu.Root>
         <Menu.Trigger className="gmt-hive-brain-badge">
-          <span className="gmt-hive-brain-name">{active?.label ?? "Dox"}</span>
+          {/* The literal spaces keep the accessible name "Gemma 4 26B You 3 left Dox 140 today": inline spans otherwise
+              run together, a space inside the hidden dot is hidden with it, and the badge's flex layout ignores them. */}
+          <span className="gmt-hive-brain-name">{active?.label ?? "Dox"}</span>{" "}
           <span className="gmt-hive-brain-counts">
-            You {info.visitor.remaining} left
-            <span aria-hidden="true"> · </span>
+            You {info.visitor.remaining} left <span aria-hidden="true">·</span>{" "}
             Dox {poolLeft} today
           </span>
         </Menu.Trigger>

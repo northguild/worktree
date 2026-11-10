@@ -70,8 +70,8 @@
  *
  * Also (#309 phase 4, D2, the links to /dox/): the chat is a page, and its entry points are plain links. On every page and
  * the 404 the `<header>` has one link to /worktree/dox/ named "Chat with Dox", before the theme toggle (so first in the
- * right group); it carries `aria-current="page"` on /dox/ and nowhere else; where the page has a mobile menu
- * (`mobile-preferences`, the pages with a sidebar) the menu has the same link before the social icons; and the landing
+ * right group); it carries `aria-current="page"` on /dox/ and nowhere else; every page with a sidebar (the 28 but the
+ * landing) has a mobile menu (`mobile-preferences`), and the menu has the same link before the social icons; and the landing
  * has one "Ask Dox" link to /worktree/dox/ and no "Ask Dox" button. The launcher, the bubble and the shortcut are gone,
  * so their rules are too; "Dox code on /dox/ alone" (`auditDox`) is what keeps the chat from loading elsewhere.
  *
@@ -462,15 +462,25 @@ function auditHeader(html, where, { onDox = false } = {}) {
 
 /**
  * The mobile menu (Starlight's `mobile-preferences`, on the pages with a sidebar) repeats the Dox link before the social
- * icons, because the header's right group is hidden below the `md` breakpoint (gmt's MobileMenuFooter.astro). A page with
- * no such menu (the landing, the 404, /dox/) has nothing to check.
+ * icons, because the header's right group is hidden below the `md` breakpoint (gmt's MobileMenuFooter.astro). Every one of
+ * the 28 pages but the landing has a sidebar, so the caller says where a menu must be (`required`) and a page there with
+ * none fails: a probe that stopped matching the build would otherwise skip the rule on every page and pass. The class is
+ * matched as a token, not as the start of the attribute. The landing, the 404 and /dox/ have no menu to check.
  */
-function auditMobileMenu(html, where) {
-  const start = html.indexOf('class="mobile-preferences');
-  if (start === -1) return [];
-  const menu = html.slice(start);
+function auditMobileMenu(html, where, { required = false } = {}) {
   const failures = [];
   const fail = (rule) => failures.push(`${where}: mobile menu: ${rule}`);
+  const start = html.search(
+    /\bclass="(?:[^"]*\s)?mobile-preferences(?:\s[^"]*)?"/,
+  );
+  if (start === -1) {
+    if (required)
+      fail(
+        "no mobile-preferences element, expected one on a page with a sidebar",
+      );
+    return failures;
+  }
+  const menu = html.slice(start);
   const link = [...menu.matchAll(/<a\b([^>]*)>/g)]
     .map((m) => ({ at: m.index, attrs: attributes(m[1]) }))
     .find((l) => l.attrs.href === DOX_HREF);
@@ -1317,7 +1327,9 @@ async function auditPage(path, dist, descriptions, options) {
   failures.push(...auditControls(html, label(path)));
   failures.push(...auditThemeControl(html, label(path)));
   failures.push(...auditHeader(html, label(path)));
-  failures.push(...auditMobileMenu(html, label(path)));
+  failures.push(
+    ...auditMobileMenu(html, label(path), { required: path !== "" }),
+  );
   failures.push(...auditEntranceMarkup(html, label(path), path === ""));
   failures.push(...auditSvgs(html, label(path)));
 

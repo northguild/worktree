@@ -1863,6 +1863,27 @@ describe("the Dox link (#309 phase 4)", () => {
       ).toBe(true);
     });
 
+    // Every page but the landing has a sidebar, so a menu the probe cannot find is a failure, not a page with nothing to
+    // check: otherwise markup that stopped matching would skip the rule on all 27 and pass.
+    it("fails a page with a sidebar that has no mobile menu", async () => {
+      const failures = await withMenu("");
+      expect(failures).toContain(
+        "/faq/: mobile menu: no mobile-preferences element, expected one on a page with a sidebar",
+      );
+    });
+
+    it("finds the menu by its class token wherever it sits in the class list", async () => {
+      const failures = await withMenu(
+        MOBILE_MENU.replace(doxLink(), "").replace(
+          'class="mobile-preferences sl-flex"',
+          'class="sl-flex mobile-preferences astro-oq7puzlo"',
+        ),
+      );
+      expect(failures).toContain(
+        "/faq/: mobile menu: no link to /worktree/dox/",
+      );
+    });
+
     it("does not ask for a menu on a page that has none (the landing, the 404, /dox/)", async () => {
       expect(await audit()).toEqual([]);
     });
