@@ -70,21 +70,30 @@ export function readBrainsInfo(value: unknown): BrainsInfo | null {
 /** Past the reset before reading, so the Worker's day has turned even with its clock and the reader's a little apart. */
 export const RESET_MARGIN_MS = 2_000;
 /**
- * How soon to read again when the soonest reset the counts name has already passed: the Worker's clock is behind the
- * reader's, or the read at the reset failed. It stops once a read names a reset still to come.
+ * The first wait when the soonest reset the counts name has already passed, doubling with each read that still names it,
+ * up to `RESET_RETRY_MAX_MS`. That happens when the reader's clock runs ahead of the Worker's, by as long as it is ahead,
+ * or when the read fails; it stops once a read names a reset still to come. Each read costs the Worker about a dozen KV
+ * reads from a free daily allowance, so a clock hours fast must not turn into a poll every 30 s.
  */
 export const RESET_RETRY_MS = 30_000;
+/** The longest wait between those reads: a reset is at most this late to lift the composer, whatever the clocks say. */
+export const RESET_RETRY_MAX_MS = 5 * 60_000;
 /** `setTimeout`'s ceiling, a signed 32-bit count of ms; a longer delay would fire at once. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
-/** How long to wait before reading again, from `now`; `undefined` when `info` names no reset that can be read. */
+/**
+ * How long to wait before reading again, from `now`; `undefined` when `info` names no reset that can be read. `retries` is
+ * how many reads since the counts last changed found that reset already passed.
+ */
 export function refreshDelay(
   info: BrainsInfo,
   now: number,
+  retries = 0,
 ): number | undefined {
   const soonest = soonestResetMs(info);
   if (soonest === undefined) return undefined;
-  if (soonest <= now) return RESET_RETRY_MS;
+  if (soonest <= now)
+    return Math.min(RESET_RETRY_MS * 2 ** retries, RESET_RETRY_MAX_MS);
   return Math.min(soonest - now + RESET_MARGIN_MS, MAX_TIMEOUT_MS);
 }
 
@@ -118,18 +127,36 @@ export function useBrains() {
     void refresh();
   }, [refresh]);
 
+  // The reads that have found the soonest reset already passed, and which reset that was. Kept across renders because
+  // every successful read is a new object, which re-runs the effect below even when it says what the last one did: the
+  // count must outlive that, and start over only when the counts name another reset.
+  const pastReset = useRef<{ at: number; retries: number } | null>(null);
+
   useEffect(() => {
     if (!info) return;
     // The clock fails only if the platform's does; then no reset is ever due, which leaves the counts as they are.
     const now = () => getUnixNow() ?? 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
-    // A read that changes the counts re-runs this effect, which starts over from them. One that changes nothing (it failed,
-    // or the Worker's day has not turned yet) sets the timer again from the same counts, so it keeps asking.
+    // A read that changes the counts re-runs this effect, which starts over from them. One that does not (it failed) sets
+    // the timer again from the same counts. Either way a reset that has passed waits longer each time it is read again.
     const schedule = () => {
-      const delay = refreshDelay(info, now());
+      const at = now();
+      const soonest = soonestResetMs(info);
+      let passed: { at: number; retries: number } | undefined;
+      if (soonest !== undefined && soonest <= at) {
+        passed =
+          pastReset.current?.at === soonest
+            ? pastReset.current
+            : { at: soonest, retries: 0 };
+        pastReset.current = passed;
+      }
+      const delay = refreshDelay(info, at, passed?.retries ?? 0);
       if (delay === undefined) return;
       timer = setTimeout(() => {
+        // Counted as the read is made, not as it is scheduled: a read that lands new counts schedules twice, from here and
+        // from the effect it re-runs, and only one of those timers survives.
+        if (passed) passed.retries += 1;
         void refresh().finally(() => {
           if (!stopped) schedule();
         });

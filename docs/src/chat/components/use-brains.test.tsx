@@ -4,8 +4,10 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { brainsInfo, UTC_MIDNIGHT } from "./brains.fixture";
 import {
   RESET_MARGIN_MS,
+  RESET_RETRY_MAX_MS,
   RESET_RETRY_MS,
   readBrainsInfo,
+  refreshDelay,
   useBrains,
 } from "./use-brains";
 
@@ -153,7 +155,8 @@ describe("useBrains at a reset", () => {
     expect(result.current.info?.visitor.remaining).toBe(5);
   });
 
-  it("keeps asking every 30 s while the counts still name a reset that has passed, and stops once one is to come", async () => {
+  it("asks again at 30 s, then twice as long each time, while the counts still name a reset that has passed, and stops once one is to come", async () => {
+    // The reader's clock is ahead of the Worker's: for it the reset is past, for the Worker not yet.
     vi.setSystemTime(unix(UTC_MIDNIGHT) + 5_000);
     const later = brainsInfo();
     later.visitor.resetsAt = "2026-06-17T00:00:00Z";
@@ -161,18 +164,42 @@ describe("useBrains at a reset", () => {
       ...provider,
       resetsAt: "2026-06-17T00:00:00Z",
     }));
-    // The Worker's day has not turned for the first two reads; the third names tomorrow.
-    const fetchMock = reads(brainsInfo(), brainsInfo(), later);
+    // The Worker's day has not turned for the first three reads; the fourth names tomorrow.
+    const fetchMock = reads(brainsInfo(), brainsInfo(), brainsInfo(), later);
     renderHook(() => useBrains());
     await advance(0);
     await advance(RESET_RETRY_MS - 1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await advance(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    await advance(RESET_RETRY_MS);
+    await advance(2 * RESET_RETRY_MS - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await advance(1);
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    await advance(10 * RESET_RETRY_MS);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await advance(4 * RESET_RETRY_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await advance(10 * RESET_RETRY_MAX_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("waits no longer than five minutes between those reads, however long they go on", async () => {
+    vi.setSystemTime(unix(UTC_MIDNIGHT) + 5_000);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json(brainsInfo()))
+      .mockRejectedValue(new TypeError("offline"));
+    vi.stubGlobal("fetch", fetchMock);
+    renderHook(() => useBrains());
+    await advance(0);
+    // 30 s, 60 s, 120 s, 240 s, then 300 s from there on.
+    await advance(30_000 + 60_000 + 120_000 + 240_000);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    await advance(RESET_RETRY_MAX_MS - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    await advance(1);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    await advance(RESET_RETRY_MAX_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
   it("asks again after a read at the reset fails", async () => {
@@ -212,6 +239,31 @@ describe("useBrains at a reset", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     await advance(0);
     expect(result.current.info?.visitor.remaining).toBe(5);
+  });
+});
+
+describe("refreshDelay", () => {
+  const AT_RESET = unix(UTC_MIDNIGHT);
+
+  it("waits until just past the soonest reset while it is to come", () => {
+    expect(refreshDelay(brainsInfo(), AT_RESET - 60_000)).toBe(
+      60_000 + RESET_MARGIN_MS,
+    );
+  });
+
+  it("backs off from 30 s once that reset has passed, doubling to a 5 min ceiling", () => {
+    const delays = [0, 1, 2, 3, 4, 5, 20].map((retries) =>
+      refreshDelay(brainsInfo(), AT_RESET + 1, retries),
+    );
+    expect(delays).toEqual([
+      30_000, 60_000, 120_000, 240_000, 300_000, 300_000, 300_000,
+    ]);
+  });
+
+  it("has no delay when no reset can be read", () => {
+    const unreadable = brainsInfo({ providers: [] });
+    unreadable.visitor.resetsAt = "soon";
+    expect(refreshDelay(unreadable, AT_RESET)).toBeUndefined();
   });
 });
 
