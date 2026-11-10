@@ -1657,7 +1657,7 @@ async function auditDox(dist) {
     if (count > 1) fail(`id "${id}" appears ${count} times`);
 
   try {
-    if ((await sitemapUrls(dist)).includes(DOX_URL))
+    if ((await sitemapEntries(dist)).some(({ loc }) => loc === DOX_URL))
       fail("is listed in the sitemap; it is kept out");
   } catch {
     // auditSite reports an unreadable sitemap.
