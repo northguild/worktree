@@ -279,6 +279,32 @@ const SEARCH_FIELD = ["var(--gmt-glass-tint-subtle)", ...SEARCH];
 const SEARCH_HOVER = ["var(--gmt-accent-wash)", ...SEARCH];
 const SEARCH_FOCUS = ["var(--sl-color-accent-low)"];
 
+// The Dox page's hive (#309 phase 2; `src/styles/dox-hive.css`). The shell is `--gmt-void`; a turn's card is the role colour,
+// the spring tier, at 5% over it; the composer panel is the glass tint; a warning is the signal fill. `dox-hive.css` states
+// these as `color(from var(--gmt-hive-role) srgb r g b / 5%)` and so on, which this script does not read (custom properties
+// declared on a class are not `:root`'s), so each is spelled out here with the same alpha as a decimal; change both together.
+const HIVE = ["var(--gmt-void)"];
+const HIVE_CARD = ["color(from var(--gmt-spring) srgb r g b / 0.05)", ...HIVE];
+const HIVE_FIELD = ["var(--gmt-glass-tint)", ...HIVE];
+const HIVE_WARNING = ["var(--gmt-signal-fill)", ...HIVE];
+const HIVE_STRIP_BUTTON = ["var(--gmt-fill-subtle)", ...HIVE];
+const HIVE_CODE = ["var(--gmt-code-bg)", ...HIVE_CARD];
+const HIVE_PANEL = ["var(--gmt-surface-2)"];
+// The control bar (#309 phase 8): `.gmt-hive-composer-footer` washes the form's glass with the spring tier, 12% at its top
+// edge and 5% at its foot (the stronger end is measured, where ice-dim is nearest the wash); the chip and the badge lay
+// `--gmt-fill-subtle` over that, `--gmt-fill-strong` on hover. The brain menu and the reset panel are `--gmt-surface-2`; a
+// highlighted row is `--gmt-accent-wash` over it; the zone search is `--gmt-fill-subtle` over it. `dox-hive.css` states
+// these as `color-mix(...)` on classes, which this script does not read, so each is spelled out; change both together.
+const HIVE_BAR = [
+  "color(from var(--gmt-spring) srgb r g b / 0.12)",
+  ...HIVE_FIELD,
+];
+const HIVE_CHIP = ["var(--gmt-fill-subtle)", ...HIVE_BAR];
+const HIVE_CHIP_HOVER = ["var(--gmt-fill-strong)", ...HIVE_BAR];
+const HIVE_ROW = ["var(--gmt-accent-wash)", ...HIVE_PANEL];
+const HIVE_ZONE_FIELD = ["var(--gmt-fill-subtle)", ...HIVE_PANEL];
+const HIVE_ZONE_ROW = ["var(--gmt-accent-wash)", ...HIVE_ZONE_FIELD];
+
 const text = (name, fg, bg) => ({ name, fg, bg, min: TEXT_MIN, kind: "text" });
 const shape = (name, fg, bg) => ({
   name,
@@ -330,12 +356,7 @@ export const PAIRS = [
     "var(--color-chat-accent)",
   ]),
   text("chat: error text", "var(--color-chat-danger)", CHAT),
-  // Plan #257 phase 4: what the transcript and the warning paint (AssistantMessage, ChatWarning).
-  text(
-    "chat: text on the assistant bubble",
-    "var(--color-chat-fg)",
-    onChat("var(--color-chat-fill)"),
-  ),
+  // What the warning paints (ChatWarning).
   text(
     "chat: warning text on its wash",
     "var(--color-chat-warn-ink)",
@@ -345,24 +366,6 @@ export const PAIRS = [
     "chat: text on the failure wash",
     "var(--color-chat-fg)",
     onChat("var(--color-chat-danger-wash)"),
-  ),
-  // Plan #257 phase 6: the starters (ChatStarters: text on --color-chat-fill, hover --color-chat-fill-strong, edge
-  // --color-chat-control-border) and the accuracy note (ChatInfo: muted text on the panel, measured above). The
-  // boundary's notice paints --color-chat-fg on --color-chat-bg, also measured above.
-  text(
-    "chat: text on a starter",
-    "var(--color-chat-fg)",
-    onChat("var(--color-chat-fill)"),
-  ),
-  text(
-    "chat: text on a starter under the pointer",
-    "var(--color-chat-fg)",
-    onChat("var(--color-chat-fill-strong)"),
-  ),
-  shape(
-    "chat: a starter's edge",
-    "var(--color-chat-control-border)",
-    onChat("var(--color-chat-fill)"),
   ),
   shape("focus ring on the page", "var(--gmt-spring-ink)", PAGE),
   shape("focus ring on the sidebar", "var(--gmt-spring-ink)", SIDEBAR),
@@ -383,12 +386,153 @@ export const PAIRS = [
     "var(--gmt-ice-dim)",
     HEADER,
   ),
-  shape("chat launcher fill on the page", "var(--gmt-spring)", PAGE),
-  shape("chat launcher border on the page", "var(--gmt-spring-ink)", PAGE),
-  shape("chat launcher glyph on its fill", "var(--gmt-ink-fixed)", [
-    "var(--gmt-spring)",
-  ]),
+  // The Dox link (#309 phase 4): the crystal in the header and the menu is the chip's icon colour, so it is measured as the
+  // theme toggle's is; the bar that marks /dox as the current page is the ink tier (a graphical object, 3:1).
+  shape("header: Dox link icon", "var(--sl-color-text-accent)", HEADER),
+  // The phone menu shows only below 50rem, where Starlight paints the sidebar pane `--sl-color-black` (the page void),
+  // not `--sl-color-bg-sidebar`.
+  shape("menu: Dox link icon", "var(--sl-color-text-accent)", PAGE),
+  shape("header: Dox link, current page bar", "var(--gmt-spring-ink)", HEADER),
+  // The landing's "Ask Dox": white text and a currentColor border (Starlight's secondary LinkButton look) on the page.
+  text("hero: Ask Dox text", "var(--sl-color-white)", PAGE),
+  shape("hero: Ask Dox border", "var(--sl-color-white)", PAGE),
   shape("chat: accent fill on the panel", "var(--color-chat-accent)", CHAT),
+  // The hive's text (§4.1 rows 8-11, 16-20): the strip, the turns, the waiting line, the warnings, the composer, the fine print.
+  text("hive: environment badge, local", "var(--gmt-signal-ink)", HIVE),
+  text("hive: environment badge, live", "var(--gmt-spring-ink)", HIVE),
+  text("hive: the prompt line", "var(--gmt-ice)", HIVE),
+  text("hive: code in the prompt line", "var(--gmt-spring-ink)", [
+    "var(--gmt-code-bg)",
+    ...HIVE,
+  ]),
+  text("hive: New chat", "var(--gmt-spring-ink)", HIVE_STRIP_BUTTON),
+  text("hive: a role label (Dox, You)", "var(--gmt-spring-ink)", HIVE),
+  text("hive: text in a turn's card", "var(--gmt-ice)", HIVE_CARD),
+  text("hive: the waiting line", "var(--gmt-ice-dim)", HIVE_CARD),
+  // Plan #309 Phase 5: the retrieval trace sits in the answer's card, and the status line on the empty page.
+  text("hive: the retrieval trace", "var(--gmt-ice-dim)", HIVE_CARD),
+  text("hive: the status line", "var(--gmt-ice-dim)", HIVE),
+  text("hive: a link in an answer", "var(--gmt-spring-ink)", HIVE_CARD),
+  text("hive: code in an answer", "var(--gmt-ice)", HIVE_CODE),
+  text("hive: a heading in an answer", "var(--gmt-spring-ink)", HIVE_CARD),
+  text("hive: inline code in an answer", "var(--gmt-spring-ink)", HIVE_CODE),
+  text("hive: a quote in an answer", "var(--gmt-ice-dim)", [
+    "var(--gmt-fill-subtle)",
+    ...HIVE_CARD,
+  ]),
+  text("hive: a code block's language", "var(--gmt-ice-dim)", HIVE_CODE),
+  text("hive: a code block's Copy", "var(--gmt-spring-ink)", HIVE_CODE),
+  text("hive: a warning", "var(--gmt-signal-ink)", HIVE_WARNING),
+  text("hive: a warning's Try again", "var(--gmt-signal-ink)", HIVE_WARNING),
+  text("hive: typed text in the composer", "var(--gmt-ice)", HIVE_FIELD),
+  text("hive: the composer's placeholder", "var(--gmt-ice-dim)", HIVE_FIELD),
+  text(
+    "hive: the remaining-characters count",
+    "var(--gmt-ice-dim)",
+    HIVE_FIELD,
+  ),
+  text("hive: the accuracy note", "var(--gmt-ice-dim)", HIVE),
+  text("hive: the fine print's popup", "var(--gmt-ice-dim)", HIVE_PANEL),
+  shape("hive: the crystal", "var(--gmt-spring)", HIVE),
+  // The field's boundary is what tells a reader where to type (SC 1.4.11), so it is the muted text colour at 70%, not gmt's
+  // spring hairline (`--gmt-border-strong`, 2.33:1 in dark and 1.44:1 in light, measured with the pair this replaced).
+  shape(
+    "hive: the composer's edge",
+    "color-mix(in srgb, var(--gmt-ice-dim) 70%, transparent)",
+    HIVE_FIELD,
+  ),
+  shape("hive: the send icon", "var(--gmt-spring-ink)", [
+    "var(--gmt-fill-strong)",
+    ...HIVE_FIELD,
+  ]),
+  shape("hive: the info icon", "var(--gmt-spring-ink)", HIVE_FIELD),
+  shape("hive: a link's border in an answer", "var(--gmt-spring)", HIVE_CARD),
+  shape("hive: the jump icon", "var(--gmt-spring-ink)", HIVE_PANEL),
+  shape("hive: the focus ring on a card", "var(--gmt-spring-ink)", HIVE_CARD),
+  shape(
+    "hive: the focus ring on the composer",
+    "var(--gmt-spring-ink)",
+    HIVE_FIELD,
+  ),
+  // Plan #309 Phase 8: the control bar, the brain menu, the reset panel, the banner and the strip's clock. Earlier phases left
+  // `--gmt-ice` and `--gmt-ice-dim` unmeasured on the fill tiers (the cards, the chip, the bar and their hover states).
+  text("hive: the strip's clock", "var(--gmt-spring-ink)", HIVE),
+  text("hive: ice on the subtle fill", "var(--gmt-ice)", HIVE_STRIP_BUTTON),
+  text(
+    "hive: ice-dim on the subtle fill",
+    "var(--gmt-ice-dim)",
+    HIVE_STRIP_BUTTON,
+  ),
+  text("hive: ice on the strong fill", "var(--gmt-ice)", [
+    "var(--gmt-fill-strong)",
+    ...HIVE,
+  ]),
+  text("hive: ice-dim on the strong fill", "var(--gmt-ice-dim)", [
+    "var(--gmt-fill-strong)",
+    ...HIVE,
+  ]),
+  text("hive: the badge and the chip at rest", "var(--gmt-ice-dim)", HIVE_CHIP),
+  text(
+    "hive: the badge and the chip on hover",
+    "var(--gmt-ice)",
+    HIVE_CHIP_HOVER,
+  ),
+  text("hive: the badge's brain name", "var(--gmt-spring-ink)", HIVE_CHIP),
+  text(
+    "hive: the badge's brain name on hover",
+    "var(--gmt-spring-ink)",
+    HIVE_CHIP_HOVER,
+  ),
+  text("hive: the chip's glyph", "var(--gmt-spring-ink)", HIVE_CHIP),
+  text("hive: the menu's and the panel's text", "var(--gmt-ice)", HIVE_PANEL),
+  text(
+    "hive: the menu's and the panel's muted text",
+    "var(--gmt-ice-dim)",
+    HIVE_PANEL,
+  ),
+  text(
+    "hive: a provider heading, the checked brain, the current zone",
+    "var(--gmt-spring-ink)",
+    HIVE_PANEL,
+  ),
+  text("hive: a highlighted row", "var(--gmt-ice)", HIVE_ROW),
+  text("hive: a highlighted row's meta", "var(--gmt-ice-dim)", HIVE_ROW),
+  text(
+    "hive: a highlighted or checked row's ink",
+    "var(--gmt-spring-ink)",
+    HIVE_ROW,
+  ),
+  text("hive: the zone search's typed text", "var(--gmt-ice)", HIVE_ZONE_FIELD),
+  text(
+    "hive: the zone search's placeholder and empty note",
+    "var(--gmt-ice-dim)",
+    HIVE_ZONE_FIELD,
+  ),
+  text("hive: a zone in the list", "var(--gmt-ice)", HIVE_ZONE_FIELD),
+  text(
+    "hive: a zone highlighted or current",
+    "var(--gmt-spring-ink)",
+    HIVE_ZONE_ROW,
+  ),
+  text("hive: the panel's call link", "var(--gmt-ice-dim)", HIVE_PANEL),
+  text("hive: the out-of-budget banner", "var(--gmt-signal-ink)", HIVE_WARNING),
+  shape("hive: a selected format radio", "var(--gmt-spring-ink)", HIVE_PANEL),
+  shape("hive: the checked brain's dot", "var(--gmt-spring-ink)", HIVE_ROW),
+  shape(
+    "hive: the focus ring in the menu and the panel",
+    "var(--gmt-spring-ink)",
+    HIVE_PANEL,
+  ),
+  shape(
+    "hive: the focused zone search's edge",
+    "var(--gmt-spring-ink)",
+    HIVE_ZONE_FIELD,
+  ),
+  shape(
+    "hive: the focus ring on the chip and the badge",
+    "var(--gmt-spring-ink)",
+    HIVE_CHIP,
+  ),
   text("search: typed text in the field", "var(--gmt-ice)", SEARCH_FIELD),
   text("search: the field's placeholder", "var(--gmt-ice-dim)", SEARCH_FIELD),
   text("search: a result's title", "var(--gmt-ice)", SEARCH),

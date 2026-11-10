@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -133,6 +133,79 @@ function getTextContent(node: React.ReactNode): string {
   return "";
 }
 
+/** The fence's language (`bash` for a ```bash fence), from the `language-*` class the markdown parser puts on the code. */
+function languageOf(node: React.ReactNode): string | undefined {
+  if (!React.isValidElement(node)) return undefined;
+  const { className } = node.props as { className?: string };
+  return className?.match(/(?:^|\s)language-(\S+)/)?.[1];
+}
+
+type CopyState = "idle" | "copied" | "failed";
+
+/** How long "Copied" (or "Copy failed") stays on the button before it says "Copy" again. */
+const COPY_RESET_MS = 2000;
+
+/**
+ * A fenced code block with the language beside a Copy button. The text copied is the code as written, without the
+ * newline that closes a fence. The result is said twice: on the button, and in a polite status for a screen reader,
+ * because a button that renames itself is not announced.
+ */
+function CodeBlock({ children }: { children?: React.ReactNode }) {
+  const [state, setState] = useState<CopyState>("idle");
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(resetTimer.current), []);
+
+  const language = languageOf(children);
+
+  async function copy() {
+    let next: CopyState = "copied";
+    try {
+      await navigator.clipboard.writeText(
+        getTextContent(children).replace(/\n$/, ""),
+      );
+    } catch {
+      next = "failed";
+    }
+    setState(next);
+    clearTimeout(resetTimer.current);
+    resetTimer.current = setTimeout(() => setState("idle"), COPY_RESET_MS);
+  }
+
+  return (
+    <div className="gmt-hive-code">
+      <div className="gmt-hive-code-bar">
+        <span className="gmt-hive-code-language">{language}</span>
+        <button type="button" className="gmt-hive-code-copy" onClick={copy}>
+          {state === "copied"
+            ? "Copied"
+            : state === "failed"
+              ? "Copy failed"
+              : "Copy"}
+        </button>
+        <span role="status" className="sr-only">
+          {state === "copied"
+            ? "Copied to clipboard"
+            : state === "failed"
+              ? "Copy failed"
+              : ""}
+        </span>
+      </div>
+      {/* A box that scrolls must take focus so the arrow keys reach it, and a focusable box needs a name. */}
+      {/* biome-ignore lint/a11y/useSemanticElements: the <pre> is the scroll box; a <section> around it would be a second one */}
+      <pre
+        role="region"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region, as axe's scrollable-region-focusable asks
+        tabIndex={0}
+        aria-label={language ? `${language} code` : "Code"}
+      >
+        {children}
+      </pre>
+    </div>
+  );
+}
+
 const LINK_CLASS =
   "text-chat-accent-ink underline underline-offset-2 hover:text-chat-fg transition-colors";
 
@@ -165,13 +238,9 @@ const components: Components = {
     );
   },
 
-  // Fenced code blocks
+  // Fenced code blocks: the language, a copy control and no download (plan #309 §4.1 row 13)
   pre({ children }) {
-    return (
-      <pre className="my-2 overflow-x-auto rounded-md bg-chat-raised text-chat-fg border border-chat-border px-3 py-2 text-sm font-mono leading-relaxed">
-        {children}
-      </pre>
-    );
+    return <CodeBlock>{children}</CodeBlock>;
   },
 
   // Paragraphs

@@ -91,16 +91,13 @@ function jsonLd(path) {
 }
 
 // Phase 9 (accessibility, plan #235 Scope): every icon-only button has an accessible name; a name that stands beside
-// visible text contains it (WCAG 2.5.3 Label in Name); the chat launcher announces its shortcut with
-// aria-keyshortcuts, valued "Alt+Shift+C" per WAI-ARIA 1.2 (the user's 2026-11-04 addition to the Scope); the
+// visible text contains it (WCAG 2.5.3 Label in Name); the
 // package-manager tabs are at least 44px tall (the issue, requirement 8). The markup below is what the built
 // pages carry for those controls, read off the build.
 const SEARCH_BUTTON =
   '<button data-open-modal aria-label="Search"><svg aria-hidden="true"></svg><span aria-hidden="true">Search</span><kbd><kbd>Ctrl</kbd><kbd>K</kbd></kbd></button>';
 const MENU_BUTTON =
   '<button popovertarget="starlight__sidebar"><svg aria-hidden="true"></svg><span class="sr-only">Menu</span></button>';
-const LAUNCHER =
-  '<button type="button" class="chat-launcher" aria-label="Open chat" aria-keyshortcuts="Alt+Shift+C" data-chat-launcher><svg aria-hidden="true"></svg></button>';
 const COPY_BUTTON =
   '<button title="Copy to clipboard" data-code="x"><div></div></button>';
 // #266: the theme control is a two-state toggle, one named button in one `starlight-theme-select`, and its provider's
@@ -109,7 +106,7 @@ const THEME_SELECT =
   '<starlight-theme-select><button type="button" class="theme-toggle header-chip" aria-label="Toggle color theme"><svg class="theme-icon" aria-hidden="true"></svg></button></starlight-theme-select>';
 const THEME_PROVIDER =
   "<script>window.StarlightThemeProvider = (() => { localStorage.getItem('starlight-theme'); document.documentElement.dataset.theme = 'dark'; return { updatePickers() { document.querySelectorAll('starlight-theme-select button.theme-toggle'); } }; })();</script>";
-const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}${THEME_SELECT}${LAUNCHER}`;
+const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}${THEME_SELECT}`;
 
 // Phase 13 (D17, northguild.dev's Header.astro at ade22a5): the header's two NorthGuild links and its two community
 // links, as the build renders them. The wording "(opens in a new tab)" is northguild.dev's own.
@@ -120,9 +117,16 @@ const community = (href, name, extra = "") =>
   `<a ${extra || 'target="_blank" rel="noopener noreferrer"'} href="${href}" aria-label="NorthGuild on ${name} (opens in a new tab)"><svg aria-hidden="true"></svg></a>`;
 const GITHUB_LINK = community("https://github.com/northguild", "GitHub");
 const DISCORD_LINK = community("https://discord.gg/TdvQdP3t5a", "Discord");
+// #309 phase 4 (D2): the header's "Chat with Dox" crystal link (gmt's Header.astro) is first in the right group, ahead of the
+// theme toggle; on /dox it is the current page. The mobile menu carries a copy before the social icons (gmt's
+// MobileMenuFooter.astro), on the pages that have a sidebar.
+const DOX_HREF = "/worktree/dox/";
+const doxLink = (current = false) =>
+  `<a href="${DOX_HREF}" class="header-chip dox-link" aria-label="Chat with Dox" title="Chat with Dox"${current ? ' aria-current="page"' : ""}><svg aria-hidden="true" focusable="false"></svg></a>`;
 const header = (parts = {}) =>
-  `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.theme ?? THEME_SELECT}${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
+  `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.dox ?? doxLink()}${parts.theme ?? THEME_SELECT}${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
 const HEADER = header();
+const MOBILE_MENU = `<div class="mobile-preferences sl-flex"><div class="social-icons">${doxLink()}${GITHUB_LINK}${DISCORD_LINK}</div></div>`;
 
 // #266 phase 3 (D6-D9): the landing's header carries the entrance marker and, inline before the header paints, the
 // script that turns the entrance off for an arrival from another page of the site. Header.astro renders both inside
@@ -208,10 +212,10 @@ function png(width, height) {
   return bytes;
 }
 
-/** The landing's "Ask Dox" button as Hero.astro renders it: a button with the launcher's chat bubble. */
+/** The landing's "Ask Dox" as Hero.astro renders it: a link to /dox/ carrying the crystal after its label (gmt's `.gmt-dox-cta`). */
 const ASK_DOX =
-  '<button type="button" class="ask-dox" aria-haspopup="dialog" data-chat-open>Ask Dox' +
-  '<svg aria-hidden="true" focusable="false"><path d="M0 0"></path></svg></button>';
+  '<a href="/worktree/dox/" class="ask-dox gmt-dox-cta">Ask Dox' +
+  '<svg aria-hidden="true" focusable="false"></svg></a>';
 
 function page(path, overrides = {}) {
   const description = overrides.description ?? descriptionOf(path);
@@ -224,7 +228,7 @@ function page(path, overrides = {}) {
         ? "Getting Started with @northguild/worktree"
         : path;
   // D17: the root is a landing whose call to action is "Get started", linking to Getting Started; beside it, the
-  // "Ask Dox" button that opens the chat (the user, 2026-11-08).
+  // "Ask Dox" link to /dox/ (the user, 2026-11-08; a link since #309 D2).
   const landing =
     path === ""
       ? (overrides.landing ??
@@ -246,9 +250,8 @@ function page(path, overrides = {}) {
     `<meta name="description" content="${description}"/>`,
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
-    '<script type="module" src="/worktree/_astro/ChatLauncher.def.js"></script>',
     path === "" ? (overrides.heroScript ?? HERO_SCRIPT) : "",
-    `</head><body>${overrides.header ?? (path === "" ? LANDING_HEADER : HEADER)}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
+    `</head><body>${overrides.header ?? (path === "" ? LANDING_HEADER : HEADER)}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${path === "" ? "" : (overrides.menu ?? MOBILE_MENU)}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -273,6 +276,36 @@ function notFoundPage(overrides = {}) {
   ].join("\n");
 }
 
+// #309 phase 1 (D6): `/dox/` is built by Astro as a StarlightPage that is not one of the 28 pages. What it carries is what
+// the build renders (read off dist/dox/index.html): `noindex`, the inline script that marks the document, the site header,
+// the search and menu buttons and the theme toggle, no footer, and one `astro-island` holding the
+// island's chunk (`DoxPage.<hash>.js`), whose stylesheet is linked from this page alone.
+const DOX_TITLE = "Dox · @northguild/worktree";
+const DOX_SHELL_SCRIPT =
+  "<script>document.documentElement.setAttribute('data-dox-shell','')</script>";
+const DOX_ISLAND =
+  '<astro-island component-url="/worktree/_astro/DoxPage.mno.js" client="load"><svg aria-hidden="true" focusable="false"></svg></astro-island>';
+const DOX_CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${THEME_SELECT}`;
+const DOX_STYLESHEET =
+  '<link rel="stylesheet" href="/worktree/_astro/dox.pqr.css"/>';
+
+function doxPage(overrides = {}) {
+  return [
+    "<!doctype html><html><head>",
+    THEME_PROVIDER,
+    `<title>${overrides.title ?? DOX_TITLE}</title>`,
+    overrides.robots ?? '<meta name="robots" content="noindex"/>',
+    overrides.shell ?? DOX_SHELL_SCRIPT,
+    DOX_STYLESHEET,
+    "</head><body>",
+    overrides.header ?? header({ dox: doxLink(true) }),
+    overrides.controls ?? DOX_CONTROLS,
+    overrides.island ?? DOX_ISLAND,
+    overrides.extra ?? "",
+    "</body></html>",
+  ].join("\n");
+}
+
 function sitemap(paths) {
   return `<?xml version="1.0"?><urlset>${paths.map((p) => `<url><loc>${url(p)}</loc></url>`).join("")}</urlset>`;
 }
@@ -291,6 +324,9 @@ beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), "audit-dist-"));
   for (const path of PATHS) await write(dist, htmlPath(path), page(path));
   await write(dist, "404.html", notFoundPage());
+  await write(dist, "dox/index.html", doxPage());
+  await write(dist, "_astro/DoxPage.mno.js", "export const dox = 1;");
+  await write(dist, "_astro/dox.pqr.css", ".gmt-hive-shell{position:fixed}");
   await write(
     dist,
     "_astro/common.abc.css",
@@ -304,12 +340,6 @@ beforeEach(async () => {
   await write(dist, "sitemap-0.xml", sitemap(PATHS));
   await write(dist, "llms.txt", llmsTxt(PATHS));
   await write(dist, "_astro/page.abc.js", "console.log('page');");
-  await write(
-    dist,
-    "_astro/ChatLauncher.def.js",
-    'button.onclick=()=>import("./Chat.xyz.js");',
-  );
-  await write(dist, "_astro/Chat.xyz.js", "export const chat = 1;");
   await write(
     dist,
     "_astro/HeroLeaves.ghi.js",
@@ -710,36 +740,6 @@ describe("auditDist", () => {
     expect((await audit()).some((f) => /JSON-LD/.test(f))).toBe(true);
   });
 
-  it("fails a page that loads the chat chunk with a script tag", async () => {
-    await rewrite("faq", (html) =>
-      html.replace(
-        "</head>",
-        '<script type="module" src="/worktree/_astro/Chat.xyz.js"></script></head>',
-      ),
-    );
-    expect((await audit()).some((f) => /chat/i.test(f))).toBe(true);
-  });
-
-  it("fails a page that preloads the chat chunk", async () => {
-    await rewrite("faq", (html) =>
-      html.replace(
-        "</head>",
-        '<link rel="modulepreload" href="/worktree/_astro/Chat.xyz.js"></head>',
-      ),
-    );
-    expect((await audit()).some((f) => /chat/i.test(f))).toBe(true);
-  });
-
-  it("fails a page script that statically imports the chat chunk", async () => {
-    await write(dist, "_astro/page.abc.js", 'import"./Chat.xyz.js";');
-    expect((await audit()).some((f) => /chat/i.test(f))).toBe(true);
-  });
-
-  it("allows the launcher to import the chat dynamically", async () => {
-    // beforeEach's ChatLauncher.def.js already does: import("./Chat.xyz.js").
-    expect(await audit()).toEqual([]);
-  });
-
   it("fails a sitemap missing a page", async () => {
     await write(
       dist,
@@ -998,22 +998,42 @@ describe("auditDist", () => {
     expect(failures[0]).toMatch(/^\/ \(root\).*2 actions/);
   });
 
-  // The user, 2026-11-08: "we are missing an 'Ask Dox' button in the landing page".
-  it("fails a landing with no Ask Dox button", async () => {
+  // The user, 2026-11-08: "we are missing an 'Ask Dox' button in the landing page"; #309 D2 makes it a link to /dox/.
+  it("fails a landing with no Ask Dox link", async () => {
     await rewrite("", (html) => html.replace(ASK_DOX, ""));
-    const failures = await audit();
-    expect(failures).toEqual([
-      '/ (root): the landing has 0 "Ask Dox" buttons, expected 1',
+    expect(await audit()).toEqual([
+      '/ (root): the landing has 0 "Ask Dox" links to /worktree/dox/, expected 1',
     ]);
   });
 
-  it("fails an Ask Dox button that does not open the chat", async () => {
+  it("fails an Ask Dox link that goes elsewhere", async () => {
     await rewrite("", (html) =>
-      html.replace(ASK_DOX, ASK_DOX.replace(" data-chat-open", "")),
+      html.replace(
+        ASK_DOX,
+        ASK_DOX.replace("/worktree/dox/", "/worktree/faq/"),
+      ),
     );
-    const failures = await audit();
-    expect(failures).toEqual([
-      '/ (root): the "Ask Dox" button does not open the chat (it needs type="button" and data-chat-open)',
+    expect(await audit()).toEqual([
+      '/ (root): the landing has 0 "Ask Dox" links to /worktree/dox/, expected 1',
+    ]);
+  });
+
+  it("fails two Ask Dox links", async () => {
+    await rewrite("", (html) => html.replace(ASK_DOX, ASK_DOX + ASK_DOX));
+    expect(await audit()).toEqual([
+      '/ (root): the landing has 2 "Ask Dox" links to /worktree/dox/, expected 1',
+    ]);
+  });
+
+  it("fails an Ask Dox that is a button, whose drawer is gone", async () => {
+    await rewrite("", (html) =>
+      html.replace(
+        ASK_DOX,
+        ASK_DOX + '<button type="button" class="ask-dox">Ask Dox</button>',
+      ),
+    );
+    expect(await audit()).toEqual([
+      '/ (root): "Ask Dox" is a button; it must be a link to /worktree/dox/',
     ]);
   });
 
@@ -1041,17 +1061,6 @@ describe("auditDist", () => {
     const failures = await audit();
     expect(failures).toHaveLength(1);
     expect(failures[0]).toMatch(/faq.*id "ng-mark-pane".*2 times/);
-  });
-
-  it("still requires the chat launcher on the landing", async () => {
-    await write(
-      dist,
-      htmlPath(""),
-      page("", { controls: `${SEARCH_BUTTON}${MENU_BUTTON}` }),
-    );
-    expect(
-      (await audit()).some((f) => /^\/ \(root\).*chat launcher/.test(f)),
-    ).toBe(true);
   });
 
   // Phase 15 (the user, 2026-11-04): "let's stick to the version [of the logo] in the header". The second version
@@ -1086,13 +1095,13 @@ describe("auditDist", () => {
   });
 
   describe("accessible names", () => {
-    // The control under test beside a search button and a launcher, which a page always has.
+    // The control under test beside a search button, which a page always has.
     const withControls = (path, controls) =>
       write(
         dist,
         htmlPath(path),
         page(path, {
-          controls: `${SEARCH_BUTTON}${LAUNCHER}${THEME_SELECT}${controls}`,
+          controls: `${SEARCH_BUTTON}${THEME_SELECT}${controls}`,
         }),
       );
 
@@ -1165,49 +1174,12 @@ describe("auditDist", () => {
     });
 
     it("fails a page with no search button", async () => {
-      await write(dist, htmlPath("faq"), page("faq", { controls: LAUNCHER }));
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", { controls: MENU_BUTTON }),
+      );
       expect((await audit()).some((f) => /faq.*search/i.test(f))).toBe(true);
-    });
-  });
-
-  describe("the chat launcher's shortcut", () => {
-    it("fails a launcher without aria-keyshortcuts", async () => {
-      await write(
-        dist,
-        htmlPath("faq"),
-        page("faq", {
-          controls:
-            SEARCH_BUTTON + LAUNCHER.replace(/ aria-keyshortcuts="[^"]*"/, ""),
-        }),
-      );
-      expect(
-        (await audit()).some((f) => /faq.*aria-keyshortcuts/.test(f)),
-      ).toBe(true);
-    });
-
-    it("fails a launcher announcing a shortcut the page does not bind", async () => {
-      await write(
-        dist,
-        htmlPath("faq"),
-        page("faq", {
-          controls:
-            SEARCH_BUTTON + LAUNCHER.replace("Alt+Shift+C", "Control+K"),
-        }),
-      );
-      expect(
-        (await audit()).some((f) =>
-          /faq.*aria-keyshortcuts.*Control\+K/.test(f),
-        ),
-      ).toBe(true);
-    });
-
-    it("fails a page with no launcher", async () => {
-      await write(
-        dist,
-        htmlPath("faq"),
-        page("faq", { controls: SEARCH_BUTTON }),
-      );
-      expect((await audit()).some((f) => /faq.*launcher/i.test(f))).toBe(true);
     });
   });
 
@@ -1271,7 +1243,7 @@ describe("auditDist", () => {
     });
 
     it("fails a 404 with no search", async () => {
-      await notFound({ controls: LAUNCHER });
+      await notFound({ controls: MENU_BUTTON });
       expect((await audit()).some((f) => /404.*search/i.test(f))).toBe(true);
     });
   });
@@ -1751,6 +1723,170 @@ describe("the product header", () => {
     expect((await audit()).some((f) => /404\.html: header:/.test(f))).toBe(
       true,
     );
+  });
+});
+
+// #309 phase 4. Expected values: the phase's Done-when. On every built page and the 404 the header has one link to
+// /worktree/dox/ named "Chat with Dox", ahead of the theme toggle (gmt's Header.astro lists Dox, theme, then GitHub and
+// Discord); on /dox that link carries aria-current="page" and on no other page; where the page has a mobile menu, the
+// menu has the same link before the social icons (gmt's MobileMenuFooter.astro). WCAG 2.2 SC 2.5.3 holds the name to
+// the visible text (an icon has none, so the name is free), SC 1.4.1 is why the current page is told by an attribute.
+describe("the Dox link (#309 phase 4)", () => {
+  const withHeader = async (html, path = "faq") => {
+    await write(dist, htmlPath(path), page(path, { header: html }));
+    return audit();
+  };
+
+  it("passes the header and menu this phase builds, on every page, the 404 and /dox/", async () => {
+    expect(await audit()).toEqual([]);
+  });
+
+  it("fails a header with no Dox link", async () => {
+    const failures = await withHeader(header({ dox: "" }));
+    expect(failures).toContain(
+      "/faq/: header: 0 links to /worktree/dox/, expected exactly 1",
+    );
+  });
+
+  it("fails a header with two Dox links", async () => {
+    const failures = await withHeader(header({ dox: doxLink() + doxLink() }));
+    expect(failures).toContain(
+      "/faq/: header: 2 links to /worktree/dox/, expected exactly 1",
+    );
+  });
+
+  it("fails a Dox link not named Chat with Dox", async () => {
+    const failures = await withHeader(
+      header({ dox: doxLink().replace("Chat with Dox", "Open chat") }),
+    );
+    expect(failures.some((f) => /faq.*header:.*Chat with Dox/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails a Dox link with no name at all", async () => {
+    const failures = await withHeader(
+      header({ dox: doxLink().replace(' aria-label="Chat with Dox"', "") }),
+    );
+    expect(failures.some((f) => /faq.*header:.*Chat with Dox/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails a Dox link that comes after the theme toggle", async () => {
+    const failures = await withHeader(
+      header({ dox: "" }).replace("</header>", `${doxLink()}</header>`),
+    );
+    expect(
+      failures.some((f) => /faq.*header:.*Dox link.*theme toggle/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a Dox link that comes after GitHub, as the right group reads Dox first", async () => {
+    const failures = await withHeader(
+      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${GITHUB_LINK}${doxLink()}${THEME_SELECT}${DISCORD_LINK}</header>`,
+    );
+    expect(failures.some((f) => /faq.*header:.*Dox link/.test(f))).toBe(true);
+  });
+
+  it("fails a Dox link marked current off /dox/", async () => {
+    const failures = await withHeader(header({ dox: doxLink(true) }));
+    expect(
+      failures.some((f) => /faq.*header:.*aria-current.*off \/dox\//.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails /dox/ when its Dox link is not marked current", async () => {
+    await write(dist, "dox/index.html", doxPage({ header: header() }));
+    expect(
+      (await audit()).some((f) =>
+        /^\/dox\/: header:.*aria-current="page"/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails the 404 with no Dox link", async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({ header: header({ dox: "" }) }),
+    );
+    expect(
+      (await audit()).some((f) => /404\.html: header:.*0 links/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails the landing with no Dox link in its header", async () => {
+    await write(
+      dist,
+      htmlPath(""),
+      page("", { header: LANDING_HEADER.replace(doxLink(), "") }),
+    );
+    expect((await audit()).some((f) => /root.*header:.*0 links/.test(f))).toBe(
+      true,
+    );
+  });
+
+  describe("the mobile menu", () => {
+    const withMenu = async (menu) => {
+      await write(dist, htmlPath("faq"), page("faq", { menu }));
+      return audit();
+    };
+
+    it("fails a menu with no Dox link", async () => {
+      const failures = await withMenu(MOBILE_MENU.replace(doxLink(), ""));
+      expect(failures).toContain(
+        "/faq/: mobile menu: no link to /worktree/dox/",
+      );
+    });
+
+    it("fails a menu whose Dox link is not named Chat with Dox", async () => {
+      const failures = await withMenu(
+        MOBILE_MENU.replace("Chat with Dox", "Dox"),
+      );
+      expect(
+        failures.some((f) => /faq.*mobile menu:.*Chat with Dox/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails a menu whose Dox link comes after the social icons", async () => {
+      const failures = await withMenu(
+        MOBILE_MENU.replace(doxLink(), "").replace(
+          "</div></div>",
+          `${doxLink()}</div></div>`,
+        ),
+      );
+      expect(
+        failures.some((f) =>
+          /faq.*mobile menu:.*before the social icons/.test(f),
+        ),
+      ).toBe(true);
+    });
+
+    // Every page but the landing has a sidebar, so a menu the probe cannot find is a failure, not a page with nothing to
+    // check: otherwise markup that stopped matching would skip the rule on all 27 and pass.
+    it("fails a page with a sidebar that has no mobile menu", async () => {
+      const failures = await withMenu("");
+      expect(failures).toContain(
+        "/faq/: mobile menu: no mobile-preferences element, expected one on a page with a sidebar",
+      );
+    });
+
+    it("finds the menu by its class token wherever it sits in the class list", async () => {
+      const failures = await withMenu(
+        MOBILE_MENU.replace(doxLink(), "").replace(
+          'class="mobile-preferences sl-flex"',
+          'class="sl-flex mobile-preferences astro-oq7puzlo"',
+        ),
+      );
+      expect(failures).toContain(
+        "/faq/: mobile menu: no link to /worktree/dox/",
+      );
+    });
+
+    it("does not ask for a menu on a page that has none (the landing, the 404, /dox/)", async () => {
+      expect(await audit()).toEqual([]);
+    });
   });
 });
 
@@ -2384,5 +2520,186 @@ describe("the landing header's entrance (#266)", () => {
       ),
     );
     expect(failures.some((f) => /style.*opacity/.test(f))).toBe(true);
+  });
+});
+
+// Expected values: plan #309 Phase 1, scope item 6 and "Done when": `/dox/` is `noindex`, in neither the sitemap nor
+// `llms.txt`, has the `data-dox-shell` script and exactly one `astro-island`, the title `Dox · @northguild/worktree`, the
+// header and named controls, no footer (scope item 4), and no other page loads Dox code. Each rule has a
+// fixture that breaks it alone.
+describe("the Dox page (#309)", () => {
+  const doxFailures = async () =>
+    (await audit()).filter((f) => f.startsWith("/dox/"));
+  const withDox = async (overrides) => {
+    await write(dist, "dox/index.html", doxPage(overrides));
+    return doxFailures();
+  };
+
+  it("passes a /dox/ that meets every rule, and the 28 pages do not list it", async () => {
+    expect(await audit()).toEqual([]);
+  });
+
+  it("fails a build with no /dox/", async () => {
+    await rm(join(dist, "dox"), { recursive: true });
+    expect(await doxFailures()).toEqual([
+      "/dox/: dox/index.html is missing from the build",
+    ]);
+  });
+
+  it.each([
+    ["no robots meta", { robots: "" }],
+    [
+      "a robots meta that allows indexing",
+      { robots: '<meta name="robots" content="index,follow"/>' },
+    ],
+  ])("fails %s", async (_name, overrides) => {
+    expect((await withDox(overrides)).some((f) => /noindex/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("accepts noindex among other robots directives", async () => {
+    expect(
+      await withDox({
+        robots: '<meta name="robots" content="noindex, nofollow"/>',
+      }),
+    ).toEqual([]);
+  });
+
+  it("fails a page without the script that sets data-dox-shell", async () => {
+    expect(
+      (await withDox({ shell: "" })).some((f) => /data-dox-shell/.test(f)),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["none", "", 0],
+    ["two", DOX_ISLAND + DOX_ISLAND, 2],
+  ])("fails %s astro-island elements", async (_name, island, count) => {
+    expect(await withDox({ island })).toContain(
+      `/dox/: ${count} astro-island elements, expected exactly 1`,
+    );
+  });
+
+  it.each([
+    ["Dox"],
+    ["Dox | @northguild/worktree"],
+    ["Dox · @northguild/worktree · @northguild/worktree"],
+  ])("fails the title %j", async (title) => {
+    expect((await withDox({ title })).some((f) => /title is/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails a footer", async () => {
+    expect(
+      (await withDox({ extra: "<footer>Last updated</footer>" })).some((f) =>
+        /footer/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a page without the site header", async () => {
+    expect(
+      (await withDox({ header: "" })).some((f) => /no <header>/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a header that lost a link", async () => {
+    const failures = await withDox({ header: header({ github: "" }) });
+    expect(failures.some((f) => /header: .*github\.com/.test(f))).toBe(true);
+  });
+
+  it("fails a control with no accessible name", async () => {
+    const failures = await withDox({
+      controls: `${DOX_CONTROLS}<button type="button"><svg aria-hidden="true"></svg></button>`,
+    });
+    expect(failures.some((f) => /has no accessible name/.test(f))).toBe(true);
+  });
+
+  it("fails a page with no search button", async () => {
+    const failures = await withDox({
+      controls: `${MENU_BUTTON}${THEME_SELECT}`,
+    });
+    expect(failures.some((f) => /no search button/.test(f))).toBe(true);
+  });
+
+  it("fails a graphic that is neither hidden nor named", async () => {
+    const failures = await withDox({ extra: '<svg viewBox="0 0 1 1"></svg>' });
+    expect(failures.some((f) => /svg/i.test(f))).toBe(true);
+  });
+
+  it("fails an id that appears twice (the crystal's gradients are found by id)", async () => {
+    const failures = await withDox({ extra: '<i id="a"></i><i id="a"></i>' });
+    expect(failures.some((f) => /id "a" appears 2 times/.test(f))).toBe(true);
+  });
+
+  it("fails a sitemap that lists /dox/", async () => {
+    await write(dist, "sitemap-0.xml", sitemap([...PATHS, "dox"]));
+    expect(await doxFailures()).toContain(
+      "/dox/: is listed in the sitemap; it is kept out",
+    );
+  });
+
+  it("fails an llms.txt that lists /dox/", async () => {
+    await write(
+      dist,
+      "llms.txt",
+      `${llmsTxt(PATHS)}- [Dox](${url("dox")}): Chat.\n`,
+    );
+    expect(await doxFailures()).toContain(
+      "/dox/: is listed in llms.txt; it is kept out",
+    );
+  });
+
+  it.each([
+    [
+      "a script for the island's chunk",
+      (html) =>
+        html.replace(
+          "</body>",
+          '<script type="module" src="/worktree/_astro/DoxPage.mno.js"></script></body>',
+        ),
+    ],
+    [
+      "a modulepreload of the island's chunk",
+      (html) =>
+        html.replace(
+          "</head>",
+          '<link rel="modulepreload" href="/worktree/_astro/DoxPage.mno.js"/></head>',
+        ),
+    ],
+    [
+      "an island for the island's chunk",
+      (html) => html.replace("</body>", `${DOX_ISLAND}</body>`),
+    ],
+    [
+      "the stylesheet that carries the hive",
+      (html) => html.replace("</head>", `${DOX_STYLESHEET}</head>`),
+    ],
+  ])("fails another page that loads Dox code through %s", async (_name, change) => {
+    await rewrite("commands/branch", change);
+    expect(await audit()).toContain(
+      "/commands/branch/: loads Dox code; only /dox/ may",
+    );
+  });
+
+  it("fails a page whose script imports the island's chunk statically", async () => {
+    await write(dist, "_astro/page.abc.js", 'import"./DoxPage.mno.js";');
+    expect(
+      (await audit()).some((f) => /loads Dox code; only \/dox\/ may/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails the 404 when it loads Dox code", async () => {
+    const file = join(dist, "404.html");
+    await writeFile(
+      file,
+      (await readFile(file, "utf8")).replace(
+        "</head>",
+        `${DOX_STYLESHEET}</head>`,
+      ),
+    );
+    expect(await audit()).toContain("404.html: loads Dox code; only /dox/ may");
   });
 });

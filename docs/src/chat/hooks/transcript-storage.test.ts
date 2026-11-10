@@ -14,7 +14,7 @@ function message(role: "user" | "assistant", text: string): UIMessage {
   };
 }
 
-/** jsdom has no usable `localStorage` under this Node (see ChatLauncher.test.tsx); this one is a Map. */
+/** jsdom has no usable `localStorage` under this Node; this one is a Map. */
 function stubLocalStorage() {
   const items = new Map<string, string>();
   vi.stubGlobal("localStorage", {

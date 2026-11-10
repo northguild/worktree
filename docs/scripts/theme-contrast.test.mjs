@@ -177,3 +177,192 @@ describe("every pair the theme puts on screen", () => {
     expect(result.ratio).toBeLessThan(result.min);
   });
 });
+
+// Plan #309 Phase 4: the links to /dox are measured on the surfaces they sit on. The thresholds are WCAG 2.2's (an icon, a
+// ring or a bar that marks the current page is a graphical object, 3:1; text, 4.5:1). The header's glass is what the theme
+// toggle's icon is measured on, so the Dox crystal is measured on the same.
+describe("the links to /dox (the header, the menu and the landing)", () => {
+  const named = (name) => PAIRS.find((p) => p.name === name);
+
+  it.each([
+    ["header: Dox link icon", "non-text"],
+    ["menu: Dox link icon", "non-text"],
+    ["header: Dox link, current page bar", "non-text"],
+    ["hero: Ask Dox text", "text"],
+    ["hero: Ask Dox border", "non-text"],
+  ])("measures %s", (name, kind) => {
+    expect(named(name)?.kind).toBe(kind);
+  });
+
+  it("measures the icon in the colour the theme toggle's is, on the same header glass", () => {
+    expect(named("header: Dox link icon")?.fg).toBe(
+      named("header: theme toggle icon")?.fg,
+    );
+    expect(named("header: Dox link icon")?.bg).toEqual(
+      named("header: theme toggle icon")?.bg,
+    );
+  });
+
+  it("no longer measures the launcher's bubble, which is gone", () => {
+    expect(PAIRS.filter((p) => /launcher/.test(p.name))).toEqual([]);
+  });
+});
+
+// Plan #309 Phase 2: the hive's pairs are measured, not assumed. The expected thresholds are WCAG 2.2's (text 4.5:1, a
+// control's boundary or glyph 3:1); the figure for the composer's edge is worked by hand below.
+describe("the hive's pairs (the Dox page)", () => {
+  const hive = PAIRS.filter((pair) => pair.name.startsWith("hive: "));
+
+  it("covers the text the page puts on its three surfaces: the page, a turn's card and the composer", () => {
+    const names = hive.filter((p) => p.kind === "text").map((p) => p.name);
+    for (const covered of [
+      "hive: text in a turn's card",
+      "hive: the waiting line",
+      "hive: the retrieval trace",
+      "hive: the status line",
+      "hive: a warning",
+      "hive: typed text in the composer",
+      "hive: the composer's placeholder",
+      "hive: the accuracy note",
+      "hive: a role label (Dox, You)",
+    ])
+      expect(names).toContain(covered);
+    expect(hive.filter((p) => p.kind === "text").length).toBeGreaterThanOrEqual(
+      15,
+    );
+  });
+
+  for (const theme of ["dark", "light"]) {
+    it(`measures every hive text pair at ${TEXT_MIN}:1 or more in the ${theme} theme`, () => {
+      const properties = themeProperties(theme);
+      const measured = measure(theme, hive, properties).filter(
+        (m) => m.kind === "text",
+      );
+      expect(measured.length).toBeGreaterThan(0);
+      expect(
+        measured.filter((m) => m.ratio < TEXT_MIN).map((m) => m.name),
+      ).toEqual([]);
+    });
+  }
+
+  it("lays a card's tint over the page before measuring: ice on spring at 5% over the dark void, 15.1:1", () => {
+    // Worked by hand, dark theme: void #03080c, spring #4ade80, ice #cfeaf2. The card is 5% spring over void:
+    // r = 3 + 0.05 * (74 - 3) = 6.55, g = 8 + 0.05 * (222 - 8) = 18.7, b = 12 + 0.05 * (128 - 12) = 17.8.
+    // L(card) = 0.2126 * lin(6.55) + 0.7152 * lin(18.7) + 0.0722 * lin(17.8) = 0.0004 + 0.0046 + 0.0004 = 0.0054 (lin per WCAG).
+    // L(ice #cfeaf2) = 0.2126 * 0.6239 + 0.7152 * 0.8228 + 0.0722 * 0.8879 = 0.7852. (0.7852 + 0.05) / (0.0054 + 0.05) = 15.1.
+    const [card] = measure(
+      "dark",
+      hive.filter((p) => p.name === "hive: text in a turn's card"),
+    );
+    expect(card.ratio).toBeCloseTo(15.1, 0);
+  });
+
+  // Plan #309 Phase 8: the control bar's pairs, and the pairs earlier phases left unmeasured (context/notes.md, Phases 1 and 3).
+  it("covers the control bar, the brain menu, the reset panel and the banner", () => {
+    const names = hive.map((p) => p.name);
+    for (const covered of [
+      "hive: the strip's clock",
+      "hive: the badge and the chip at rest",
+      "hive: the badge and the chip on hover",
+      "hive: the badge's brain name",
+      "hive: the menu's and the panel's text",
+      "hive: the menu's and the panel's muted text",
+      "hive: a provider heading, the checked brain, the current zone",
+      "hive: a highlighted row's meta",
+      "hive: the zone search's placeholder and empty note",
+      "hive: a zone highlighted or current",
+      "hive: the panel's call link",
+      "hive: the out-of-budget banner",
+      "hive: the checked brain's dot",
+    ])
+      expect(names).toContain(covered);
+  });
+
+  it("covers what Phases 1 and 3 left unmeasured: spring ink on the code fill, signal ink, spring ink and ice-dim on the void, ice and ice-dim on both fill tiers", () => {
+    const pairOf = (name) => PAIRS.find((p) => p.name === name);
+    const ink = (pair) => (typeof pair.fg === "string" ? pair.fg : "");
+    const code = pairOf("hive: code in the prompt line");
+    expect([ink(code), code.bg[0]]).toEqual([
+      "var(--gmt-spring-ink)",
+      "var(--gmt-code-bg)",
+    ]);
+    for (const [name, fg] of [
+      ["hive: environment badge, local", "var(--gmt-signal-ink)"],
+      ["hive: environment badge, live", "var(--gmt-spring-ink)"],
+      ["hive: the status line", "var(--gmt-ice-dim)"],
+    ]) {
+      const pair = pairOf(name);
+      expect([ink(pair), pair.bg]).toEqual([fg, ["var(--gmt-void)"]]);
+    }
+    for (const [name, fg, fill] of [
+      [
+        "hive: ice on the subtle fill",
+        "var(--gmt-ice)",
+        "var(--gmt-fill-subtle)",
+      ],
+      [
+        "hive: ice-dim on the subtle fill",
+        "var(--gmt-ice-dim)",
+        "var(--gmt-fill-subtle)",
+      ],
+      [
+        "hive: ice on the strong fill",
+        "var(--gmt-ice)",
+        "var(--gmt-fill-strong)",
+      ],
+      [
+        "hive: ice-dim on the strong fill",
+        "var(--gmt-ice-dim)",
+        "var(--gmt-fill-strong)",
+      ],
+    ]) {
+      const pair = pairOf(name);
+      expect([ink(pair), pair.bg]).toEqual([fg, [fill, "var(--gmt-void)"]]);
+    }
+  });
+
+  for (const theme of ["dark", "light"]) {
+    it(`measures every hive control and glyph pair at ${NON_TEXT_MIN}:1 or more in the ${theme} theme`, () => {
+      const measured = measure(theme, hive).filter(
+        (m) => m.kind === "non-text",
+      );
+      expect(measured.length).toBeGreaterThan(0);
+      expect(
+        measured.filter((m) => m.ratio < NON_TEXT_MIN).map((m) => m.name),
+      ).toEqual([]);
+    });
+  }
+
+  it("lays a fill over the void before measuring: ice-dim on the subtle fill, 8.73:1 dark and 8.41:1 light", () => {
+    // Worked by hand with the WCAG 2.2 formula (the same arithmetic as the card above), from the vendored and theme tokens:
+    // dark: void #03080c, --gmt-teal #15803d (theme.css), 6% over it is (4.08, 15.2, 14.94); ice-dim #98b2be, so
+    //   (L(#98b2be) + 0.05) / (L(fill) + 0.05) = 8.73.
+    // light: void #ffffff, --gmt-teal #4ade80, 6% over it is (244.14, 253.02, 247.38); ice-dim #4b4b4b, so
+    //   (L(fill) + 0.05) / (L(#4b4b4b) + 0.05) = 8.41.
+    const pair = hive.filter(
+      (p) => p.name === "hive: ice-dim on the subtle fill",
+    );
+    expect(measure("dark", pair)[0].ratio).toBeCloseTo(8.73, 1);
+    expect(measure("light", pair)[0].ratio).toBeCloseTo(8.41, 1);
+  });
+
+  it("keeps the composer's edge off gmt's spring hairline, which fails 3:1 in both themes", () => {
+    for (const theme of ["dark", "light"]) {
+      const [hairline] = measure(theme, [
+        {
+          name: "x",
+          fg: "var(--gmt-border-strong)",
+          bg: ["var(--gmt-glass-tint)", "var(--gmt-void)"],
+          min: NON_TEXT_MIN,
+          kind: "non-text",
+        },
+      ]);
+      expect(hairline.ratio).toBeLessThan(NON_TEXT_MIN);
+    }
+    const edge = hive.find((p) => p.name === "hive: the composer's edge");
+    for (const theme of ["dark", "light"])
+      expect(measure(theme, [edge])[0].ratio).toBeGreaterThanOrEqual(
+        NON_TEXT_MIN,
+      );
+  });
+});

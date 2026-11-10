@@ -7,6 +7,8 @@ export type ChatErrorCode =
   | "rate_limited_daily"
   | "rate_limited"
   | "upstream_unavailable"
+  | "upstream_slow"
+  | "allowance_spent"
   | "failed";
 
 export interface MappedError {
@@ -19,9 +21,15 @@ export interface MappedError {
 
 /** What the mapper reads from a thrown error or a `RUN_ERROR` chunk. */
 export interface UpstreamError {
-  /** For Gemini, `JSON.stringify` of Google's error body. */
+  /**
+   * For Gemini, `JSON.stringify` of Google's error body. For Workers AI, the OpenAI client's text: the HTTP status, a
+   * space, then Cloudflare's message.
+   */
   message?: string;
-  /** An `ApiError`'s HTTP `status`, or a `RUN_ERROR`'s `code`. */
+  /**
+   * An `ApiError`'s HTTP `status`, or a `RUN_ERROR`'s `code`. For Workers AI the `code` is Cloudflare's own error number
+   * (3036, 3040, 4006), not an HTTP status.
+   */
   code?: string | number;
 }
 
@@ -48,6 +56,17 @@ const MAPPED: Record<ChatErrorCode, MappedError> = {
     message: "The assistant's model is unavailable right now.",
     retryable: true,
   },
+  upstream_slow: {
+    code: "upstream_slow",
+    message:
+      "The assistant is slow to respond right now. Please try again in a moment.",
+    retryable: true,
+  },
+  allowance_spent: {
+    code: "allowance_spent",
+    message: "Dox has used its free allowance for today.",
+    retryable: false,
+  },
   failed: {
     code: "failed",
     message: "Something went wrong answering that question.",
@@ -57,6 +76,20 @@ const MAPPED: Record<ChatErrorCode, MappedError> = {
 
 const PER_DAY = /per\s*day/i;
 const API_KEY_INVALID = /API_KEY_INVALID/;
+/** The `code` a walk that ran out of time puts on its `RUN_ERROR` (`brains.ts`). */
+export const BRAINS_TIMED_OUT_CODE = "brains_timed_out";
+/** The `code` of the `RUN_ERROR` that follows a refusal, for a client that does not read the refusal (`chat-handler.ts`). */
+export const ALLOWANCE_SPENT_CODE = "allowance_spent";
+/**
+ * Workers AI's daily-allocation failure arrives as Cloudflare error 3036 (documented) or 4006 (undocumented, and widely
+ * reported on Cloudflare's forum as "you have used up your daily free allocation of 10,000 neurons"; gmt
+ * `worker/brains.ts`, `ALLOCATION_EXHAUSTED`). The number is read from the `code` only: a bare number in a message could
+ * be a token count in a Gemini error.
+ */
+const ALLOCATION_CODE = /^(3036|4006)$/;
+const ALLOCATION_PHRASE = /daily free allocation/i;
+/** The OpenAI client's message for a failed call: the HTTP status first. */
+const LEADING_STATUS = /^(\d{3})\b/;
 
 function asStatus(value: unknown): number | undefined {
   const n =
@@ -91,9 +124,31 @@ function statusFromMessage(message: string, depth = 0): number | undefined {
   return direct;
 }
 
+/** The HTTP status a failure carries, from wherever the provider's client put it. */
+export function statusOf(input: UpstreamError): number | undefined {
+  const text = input.message ?? "";
+  const leading = LEADING_STATUS.exec(text);
+  return (
+    asStatus(input.code) ??
+    statusFromMessage(text) ??
+    (leading ? asStatus(leading[1]) : undefined)
+  );
+}
+
+/** True when a Workers AI failure says the account's whole Neuron pool is gone for the day. */
+export function isAllocationExhausted(input: UpstreamError): boolean {
+  return (
+    ALLOCATION_CODE.test(String(input.code ?? "")) ||
+    ALLOCATION_PHRASE.test(input.message ?? "")
+  );
+}
+
 export function mapUpstreamError(input: UpstreamError): MappedError {
   const text = input.message ?? "";
-  const status = asStatus(input.code) ?? statusFromMessage(text);
+  if (input.code === BRAINS_TIMED_OUT_CODE) return MAPPED.upstream_slow;
+  if (input.code === ALLOWANCE_SPENT_CODE) return MAPPED.allowance_spent;
+  if (isAllocationExhausted(input)) return MAPPED.rate_limited_daily;
+  const status = statusOf(input);
 
   if (API_KEY_INVALID.test(text)) return MAPPED.misconfigured;
   if (status === 401 || status === 403) return MAPPED.misconfigured;

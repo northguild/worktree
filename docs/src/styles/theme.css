@@ -110,6 +110,22 @@
   src: url("/worktree/fonts/michroma-latin-400-normal.woff2") format("woff2");
 }
 
+/* Tokens the Dox page's hive (dox-hive.css) reads and the vendored set lacks: the waiting turn's scanline and sheen
+   durations, and the layer behind the shell's content (gmt `gmt-tokens.css` at d479dca8). Declared here, not in
+   ./northguild/, which is copied unedited. Under reduced motion the two durations are 0, as the vendored ones are. */
+:root {
+  --gmt-motion-scan-duration: 1.6s;
+  --gmt-motion-sheen-duration: 2.2s;
+  --gmt-z-behind: -1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --gmt-motion-scan-duration: 0s;
+    --gmt-motion-sheen-duration: 0s;
+  }
+}
+
 ::selection {
   background: var(--gmt-selection);
 }

@@ -245,6 +245,9 @@ importers:
       '@astrojs/react':
         specifier: ^7.1.2
         version: 7.1.2(@types/node@24.19.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(esbuild@0.28.2)(jiti@2.7.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(yaml@2.9.1)
+      '@astrojs/sitemap':
+        specifier: 3.7.4
+        version: 3.7.4
       '@astrojs/starlight':
         specifier: ^0.42.8
         version: 0.42.8(astro@7.4.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))(supports-color@10.2.2)(typescript@5.9.3)
@@ -263,6 +266,9 @@ importers:
       '@tanstack/ai':
         specifier: ^1.2.0
         version: 1.2.0(zod@4.6.7)
+      '@tanstack/ai-cloudflare':
+        specifier: ^1.2.0
+        version: 1.2.0(@tanstack/ai@1.2.0(zod@4.6.7))(google-auth-library@10.9.1(supports-color@10.2.2))(undici@7.30.1)(ws@8.22.0)(zod@4.6.7)
       '@tanstack/ai-gemini':
         specifier: ^1.2.0
         version: 1.2.0(@tanstack/ai@1.2.0(zod@4.6.7))(supports-color@10.2.2)
@@ -272,6 +278,9 @@ importers:
       astro:
         specifier: ^7.4.5
         version: 7.4.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
+      minisearch:
+        specifier: 7.2.0
+        version: 7.2.0
       ogl:
         specifier: ^1.0.11
         version: 1.0.11
@@ -2047,6 +2056,15 @@ packages:
   '@tanstack/ai-client@1.1.0':
     resolution: {integrity: sha512-XMTdKzB9JG851Sztd/ywaL9D9Mw5DS87nV2i+5/Yq9dT+JKMcGoXCriztyO+djwxHu5ZGY32o9o29zbMMBo9VQ==}
 
+  '@tanstack/ai-cloudflare@1.2.0':
+    resolution: {integrity: sha512-hN8rsAokebWBG9PQywBBIHlzbBRsg1z7DobBeu91NoBetEbaZiZA9K2E/MOJqo10Mn0VdtcB4GSVEc3iWfpyXA==}
+    peerDependencies:
+      '@cloudflare/workers-types': ^4.20260317.1
+      '@tanstack/ai': ^1.2.0
+    peerDependenciesMeta:
+      '@cloudflare/workers-types':
+        optional: true
+
   '@tanstack/ai-event-client@1.0.1':
     resolution: {integrity: sha512-IURnn4oRKJbtbAuC3GcXRcuKHi8DrPmwuACqaTq6ApSGlyJyHhq0NTksKEmzql2Z12+njFjsKSXG9c7UbSHTxg==}
 
@@ -2096,6 +2114,11 @@ packages:
         optional: true
       react:
         optional: true
+
+  '@tanstack/openai-base@1.0.2':
+    resolution: {integrity: sha512-rykBjNg8C4rSfI+JDHwKnqt+SzupuxZlXPHBJD8pY2fO+0Cbbb8BsMVNECoW5EIPxEbfoNaSwTFcUvWjDsN+vA==}
+    peerDependencies:
+      '@tanstack/ai': ^1.2.0
 
   '@tanstack/store@0.11.2':
     resolution: {integrity: sha512-sJ4mjol8uQsHV0gOJzzjwXfh2Fwm+Sz0+8deqiTm4jGbMdjzNSW+xZCFm0kUa870uhd8yi+DpKnZb5Kc4apa0Q==}
@@ -3450,6 +3473,9 @@ packages:
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
 
+  minisearch@7.2.0:
+    resolution: {integrity: sha512-dqT2XBYUOZOiC5t2HRnwADjhNS2cecp9u+TJRiJ1Qp/f5qjkeT5APcGPjHw+bz89Ms8Jp+cG4AlE+QZ/QnDglg==}
+
   mlly@1.8.2:
     resolution: {integrity: sha512-d+ObxMQFmbt10sretNDytwt85VrbkhhUA/JBGm1MPaWJ65Cl4wOgLaB1NYvJSZ0Ef03MMEU/0xpPMXUIQ29UfA==}
 
@@ -3680,6 +3706,33 @@ packages:
 
   oniguruma-to-es@4.3.6:
     resolution: {integrity: sha512-csuQ9x3Yr0cEIs/Zgx/OEt9iBw9vqIunAPQkx19R/fiMq2oGVTgcMqO/V3Ybqefr1TBvosI6jU539ksaBULJyA==}
+
+  openai@7.53.0:
+    resolution: {integrity: sha512-PXiIZraFYMb2QYgTtWqDA16Oszj4fWRZNn7qLIAddmiJxM5uQPWBFaxp9O8MhLfTUOQ+iQsnFSRJhLPecsGovQ==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      google-auth-library: '>=9.15.1 <12'
+      undici: ^7.30.1
+      ws: ^8.21.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
+      google-auth-library:
+        optional: true
+      undici:
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   ora@9.4.1:
     resolution: {integrity: sha512-6VlU9MLXbjVQD04AZCMX28hVtA5bUoadvUqO76MUCVA0ilwJbMiHsITRPfyVm6p/BC0Av/BXMujx39WCe1LEqw==}
@@ -6249,6 +6302,21 @@ snapshots:
       - '@opentelemetry/api'
       - zod
 
+  '@tanstack/ai-cloudflare@1.2.0(@tanstack/ai@1.2.0(zod@4.6.7))(google-auth-library@10.9.1(supports-color@10.2.2))(undici@7.30.1)(ws@8.22.0)(zod@4.6.7)':
+    dependencies:
+      '@tanstack/ai': 1.2.0(zod@4.6.7)
+      '@tanstack/ai-utils': 1.1.0
+      '@tanstack/openai-base': 1.0.2(@tanstack/ai@1.2.0(zod@4.6.7))(google-auth-library@10.9.1(supports-color@10.2.2))(undici@7.30.1)(ws@8.22.0)(zod@4.6.7)
+      openai: 7.53.0(google-auth-library@10.9.1(supports-color@10.2.2))(undici@7.30.1)(ws@8.22.0)(zod@4.6.7)
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - google-auth-library
+      - undici
+      - ws
+      - zod
+
   '@tanstack/ai-event-client@1.0.1':
     dependencies:
       '@tanstack/devtools-event-client': 0.4.4
@@ -6298,6 +6366,20 @@ snapshots:
   '@tanstack/markdown@0.0.13(react@19.3.1)':
     optionalDependencies:
       react: 19.3.1
+
+  '@tanstack/openai-base@1.0.2(@tanstack/ai@1.2.0(zod@4.6.7))(google-auth-library@10.9.1(supports-color@10.2.2))(undici@7.30.1)(ws@8.22.0)(zod@4.6.7)':
+    dependencies:
+      '@tanstack/ai': 1.2.0(zod@4.6.7)
+      '@tanstack/ai-utils': 1.1.0
+      openai: 7.53.0(google-auth-library@10.9.1(supports-color@10.2.2))(undici@7.30.1)(ws@8.22.0)(zod@4.6.7)
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - google-auth-library
+      - undici
+      - ws
+      - zod
 
   '@tanstack/store@0.11.2': {}
 
@@ -8029,6 +8111,8 @@ snapshots:
 
   minimist@1.2.8: {}
 
+  minisearch@7.2.0: {}
+
   mlly@1.8.2:
     dependencies:
       acorn: 8.19.0
@@ -8117,6 +8201,13 @@ snapshots:
       oniguruma-parser: 0.12.2
       regex: 6.1.0
       regex-recursion: 6.0.2
+
+  openai@7.53.0(google-auth-library@10.9.1(supports-color@10.2.2))(undici@7.30.1)(ws@8.22.0)(zod@4.6.7):
+    optionalDependencies:
+      google-auth-library: 10.9.1(supports-color@10.2.2)
+      undici: 7.30.1
+      ws: 8.22.0
+      zod: 4.6.7
 
   ora@9.4.1:
     dependencies:

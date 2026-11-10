@@ -11,6 +11,9 @@ const RETRYABLE_BY_CODE: Record<string, boolean> = {
   rate_limited_daily: true,
   rate_limited: true,
   upstream_unavailable: true,
+  upstream_slow: true,
+  // Every brain is out for the day: asking again cannot help.
+  allowance_spent: false,
   misconfigured: false,
   failed: false,
 };
@@ -83,22 +86,27 @@ interface ChatWarningProps {
 /**
  * A recoverable problem is a polite status; one that asking again will not fix
  * is an alert (plan #257 D18). Held in component state, never in the transcript.
+ * Drawn in the hive's signal language (plan #309 §4.1 row 16): the amber tokens and a `⟨ ! ⟩` marker that is
+ * decoration, so the message is all a screen reader hears.
  */
 export function ChatWarning({ state, onRetry }: ChatWarningProps) {
-  const tone = state.retryable
-    ? "bg-chat-warn-wash text-chat-warn-ink"
-    : "bg-chat-danger-wash text-chat-fg";
+  // `<output>` holds only phrasing content and this block holds a `<p>`, and the role has to change with
+  // `retryable`, which `<output>` cannot do either, so the role is set by hand.
   return (
     <div
+      className="gmt-hive-warning"
       role={state.retryable ? "status" : "alert"}
-      className={`mx-4 mb-2 flex flex-col gap-2 rounded-lg px-3 py-2 text-sm ${tone}`}
+      data-retryable={state.retryable ? "" : undefined}
     >
+      <span className="gmt-hive-warning-marker" aria-hidden="true">
+        ⟨ ! ⟩
+      </span>
       <p>{state.message}</p>
       {state.retryable && onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="self-start rounded border border-current px-2 py-1 font-medium hover:bg-chat-fill-strong focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="gmt-hive-warning-retry"
         >
           Try again
         </button>

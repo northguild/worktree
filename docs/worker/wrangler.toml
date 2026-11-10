@@ -17,6 +17,34 @@ workers_dev = true
 # If 8787 is busy, kill the other process rather than silently moving ports.
 port = 8787
 
+# Workers AI, the first two brains (plan #309 D9). `worker/brains.ts` offers a Workers AI brain only while this binding
+# exists, so removing it shrinks the list and breaks nothing.
+#
+# `remote = true` is stated, not implied: models never run locally, so `wrangler dev` spends the account's real
+# 10,000-Neuron daily allocation exactly as production does (gmt `apps/dox/wrangler.jsonc` says the same). Staying on
+# the Workers Free plan is what keeps it free: there an exhausted allocation fails with an error, where on Workers Paid
+# it bills.
+[ai]
+binding = "AI"
+remote = true
+
+# The usage ledger (plan #309 D10): the per-day brain counts, brain states and visitor counts behind `GET /api/brains`
+# and the visitor cap. The binding name must stay `DOX_USAGE`, which `Env` and `worker/usage.ts` address; it is optional
+# there, so the Worker still runs if the block goes (the first brain is asked, the counts read as empty).
+#
+# The namespaces are titled `worktree-dox-usage` and `worktree-dox-usage_preview`, not `DOX_USAGE`: a namespace with that
+# title already exists on the account, most likely gmt's Dox ledger, which binds that name and writes the same keys, so
+# sharing it would merge both sites' counts and visitor caps. The ids are not secrets (gmt commits its own); `docs/worker/README.md`, "The binding",
+# has the commands that made them.
+#
+# `remote = true` for the same reason as `[ai]`: `worker:dev` runs `wrangler dev --local`, which would otherwise use a
+# simulated local KV. With it, a local question reads and writes the preview namespace on Cloudflare.
+[[kv_namespaces]]
+binding = "DOX_USAGE"
+id = "6622db5e987c41e6a7102b24bb5d5713"
+preview_id = "65578568775d46ca8b24fff3cf78406c"
+remote = true
+
 [vars]
 # Non-secret env vars go here
 
