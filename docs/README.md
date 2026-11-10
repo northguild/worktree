@@ -420,3 +420,31 @@ deploys with the next stable release.
 
 For manual deployment steps, including first-time Cloudflare setup, see
 [docs/worker/README.md](worker/README.md).
+
+---
+
+## Search engines
+
+Nothing in the build submits the site to a search engine. The owner does these once, by hand, after a release
+that carries the sitemap and header changes has deployed (a docs-only merge does not deploy the
+site; see [Deployment](#deployment)).
+
+1. **Submit the sitemap** to both engines, as `https://northguild.dev/worktree/sitemap-index.xml`:
+   - Google Search Console, for the `https://northguild.dev/` property: *Sitemaps* → *Add a new sitemap*.
+   - Bing Webmaster Tools, for the same site: *Sitemaps* → *Submit sitemap*.
+2. **Read each engine's Pages report** (*Pages* under *Indexing* in Search Console; Bing's index report for the
+   site), a few days after the submission, not the same day.
+3. **A healthy result** is 28 pages discovered and 28 indexed, one for each `<loc>` in `sitemap-0.xml`, with no
+   *Duplicate* or *Alternate page* entry for a `/worktree/` URL. Twenty-seven of the 28 carry a `<lastmod>`;
+   the landing page is the one that does not, on purpose. A page that is discovered but not indexed is
+   Google's call and needs no change here. A duplicate or alternate entry does: it means two URLs are
+   competing for one page, so check the page's canonical link first.
+4. **Spot-check the headers** on the live site once the release has deployed: `curl -sI` on a file under
+   `/worktree/_astro/` should show `Cache-Control: public, max-age=31536000, immutable`, and on
+   `/worktree/llms.txt` an `X-Robots-Tag: noindex`. `deploy:smoke` asserts the same in the release's deploy
+   job.
+
+The `Sitemap:` line that points crawlers at `/worktree/sitemap-index.xml` also has to be in the
+`robots.txt` served from the `northguild.dev` root, because crawlers read that file only from a host's root.
+That file lives in the `northguild.dev` repository, **outside this one**; the copy in `docs/public/robots.txt`
+is not served from the root and is not authoritative.

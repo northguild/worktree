@@ -67,3 +67,19 @@ Non-blocking observations from the gates, for a person. Branch-local; `/feature-
   an importable module, as `theme-contrast.mjs` does, to get a seam.
 - Chromium could not reach `https://northguild.dev` from the agent's sandbox, and PSI returned 429 with no
   key, so the live lab run and the CrUX field data were not measured here.
+- Google's PSI API getting-started page (read 2026-11-09) says CrUX field data is to be dropped from that API in
+  favour of the CrUX API. Once it is, the script's `CrUX url` and `CrUX origin` rows will read "no field data"
+  even for a page that has some.
+- The script's Lighthouse runs use the machine's GPU, so its desktop TBT (0 ms on the landing) cannot show what
+  PSI's GPU-less, software-WebGL run shows (2,570 ms, #345). A `--use-angle=swiftshader --enable-unsafe-swiftshader`
+  run reproduces PSI's score locally.
+
+## Phase 6 — Search engine owner steps
+
+- The Search Console and Bing menu labels in `docs/README.md`'s *Search engines* section were not checked
+  against either product; "Bing's index report" is vaguer than the Google path. The owner should correct them
+  on first use.
+- The section waits for a release before submitting the sitemap, so the first crawl sees the `<lastmod>`
+  values. The live site already serves 28 `<loc>`, so submitting now would also work.
+- Step 4's header spot-check covers the hashed asset and `llms.txt` but not §8's third URL (a page carrying
+  neither `noindex` nor `immutable`); `deploy:smoke` already asserts that one.
