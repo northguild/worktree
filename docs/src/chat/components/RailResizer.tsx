@@ -142,7 +142,9 @@ export function RailResizer({ railId, container }: RailResizerProps) {
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const start = drag.current;
-    if (!start || event.clientX === start.startX) return;
+    if (!start) return;
+    // Only a move before any other is skipped for being where the drag began: one that comes back there is a width too.
+    if (!start.moved && event.clientX === start.startX) return;
     start.moved = true;
     // The rail is on the right: moving the pointer left widens it.
     const width = start.startWidth + (start.startX - event.clientX);

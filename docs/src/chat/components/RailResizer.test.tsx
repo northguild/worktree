@@ -149,6 +149,17 @@ describe("RailResizer", () => {
       expect(storage.get(STORAGE_KEY)).toBe("590");
     });
 
+    it("follows a drag back to where it began, and remembers that width", () => {
+      render(<Harness />);
+      pointer("pointerdown", 1000);
+      pointer("pointermove", 900);
+      pointer("pointermove", 1000);
+      pointer("pointerup", 1000);
+      // Back at the start: the narrowest, 489.6, stored as 490 (not the 590 of the move before).
+      expect(Number.parseFloat(widthSet())).toBeCloseTo(MIN, 5);
+      expect(storage.get(STORAGE_KEY)).toBe("490");
+    });
+
     it("stores nothing for a click that never moved, so the rail keeps following the default", () => {
       render(<Harness />);
       pointer("pointerdown", 1000);
