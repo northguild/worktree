@@ -4,7 +4,7 @@
 [oclif](https://oclif.io/docs/api_reference). The repository is a two-package pnpm workspace: the CLI at
 the root, and an Astro/Starlight documentation site under `docs/` that deploys to Cloudflare as a Worker with static assets and talks to
 a small Cloudflare Worker for its chat feature. The chat runs on TanStack AI: the client uses `useChat`
-against the Worker's `POST /api/chat`, and the Worker answers through Gemini. `POST /` stays as the frozen
+against the Worker's `POST /api/chat`, and the Worker answers from the few docs sections it retrieves per question (MiniSearch over a corpus compiled into the Worker bundle by `docs/worker/build-context.mjs`; `docs/worker/retrieval/`), through the first of five brains that is available: two Workers AI models (`@tanstack/ai-cloudflare` over the `AI` binding), then three Gemini models (`@tanstack/ai-gemini`); `docs/worker/brains.ts` walks them before any text streams, skipping any the advisory usage ledger (`docs/worker/usage.ts`, the optional `DOX_USAGE` KV binding) has marked out. `GET /api/brains` returns the ledger's counts. `POST /` stays as the frozen
 legacy route for clients from before the change.
 
 One piece of history explains a lot of the current shape: the project moved from the `@burglekitt` org to
@@ -19,7 +19,7 @@ confusing errors rather than obvious ones — see the prerequisites and *Prepare
 | Package manager | pnpm 12.15.0 (`packageManager` in both `package.json` files; pnpm settings such as `overrides` and `allowBuilds` live in `pnpm-workspace.yaml`, since pnpm 11+ no longer reads the `pnpm` field of `package.json`), workspace of the root and `docs` (the root is listed as `"."` so Changesets can see it; `pnpm -r` still skips it) |
 | Database | none |
 | Storage | none |
-| Hosting | CLI → npm; docs → a Cloudflare Worker with static assets on the Route `northguild.dev/worktree*` (`docs/wrangler.jsonc`); the old GitHub Pages site is only a generated bundle (the schema file and redirect stubs); chat Worker (`POST /api/chat`, plus the frozen legacy `POST /`) → a second Cloudflare Worker |
+| Hosting | CLI → npm; docs → a Cloudflare Worker with static assets on the Route `northguild.dev/worktree*` (`docs/wrangler.jsonc`); the old GitHub Pages site is only a generated bundle (the schema file and redirect stubs); chat Worker (`POST /api/chat`, `GET /api/brains`, plus the frozen legacy `POST /`) → a second Cloudflare Worker, with the `AI` (Workers AI) binding, the `DOX_USAGE` KV binding (optional; the namespaces `worktree-dox-usage` and its `_preview`, `docs/worker/README.md`) and the `GEMINI_API_KEY` secret |
 
 ## Layout
 
@@ -33,10 +33,10 @@ scripts/              version-sync script, run by `pnpm sync-version`; `release-
 skills/               the usage skill, `skills/worktree/SKILL.md`; hand-written, shipped inside the npm package (package.json `files`) and installable with `npx skills add`. Nothing on npm discovers it since TanStack Intent went (`skills add` reads GitHub); it stays in `files` so an `npm i -g` install has a copy matching its own version on disk
 docs/                 Astro 7 + Starlight docs site, React 19 islands, Base UI; own package.json, `astro.config.mjs`
 docs/src/content/docs/ Starlight pages (28 pages: `index.mdx` is the landing at `/worktree/`, `getting-started.mdx` is Getting Started at `/worktree/getting-started/`, plus `commands/` (9 command pages and an index), `guides/` (11 guides and an index), `configuration`, `project-configuration`, `faq` and `changelog`)
-docs/src/             chat client, site metadata, styles; `components/Hero.astro` puts the landing's copy beside `HeroLeaves.astro` (the leaf-particle hero: a still SVG, a canvas and a small loader script; the effect itself, in `hero/` with OGL, is a chunk only the loader's dynamic `import()` reaches, so the landing alone ships hero script; its CSS is in the shared stylesheet)
+docs/src/             chat client, site metadata, styles; the chat is the page `/dox` (`pages/dox.astro`, one React island, `chat/components/DoxPage.tsx`), reached by plain links only: the header's "Chat with Dox" crystal (`components/Header.astro`, repeated in the mobile menu by `components/MobileMenuFooter.astro`) and the landing's "Ask Dox" (`components/Hero.astro`); `components/DoxMark.astro` draws the crystal, and no page but `/dox` loads chat code; `components/Hero.astro` puts the landing's copy beside `HeroLeaves.astro` (the leaf-particle hero: a still SVG, a canvas and a small loader script; the effect itself, in `hero/` with OGL, is a chunk only the loader's dynamic `import()` reaches, so the landing alone ships hero script; its CSS is in the shared stylesheet)
 docs/src/styles/northguild/ the NorthGuild theme, vendored unedited from `northguild/northguild.dev` `packages/theme/` (each file's header names the commit); `docs/src/styles/theme.css` is this site's own `--gmt-*` → `--sl-*` mapping. To refresh, see `docs/README.md` (Theme)
 docs/wrangler.jsonc   the docs site's Worker config (assets from `docs/.deploy`, the build staged under `worktree/` and `docs/deploy/_headers` at its root by `stage:deploy`); `docs/scripts/` holds `audit-dist.mjs`, `theme-contrast.mjs` (measures the theme's contrast pairs), `build-legacy-pages.mjs` (writes the gitignored `docs/legacy/`), `deploy-smoke.mjs` and `web-vitals.mjs` (measures Core Web Vitals by hand, not a gate)
-docs/worker/          Cloudflare Worker for the docs chat, on TanStack AI: `POST /api/chat` serves the current client, `POST /` the frozen legacy protocol (its own `wrangler.toml`)
+docs/worker/          Cloudflare Worker for the docs chat, on TanStack AI: `POST /api/chat` serves the current client, `GET /api/brains` the usage counts, `POST /` the frozen legacy protocol (its own `wrangler.toml`, which binds `[ai]`, remote in dev, for the Workers AI brains, and the `DOX_USAGE` KV namespace for the usage ledger)
 context/              planning-workflow artifacts (this directory)
 context7.json         what Context7 (context7.com) may index from this repo: the user docs, the usage skill and the README — see Documentation below
 .github/agents/       documentation-only agent manifests — nothing executes them
@@ -58,7 +58,7 @@ context7.json         what Context7 (context7.com) may index from this repo: the
   config can stop it. [`verify.md`](verify.md) has the detail; the standards bundle's starter template is
   renamed to `biome-example.json` here for exactly this reason.
 - **The docs site is static and must never hold a secret.** `GEMINI_API_KEY` lives in Cloudflare Worker
-  secrets (`pnpm --filter docs worker:setup-secret`, i.e. `wrangler secret put`). For local development,
+  secrets (`pnpm --filter docs worker:setup-secret`, i.e. `wrangler secret put`); the Workers AI brains need no secret, only the `[ai]` binding. For local development,
   `worker:setup-dev-vars` reads it from `docs/.env.local` and writes `docs/worker/.dev.vars`; both are
   gitignored. `ci.yml` runs a secret scan that fails the build if a key value is committed.
 - **One generated file must be committed in sync with `package.json`'s version:**
@@ -87,7 +87,7 @@ untrue on one of these surfaces is fixed by the phase that makes it untrue, not 
 | `docs/src/content/docs/` | users looking something up, at https://northguild.dev/worktree/ | any user-visible CLI behaviour. One page per command under `commands/` (9), plus `configuration.mdx`, `project-configuration.mdx`, `index.mdx` (the landing), `getting-started.mdx`, `faq.mdx`, and `guides/` (11) |
 | [`docs/README.md`](../docs/README.md) | someone working on the docs app | how the docs app is run or built |
 | [`docs/worker/README.md`](../docs/worker/README.md) | someone working on the chat proxy | the Worker's routes, secrets or deploy |
-| `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; also embedded in the docs chat system prompt | a command or flag change that the skill describes — **but see the caveat below** |
+| `skills/worktree/SKILL.md` | agents that install the skill with `npx skills add`; shipped in the npm package; its sections are also the docs chat's vocabulary, searched per question | a command or flag change that the skill describes — **but see the caveat below** |
 | `docs/src/content/docs/changelog.mdx` | users looking for release notes | the release-process steps, if the release flow changes — it states the "single latest-docs" policy and points at `CHANGELOG.md` |
 | [`context7.json`](../context7.json) | Context7, which indexes a GitHub repository's markdown for coding agents to query | the folder lists, if `docs/src/content/docs/` or `skills/` moves; a new root-level `.md` file, which is indexed unless named in `excludeFiles`; and its `rules`, which restate passages of `skills/worktree/SKILL.md`, if one of those behaviours changes |
 

@@ -12,10 +12,10 @@ export default defineConfig({
   splitting: false,
   shims: false,
   outExtension: () => ({ js: ".js" }),
-  // The two TanStack AI packages stay out of this bundle. wrangler bundles
+  // The TanStack AI packages stay out of this bundle. wrangler bundles
   // dist/worker.js again, and only that second pass resolves a package's
   // "workerd" / "browser" export conditions; tsup resolves for Node and would
   // inline a build that hangs under workerd (plan #257 phase 3, seen under
   // `wrangler dev --local`). Everything else is bundled here, as before.
-  external: ["@tanstack/ai", "@tanstack/ai-gemini"],
+  external: ["@tanstack/ai", "@tanstack/ai-gemini", "@tanstack/ai-cloudflare"],
 });

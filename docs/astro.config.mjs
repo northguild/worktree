@@ -14,16 +14,13 @@ const PREVIEW_ALT =
 const DIST = fileURLToPath(new URL("./dist/", import.meta.url));
 
 // One URL form: https://northguild.dev/worktree/<path>/ — no /docs/ prefix.
-// `site` is what makes the sitemap integration emit one.
+// `site` is required by the sitemap integration below (it writes absolute URLs).
 export default defineConfig({
   site: "https://northguild.dev",
   base: "/worktree",
   trailingSlash: "always",
   build: { format: "directory" },
   integrations: [
-    // Registered explicitly (D3): Starlight adds its own sitemap only when none is present, and ours sets `lastmod`
-    // from the built footer (D1). The landing has no footer date and so no `lastmod` (D2).
-    sitemap({ serialize: (item) => sitemapLastmod(DIST, item) }),
     starlight({
       title: "@northguild/worktree",
       // The delimiter in `<title>`: `<page> · @northguild/worktree`, the middle dot GMT's pages use (`Core Rules · GMT`; the
@@ -112,6 +109,8 @@ export default defineConfig({
         ThemeProvider: "./src/components/ThemeProvider.astro",
         // The header's right group reads theme, language select, GitHub, Discord (#266, D5); Starlight's puts GitHub first.
         Header: "./src/components/Header.astro",
+        // The mobile menu repeats the header's "Chat with Dox" link before the social icons (#309 D2): the right group is hidden on a phone.
+        MobileMenuFooter: "./src/components/MobileMenuFooter.astro",
         Footer: "./src/components/Footer.astro",
         Head: "./src/components/Head.astro",
         // The landing (D17) sets its copy beside the leaf-particle hero; every other splash page (the 404) keeps Starlight's Hero.
@@ -145,7 +144,7 @@ export default defineConfig({
           },
         },
         // The share preview (plan §9 Q3; the user, 2026-11-04: the landing with one of the hero's shapes): the landing in
-        // the dark theme with the hero formed as the git graph. A screenshot of `astro preview` at 1440×756 (DPR 2), the chat launcher and the CLI
+        // the dark theme with the hero formed as the git graph. A screenshot of `astro preview` at 1440×756 (DPR 2), the CLI
         // version hidden so it does not age with a release, scaled to 1200×630. Retake it when the landing changes.
         ...[
           ["og:image", "https://northguild.dev/worktree/og-image.jpg"],
@@ -174,6 +173,15 @@ export default defineConfig({
       },
     }),
     react(),
+    // Registered explicitly (#287 D3): Starlight adds its own sitemap only when none is configured (0.42.8, `dist/index.js`,
+    // which searches every integration, so the order is not what decides it), and this one differs from it twice.
+    // `filter`: `/dox/` is the chat shell and carries `noindex` (plan #309 D6), so it is not listed; it receives the absolute URL.
+    // `serialize`: each entry's `lastmod` is read from its page's built footer (#287 D1); the landing has no footer date and
+    // so no `lastmod` (D2). The audit checks the built sitemap.
+    sitemap({
+      filter: (page) => new URL(page).pathname !== "/worktree/dox/",
+      serialize: (item) => sitemapLastmod(DIST, item),
+    }),
   ],
   vite: { plugins: [tailwindcss()] },
 });

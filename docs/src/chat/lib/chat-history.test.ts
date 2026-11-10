@@ -191,7 +191,7 @@ describe("the transcript codec", () => {
   });
 });
 
-/** jsdom has no usable `localStorage` under this Node (see ChatLauncher.test.tsx); this one is a Map. */
+/** jsdom has no usable `localStorage` under this Node; this one is a Map. */
 function stubLocalStorage() {
   const items = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -209,7 +209,7 @@ describe("removeLegacyHistory", () => {
 
   it("removes the three per-model transcripts and nothing else", () => {
     // The keys the retired client wrote: `docs_chat_history_` + each of its three model ids
-    // (the old constants.ts ALLOWED_MODELS, ChatContext.tsx).
+    // (the old constants.ts ALLOWED_MODELS).
     const old = [
       "docs_chat_history_gemini-2.5-flash",
       "docs_chat_history_gemini-2.5-flash-lite",

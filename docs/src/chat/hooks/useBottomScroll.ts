@@ -1,4 +1,4 @@
-import { type RefObject, useLayoutEffect } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useState } from "react";
 
 /** The last thing in the transcript, as far as scrolling cares. */
 export interface ScrollTarget {
@@ -16,12 +16,35 @@ interface UseBottomScrollProps {
   last?: ScrollTarget;
 }
 
+/** How far from the end still counts as at the end, in pixels: a line or two of the last turn. */
+const AT_BOTTOM_THRESHOLD = 120;
+
+function distanceFromBottom(el: HTMLElement): number {
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
+}
+
+/**
+ * Keeps the transcript at its end while the reader is there, and reports whether they are, so a jump-to-latest control
+ * can show only once they have scrolled up (plan #309 §4.1 row 17).
+ */
 export function useBottomScroll({
   containerRef,
   endRef,
   lastSnapshotRef,
   last,
 }: UseBottomScrollProps) {
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  // Scrolling is the one thing that moves the reader off the end without the transcript changing.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () =>
+      setIsAtBottom(distanceFromBottom(el) < AT_BOTTOM_THRESHOLD);
+    el.addEventListener("scroll", update, { passive: true });
+    return () => el.removeEventListener("scroll", update);
+  }, [containerRef]);
+
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -33,9 +56,7 @@ export function useBottomScroll({
     if (lastSnapshotRef.current === snapshot) return;
     lastSnapshotRef.current = snapshot;
 
-    const threshold = 120;
-    const isAtBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    const atBottom = distanceFromBottom(el) < AT_BOTTOM_THRESHOLD;
 
     // The wait for an answer just appeared (streaming, no text yet) — always
     // scroll so the user sees the loading dots immediately after submitting.
@@ -50,8 +71,20 @@ export function useBottomScroll({
       return;
     }
 
-    if (isAtBottom) {
+    if (atBottom) {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   });
+
+  /** Back to the newest turn. Instant under reduced motion, as the library's smooth scroll is not the reader's choice there. */
+  function scrollToBottom() {
+    const reduced =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    endRef.current?.scrollIntoView({
+      behavior: reduced ? "auto" : "smooth",
+      block: "end",
+    });
+  }
+
+  return { isAtBottom, scrollToBottom };
 }

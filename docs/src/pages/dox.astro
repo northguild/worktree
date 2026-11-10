@@ -1,0 +1,102 @@
+---
+/**
+ * The `/dox` route: the only chat surface, full-bleed (plan #309 D6; shaped like gmt's `dox.astro`).
+ *
+ * The route keeps the site header, the same one as every page (WCAG 2.2 SC 3.2.3 Consistent Navigation), and hides only
+ * the page `<h1>`; the page itself never scrolls and the chat fills the viewport below the header. It is kept out of
+ * search engines and the site's page lists: `noindex` below, a sitemap `filter` in astro.config.mjs, no content-collection
+ * entry (so no `llms.txt` line), `pagefind: false`, and no footer (Footer.astro).
+ *
+ * `<StarlightPage>` is still the wrapper though none of its chrome is wanted: `customCss` is injected only by Starlight's
+ * own page component, reachable only through StarlightPage. The prose chrome is removed with CSS keyed off the
+ * `data-dox-shell` attribute the inline script below sets, so none of it can leak to another page.
+ */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { DoxPage } from "../chat/components/DoxPage";
+---
+
+<StarlightPage
+  frontmatter={{
+    // Kept for <title> and SEO; only the visual <h1> is hidden below.
+    title: "Dox",
+    description:
+      "Ask Dox, the assistant for the worktree docs, how to use the CLI.",
+    template: "splash",
+    pagefind: false,
+    head: [
+      { tag: "meta", attrs: { name: "robots", content: "noindex" } },
+      {
+        // Marks this document as the chat shell, in <head> before <body> parses, so the page <h1> never flashes before
+        // it is hidden. JS-only is acceptable: the page is a `client:load` island, so there is no no-JS experience to
+        // protect.
+        tag: "script",
+        content: "document.documentElement.setAttribute('data-dox-shell','')",
+      },
+    ],
+  }}
+>
+  <DoxPage client:load />
+</StarlightPage>
+
+<style is:global>
+  /* Scoped by the attribute above and not by Astro's component scoping, because every selector here targets
+     Starlight-owned markup this file does not render itself. */
+
+  /* The page never scrolls; the transcript is the only scroll container. */
+  html[data-dox-shell],
+  html[data-dox-shell] body {
+    block-size: 100%;
+    overflow: hidden;
+  }
+
+  /* Starlight's PageTitle renders <h1 id="_top"> on every page, splash included. The frontmatter title stays for
+     <title>; the heading stays in the accessibility tree and is only visually hidden. */
+  html[data-dox-shell] .content-panel:first-child h1 {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Remove the sidebar and title padding meant for a prose page. The shell is fixed below the header. */
+  html[data-dox-shell] .main-frame {
+    padding-block-start: 0;
+    padding-inline-start: 0;
+  }
+
+  html[data-dox-shell] .page {
+    min-block-size: 0;
+    block-size: 100dvh;
+  }
+
+  html[data-dox-shell] main {
+    padding: 0;
+    block-size: 100%;
+  }
+
+  /* Starlight's content wrappers cap width and add vertical rhythm meant for prose; both fight an app surface. */
+  html[data-dox-shell] .content-panel {
+    padding: 0;
+    border: 0;
+  }
+
+  html[data-dox-shell] .sl-container {
+    max-inline-size: none;
+    margin: 0;
+  }
+
+  html[data-dox-shell] .sl-container > * + * {
+    margin-block-start: 0;
+  }
+
+  /* `.sl-markdown-content` applies prose rhythm to whatever it contains, the island included. */
+  html[data-dox-shell] .sl-markdown-content > * + *,
+  html[data-dox-shell] .sl-markdown-content {
+    margin-block: 0;
+  }
+</style>

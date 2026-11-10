@@ -3,7 +3,7 @@
 // new client; do not "improve" it. Its model list and caps are its own copies so
 // that later changes to src/chat cannot change what an old client is told.
 
-import { SYSTEM_PROMPT } from "./docs-context.js";
+import { LEGACY_PROMPT as SYSTEM_PROMPT } from "./docs-context.js";
 import { chatRateLimiter, nowMs, retryAfterSeconds } from "./rate-limit.js";
 
 export const LEGACY_ALLOWED_MODELS = [

@@ -158,3 +158,77 @@ describe("mapUpstreamError — the §4.2 table", () => {
     expect(JSON.stringify(mapped)).not.toContain("quotaId");
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Plan #309 Phase 6: Workers AI errors (D9). Inputs are what `@tanstack/ai-cloudflare` 1.2.0's OpenAI-shaped client
+// produces for a Cloudflare failure (`normalizeErrorResponse` in `utils/fetch.ts`): the message is the HTTP status, a
+// space and Cloudflare's text, and the `code` is Cloudflare's own error number. The numbers are gmt `worker/brains.ts`'s:
+// 3036 and 4006 mean the day's allocation is gone, 3040 ("no more data centers") is a capacity blip.
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe("mapUpstreamError — Workers AI", () => {
+  it.each([
+    ["3036 as the code", { message: "429 limit", code: "3036" }],
+    [
+      "4006 as the code, which arrives with no status",
+      { message: "Run failed", code: "4006" },
+    ],
+    [
+      "the documented sentence",
+      {
+        message:
+          "429 you have used up your daily free allocation of 10,000 neurons",
+      },
+    ],
+  ])("the daily allocation gone is the daily limit: %s", (_name, input) => {
+    expect(mapUpstreamError(input)).toEqual(DAILY);
+  });
+
+  it("3040, no more data centers, is a busy moment, not the daily limit", () => {
+    expect(
+      mapUpstreamError({
+        message: "429 3040: no more data centers",
+        code: "3040",
+      }),
+    ).toEqual(MINUTE);
+  });
+
+  it.each([
+    ["503", UNAVAILABLE],
+    ["500", UNAVAILABLE],
+    ["403", MISCONFIGURED],
+  ])("reads the leading %s of the client's message", (status, expected) => {
+    expect(mapUpstreamError({ message: `${status} upstream said no` })).toEqual(
+      expected,
+    );
+  });
+
+  it("does not read a bare 4006 in a Gemini error as the allocation", () => {
+    expect(
+      mapUpstreamError({
+        message: googleBody(400, "INVALID_ARGUMENT", { detail: "4006 tokens" }),
+      }),
+    ).toEqual(UNAVAILABLE);
+  });
+
+  it("a walk that ran out of time is a slow-to-respond, try again", () => {
+    expect(
+      mapUpstreamError({ message: "x", code: "brains_timed_out" }),
+    ).toEqual({
+      code: "upstream_slow",
+      message:
+        "The assistant is slow to respond right now. Please try again in a moment.",
+      retryable: true,
+    });
+  });
+
+  it("an allowance spent on every brain is said in Dox's words and is not retryable", () => {
+    expect(mapUpstreamError({ message: "x", code: "allowance_spent" })).toEqual(
+      {
+        code: "allowance_spent",
+        message: "Dox has used its free allowance for today.",
+        retryable: false,
+      },
+    );
+  });
+});

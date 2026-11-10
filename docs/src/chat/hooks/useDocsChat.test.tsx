@@ -1,8 +1,20 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fakeText } from "@tanstack/ai/testing";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
+import { buildCorpus } from "../../../worker/build-context.mjs";
+import {
+  createChatHandler,
+  type RetrievalCorpus,
+} from "../../../worker/chat-handler";
 import { validateChatRequest } from "../../../worker/validation";
-import { ChatProvider, useChatContext } from "../components/ChatContext";
 import { messageText, TRANSCRIPT_KEY_PREFIX } from "../lib/chat-history";
+import {
+  PROGRESS_EVENT,
+  REFUSAL_EVENT,
+  RETRIEVAL_TRACE_EVENT,
+} from "../lib/chat-types";
 import answerStream from "./fixtures/chat-answer.sse?raw";
 import runErrorStream from "./fixtures/chat-run-error.sse?raw";
 import { useDocsChat } from "./useDocsChat";
@@ -161,7 +173,8 @@ describe("useDocsChat -- what is sent (R11)", () => {
       ok: true,
       value: {
         messages: [{ role: "user", content: QUESTION }],
-        model: "gemini-3.6-flash",
+        // The Worker's validator names what the reader asked for `brain`, whichever prop it came in.
+        brain: "gemini-3.6-flash",
       },
     });
   });
@@ -332,7 +345,7 @@ describe("useDocsChat -- a stalled answer", () => {
       expect(texts(result).at(-1)).toEqual(["assistant", PARTIAL]);
       expect(result.current.warning).toEqual({
         message:
-          "The assistant stopped responding. The answer above may be incomplete — try again.",
+          "Dox stopped responding. The answer above may be incomplete — try asking again.",
         retryable: true,
       });
     } finally {
@@ -406,75 +419,6 @@ describe("useDocsChat -- the transcript", () => {
   });
 });
 
-/**
- * `useLocalStorage` re-reads on a "storage" event it dispatches itself, but jsdom's `StorageEvent` refuses the
- * Map-backed stub as a `storageArea` and the hook swallows that, so the dispatch is repeated here with a plain event.
- * A real browser needs none of this.
- */
-function announceStorageChange(key: string) {
-  const event = new Event("storage");
-  Object.assign(event, { key, storageArea: window.localStorage });
-  act(() => {
-    window.dispatchEvent(event);
-  });
-}
-
-describe("the model preference (through ChatProvider)", () => {
-  function setupProvider() {
-    return renderHook(() => useChatContext(), { wrapper: ChatProvider });
-  }
-
-  it("falls back to the default when the stored model is one the retired client offered", async () => {
-    storage.set("docs_chat_model", JSON.stringify("gemini-2.5-flash"));
-    const sent = stubFetch(answerStream);
-    const { result } = setupProvider();
-
-    expect(result.current.model).toBe("gemini-3.5-flash-lite");
-    await act(() => result.current.sendMessage(QUESTION));
-
-    expect(sent[0]?.body.forwardedProps.model).toBe("gemini-3.5-flash-lite");
-  });
-
-  it("falls back to the default when the stored value is not a model id at all", () => {
-    storage.set("docs_chat_model", JSON.stringify({ model: 3 }));
-
-    expect(setupProvider().result.current.model).toBe("gemini-3.5-flash-lite");
-  });
-
-  it("keeps a stored model that is one of the two on offer, and sends it", async () => {
-    storage.set("docs_chat_model", JSON.stringify("gemini-3.6-flash"));
-    const sent = stubFetch(answerStream);
-    const { result } = setupProvider();
-
-    expect(result.current.model).toBe("gemini-3.6-flash");
-    await act(() => result.current.sendMessage(QUESTION));
-
-    expect(sent[0]?.body.forwardedProps.model).toBe("gemini-3.6-flash");
-  });
-
-  it("switching model keeps the transcript and the next request uses the new model", async () => {
-    const sent = stubFetch(answerStream, answerStream);
-    const { result } = setupProvider();
-    await act(() => result.current.sendMessage(QUESTION));
-    await waitFor(() => expect(result.current.messages).toHaveLength(2));
-
-    act(() => result.current.setModel("gemini-3.6-flash"));
-    announceStorageChange("docs_chat_model");
-    await act(() => result.current.sendMessage("And again?"));
-
-    expect(result.current.messages.length).toBeGreaterThanOrEqual(4);
-    expect(sent[1]?.body.forwardedProps.model).toBe("gemini-3.6-flash");
-    expect(sent[1]?.body.messages.map((m) => m.role)).toEqual([
-      "user",
-      "assistant",
-      "user",
-    ]);
-    expect(storage.get("docs_chat_model")).toBe(
-      JSON.stringify("gemini-3.6-flash"),
-    );
-  });
-});
-
 describe("useDocsChat -- submit, the guarded send (D8)", () => {
   it("refuses a blank message, keeps it out of the request and says why", () => {
     const sent = stubFetch(answerStream);
@@ -535,5 +479,457 @@ describe("useDocsChat -- submit, the guarded send (D8)", () => {
       ]),
     );
     expect(sent[0]?.body.messages.at(-1)?.content).toBe(QUESTION);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Plan #309 Phase 5: the retrieval trace travels as AG-UI `CUSTOM` events (D3) and the request carries the page the
+// reader came from. Expected values: the AG-UI `CUSTOM` event shape (`{ type, name, value }`, docs.ag-ui.com/concepts/
+// events); `useChat`'s `onCustomEvent(name, value, { toolCallId })`, which the installed @tanstack/ai 1.2.0's stream
+// processor calls for every custom event it does not handle itself, with `toolCallId` read from `value.toolCallId` and
+// undefined without one; the trace's own shape from `chat-types.ts`; and §4.1 row 12.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const TRACE = {
+  totalChunks: 210,
+  retrievedCount: 2,
+  chunkTitles: ["Cleanup › Usage", "Cleanup › Flags"],
+  chunkUrls: ["/commands/cleanup/"],
+  timings: { corpus: 0, search: 4, prompt: 1 },
+};
+
+/** The recorded answer with a trace frame after RUN_STARTED and, if given, another before RUN_FINISHED. */
+function withTrace(
+  first: unknown,
+  last?: unknown,
+  name = RETRIEVAL_TRACE_EVENT,
+) {
+  const frames = answerStream.split("\n\n").filter(Boolean);
+  const custom = (value: unknown) =>
+    `data: ${JSON.stringify({ type: "CUSTOM", name, value, timestamp: 1 })}`;
+  const finished = frames.length - 1;
+  const joined = [
+    frames[0],
+    custom(first),
+    ...frames.slice(1, finished),
+    ...(last === undefined ? [] : [custom(last)]),
+    frames[finished],
+  ].join("\n\n");
+  return `${joined}\n\n`;
+}
+
+describe("useDocsChat -- the retrieval trace", () => {
+  it("holds the trace the Worker wrote for the first question, under 1", async () => {
+    stubFetch(withTrace(TRACE));
+    const { result } = setup();
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() => expect(result.current.traces[1]).toEqual(TRACE));
+    expect(result.current.traces[2]).toBeUndefined();
+  });
+
+  it("keeps the later write of the same answer: the second trace replaces the first", async () => {
+    const finished = {
+      ...TRACE,
+      timings: {
+        corpus: 0,
+        search: 4,
+        prompt: 1,
+        firstToken: 900,
+        total: 1500,
+      },
+    };
+    stubFetch(withTrace(TRACE, finished));
+    const { result } = setup();
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() => expect(result.current.traces[1]).toEqual(finished));
+  });
+
+  it("files each answer's trace under its own question", async () => {
+    const second = {
+      ...TRACE,
+      retrievedCount: 0,
+      chunkTitles: [],
+      chunkUrls: [],
+    };
+    stubFetch(withTrace(TRACE), withTrace(second));
+    const { result } = setup();
+
+    await act(() => result.current.sendMessage(QUESTION));
+    await waitFor(() => expect(result.current.traces[1]).toEqual(TRACE));
+    await act(() => result.current.sendMessage("And for env files?"));
+
+    await waitFor(() => expect(result.current.traces[2]).toEqual(second));
+    expect(result.current.traces[1]).toEqual(TRACE);
+  });
+
+  it("files the trace of a retried answer under the same question, replacing it", async () => {
+    const retried = {
+      ...TRACE,
+      retrievedCount: 1,
+      chunkTitles: ["Cleanup › Usage"],
+    };
+    stubFetch(withTrace(TRACE), withTrace(retried));
+    const { result } = setup();
+
+    await act(() => result.current.sendMessage(QUESTION));
+    await waitFor(() => expect(result.current.traces[1]).toEqual(TRACE));
+    await act(() => result.current.retry());
+
+    await waitFor(() => expect(result.current.traces[1]).toEqual(retried));
+    expect(result.current.traces[2]).toBeUndefined();
+  });
+
+  it("forgets the traces when the chat is cleared", async () => {
+    stubFetch(withTrace(TRACE));
+    const { result } = setup();
+    await act(() => result.current.sendMessage(QUESTION));
+    await waitFor(() => expect(result.current.traces[1]).toEqual(TRACE));
+
+    act(() => result.current.clear());
+
+    expect(result.current.traces).toEqual({});
+  });
+
+  it.each([
+    [
+      "an event of another name",
+      () => withTrace(TRACE, undefined, "dox-other"),
+    ],
+    ["a value that is not a trace", () => withTrace({ totalChunks: "many" })],
+    ["a value that is null", () => withTrace(null)],
+  ])("ignores %s, and the answer still arrives", async (_why, stream) => {
+    stubFetch(stream());
+    const { result } = setup();
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() =>
+      expect(texts(result)[1]).toEqual(["assistant", ANSWER]),
+    );
+    expect(result.current.traces).toEqual({});
+  });
+
+  it("keeps the answer's text out of the trace: the trace is not a message", async () => {
+    stubFetch(withTrace(TRACE));
+    const { result } = setup();
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() => expect(result.current.traces[1]).toEqual(TRACE));
+    expect(texts(result)).toEqual([
+      ["user", QUESTION],
+      ["assistant", ANSWER],
+    ]);
+  });
+});
+
+// Plan #309 R4 / §9 Q12, proven against the installed code: the Worker's real handler, wrapped as it is deployed,
+// answers a real `useChat` over `fetchServerSentEvents`, and the trace its wrapper yields reaches `onCustomEvent`.
+describe("useDocsChat -- R4: the Worker's own CUSTOM events reach onCustomEvent", () => {
+  // Vitest runs from `docs/`.
+  const REPO = join(process.cwd(), "..");
+  const BUILT = buildCorpus(
+    join(REPO, "docs/src/content/docs"),
+    readFileSync(join(REPO, "skills/worktree/SKILL.md"), "utf8"),
+  );
+  const CORPUS: RetrievalCorpus = {
+    chunks: BUILT.chunks,
+    searchIndexJson: BUILT.indexJson,
+    vocabulary: BUILT.vocabulary,
+  };
+
+  it("delivers both writes of the trace from the handler's stream, with the question's retrieval in them", async () => {
+    const fake = fakeText({ model: "gemini-3.5-flash-lite" });
+    fake.setResponses([{ text: "Run `worktree cleanup`." }]);
+    const handler = createChatHandler({
+      createAdapter: (() => fake) as never,
+      corpus: CORPUS,
+      now: () => 1_700_000_000_000,
+      log: vi.fn(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) =>
+        handler(
+          new Request(url, {
+            ...init,
+            headers: { ...init.headers, "CF-Connecting-IP": "198.51.100.7" },
+          }),
+          { GEMINI_API_KEY: "k" },
+          {},
+        ),
+      ),
+    );
+    const { result } = setup();
+
+    await act(() =>
+      result.current.sendMessage(
+        "How do I clean up worktrees whose branches are merged?",
+      ),
+    );
+
+    await waitFor(() =>
+      expect(result.current.traces[1]?.timings?.total).toBeDefined(),
+    );
+    const trace = result.current.traces[1];
+    expect(trace?.totalChunks).toBe(BUILT.chunks.length);
+    expect(trace?.chunkUrls).toContain("/commands/cleanup/");
+    expect(trace?.retrievedCount).toBe(trace?.chunkTitles.length);
+    await waitFor(() =>
+      expect(texts(result)[1]).toEqual([
+        "assistant",
+        "Run `worktree cleanup`.",
+      ]),
+    );
+  });
+});
+
+describe("useDocsChat -- the page the reader came from (D3)", () => {
+  function referrer(url: string) {
+    Object.defineProperty(document, "referrer", {
+      configurable: true,
+      value: url,
+    });
+  }
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    Reflect.deleteProperty(document, "referrer");
+  });
+
+  it("sends the referrer's route as forwardedProps.pageContext, and the body passes validateChatRequest", async () => {
+    vi.stubEnv("BASE_URL", "/worktree/");
+    referrer(`${window.location.origin}/worktree/commands/branch/`);
+    const sent = stubFetch(answerStream);
+    const { result } = setup();
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    expect(sent[0]?.body.forwardedProps).toEqual({
+      model: DEFAULT_MODEL,
+      pageContext: "/commands/branch/",
+    });
+    const checked = validateChatRequest(sent[0]?.body);
+    expect(checked.ok && checked.value.pageContext).toBe("/commands/branch/");
+  });
+
+  it("sends none when the reader did not come from a docs page", async () => {
+    vi.stubEnv("BASE_URL", "/worktree/");
+    referrer("https://example.com/worktree/commands/branch/");
+    const sent = stubFetch(answerStream);
+    const { result } = setup();
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    expect(sent[0]?.body.forwardedProps).toEqual({ model: DEFAULT_MODEL });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Plan #309 Phase 6: the walk past the brains (D9). The streams are the real handler's, over fake adapters; the
+// expected values are the Worker's own lines (gmt's wording, "Dox" kept) and D3's rule that progress and a refusal
+// travel as CUSTOM events.
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe("useDocsChat -- the Worker's brains (D9)", () => {
+  const REPO = join(process.cwd(), "..");
+  const BUILT = buildCorpus(
+    join(REPO, "docs/src/content/docs"),
+    readFileSync(join(REPO, "skills/worktree/SKILL.md"), "utf8"),
+  );
+  const CORPUS: RetrievalCorpus = {
+    chunks: BUILT.chunks,
+    searchIndexJson: BUILT.indexJson,
+    vocabulary: BUILT.vocabulary,
+  };
+  const BUSY = "429 3040: no more data centers";
+  const SPENT = JSON.stringify({ error: { code: 429, message: "quota" } });
+
+  /** A Worker whose brains say what `replies` says, reached through the client's own fetch. */
+  function stubWorker(
+    replies: Record<string, Array<{ text?: string; error?: string }>>,
+  ) {
+    const fakes: Record<string, ReturnType<typeof fakeText>> = {};
+    for (const [id, responses] of Object.entries(replies)) {
+      fakes[id] = fakeText({ model: id });
+      fakes[id].setResponses(responses);
+    }
+    const adapter = (id: string) => {
+      const fake = fakes[id];
+      if (!fake) throw new Error(`unexpected call to ${id}`);
+      return fake;
+    };
+    const handler = createChatHandler({
+      createAdapter: ((model: string) => adapter(model)) as never,
+      createWorkersAIAdapter: ((brain: { id: string }) =>
+        adapter(brain.id)) as never,
+      corpus: CORPUS,
+      now: () => 1_700_000_000_000,
+      log: vi.fn(),
+    });
+    const sent: Array<{ forwardedProps: Record<string, unknown> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        sent.push(JSON.parse(init.body as string));
+        return handler(
+          new Request(url, {
+            ...init,
+            headers: { ...init.headers, "CF-Connecting-IP": "198.51.100.9" },
+          }),
+          { GEMINI_API_KEY: "k", AI: { run: vi.fn() } },
+          {},
+        );
+      }),
+    );
+    return sent;
+  }
+
+  it("names no model when none is given: Automatic, so the Worker starts with its first brain", async () => {
+    const sent = stubWorker({ "cf-gemma-4-26b": [{ text: "From Gemma" }] });
+    const { result } = renderHook(() => useDocsChat());
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() =>
+      expect(texts(result)[1]).toEqual(["assistant", "From Gemma"]),
+    );
+    expect(sent[0]?.forwardedProps).not.toHaveProperty("model");
+    // The body still passes the Worker's own validator, with no brain asked for.
+    expect(validateChatRequest(sent[0])).toEqual({
+      ok: true,
+      value: { messages: [{ role: "user", content: QUESTION }] },
+    });
+  });
+
+  it("holds the Worker's last progress line, and starts it afresh for the next question", async () => {
+    stubWorker({
+      "cf-gemma-4-26b": [{ error: BUSY }, { text: "From Gemma" }],
+      "cf-glm-4.7-flash": [{ text: "From GLM" }],
+    });
+    const { result } = renderHook(() => useDocsChat());
+    expect(result.current.progress).toBeNull();
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() =>
+      expect(texts(result)[1]).toEqual(["assistant", "From GLM"]),
+    );
+    expect(result.current.progress).toBe("Asking GLM 4.7 Flash\u2026");
+
+    // The second question: Gemma answers at once, and the line is the new one, not the old.
+    await act(() => result.current.sendMessage("And how do I make one?"));
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+    expect(result.current.progress).toBe("Asking Gemma 4 26B\u2026");
+  });
+
+  it("shows a refusal as a warning that is not retryable, and the RUN_ERROR that follows it does not replace it", async () => {
+    stubWorker({
+      "cf-gemma-4-26b": [{ error: "429 3036: daily free allocation" }],
+      "gemini-3.5-flash-lite": [{ error: SPENT }],
+      "gemini-3.6-flash": [{ error: SPENT }],
+      "gemini-3.5-flash": [{ error: SPENT }],
+    });
+    const { result } = renderHook(() => useDocsChat());
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+    expect(result.current.warning).toEqual({
+      message: "Dox has used its free allowance for today.",
+      retryable: false,
+    });
+  });
+
+  it("counts a progress line as the answer being alive: 30 s of silence is counted from the last one", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+      const encoder = new TextEncoder();
+      const frame = (event: object) =>
+        controller?.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ timestamp: 1, ...event })}\n\n`,
+          ),
+        );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string, init: RequestInit) => {
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(c) {
+                controller = c;
+                init.signal?.addEventListener("abort", () =>
+                  c.error(new DOMException("Aborted", "AbortError")),
+                );
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "text/event-stream" } },
+          );
+        }),
+      );
+      const { result } = renderHook(() => useDocsChat());
+      act(() => {
+        void result.current.sendMessage(QUESTION);
+      });
+      await waitFor(() => expect(controller).toBeDefined());
+      frame({ type: "RUN_STARTED", threadId: "docs-chat", runId: "r" });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      frame({
+        type: "CUSTOM",
+        name: PROGRESS_EVENT,
+        value: { text: "Asking Gemma 4 26B\u2026" },
+      });
+      await waitFor(() =>
+        expect(result.current.progress).toBe("Asking Gemma 4 26B\u2026"),
+      );
+
+      // 40 s after the start but 20 s after the line: still waiting.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(result.current.isStreaming).toBe(true);
+      expect(result.current.warning).toBeNull();
+
+      // 35 s after the line: stopped.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      await waitFor(() => expect(result.current.isStreaming).toBe(false));
+      expect(result.current.warning?.retryable).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a progress line or refusal that is not the shape it expects", async () => {
+    stubFetch(
+      `${answerStream
+        .split("\n\n")
+        .filter(Boolean)
+        .flatMap((frame, index) =>
+          index === 1
+            ? [
+                frame,
+                `data: ${JSON.stringify({ type: "CUSTOM", name: PROGRESS_EVENT, value: { text: 7 }, timestamp: 1 })}`,
+                `data: ${JSON.stringify({ type: "CUSTOM", name: REFUSAL_EVENT, value: { status: "x" }, timestamp: 1 })}`,
+              ]
+            : [frame],
+        )
+        .join("\n\n")}\n\n`,
+    );
+    const { result } = renderHook(() => useDocsChat());
+
+    await act(() => result.current.sendMessage(QUESTION));
+
+    await waitFor(() => expect(texts(result)[1]?.[1]).toBe(ANSWER));
+    expect(result.current.progress).toBeNull();
+    expect(result.current.warning).toBeNull();
   });
 });

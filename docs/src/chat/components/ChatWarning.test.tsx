@@ -81,6 +81,10 @@ describe("classifyChatError", () => {
     ["rate_limited_daily", true],
     ["rate_limited", true],
     ["upstream_unavailable", true],
+    // Plan #309 D9, the Worker's table (`error-mapping.ts`): no brain started in time is worth asking again; every brain
+    // out for the day is not.
+    ["upstream_slow", true],
+    ["allowance_spent", false],
     ["misconfigured", false],
     ["failed", false],
   ])("shows a streamed %s error's text, retryable=%s", (code, retryable) => {
@@ -115,5 +119,16 @@ describe("ChatWarning", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("Unavailable.");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  // §4.1 row 16: gmt's warning carries a marker, `⟨ ! ⟩`, that is decoration: the message is the content.
+  it("draws its marker hidden from assistive technology, so a screen reader hears only the message", () => {
+    render(
+      <ChatWarning state={{ message: "Wait a moment.", retryable: true }} />,
+    );
+
+    const marker = screen.getByText("⟨ ! ⟩");
+    expect(marker).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("status").textContent).toContain("Wait a moment.");
   });
 });

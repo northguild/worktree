@@ -47,53 +47,73 @@ full data flow — nothing is a black box.
 Browser (static site on northguild.dev/worktree/)
   │  useChat (@tanstack/ai-react) – docs/src/chat/hooks/useDocsChat.ts
   │
-  │  POST /api/chat  { threadId, runId, messages[], forwardedProps: { model } }
+  │  POST /api/chat  { threadId, runId, messages[], forwardedProps: { brain?, pageContext? } }
   ▼
 Cloudflare Worker  (docs/worker/)
-  │  – holds GEMINI_API_KEY as an encrypted secret
+  │  – holds GEMINI_API_KEY as an encrypted secret, and the Workers AI binding `AI`
   │  – rate-limits, validates input (validation.ts), enforces CORS
-  │  – prepends the system prompt (baked in at build time)
+  │  – searches the docs for the question and builds the system prompt from what it finds
+  │  – reads the day's usage ledger (Workers KV, optional), refuses a visitor's sixth question of a UTC day
+  │  – walks its brains in order until one starts answering (brains.ts)
   ▼
-Google Gemini API  (@tanstack/ai-gemini)
+Workers AI (@tanstack/ai-cloudflare): Gemma 4 26B, GLM 4.7 Flash
+Google Gemini API (@tanstack/ai-gemini): 3.5 Flash-Lite, 3.6 Flash, 3.5 Flash
   │
   ▼
-Worker streams AG-UI events over SSE (RUN_STARTED, TEXT_MESSAGE_*, RUN_FINISHED or RUN_ERROR)
+Worker streams AG-UI events over SSE (RUN_STARTED, CUSTOM `dox-retrieval`, CUSTOM `dox-progress` for
+each step of the walk, TEXT_MESSAGE_*, CUSTOM `dox-retrieval` again, RUN_FINISHED or RUN_ERROR;
+CUSTOM `dox-usage` with the counts once a brain has accepted the question;
+CUSTOM `dox-refusal` when every brain is out)
   │
   ▼
-useChat folds the events into messages;  docs/src/chat/  renders them
+useChat folds the events into messages and hands the custom ones to onCustomEvent;  docs/src/chat/  renders them
 ```
 
 On the page, the pieces are:
 
-- **Opening it.** The launcher button (`components/ChatLauncher.astro`, on every page) imports the chat on first use,
-  by click or Alt+Shift+C, mounts it open and hands over to the chat's own trigger (`launcher.ts`). A control marked
-  `data-chat-open` opens it too: the landing's "Ask Dox", which `Hero.astro` renders as a button from the hero action
-  carrying that attribute. Before the chat has loaded it loads it, as the launcher does; after, it sends
-  `docs-chat:open`, which the drawer listens for. In dev the launcher's script first imports
-  `@vitejs/plugin-react/preamble`: `@astrojs/react` injects React's refresh preamble only on a page that hydrates an
-  island, and none does, so without it the chat chunk throws "can't detect preamble".
+- **Opening it.** The chat is a page, `/worktree/dox/` (see *The Dox page*), and every way in is a plain link, so no other page
+  loads chat code. The header's right group reads Dox, theme, GitHub, Discord: the first is the "Chat with Dox" crystal
+  (`components/Header.astro`), a link named "Chat with Dox" that carries `aria-current="page"` on `/dox/`, and the mobile menu
+  (`components/MobileMenuFooter.astro`, on the pages with a sidebar) repeats it before the social icons, because the header's
+  group is hidden on a phone. The landing's "Ask Dox" is a link too (*The landing hero*). There is no launcher button, bubble,
+  drawer, keyboard shortcut or open event.
 - **The connection.** `fetchServerSentEvents` posts to `PUBLIC_GEMINI_WORKER_URL` plus `/api/chat`
   (`lib/chat-endpoint.ts`; unset, it is `http://localhost:8787`). Its `fetchClient` is `chatFetch`
   (`lib/chat-fetch.ts`), which does three things the library does not: it reads the Worker's `{ error, retryable }`
   body on a non-OK status and throws it as the error's `cause`; it drops assistant turns with no text from the
   request; and it removes the `X-Run-Id` header the library adds, because the Worker's CORS allows `Content-Type`
-  alone. The chosen model travels as `forwardedProps.model`.
+  alone. With no pick the page names no brain, which is Automatic: the Worker picks. The control bar's brain menu sends a
+  pick as `forwardedProps.brain` (*The control bar* below), and #306's `forwardedProps.model` is still accepted.
 - **The transcript.** One conversation (`threadId` `docs-chat`), kept in `localStorage` by `useChat`'s
   persistence under `docs_chat_transcript:docs-chat`. Only text parts are stored; anything else read back is
-  refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). Switching model keeps it; "Clear chat" stops a stream and removes
-  it. The model preference is `docs_chat_model`, and a stored value that is not one of the two models on offer
-  reads as the default. The retired client's three `docs_chat_history_<model>` keys are removed on first mount.
+  refused (`lib/chat-history.ts`) and removed (`hooks/transcript-storage.ts`). "New chat" (on `/dox/`) stops a stream and removes it. A model the drawer stored under
+  `docs_chat_model` is ignored. The retired client's three `docs_chat_history_<model>` keys are removed on first mount.
 - **Failures.** They are never messages. A status before the stream opens, a `RUN_ERROR` inside it or a dropped
   connection becomes one warning under the transcript (`components/ChatWarning.tsx`) with "Try again" when asking
-  again can help. An answer that is silent for 30 s, or runs for 120 s, is stopped and warned about.
-- **The empty chat and its limits.** With no question yet, the transcript offers three starter questions
-  (`lib/chat-starters.ts`, each paired with the docs page that answers it), sent through the same guarded
-  `submit` as the composer; focus moves to the message field when they go. A line under the composer
-  (`components/ChatInfo.tsx`) says the answers can be wrong. `Chat.tsx` wraps the provider and drawer in
+  again can help. An answer that is silent for 30 s, or runs for 120 s, is stopped and warned about; a progress line from
+  the Worker counts as the answer being alive. When every brain is out for the day the Worker writes a `dox-refusal` event,
+  which `useDocsChat` shows as a warning that asking again will not fix ("Dox has used its free allowance for today.").
+- **Brains and progress.** The Worker tries Workers AI's Gemma 4 26B and GLM 4.7 Flash first, then Gemini's three models, and
+  skips one that is busy, slow or out for the day before any text streams. Each step is a `dox-progress` event, and
+  `useDocsChat` (`progress`) hands the last to the waiting turn, which shows it in place of "Searching docs…". The trace's
+  summary names the brain that answered: "Searched 210 chunks → 8 matched · GLM 4.7 Flash". How the walk works, and what the
+  Worker needs for it, is in [worker/README.md](worker/README.md#brains).
+- **The usage ledger.** The Worker keeps a best-effort count of what is spent today in a Workers KV namespace,
+  `DOX_USAGE` (`worker/usage.ts`). It is advisory: it picks a brain that probably has room and feeds the badge, and the
+  provider's own refusal is still the only real gate. A brain the ledger has marked out is not asked; a visitor's sixth
+  question of a UTC day is refused with a 429 before any brain is asked. Without the namespace the Worker takes the first
+  brain and counts nothing. `GET /api/brains` returns the counts (`BrainsInfo`, `lib/chat-types.ts`) and, after each
+  question, the same shape arrives as a `dox-usage` event. The page reads both: `use-brains.ts` fetches the route after mount
+  and again once the soonest reset passes (or the tab is shown again after one), and takes the event's counts as they come, and the control bar shows them (*The control bar* below);
+  `lib/day-clock.ts` is the clock the Worker keeps the ledger by. Keys, TTLs and the setup are in
+  [worker/README.md](worker/README.md#the-usage-ledger).
+- **The empty chat and its limits.** With no question yet, the page shows the hub and the examples rail, whose three starter
+  questions (`lib/chat-starters.ts`, each paired with the docs page that answers it) are sent through the same guarded
+  `submit` as the composer; focus moves to the message field when one is sent. A line under the composer
+  (`AccuracyNote` in `components/ChatInfo.tsx`) says the answers can be wrong. `DoxPage.tsx` wraps the chat in
   `ChatErrorBoundary`: a render error shows a `role="alert"` notice, with "Reload the page" when the error is
-  a failed module load and "Try again" otherwise. A chat chunk missing on first open never reaches it: the
-  launcher's `import()` fails first and shows its own load error (`launcher.ts`).
-- **Rendering.** Only text parts render, the assistant's through `MarkdownContent` (see below). The bubble is a
+  a failed module load and "Try again" otherwise.
+- **Rendering.** Only text parts render, the assistant's through `MarkdownContent` (see below). The answer's card is a
   polite live region; a recoverable warning is `role="status"`, one that retrying will not fix is `role="alert"`.
 
 `POST /` on the Worker still speaks the old protocol for the site that is live until the next release; see
@@ -104,44 +124,67 @@ Cloudflare's secret store and is injected by the Worker runtime on each request.
 
 ### How the AI gets its context
 
-The AI's knowledge comes from two sources that are compiled together at worker
-build time into a single system prompt string (`docs/worker/docs-context.ts`):
+The AI does not read the whole docs for each question. `worker:build-context` compiles the docs into a searchable
+corpus (`docs/worker/docs-context.ts`, generated and gitignored) and the Worker searches it for each question
+(plan #309 D8).
 
 #### 1. MDX documentation pages
 
-`docs/worker/build-context.mjs` scans every `*.mdx` file under
-`docs/src/content/docs/`, turns each page's frontmatter into a heading, strips imports and Starlight `<Tabs>`/`<TabItem>` tags (keeping their content); any other component tag would pass through as written (no page uses one), and concatenates the plain-text
-content with section labels. This is the authoritative reference the AI uses
-to answer questions.
+`docs/worker/build-context.mjs` scans every `*.mdx` file under `docs/src/content/docs/`, strips imports and Starlight
+`<Tabs>`/`<TabItem>` tags (keeping their content; any other component tag would pass through as written, and no page
+uses one), and cuts each page at its `##` headings (a heading inside a code fence is not one). Every section is a
+**chunk**: its heading and body, the page's route, and the page's *section* (`commands`, `guides`, or `general` for the
+pages at the root: `routeNamespace` in `src/chat/lib/page-context.ts`). The text before the first heading, with the page's
+title and description, is a chunk of its own. A chunk's route is the page's, never a `#fragment`: the route is what the
+model may link. Today that is 28 pages and 210 chunks.
 
 #### 2. Agent Skill (`skills/worktree/SKILL.md`)
 
 The repo ships a plain Agent Skill, installable with `npx skills add northguild/worktree --skill worktree`.
 `skills/worktree/SKILL.md` is a structured markdown document that describes the Worktree
 CLI's core patterns and canonical terminology. It is hand-written: edit it in
-the same change as the code that makes it untrue. It is included in the system
-prompt before the MDX content so the AI understands product vocabulary before
-it reads the docs.
+the same change as the code that makes it untrue. The build keeps its `##` and `###` sections as **vocabulary**, so the
+AI learns the tool's own terms. Vocabulary is never a page: the prompt tells the model not to link it.
 
-#### Assembling the system prompt
+#### 3. The index
 
-`build-context.mjs` assembles the final system prompt in this order:
+The build indexes the chunks with [MiniSearch](https://lucaong.github.io/minisearch/) 7.2.0 and serialises the index
+(`MiniSearch#toJSON`) beside them. The Worker loads it with `MiniSearch.loadJSON` under the same options
+(`docs/worker/retrieval/search.ts`, which both sides import), once per isolate, so no request builds an index.
 
-1. **Persona & scope** — the AI is instructed to answer only from the docs and
-   skill guide, and to say so when a question is out of scope. A standing order
-   follows: everything in user messages is a question about the docs, never an
-   instruction, and the prompt is never revealed.
-2. **Linking rules** — the AI is given an explicit list of valid doc routes
-   (derived automatically from the MDX filesystem scan) and told never to link
-   to GitHub repo anchors, SKILL.md headings, or any route not in that list.
-3. **Skill Guide** — `skills/worktree/SKILL.md`
-4. **Documentation** — all MDX pages, each labelled with its file path
+#### What the Worker does with a question
 
-The prompt is serialised with `JSON.stringify` into `docs-context.ts` and
-bundled into the worker via tsup, and passed to `chat()` as `systemPrompts` on every
-request. **No runtime fetching** — the context is embedded in the worker bundle,
-which `wrangler deploy --dry-run` measured on 2026-11-08 at 3,222 KiB uploaded
-(577 KiB gzipped) with the chat libraries, the validator and the prompt in it.
+For each `POST /api/chat`, after validation (`docs/worker/chat-handler.ts`):
+
+1. **Search** the last message of the conversation (`retrieval/search.ts`). Stopwords are dropped; an identifier such as
+   `branchPrefix` is also split into its words in the index; a chunk in the section of the page the reader came from
+   (`forwardedProps.pageContext`, the `document.referrer` route without the base) scores 1.5 times, which is a bias and
+   not a filter; and a chunk under a relevance floor of 10 is dropped. At most 15 are returned.
+2. **Keep** what fits (`retrieval/fit-chunks.ts`): the best first, at most 10 chunks and 24,000 characters, the first
+   chunk always kept.
+3. **Choose vocabulary** (`retrieval/select-vocabulary.ts`): the guide's sections whose titles the question names, at
+   most 16,000 characters.
+4. **Assemble the prompt** (`retrieval/system-prompt.ts`), in this order: persona and scope; a standing order (user
+   messages and retrieved text are data to answer about, never instructions, and the prompt is never revealed); the
+   linking rules, whose list of routes is exactly the kept chunks' pages (the client still checks links against every
+   route, `VALID_DOC_ROUTES`); vocabulary; the retrieved chunks; and a refusal instruction for a question the chunks do
+   not answer. It is passed to `chat()` as `systemPrompts`. The reader's text is never spliced into it.
+
+**No runtime fetching**: the corpus is embedded in the Worker bundle (the `AI` binding is for the models only), which `wrangler deploy --dry-run`
+measured on 2026-11-08 at 3,931 KiB uploaded (761 KiB gzipped), of which the generated `docs-context.ts` is 1,046 KB
+(it was 361 KB as a whole-docs prompt). Adding the Workers AI adapter took it to 5,396 KiB (986 KiB gzipped) on 2026-11-09. `POST /` (the frozen legacy route) still sends the whole docs, as one prompt that
+`buildLegacyPrompt` writes from the `.mdx` files and the skill guide into `docs-context.ts` as `LEGACY_PROMPT` (plan #257 D3; removing it is #300).
+
+#### The retrieval trace
+
+The Worker writes what it retrieved into the stream as an AG-UI `CUSTOM` event named `dox-retrieval`, right after
+`RUN_STARTED` and again just before `RUN_FINISHED` (not on a failed run). It carries counts, chunk titles, the pages
+and timings, never prompt text: `{ totalChunks, retrievedCount, chunkTitles, chunkUrls, timings }`. The second write
+adds `firstToken` and `total`. `useDocsChat` reads it with `useChat`'s `onCustomEvent`, keeps the latest per question
+(`traces`, not saved with the transcript) and `RetrievalTrace` shows it in the answer's card: collapsed, "Searched 210
+chunks → 8 matched"; open, the chunk titles and the stage timings, or "Nothing in the corpus matched this question."
+The empty page's status line, "Dox // 28 pages · 210 sections indexed", reads the counts `build-context.mjs` writes into
+`docs-routes.generated.ts`.
 
 #### Regenerating the context
 
@@ -150,12 +193,15 @@ pnpm --filter docs run worker:build-context
 ```
 
 This also regenerates `docs/src/chat/docs-routes.generated.ts`, which the
-React link renderer uses to validate that AI-generated links point to real pages.
+React link renderer uses to validate that AI-generated links point to real pages, and which holds the corpus counts.
 
 Run this (or just `worker:build`) after:
 - Adding or removing a docs page
 - Editing any MDX content that you want reflected in the AI's answers
 - Editing `skills/worktree/SKILL.md`
+
+The build runs `docs/worker/build-context.mjs` under Node's type stripping (it imports two `.ts` files that the Worker also
+bundles), so `node` prints a `MODULE_TYPELESS_PACKAGE_JSON` warning for them. It is harmless.
 
 ---
 
@@ -199,7 +245,7 @@ spring green. The vendored tokens define both families (`--gmt-cyan`, `--gmt-spr
 tier that the light theme darkens for text). **The accent is chosen in one place, `src/styles/theme.css`**:
 `--sl-color-accent` (fills, borders, rings: 3:1) takes the fill tier and `--sl-color-text-accent`,
 `--sl-color-accent-high` and the chat's `--color-chat-accent-ink` (in `globals.css`) take the ink tier (text: 4.5:1).
-To move to another family, change those mappings, the focus-ring colour, the launcher in `globals.css`, the
+To move to another family, change those mappings, the focus-ring colour, the Dox mark's glow and current-page bar in `custom.css`, the
 re-derived hairline, border and selection tokens, and the two `--gmt-teal` lines in `theme.css` (the vendored tokens
 tint hairlines, glass and fills with cyan, and the vendored files are never edited). Then run:
 
@@ -258,16 +304,99 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 
 `src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (last updated,
 pagination; there is no edit link, since `astro.config.mjs` sets no `editLink`) through `Default` and nothing else; the licence line, the CLI version and the maintainers it once
-added are gone (the CLI version is in the header). The landing renders no footer at all: it is the hero alone. The chat
-launcher is rendered from the same file on every page, the landing included, because Starlight has no slot of its own
-for it. Its script then moves it to the end of `<body>`: Starlight's page pane is `isolation: isolate`, so inside it the
-right sidebar ("On this page") painted over the button on wide pages whatever its z-index (#266). `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
-checked in `dist/` instead (`pnpm docs:audit-dist`).
+added are gone (the CLI version is in the header). The landing renders no footer at all: it is the hero alone, and `/dox/` renders none either, told by the URL
+because `/dox/` is a `StarlightPage` and not a collection entry, so it has no route id. `Footer.astro` imports Starlight's virtual modules, which Vitest cannot resolve, so the built footer is
+checked in `dist/` instead (`pnpm docs:audit-dist`). The chat launcher it once rendered is gone (#309): the chat is the page `/dox/`.
+
+## The Dox page
+
+`/worktree/dox/` (`src/pages/dox.astro`) is the page the chat is becoming (plan #309): a full-bleed hive of its own under the
+site header, with a strip holding "New chat" (once there is a transcript), the reader's local time (`HeaderClock`) and the environment
+badge (`● local` or `● live`; both are set after mount so the server markup matches), and, below it, the chat: the empty hub (the Dox crystal at logo scale and the prompt line) or the
+transcript, and the pinned composer, with the examples rail beside it. It is the only chat surface: the drawer, its launcher and the
+shortcut are gone, and every other page links to it (*Opening it* above).
+
+- **Shape.** A `StarlightPage` with `template: splash`, title "Dox", `noindex`, `pagefind: false`, an inline `<head>` script that sets
+  `data-dox-shell` on `<html>`, and one `client:load` island, `DoxPage` (`src/chat/components/`). The page's global `<style>` keys
+  every layout override off that attribute, so none of it can reach another page. Those overrides name Starlight's own wrappers
+  (`.page`, `.main-frame`, `.content-panel`, `.sl-container`, `.sl-markdown-content`): after a Starlight upgrade, open `/dox/` and check
+  the page does not scroll and the hub is centred.
+- **Kept out of lists.** The sitemap is `@astrojs/sitemap`, configured in `astro.config.mjs` with a `filter` that drops `/worktree/dox/`
+  (Starlight adds its own sitemap only when none is configured). `llms.txt` is built from the content collection, which `/dox/` is not
+  part of, and it is not one of the audit's 28 `PAGE_PATHS`.
+- **The chat (`chat/components/DoxChat.tsx`).** The engine is `useDocsChat`; the parts (`ChatInput`, `ChatSubmitButton`, `ChatWarning`, `MarkdownContent`) are the
+  site's own, restyled into the hive. Each question and answer is a turn: the crystal's node, labelled "You" or "Dox", beside a card (a zigzag from 48rem
+  of the transcript's own width; one column below). The answer is `MarkdownContent`, whose fenced code carries the language and a
+  "Copy" button, and no download. The reader's question is text, never markdown.
+  - **Waiting.** From the send until the first text, the newest turn is Dox's, with "Searching docs…" (or the Worker's latest progress line, "Asking Gemma 4 26B…", "… is busy — trying the next model…"), a scanline and the crystal
+    spinning (`hive/use-crystal-spin.ts`). It lands square on the first text; under `prefers-reduced-motion` it does not spin and a
+    still halo and bar carry the wait. The answer's card is a polite live region from the wait on. An answer with no text (stopped, or
+    killed by an error) is not a turn: the failure shows as the warning.
+  - **Warnings** (`ChatWarning`) keep their roles, a polite status when asking again can help and an alert when it cannot, in the
+    `--gmt-signal` tokens. "Try again" asks the last question again and moves focus to Stop.
+  - **The scroller** is the only thing that scrolls. It is a focusable region named "Conversation, scrollable" only while it
+    overflows (a box that scrolls must take focus, and one that does not should not be a tab stop). Once the reader scrolls up, a
+    "Jump to latest message" button appears (`hooks/useBottomScroll.ts`).
+  - **The composer** is `ChatInput` and `ChatSubmitButton`: Enter sends, Shift+Enter adds a line, one button is Send and then Stop.
+    Under it, the accuracy note on a wide screen; at 60rem and below it moves into a popup the info button opens (`ChatInfo.tsx`).
+  - **"New chat"** stops a stream, empties the transcript, shows the hub and puts focus in the composer. The transcript is kept in
+    `localStorage` as before; per-message times are not shown.
+  - **The examples rail** (`ExamplesRail.tsx`, `ExamplesPanel.tsx`) holds the three starters of `lib/chat-starters.ts`, which
+    are the page's examples. Each has an `area` ("Issues", "Environment files", "Cleanup"; the rail groups by it and
+    draws an icon per area in `ExamplesPanel.tsx`) and a `route`, the docs page that answers it, shown as the card's chip. A card is a
+    button named by its question and described by its chip. It sends through `DoxChat`'s handle (`send`), which is the composer's own
+    guarded send: refused while an answer is coming (focus stays on the card), otherwise sent, with a draft in the field left alone
+    and focus moving to the field. On a wide screen the rail is a column, 22rem to 34rem by default (`clamp(22rem, 34vw, 34rem)`),
+    and `RailResizer.tsx` widens it up to half the page while the chat keeps 28rem (`rail-width.ts` holds the bounds and mirrors the
+    CSS): drag, or focus the handle and press Left or Right (16px, 64px with Shift), Home or End; a double-click resets it. The width
+    is remembered in `localStorage` (`northguild-dox-rail-width`). At 60rem and below the rail is a sheet under the chat and the
+    handle is gone. The stylesheet decides when it shows: open before the first question on a phone taller than 44rem, folded behind
+    the "Examples · 3" bar above the composer from the first question on (and from the start on a shorter phone). The bar opens the
+    sheet; a card whose send succeeds, or Escape (`use-esc-layer.ts`, which puts focus on the bar), folds it. Which docs page a card names is its route,
+    not a title: there is no page-title map in the client.
+  - **The control bar** (`DoxChat.tsx`, in the composer's footer: the info button, then the reset chip and the brain badge, with Send on the
+    right). Everything in it is read from `GET /api/brains` (`BrainsInfo`) by `use-brains.ts` and kept current by the `dox-usage` event after
+    each question; a `dox-refusal` or a failed answer reads the route again, and so does the soonest reset passing, since a spent budget
+    disables the composer and nothing else would lift it before a reload. If the route cannot be reached, or answers something else, there is
+    no badge and no chip and the chat is unchanged: the budget is information, never a gate. Nothing in it is rendered on the server, because
+    the build's zone and locale are not the reader's: zone, locale and the clock resolve in an effect (`time/use-reset-clock.ts`), and the
+    first server-and-client render holds none of it.
+    - **The brain badge** (`BrainSelector.tsx`) names the brain that would answer, "You N left" (the reader's own allowance of 5 questions a UTC
+      day) and "Dox N today" (what the five brains have left between them). It opens Base UI's `Menu` upward: Automatic, which sends no brain
+      id and lets the Worker walk its order, then one group per provider (Workers AI, Gemini) headed by when that provider refills, in
+      the reader's zone, each brain with "N left", "spent today" or "not available". A brain that is out stays pickable: asking it falls
+      through to one with budget. A pick is sent as `forwardedProps.brain` and lasts until the page is left.
+    - **The reset chip** (`ResetClock.tsx`) shows the reset that matters now (`time/quota-resets.ts`: the reader's own when nothing is spent,
+      the soonest provider's when the pool is, the later of the two when both are) in a format the reader chooses, and opens a Base UI
+      `Popover` with every reset, the ten formats, a zone search (Base UI `Combobox`, listed inline) and the `@northguild/gmt` call that
+      made the readout, linked to gmt's reference page. Each format is one call (`time/reset-formats.ts`, `formatCalendarUtc`,
+      `formatRelativeUtc`, `convertUtcToZoned` and so on, all on the UTC string the Worker sent). Format and zone are remembered in
+      `localStorage` (`dox:date-format`, `dox:date-zone`, the keys gmt's own Dox page uses, so a pick carries between the two). The header
+      clock reads the same format, and uses the calendar one in place of a relative pick, which would only ever say "now".
+    - **Out of budget.** When every brain is out, or the reader has asked their 5, the bar shows a banner ("Dox has used its free allowance
+      for today. Back <time>." or "You have used your 5 questions for today. Back <time>.") and the field is disabled, with the placeholder
+      "Dox is resting until the quota resets…".
+  - **Contrast.** `scripts/theme-contrast.mjs` measures the hive's pairs ("hive: ..."), text at 4.5:1 and glyphs and edges at 3:1. Its
+    surfaces are spelled out there (a card is the spring tier at 5% over the page): change `dox-hive.css` and the script together.
+    Both roles are the spring tier (plan #309 D5), so a turn is told by its side and label rather than by colour.
+- **Style.** `src/styles/dox-hive.css` is gmt's hive stylesheet, recoloured to the spring tier (`--gmt-spring` for fills and borders,
+  `--gmt-spring-ink` for text) and imported by the island, so Vite ships it with that page only. The three tokens the vendored theme lacks
+  (`--gmt-motion-scan-duration`, `--gmt-motion-sheen-duration`, `--gmt-z-behind`) are declared in `theme.css`. The crystal's geometry
+  is `src/lib/dox-mark.ts`, ported unchanged from gmt and drawn in `currentColor` by `chat/components/hive/HiveGlyph.tsx` in the hive and by
+  `components/DoxMark.astro` in the header, the menu and the landing, where the hive's stylesheet is not loaded: the mark's own rules
+  (`.gmt-dox-mark*`) are therefore site-wide, in `custom.css`, with the Dox link's chip, glow and current-page bar.
+- **Audit.** `pnpm docs:audit-dist` holds `/dox/` to rules of its own (`auditDox`): `noindex`, the `data-dox-shell` script, exactly one
+  `astro-island`, the title `Dox · @northguild/worktree`, the site header, named controls, no footer, hidden or named
+  graphics, unique ids, absent from the sitemap and `llms.txt`, and no other page (the 404 included) loading the island's chunk or the
+  stylesheet that carries the hive. Its header's Dox link is the current page (`aria-current="page"`); on every other page and the
+  404 the header has one link to `/worktree/dox/` named "Chat with Dox", before the theme toggle, without `aria-current`, and a page
+  with a mobile menu has the same link there before the social icons.
 
 ## The landing hero
 
-The copy has two actions: "Get started", a link to Getting Started, and "Ask Dox", a button that opens the chat (see
-*Opening it* above). `pnpm docs:audit-dist` holds both, and no other link action.
+The copy has two actions: "Get started", a link to Getting Started, and "Ask Dox", a link to `/worktree/dox/` with the Dox crystal
+after its label (`Hero.astro` renders the hero action carrying `data-dox-cta` as that link; it is not a `LinkButton`, so it is not
+counted as a second link action). `pnpm docs:audit-dist` holds both, and no other link action, and no "Ask Dox" button.
 
 The landing's art box (`src/components/HeroLeaves.astro`, rendered by the landing branch of `Hero.astro` only) is a field of
 leaf-shaped WebGL particles (D18): on load they gust in from every edge of the viewport and from behind the header, build one
@@ -289,6 +418,7 @@ long as the page is visible. The pointer pushes leaves near the art box.
   are an invented palette), and re-tint when the header's theme toggle (`ThemeSelect.astro`, `ThemeProvider.astro`) changes `data-theme` on `<html>`.
 - **Drawing** pauses, with the clock, while the tab is hidden or the art box is off screen; the device pixel ratio is capped at 1.5.
 - Both the canvas and the SVG are `aria-hidden`: the heading and the link carry the meaning.
+- **The Dox link and the entrance.** The Dox link (`.dox-link`) takes part in neither the fade nor the colour pass of the landing header's entrance: custom.css excludes it with `a.header-chip:not(.dox-link)`. No audit rule checks this; plan §9 Q8 asks whether it should enter.
 - **The header's entrance** (#266, 2026-11-06): on the landing only, and on an arrival from outside the docs site and on every reload, the header's
   `/ worktree vX.Y.Z` (the shield and the "NorthGuild" wordmark stay static), search button and theme toggle fade up like the hero copy (`hero-copy-in`), left to right. Once they are
   in, a second pass paints the theme toggle, GitHub and Discord, one after another, from northguild.dev's resting icon colour
@@ -324,7 +454,7 @@ or use the root-level aliases where noted.
 
 | Command | What it does | When to run |
 |---|---|---|
-| `worker:build-context` | Scan MDX files + SKILL.md → generate `docs-context.ts` and `docs-routes.generated.ts` | After adding/editing docs pages, or after editing the skill |
+| `worker:build-context` | Scan MDX files + SKILL.md → generate the corpus (`docs-context.ts`: chunks, serialised index, vocabulary) and `docs-routes.generated.ts` (routes, counts) | After adding/editing docs pages, or after editing the skill |
 | `worker:build` | Run `worker:build-context` then bundle `worker.ts` via tsup | Before `worker:dev` or before deploying |
 
 ### Testing & deployment

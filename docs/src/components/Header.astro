@@ -1,11 +1,13 @@
 ---
 /**
- * Starlight's Header, overridden so the right group reads theme, language select, GitHub, Discord (plan #266, D5): the
- * three controls sit in one row at one size with one gap and no divider, as on northguild.dev and GMT's docs.
+ * Starlight's Header, overridden so the right group reads Dox, theme, language select, GitHub, Discord (plan #266, D5,
+ * and #309 D2): the controls sit in one row at one size with one gap and no divider, as on northguild.dev and GMT's docs.
+ * The first is the "Chat with Dox" crystal link, a plain link to /dox/ on every page (the chat is that page); on /dox it
+ * is the current page (`aria-current`, and the bar custom.css draws from it).
  *
  * Structure copied from @astrojs/starlight 0.42.8, dist/components/Header.astro, and the right group from GMT's
- * apps/dox/src/components/Header.astro at commit b15b3899 (without its Dox link, which is GMT's alone). What differs
- * from Starlight's: one `social-icons` group holding ThemeSelect, LanguageSelect and SocialIcons in that order, no
+ * apps/dox/src/components/Header.astro at commit b15b3899, Dox link included. What differs
+ * from Starlight's: one `social-icons` group holding the Dox link, ThemeSelect, LanguageSelect and SocialIcons in that order, no
  * `.social-icons::after` divider, and `starlight-theme-select` as a flex box so the toggle shares the row's centre line.
  *
  * Keep the three direct children of `.header` in this order (title, search, right group): theme.css selects them by
@@ -13,7 +15,7 @@
  *
  * The landing's entrance (plan #266, D6-D9): on the landing only, the root carries `data-landing-entrance`, and
  * custom.css ("The landing header's entrance") fades "/ worktree vX.Y.Z" (the shield and wordmark stay static), search and theme button in and then paints the theme
- * button and the two links into the accent. The inline script before the header turns that off for an arrival from
+ * button and the two links into the accent. The Dox link is left out of both passes (§9 Q8 is open): it is there from the first paint. The inline script before the header turns that off for an arrival from
  * another page of this site by following a link or by history (never a reload, which always plays it) by setting
  * `data-entrance-off` on <html>; it can only turn the entrance off, so with no script the CSS just plays. Inline because it must run before the header paints (a module script would not).
  */
@@ -24,10 +26,12 @@ import SiteTitle from "virtual:starlight/components/SiteTitle";
 import SocialIcons from "virtual:starlight/components/SocialIcons";
 import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 import config from "virtual:starlight/user-config";
+import DoxMark from "./DoxMark.astro";
 
 const isLanding = Astro.locals.starlightRoute.id === "";
 // The site base with a trailing slash, as the script compares it against the referrer's path.
 const base = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/`;
+const onDox = Astro.url.pathname.replace(/\/$/, "") === `${base}dox`;
 
 /**
  * Render the `Search` component if Pagefind is enabled or the default search component has been overridden.
@@ -62,6 +66,17 @@ const shouldRenderSearch =
   </div>
   <div class="sl-hidden md:sl-flex print:hidden right-group">
     <div class="sl-flex social-icons">
+      {/* The crystal is the link: icon-only, so `aria-label` is the name and `title` the hover tooltip. It shares the
+          chip look with the theme toggle, GitHub and Discord, and one gap with them. */}
+      <a
+        href={`${base}dox/`}
+        class="header-chip dox-link"
+        aria-label="Chat with Dox"
+        title="Chat with Dox"
+        aria-current={onDox ? "page" : undefined}
+      >
+        <DoxMark id="header" />
+      </a>
       <ThemeSelect />
       <LanguageSelect />
       <SocialIcons />

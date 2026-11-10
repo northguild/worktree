@@ -1,5 +1,5 @@
 import { Button } from "@base-ui/react";
-import { RocketLaunchIcon, StopIcon } from "@heroicons/react/24/outline";
+import { ArrowTurnDownLeftIcon, StopIcon } from "@heroicons/react/24/outline";
 import type { Ref } from "react";
 import { cn } from "../../utils";
 
@@ -10,19 +10,22 @@ interface ChatSubmitButtonProps {
   /** Nothing to send yet (blank or only whitespace). */
   empty: boolean;
   onStop: () => void;
+  /** Where the button is placed and how it is dressed beyond the defaults (the hive's Send, `gmt-hive-submit`). */
+  className?: string;
 }
 
 /**
  * Send while idle, Stop while an answer is arriving (plan #257 D15). It is one
  * element in both states, so focus on it survives the swap: after "Try again"
- * (ChatPanel moves focus here) the keyboard user can stop without finding it.
- * An accepted send returns focus to the message field (ChatForm), not here.
+ * (`DoxChat` moves focus here) the keyboard user can stop without finding it.
+ * An accepted send returns focus to the message field (`DoxChat`), not here.
  */
 export function ChatSubmitButton({
   ref,
   answering,
   empty,
   onStop,
+  className,
 }: ChatSubmitButtonProps) {
   return (
     <Button
@@ -40,6 +43,7 @@ export function ChatSubmitButton({
         // The transparent border is load-bearing: it is the second half of the
         // arithmetic below, matching the 1px the field spends on its own.
         "p-2 ml-2 border border-transparent",
+        className,
       )}
     >
       {/*
@@ -55,7 +59,7 @@ export function ChatSubmitButton({
         {answering ? (
           <StopIcon className="w-5 h-5" aria-hidden="true" />
         ) : (
-          <RocketLaunchIcon className="w-5 h-5" aria-hidden="true" />
+          <ArrowTurnDownLeftIcon className="w-5 h-5" aria-hidden="true" />
         )}
       </span>
     </Button>
