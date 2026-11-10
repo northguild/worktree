@@ -6,7 +6,7 @@
  *
  * Per page: a unique `<meta name="description">` of at most 155 characters; one `<link rel="canonical">` in the D3
  * form; Open Graph and Twitter tags; JSON-LD of the right types (`BreadcrumbList` only on a nested page, D10); and
- * no script that loads the chat before it is activated. Per site: a sitemap listing exactly the 28 URLs, a
+ * no Dox code, which loads on `/dox/` alone (#309, below). Per site: a sitemap listing exactly the 28 URLs, a
  * `404.html`, a landing at the root (a heading and a "Get started" link to /getting-started/), and no `shuding/nextra` string anywhere.
  *
  * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11). It

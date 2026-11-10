@@ -263,7 +263,7 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 ### The header, the sidebar and the page details
 
 - **Header.** `src/components/Header.astro` overrides Starlight's `Header` (copied from Starlight 0.42.8, with the right group from GMT's `apps/dox`, commit `b15b3899`):
-  the right group is the theme button, the language select, then GitHub and Discord, as three controls of one size in one row with one gap and no divider,
+  the right group is the "Chat with Dox" crystal (see *Opening it*), the theme button, the language select, then GitHub and Discord, as four controls of one size in one row with one gap and no divider,
   and `scripts/audit-dist.mjs` fails a page whose header orders them otherwise. The three direct children of `.header` (title, search, right group) keep their order, because `theme.css` selects them by position.
   The components it renders (`SiteTitle`, `SocialIcons`, `ThemeSelect`) are overridden too, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head. `src/components/ThemeSelect.astro` and `ThemeProvider.astro` make the theme
   control a two-state button (ported from GMT's `apps/dox`, commit `b15b3899`; Starlight also renders the select in the mobile
