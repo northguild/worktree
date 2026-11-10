@@ -822,7 +822,10 @@ describe("DoxChat -- out of budget", () => {
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
   });
 
-  it("counts a brain marked out as spent: all five spent or unavailable is out of budget", async () => {
+  // The Worker sends a brain it has marked out with 0 left (`remainingFor`, worker/brains-payload.ts, pinned by
+  // brains-payload.test.ts), and leaves an unconfigured one out of the payload, so `remaining` alone is the rule here and
+  // `state` is what the menu shows beside it. These are the counts it sends for five brains marked out.
+  it("rests on what the Worker sends when all five brains are marked out: each spent or unavailable, with 0 left", async () => {
     const states = Object.fromEntries(
       ALL_BRAINS.map((id, i) => [id, i % 2 ? "spent" : "unavailable"] as const),
     );

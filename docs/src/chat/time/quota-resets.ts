@@ -44,6 +44,16 @@ export function listResets(info: BrainsInfo): QuotaReset[] {
 }
 
 /**
+ * The soonest instant, in ms, at which anything the reader is counted against refills: their own allowance or any
+ * provider's. What `GET /api/brains` says changes then, whether or not anything is spent, so it is when to read it again.
+ * `undefined` when no reset can be read.
+ */
+export function soonestResetMs(info: BrainsInfo): number | undefined {
+  const soonest = Math.min(...listResets(info).map(epochOf));
+  return Number.isFinite(soonest) ? soonest : undefined;
+}
+
+/**
  * The one reset worth putting in the composer: whatever refills next that would let the reader ask again.
  *
  * - Pool spent (every brain at zero): the soonest provider refill, since Dox answers again as soon as any one comes back.

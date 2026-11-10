@@ -1,5 +1,6 @@
+import { convertUtcToUnix } from "@northguild/gmt/utc/convert";
 import type { BrainsInfo } from "../lib/chat-types";
-import { listResets, nextReset } from "./quota-resets";
+import { listResets, nextReset, soonestResetMs } from "./quota-resets";
 
 // Expected values: the rules in plan #309 §4.1 row 21 and D10 (the visitor's day is the UTC day, a provider's is its own) as
 // gmt's `quota-resets.ts` states them, worked by hand on two instants: Pacific midnight is 07:00Z in June (PDT, UTC-7), so
@@ -128,5 +129,42 @@ describe("listResets", () => {
       label: "Your questions",
       resetsAt: PACIFIC_MIDNIGHT,
     });
+  });
+});
+
+function unix(iso: string): number {
+  const ms = convertUtcToUnix(iso);
+  if (ms === null) throw new Error(`bad fixture ${iso}`);
+  return ms;
+}
+
+describe("soonestResetMs", () => {
+  it("is the earliest of the reader's own reset and every provider's, whatever is spent", () => {
+    // Workers AI's 00:00 UTC comes before the visitor's and Gemini's 07:00Z in this fixture.
+    expect(soonestResetMs(info({}))).toBe(unix(UTC_MIDNIGHT));
+    expect(soonestResetMs(info({ visitorRemaining: 0 }))).toBe(
+      unix(UTC_MIDNIGHT),
+    );
+  });
+
+  it("is the reader's own reset when the deployment reports no providers", () => {
+    expect(soonestResetMs(info({ providers: [] }))).toBe(
+      unix(PACIFIC_MIDNIGHT),
+    );
+  });
+
+  it("passes over a reset it cannot read, and is undefined when it can read none", () => {
+    expect(
+      soonestResetMs(
+        info({
+          providers: [
+            { id: "workers-ai", label: "Workers AI", resetsAt: "soon" },
+          ],
+        }),
+      ),
+    ).toBe(unix(PACIFIC_MIDNIGHT));
+    const unreadable = info({ providers: [] });
+    unreadable.visitor.resetsAt = "soon";
+    expect(soonestResetMs(unreadable)).toBeUndefined();
   });
 });

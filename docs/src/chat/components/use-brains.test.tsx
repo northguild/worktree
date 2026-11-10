@@ -1,7 +1,13 @@
+import { convertUtcToUnix } from "@northguild/gmt/utc/convert";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
-import { brainsInfo } from "./brains.fixture";
-import { readBrainsInfo, useBrains } from "./use-brains";
+import { afterEach, beforeEach, vi } from "vitest";
+import { brainsInfo, UTC_MIDNIGHT } from "./brains.fixture";
+import {
+  RESET_MARGIN_MS,
+  RESET_RETRY_MS,
+  readBrainsInfo,
+  useBrains,
+} from "./use-brains";
 
 // Expected values: plan #309 D10 (the badge reads `GET /api/brains`, then the `dox-usage` event's counts) and Phase 8's scope
 // ("an unreachable /api/brains hides the badge and leaves the chat usable"). The route and its shape are
@@ -100,6 +106,112 @@ describe("useBrains", () => {
     await act(() => result.current.refresh());
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.current.info?.visitor.remaining).toBe(3);
+  });
+});
+
+function unix(iso: string): number {
+  const ms = convertUtcToUnix(iso);
+  if (ms === null) throw new Error(`bad fixture ${iso}`);
+  return ms;
+}
+
+// The fixture's soonest reset is the UTC midnight (the visitor's and Workers AI's, 2026-06-16T00:00:00Z); Gemini's is seven
+// hours later. A spent budget disables the composer, so these reads are the only way the page learns it may ask again.
+describe("useBrains at a reset", () => {
+  const MINUTE_BEFORE = unix(UTC_MIDNIGHT) - 60_000;
+  // The read at mount, then however many after it, each answered by the next body.
+  const reads = (...bodies: unknown[]) => {
+    const fetchMock = vi.fn();
+    for (const body of bodies) fetchMock.mockResolvedValueOnce(json(body));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(MINUTE_BEFORE);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("reads again just past the soonest reset, so a spent budget lifts without a reload", async () => {
+    const fetchMock = reads(
+      brainsInfo({ visitorRemaining: 0 }),
+      brainsInfo({ visitorRemaining: 5 }),
+    );
+    const { result } = renderHook(() => useBrains());
+    await advance(0);
+    expect(result.current.info?.visitor.remaining).toBe(0);
+    // A minute to the reset, and the margin past it.
+    await advance(60_000 + RESET_MARGIN_MS - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.info?.visitor.remaining).toBe(5);
+  });
+
+  it("keeps asking every 30 s while the counts still name a reset that has passed, and stops once one is to come", async () => {
+    vi.setSystemTime(unix(UTC_MIDNIGHT) + 5_000);
+    const later = brainsInfo();
+    later.visitor.resetsAt = "2026-06-17T00:00:00Z";
+    later.providers = later.providers.map((provider) => ({
+      ...provider,
+      resetsAt: "2026-06-17T00:00:00Z",
+    }));
+    // The Worker's day has not turned for the first two reads; the third names tomorrow.
+    const fetchMock = reads(brainsInfo(), brainsInfo(), later);
+    renderHook(() => useBrains());
+    await advance(0);
+    await advance(RESET_RETRY_MS - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await advance(RESET_RETRY_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await advance(10 * RESET_RETRY_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("asks again after a read at the reset fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json(brainsInfo({ visitorRemaining: 0 })))
+      .mockRejectedValueOnce(new TypeError("offline"))
+      .mockResolvedValueOnce(json(brainsInfo({ visitorRemaining: 5 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useBrains());
+    await advance(0);
+    await advance(60_000 + RESET_MARGIN_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.info?.visitor.remaining).toBe(0);
+    await advance(RESET_RETRY_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.current.info?.visitor.remaining).toBe(5);
+  });
+
+  it("reads at once when the tab is shown again after a reset it slept through, and not before one", async () => {
+    const fetchMock = reads(
+      brainsInfo({ visitorRemaining: 0 }),
+      brainsInfo({ visitorRemaining: 5 }),
+    );
+    const { result } = renderHook(() => useBrains());
+    await advance(0);
+    const shown = () =>
+      act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        await Promise.resolve();
+      });
+    await shown();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The clock moves past the reset with no timer run, as it does across a sleep.
+    vi.setSystemTime(unix(UTC_MIDNIGHT) + 5 * 60_000);
+    await shown();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await advance(0);
+    expect(result.current.info?.visitor.remaining).toBe(5);
   });
 });
 

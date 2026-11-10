@@ -103,8 +103,8 @@ On the page, the pieces are:
   provider's own refusal is still the only real gate. A brain the ledger has marked out is not asked; a visitor's sixth
   question of a UTC day is refused with a 429 before any brain is asked. Without the namespace the Worker takes the first
   brain and counts nothing. `GET /api/brains` returns the counts (`BrainsInfo`, `lib/chat-types.ts`) and, after each
-  question, the same shape arrives as a `dox-usage` event. The page reads both: `use-brains.ts` fetches the route once after
-  mount and takes the event's counts as they come, and the control bar shows them (*The control bar* below);
+  question, the same shape arrives as a `dox-usage` event. The page reads both: `use-brains.ts` fetches the route after mount
+  and again once the soonest reset passes (or the tab is shown again after one), and takes the event's counts as they come, and the control bar shows them (*The control bar* below);
   `lib/day-clock.ts` is the clock the Worker keeps the ledger by. Keys, TTLs and the setup are in
   [worker/README.md](worker/README.md#the-usage-ledger).
 - **The empty chat and its limits.** With no question yet, the page shows the hub and the examples rail, whose three starter
@@ -356,7 +356,8 @@ shortcut are gone, and every other page links to it (*Opening it* above).
     not a title: there is no page-title map in the client.
   - **The control bar** (`DoxChat.tsx`, in the composer's footer: the info button, then the reset chip and the brain badge, with Send on the
     right). Everything in it is read from `GET /api/brains` (`BrainsInfo`) by `use-brains.ts` and kept current by the `dox-usage` event after
-    each question; a `dox-refusal` or a failed answer reads the route again. If the route cannot be reached, or answers something else, there is
+    each question; a `dox-refusal` or a failed answer reads the route again, and so does the soonest reset passing, since a spent budget
+    disables the composer and nothing else would lift it before a reload. If the route cannot be reached, or answers something else, there is
     no badge and no chip and the chat is unchanged: the budget is information, never a gate. Nothing in it is rendered on the server, because
     the build's zone and locale are not the reader's: zone, locale and the clock resolve in an effect (`time/use-reset-clock.ts`), and the
     first server-and-client render holds none of it.
