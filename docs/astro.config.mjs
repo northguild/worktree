@@ -1,12 +1,17 @@
+import { fileURLToPath } from "node:url";
 import react from "@astrojs/react";
 import sitemap from "@astrojs/sitemap";
 import starlight from "@astrojs/starlight";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
+import { sitemapLastmod } from "./src/lib/sitemap-lastmod.ts";
 
 // What the share preview shows, for readers who cannot see it (og:image:alt, twitter:image:alt).
 const PREVIEW_ALT =
   "The worktree docs landing: “A git worktree for every branch” beside a git graph drawn in green leaves.";
+
+// `astro build` writes here; the sitemap reads each page's footer date back from it (D1).
+const DIST = fileURLToPath(new URL("./dist/", import.meta.url));
 
 // One URL form: https://northguild.dev/worktree/<path>/ — no /docs/ prefix.
 // `site` is required by the sitemap integration below (it writes absolute URLs).
@@ -168,11 +173,14 @@ export default defineConfig({
       },
     }),
     react(),
-    // Listed after starlight(): Starlight adds its own sitemap only when none is configured (0.42.8, `dist/index.js`), and
-    // this one differs by the filter. `/dox/` is the chat shell and carries `noindex` (plan #309 D6), so it is not listed.
-    // `filter` receives the absolute URL; the audit checks the built sitemap.
+    // Registered explicitly (#287 D3): Starlight adds its own sitemap only when none is configured (0.42.8, `dist/index.js`,
+    // which searches every integration, so the order is not what decides it), and this one differs from it twice.
+    // `filter`: `/dox/` is the chat shell and carries `noindex` (plan #309 D6), so it is not listed; it receives the absolute URL.
+    // `serialize`: each entry's `lastmod` is read from its page's built footer (#287 D1); the landing has no footer date and
+    // so no `lastmod` (D2). The audit checks the built sitemap.
     sitemap({
       filter: (page) => new URL(page).pathname !== "/worktree/dox/",
+      serialize: (item) => sitemapLastmod(DIST, item),
     }),
   ],
   vite: { plugins: [tailwindcss()] },

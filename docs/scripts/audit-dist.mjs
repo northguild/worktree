@@ -6,7 +6,7 @@
  *
  * Per page: a unique `<meta name="description">` of at most 155 characters; one `<link rel="canonical">` in the D3
  * form; Open Graph and Twitter tags; JSON-LD of the right types (`BreadcrumbList` only on a nested page, D10); and
- * no script that loads the chat before it is activated. Per site: a sitemap listing exactly the 28 URLs, a
+ * no Dox code, which loads on `/dox/` alone (#309, below). Per site: a sitemap listing exactly the 28 URLs, a
  * `404.html`, a landing at the root (a heading and a "Get started" link to /getting-started/), and no `shuding/nextra` string anywhere.
  *
  * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11). It
@@ -61,6 +61,9 @@
  * scoped to `[data-landing-entrance]` and gated by `:not([data-entrance-off])`, with no `forwards` or `both` fill; the
  * keyframes animate only opacity, transform and color; and the fade never targets `.wordmark`, `.title-wrapper` or
  * `header-chip`, and on search only `site-search > button[data-open-modal]`.
+ *
+ * Also (plan 287, D5): every file under `_astro/` has a hash of five or more characters in its name, because
+ * `docs/deploy/_headers` serves that folder `immutable` for a year.
  *
  * Also (#309 phase 1, the Dox page): `/dox/` is not one of the 28 pages and gets rules of its own (`auditDox`). It is built
  * (`dox/index.html`), `noindex`, listed in neither the sitemap nor `llms.txt`, and shaped as D6 says: the inline script that
@@ -197,6 +200,33 @@ function auditIcons(html, dist) {
     if (!isBuiltFile(href, dist))
       failures.push(`${rel} ${href || "(no href)"} is not a file in the build`);
   }
+  return failures;
+}
+
+const LLMS_TXT_URL = `${ORIGIN}llms.txt`;
+
+/**
+ * D8: each of the 28 pages links its llms.txt exactly once, as `rel="describedby" type="text/plain"` with the absolute
+ * URL, and the file is in the build. The 404 is not a page of the site and carries none (auditNotFound).
+ */
+function auditDescribedBy(html, dist) {
+  const links = tagsOf(html, "link").filter((l) =>
+    (l.rel ?? "").split(/\s+/).includes("describedby"),
+  );
+  if (links.length !== 1)
+    return [`${links.length} describedby links, expected exactly 1`];
+  const [{ type, href }] = links;
+  const failures = [];
+  if (type !== "text/plain")
+    failures.push(
+      `describedby link has type ${type ?? "(none)"}, expected text/plain`,
+    );
+  if (href !== LLMS_TXT_URL)
+    failures.push(
+      `describedby link href is ${href ?? "(none)"}, expected ${LLMS_TXT_URL}`,
+    );
+  else if (!isBuiltFile(href, dist))
+    failures.push(`describedby link ${href} is not a file in the build`);
   return failures;
 }
 
@@ -1311,6 +1341,7 @@ async function auditPage(path, dist, descriptions, options) {
   if (!metaContent("name", "twitter:image:alt"))
     fail("no twitter:image:alt tag");
   for (const rule of auditIcons(html, dist)) fail(rule);
+  for (const rule of auditDescribedBy(html, dist)) fail(rule);
   for (const rule of auditTitle(html)) fail(rule);
 
   const ld = jsonLdTypes(html);
@@ -1386,17 +1417,61 @@ async function auditPage(path, dist, descriptions, options) {
   return failures;
 }
 
-async function sitemapUrls(dist) {
+// Every <url> of every sitemap the index names: its <loc>, and its <lastmod> where it has one.
+async function sitemapEntries(dist) {
   const index = await readFile(join(dist, "sitemap-index.xml"), "utf8");
-  const urls = [];
+  const entries = [];
   for (const [, loc] of index.matchAll(/<loc>([^<]*)<\/loc>/g)) {
     const file = loc.replace(/^https:\/\/northguild\.dev\/worktree\//, "");
     const sitemap = await readFile(join(dist, file), "utf8");
-    urls.push(
-      ...[...sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1]),
-    );
+    for (const [, body] of sitemap.matchAll(/<url>([\s\S]*?)<\/url>/g))
+      entries.push({
+        loc: /<loc>([^<]*)<\/loc>/.exec(body)?.[1],
+        lastmod: /<lastmod>([^<]*)<\/lastmod>/.exec(body)?.[1],
+      });
   }
-  return urls;
+  return entries;
+}
+
+// A W3C Datetime (the profile of ISO 8601 the sitemaps.org protocol names for <lastmod>): a year, a month, a date, or a
+// date with hours and minutes, optionally seconds and a fraction of a second, then a time zone designator.
+const W3C_DATETIME =
+  /^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?)?)?$/;
+
+// The sitemap's <lastmod> is the page's footer date (D1 of plan 287): each page but the landing carries one equal to
+// its built <time datetime>, and the landing, which has no footer, carries none.
+async function lastmodFailures(dist, entries) {
+  const failures = [];
+  for (const { loc, lastmod } of entries) {
+    const path = PAGE_PATHS.find((p) => pageUrl(p) === loc);
+    if (path === undefined) continue; // not one of the pages: reported by the URL check
+    if (path === "") {
+      if (lastmod !== undefined)
+        failures.push(
+          `sitemap: ${loc} has a lastmod (${lastmod}), but the landing has no footer date`,
+        );
+      continue;
+    }
+    if (lastmod === undefined) {
+      failures.push(`sitemap: ${loc} has no lastmod`);
+      continue;
+    }
+    if (!W3C_DATETIME.test(lastmod))
+      failures.push(`sitemap: ${loc} lastmod ${lastmod} is not a W3C Datetime`);
+    let footer;
+    try {
+      const html = await readFile(join(dist, path, "index.html"), "utf8");
+      footer = tagsOf(html, "time")[0]?.datetime;
+    } catch {
+      continue; // the page is missing: reported with the page rules
+    }
+    // A page with no footer date is the page rules' finding, not a second one here.
+    if (footer !== undefined && lastmod !== footer)
+      failures.push(
+        `sitemap: ${loc} lastmod ${lastmod} differs from the footer date ${footer}`,
+      );
+  }
+  return failures;
 }
 
 async function filesUnder(dir) {
@@ -1411,16 +1486,23 @@ async function filesUnder(dir) {
 
 /** The item lines of a llmstxt.org file: `- [name](url): notes`. */
 function llmsItems(text) {
-  return text
-    .split("\n")
-    .filter((line) => line.startsWith("- "))
-    .map((line) => {
-      const m = line.match(/^- \[([^\]]*)\]\(([^)]*)\)(?:: (.*))?$/);
-      return m
-        ? { title: m[1], url: m[2], notes: m[3] ?? "" }
-        : { malformed: line };
-    });
+  let section = "";
+  const items = [];
+  for (const line of text.split("\n")) {
+    if (line.startsWith("## ")) section = line.slice(3).trim();
+    if (!line.startsWith("- ")) continue;
+    const m = line.match(/^- \[([^\]]*)\]\(([^)]*)\)(?:: (.*))?$/);
+    items.push(
+      m
+        ? { title: m[1], url: m[2], notes: m[3] ?? "", section }
+        : { malformed: line },
+    );
+  }
+  return items;
 }
+
+/** D9: `## Optional` (llmstxt.org: links an agent can skip when context is short) holds the changelog alone. */
+const OPTIONAL_PATHS = ["changelog"];
 
 async function auditLlms(dist, descriptions) {
   const failures = [];
@@ -1450,6 +1532,13 @@ async function auditLlms(dist, descriptions) {
       );
       continue;
     }
+    const expectedSection = OPTIONAL_PATHS.includes(path)
+      ? "Optional"
+      : "Documentation";
+    if (item.section !== expectedSection)
+      failures.push(
+        `llms.txt: ${item.url} is under "## ${item.section}", expected "## ${expectedSection}"`,
+      );
     if (item.title === "") failures.push(`llms.txt: ${item.url} has no title`);
     if (item.notes === "")
       failures.push(`llms.txt: ${item.url} has no description`);
@@ -1481,6 +1570,12 @@ function auditNotFound(html) {
     );
   if (tagsOf(html, "link").some((l) => l.rel === "canonical"))
     fail("has a canonical link, but /404/ is not a page of the site");
+  if (
+    tagsOf(html, "link").some((l) =>
+      (l.rel ?? "").split(/\s+/).includes("describedby"),
+    )
+  )
+    fail("has a describedby link, but /404/ is not a page of the site");
   if (/<script type="application\/ld\+json">/.test(html))
     fail("has JSON-LD (a BreadcrumbList would name /404/ as a page)");
   const toGettingStarted = [
@@ -1562,7 +1657,7 @@ async function auditDox(dist) {
     if (count > 1) fail(`id "${id}" appears ${count} times`);
 
   try {
-    if ((await sitemapUrls(dist)).includes(DOX_URL))
+    if ((await sitemapEntries(dist)).some(({ loc }) => loc === DOX_URL))
       fail("is listed in the sitemap; it is kept out");
   } catch {
     // auditSite reports an unreadable sitemap.
@@ -1596,7 +1691,8 @@ async function auditSite(dist) {
   const failures = [];
 
   try {
-    const urls = (await sitemapUrls(dist)).sort();
+    const entries = await sitemapEntries(dist);
+    const urls = entries.map((entry) => entry.loc).sort();
     const expected = PAGE_PATHS.map(pageUrl).sort();
     for (const url of expected)
       if (!urls.includes(url)) failures.push(`sitemap: ${url} is missing`);
@@ -1607,6 +1703,7 @@ async function auditSite(dist) {
         );
     if (urls.length !== new Set(urls).size)
       failures.push("sitemap: a URL is listed twice");
+    failures.push(...(await lastmodFailures(dist, entries)));
   } catch (error) {
     failures.push(`sitemap: cannot be read (${error.message})`);
   }
@@ -1707,6 +1804,46 @@ async function auditSite(dist) {
   return failures;
 }
 
+// A file under `_astro/` is served `Cache-Control: immutable` for a year (docs/deploy/_headers), which is safe only if its
+// name changes with its content: a dot-delimited hash of five or more characters before the extension. Five is the
+// shortest the build emits (Expressive Code's `ec.0vx5m.js`); the longest names are Vite's eight (`common.xqO6OrSB.css`).
+const HASHED_NAME = /\.[A-Za-z0-9_-]{5,}\.[^./]+$/;
+
+async function hashedNameFailures(dist) {
+  let files;
+  try {
+    files = await filesUnder(join(dist, "_astro"));
+  } catch {
+    return ["_astro/: cannot be read"];
+  }
+  return files
+    .map((file) => file.slice(dist.length + 1))
+    .filter((name) => !HASHED_NAME.test(name))
+    .map(
+      (name) =>
+        `${name}: no hash of 5 or more characters in the name, but _astro/ is served immutable`,
+    );
+}
+
+// Apple TN3156 (developer.apple.com/documentation/technotes/tn3156-create-rich-previews-for-messages): "The main
+// resource located at the previewed link is limited to 1 MB." Read as 1 MiB = 1,048,576 bytes (plan 287, D10),
+// uncompressed, the bytes on disk. TN3156 does not say whether its MB is 10^6 or 2^20 bytes.
+export const PAGE_SIZE_LIMIT = 1024 * 1024;
+
+async function pageSizeFailures(dist) {
+  return (await filesUnder(dist))
+    .filter((file) => /(^|\/)(index|404)\.html$/.test(file))
+    .map((file) => ({
+      name: file.slice(dist.length + 1),
+      size: statSync(file).size,
+    }))
+    .filter(({ size }) => size > PAGE_SIZE_LIMIT)
+    .map(
+      ({ name, size }) =>
+        `${name}: ${size} bytes, over the ${PAGE_SIZE_LIMIT}-byte page limit`,
+    );
+}
+
 /** Every failed rule across the build in `dist`, one line each; an empty array is a pass. */
 export async function auditDist(dist = DEFAULT_DIST, overrides = {}) {
   const options = {
@@ -1719,6 +1856,8 @@ export async function auditDist(dist = DEFAULT_DIST, overrides = {}) {
     failures.push(...(await auditPage(path, dist, descriptions, options)));
   failures.push(...(await auditSite(dist)));
   failures.push(...(await auditLlms(dist, descriptions)));
+  failures.push(...(await hashedNameFailures(dist)));
+  failures.push(...(await pageSizeFailures(dist)));
   return failures;
 }
 

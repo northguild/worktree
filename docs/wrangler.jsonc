@@ -23,7 +23,9 @@
   "assets": {
     // docs/.deploy holds the Astro build under worktree/ (the `stage:deploy` script), because a Route does not
     // strip its path: a request for /worktree/x looks up the asset worktree/x. `astro build` writes
-    // docs/dist without the `base` prefix, so deploying docs/dist itself would answer 404 everywhere.
+    // docs/dist without the `base` prefix, so deploying docs/dist itself would answer 404 everywhere. The same
+    // script copies docs/deploy/_headers to the root of this directory, the one place Cloudflare reads it from
+    // (a `_headers` under worktree/ would never be read); its rules carry the /worktree prefix.
     "directory": "./.deploy",
     // Serves the nearest 404.html up the request path, here worktree/404.html.
     "not_found_handling": "404-page"

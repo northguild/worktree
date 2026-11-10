@@ -5,9 +5,13 @@
  * `og:type`, `og:locale`, `twitter:card` and the meta description (plan §9 Q8, read off the built HTML), so none of
  * those are repeated here.
  *
+ * It also points every page but the 404 at its llms.txt with `rel="describedby"` (D8); the URL is the one llms-txt.ts
+ * renders to, not a third copy of it.
+ *
  * The share preview (`og:image`, `twitter:image` and their alt text) and the icon links are site-wide, so they are
  * `starlight({ head })` entries in astro.config.mjs rather than anything here (plan §9 Q3).
  */
+import { LLMS_TXT_URL } from "../lib/llms-txt";
 import { cliVersion } from "../lib/site-meta";
 import { buildStructuredData, headTitle } from "../lib/structured-data";
 
@@ -38,4 +42,5 @@ const structuredData = JSON.stringify(
 ---
 
 {tags.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+{!isNotFound && <link rel="describedby" type="text/plain" href={LLMS_TXT_URL} />}
 {!isNotFound && <script type="application/ld+json" set:html={structuredData} />}

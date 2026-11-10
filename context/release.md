@@ -170,9 +170,9 @@ stable version has been published.
   an npm credential. The called workflow builds the release commit, the one `v<version>` tags. It is skipped when
   `publish` is. It can also be run by hand (`workflow_dispatch`), from `main` only: `site` carries
   `if: github.ref == 'refs/heads/main'` (#243), so a run from any other ref skips both jobs and deploys nothing. Two jobs. `site` tests, builds `docs/dist`, audits it (`pnpm docs:audit-dist`), copies it to
-  `docs/.deploy/worktree/` and runs `wrangler deploy` with `docs/wrangler.jsonc` (a Worker with static assets and no
-  script, on the Route `northguild.dev/worktree*`), then runs `docs/scripts/deploy-smoke.mjs` against the live URL,
-  retrying for route propagation. `legacy-pages` runs only after `site` is green and publishes the generated
+  `docs/.deploy/worktree/` (with `docs/deploy/_headers` at `docs/.deploy/_headers`: a year's `immutable` caching for `_astro/*`, `noindex` for `*.txt`) and runs `wrangler deploy` with `docs/wrangler.jsonc` (a Worker with static assets and no
+  script, on the Route `northguild.dev/worktree*`), then runs `docs/scripts/deploy-smoke.mjs` against the live URL
+  (routes, and the three header rows), retrying for route propagation. `legacy-pages` runs only after `site` is green and publishes the generated
   `docs/legacy/` bundle to GitHub Pages: `schema/v1.json` plus a redirect stub per old route. The old Pages site is
   that bundle and nothing else. **Seen green in this shape once, from a push**: run 41910362381 on `main`
   (2026-11-04, c0cc821), `site` and `legacy-pages` both `success`. **Never yet run from `publish.yml`**: the

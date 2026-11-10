@@ -263,7 +263,7 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 ### The header, the sidebar and the page details
 
 - **Header.** `src/components/Header.astro` overrides Starlight's `Header` (copied from Starlight 0.42.8, with the right group from GMT's `apps/dox`, commit `b15b3899`):
-  the right group is the theme button, the language select, then GitHub and Discord, as three controls of one size in one row with one gap and no divider,
+  the right group is the "Chat with Dox" crystal (see *Opening it*), the theme button, the language select, then GitHub and Discord, as four controls of one size in one row with one gap and no divider,
   and `scripts/audit-dist.mjs` fails a page whose header orders them otherwise. The three direct children of `.header` (title, search, right group) keep their order, because `theme.css` selects them by position.
   The components it renders (`SiteTitle`, `SocialIcons`, `ThemeSelect`) are overridden too, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head. `src/components/ThemeSelect.astro` and `ThemeProvider.astro` make the theme
   control a two-state button (ported from GMT's `apps/dox`, commit `b15b3899`; Starlight also renders the select in the mobile
@@ -469,8 +469,9 @@ or use the root-level aliases where noted.
 | `worker:deploy` | Test → build → `wrangler deploy` |
 | `audit-dist` | Assert the SEO requirements over `dist/` (run after `build`; root alias `pnpm docs:audit-dist`) |
 | `build:legacy` | Write `legacy/` (gitignored): the bundle for the old GitHub Pages site |
-| `stage:deploy` | Copy `dist/` to `.deploy/worktree/` (gitignored), the directory `wrangler.jsonc` serves |
-| `deploy:smoke` | Check the live routes on `https://northguild.dev/worktree/` (`SMOKE_ORIGIN` overrides the origin) |
+| `stage:deploy` | Copy `dist/` to `.deploy/worktree/` and `deploy/_headers` to `.deploy/_headers` (gitignored), the directory `wrangler.jsonc` serves |
+| `web-vitals` | Measure LCP, CLS, TBT and INP on three pages: Lighthouse (pinned, mobile and desktop, median of three) and Playwright Chromium at 4x CPU throttling against `--origin` (a served build under `/worktree/`), PageSpeed Insights and CrUX field data for `--live`. By hand, not a gate; `PSI_API_KEY` is read from the environment. Needs Chromium: `pnpm --filter docs exec playwright install chromium` |
+| `deploy:smoke` | Check the live routes on `https://northguild.dev/worktree/` and three response headers (a hashed asset's `Cache-Control`, `llms.txt`'s `X-Robots-Tag`, and a page carrying neither `noindex` nor `immutable`); `SMOKE_ORIGIN` overrides the origin |
 
 ---
 
@@ -516,7 +517,12 @@ commit, so a docs change merged after the release waits for the next one. Two jo
 - **`site`** builds `docs/dist`, audits it, copies it to `docs/.deploy/worktree/` and runs `wrangler deploy` with
   `docs/wrangler.jsonc`: a Worker with static assets and no script, on the Route `northguild.dev/worktree*`.
   The copy exists because a Route does not strip its path, while `astro build` writes `dist/` without the
-  `/worktree` base. It then runs `deploy:smoke` against the live URL, retrying for route propagation.
+  `/worktree` base. The same step copies `docs/deploy/_headers` to `docs/.deploy/_headers`, the root of the
+  assets directory, which is where Cloudflare reads it: files under `/worktree/_astro/` (all hashed, which the
+  audit checks) are served `Cache-Control: public, max-age=31536000, immutable`, and `/worktree/*.txt` carries
+  `X-Robots-Tag: noindex`. Edit that file in `docs/deploy/`, not in `docs/public/`, where it would land at
+  `.deploy/worktree/_headers` and never be read. It then runs `deploy:smoke` against the live URL, retrying for
+  route propagation; the smoke run asserts those headers too.
 - **`legacy-pages`** runs after `site` and publishes `docs/legacy/` (from `build:legacy`) to GitHub Pages: the
   schema file at `https://northguild.github.io/worktree/schema/v1.json` plus a redirect stub per old route.
 
@@ -544,3 +550,31 @@ deploys with the next stable release.
 
 For manual deployment steps, including first-time Cloudflare setup, see
 [docs/worker/README.md](worker/README.md).
+
+---
+
+## Search engines
+
+Nothing in the build submits the site to a search engine. The owner does these once, by hand, after a release
+that carries the sitemap and header changes has deployed (a docs-only merge does not deploy the
+site; see [Deployment](#deployment)).
+
+1. **Submit the sitemap** to both engines, as `https://northguild.dev/worktree/sitemap-index.xml`:
+   - Google Search Console, for the `https://northguild.dev/` property: *Sitemaps* → *Add a new sitemap*.
+   - Bing Webmaster Tools, for the same site: *Sitemaps* → *Submit sitemap*.
+2. **Read each engine's Pages report** (*Pages* under *Indexing* in Search Console; Bing's index report for the
+   site), a few days after the submission, not the same day.
+3. **A healthy result** is 28 pages discovered and 28 indexed, one for each `<loc>` in `sitemap-0.xml`, with no
+   *Duplicate* or *Alternate page* entry for a `/worktree/` URL. Twenty-seven of the 28 carry a `<lastmod>`;
+   the landing page is the one that does not, on purpose. A page that is discovered but not indexed is
+   Google's call and needs no change here. A duplicate or alternate entry does: it means two URLs are
+   competing for one page, so check the page's canonical link first.
+4. **Spot-check the headers** on the live site once the release has deployed: `curl -sI` on a file under
+   `/worktree/_astro/` should show `Cache-Control: public, max-age=31536000, immutable`, and on
+   `/worktree/llms.txt` an `X-Robots-Tag: noindex`. `deploy:smoke` asserts the same in the release's deploy
+   job.
+
+The `Sitemap:` line that points crawlers at `/worktree/sitemap-index.xml` also has to be in the
+`robots.txt` served from the `northguild.dev` root, because crawlers read that file only from a host's root.
+That file lives in the `northguild.dev` repository, **outside this one**; the copy in `docs/public/robots.txt`
+is not served from the root and is not authoritative.

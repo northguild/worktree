@@ -3,6 +3,8 @@
  * `- [name](url): notes` items. Pure, so it is tested without the content collection.
  */
 const ORIGIN = "https://northguild.dev/worktree/";
+/** The absolute URL of this file; the page head's `describedby` link (D8) names it from here. */
+export const LLMS_TXT_URL = `${ORIGIN}llms.txt`;
 const SITE_NAME = "@northguild/worktree";
 const SUMMARY =
   "Documentation for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.";
@@ -21,16 +23,25 @@ export interface LlmsPage {
 /** `404.md` is in the content collection (it makes the custom 404) but is not a page of the site. */
 const NOT_FOUND_PATH = "404";
 
+/** llmstxt.org's `## Optional` holds links an agent can skip when context is short (D9): the changelog is history. */
+const OPTIONAL_PATHS = new Set(["changelog"]);
+
+function itemOf({
+  path,
+  title,
+  description,
+}: LlmsPage & { path: string }): string {
+  return `- [${title}](${urlOf(path)}): ${description}`;
+}
+
 export function renderLlmsTxt(pages: LlmsPage[]): string {
-  const items = pages
+  const entries = pages
     .map((page) => ({ ...page, path: pathOf(page.id) }))
     .filter(({ path }) => path !== NOT_FOUND_PATH)
     // The root page first, then alphabetical, so the file is stable between builds.
-    .sort((a, b) => a.path.localeCompare(b.path))
-    .map(
-      ({ path, title, description }) =>
-        `- [${title}](${urlOf(path)}): ${description}`,
-    );
+    .sort((a, b) => a.path.localeCompare(b.path));
+  const optional = entries.filter(({ path }) => OPTIONAL_PATHS.has(path));
+  const documentation = entries.filter(({ path }) => !OPTIONAL_PATHS.has(path));
   return [
     `# ${SITE_NAME}`,
     "",
@@ -38,7 +49,11 @@ export function renderLlmsTxt(pages: LlmsPage[]): string {
     "",
     "## Documentation",
     "",
-    ...items,
+    ...documentation.map(itemOf),
+    "",
+    "## Optional",
+    "",
+    ...optional.map(itemOf),
     "",
   ].join("\n");
 }

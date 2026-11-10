@@ -64,20 +64,32 @@ const EDIT_LINK =
   '<a href="https://github.com/northguild/worktree/edit/main/docs/src/content/docs/faq.mdx" class="sl-flex">Edit page</a>';
 const descriptionOf = (path) => `A description of ${path || "the root"}.`;
 const titleOf = (path) => path || "Home";
-const llmsTxt = (paths, described = {}) =>
-  [
+// D9: the changelog alone is under `## Optional`; every other page is under `## Documentation`. `sections` overrides
+// that split by path (to put a page in the wrong one).
+const llmsTxt = (paths, described = {}, sections = {}) => {
+  const item = (p) =>
+    `- [${titleOf(p)}](${url(p)}): ${described[p] ?? descriptionOf(p)}`;
+  const sectionOf = (p) =>
+    sections[p] ?? (p === "changelog" ? "Optional" : "Documentation");
+  return [
     "# @northguild/worktree",
     "",
     "> Docs.",
     "",
     "## Documentation",
     "",
-    ...paths.map(
-      (p) =>
-        `- [${titleOf(p)}](${url(p)}): ${described[p] ?? descriptionOf(p)}`,
-    ),
+    ...paths.filter((p) => sectionOf(p) === "Documentation").map(item),
+    "",
+    "## Optional",
+    "",
+    ...paths.filter((p) => sectionOf(p) === "Optional").map(item),
     "",
   ].join("\n");
+};
+
+// D8: every page but the 404 links its llms.txt, as Head.astro renders it.
+const LLMS_LINK =
+  '<link rel="describedby" type="text/plain" href="https://northguild.dev/worktree/llms.txt"/>';
 
 function jsonLd(path) {
   const types =
@@ -153,7 +165,7 @@ const MAINTAINERS =
 // Phase 16 (D18, the leaf-particle hero): the landing alone loads the hero loader and carries the art box, whose still
 // SVG and canvas are aria-hidden. The loader reaches the effect only through a dynamic import().
 const HERO_SCRIPT =
-  '<script type="module" src="/worktree/_astro/HeroLeaves.ghi.js"></script>';
+  '<script type="module" src="/worktree/_astro/HeroLeaves.ghighi.js"></script>';
 const HERO_ART =
   '<div class="art" data-hero-art><svg class="hero-still" aria-hidden="true" focusable="false"></svg><canvas class="hero-canvas" data-hero-canvas aria-hidden="true"></canvas></div>';
 
@@ -247,9 +259,10 @@ function page(path, overrides = {}) {
     `<meta name="twitter:card" content="summary_large_image"/>`,
     overrides.preview ?? PREVIEW_TAGS,
     overrides.icons ?? ICONS,
+    overrides.describedby ?? LLMS_LINK,
     `<meta name="description" content="${description}"/>`,
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
-    '<script type="module" src="/worktree/_astro/page.abc.js"></script>',
+    '<script type="module" src="/worktree/_astro/page.abcabc.js"></script>',
     path === "" ? (overrides.heroScript ?? HERO_SCRIPT) : "",
     `</head><body>${overrides.header ?? (path === "" ? LANDING_HEADER : HEADER)}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${path === "" ? "" : (overrides.menu ?? MOBILE_MENU)}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
@@ -284,10 +297,10 @@ const DOX_TITLE = "Dox · @northguild/worktree";
 const DOX_SHELL_SCRIPT =
   "<script>document.documentElement.setAttribute('data-dox-shell','')</script>";
 const DOX_ISLAND =
-  '<astro-island component-url="/worktree/_astro/DoxPage.mno.js" client="load"><svg aria-hidden="true" focusable="false"></svg></astro-island>';
+  '<astro-island component-url="/worktree/_astro/DoxPage.mnomno.js" client="load"><svg aria-hidden="true" focusable="false"></svg></astro-island>';
 const DOX_CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${THEME_SELECT}`;
 const DOX_STYLESHEET =
-  '<link rel="stylesheet" href="/worktree/_astro/dox.pqr.css"/>';
+  '<link rel="stylesheet" href="/worktree/_astro/dox.pqrpqr.css"/>';
 
 function doxPage(overrides = {}) {
   return [
@@ -306,8 +319,20 @@ function doxPage(overrides = {}) {
   ].join("\n");
 }
 
-function sitemap(paths) {
-  return `<?xml version="1.0"?><urlset>${paths.map((p) => `<url><loc>${url(p)}</loc></url>`).join("")}</urlset>`;
+// A compliant sitemap: every page but the landing carries the footer's datetime (plan 287, D1/D2); `lastmods` overrides
+// a path's value, with `null` for none.
+const FOOTER_DATETIME = `${DATE}T10:00:00.000Z`;
+function sitemap(paths, lastmods = {}) {
+  const entry = (p) => {
+    const lastmod =
+      lastmods[p] === undefined
+        ? p === ""
+          ? null
+          : FOOTER_DATETIME
+        : lastmods[p];
+    return `<url><loc>${url(p)}</loc>${lastmod === null ? "" : `<lastmod>${lastmod}</lastmod>`}</url>`;
+  };
+  return `<?xml version="1.0"?><urlset>${paths.map(entry).join("")}</urlset>`;
 }
 
 async function write(dir, relative, content) {
@@ -325,11 +350,11 @@ beforeEach(async () => {
   for (const path of PATHS) await write(dist, htmlPath(path), page(path));
   await write(dist, "404.html", notFoundPage());
   await write(dist, "dox/index.html", doxPage());
-  await write(dist, "_astro/DoxPage.mno.js", "export const dox = 1;");
-  await write(dist, "_astro/dox.pqr.css", ".gmt-hive-shell{position:fixed}");
+  await write(dist, "_astro/DoxPage.mnomno.js", "export const dox = 1;");
+  await write(dist, "_astro/dox.pqrpqr.css", ".gmt-hive-shell{position:fixed}");
   await write(
     dist,
-    "_astro/common.abc.css",
+    "_astro/common.abcabc.css",
     `.tab>[role=tab]{display:flex;min-block-size:44px}${ENTRANCE_CSS}`,
   );
   await write(
@@ -339,13 +364,13 @@ beforeEach(async () => {
   );
   await write(dist, "sitemap-0.xml", sitemap(PATHS));
   await write(dist, "llms.txt", llmsTxt(PATHS));
-  await write(dist, "_astro/page.abc.js", "console.log('page');");
+  await write(dist, "_astro/page.abcabc.js", "console.log('page');");
   await write(
     dist,
-    "_astro/HeroLeaves.ghi.js",
-    'document.addEventListener("x",()=>import("./particles.jkl.js"));',
+    "_astro/HeroLeaves.ghighi.js",
+    'document.addEventListener("x",()=>import("./particles.jkljkl.js"));',
   );
-  await write(dist, "_astro/particles.jkl.js", "export const effect = 1;");
+  await write(dist, "_astro/particles.jkljkl.js", "export const effect = 1;");
   for (const file of ["favicon.svg", "favicon.ico", "apple-touch-icon.png"])
     await write(dist, file, "x");
   await write(dist, "og-image.jpg", jpeg(1200, 630));
@@ -765,6 +790,125 @@ describe("auditDist", () => {
     ).toBe(true);
   });
 
+  // <lastmod> (plan 287, D1/D2): the footer's datetime on every page but the landing, which has no footer and none.
+  // The values are decided by the footer fixture (`${DATE}T10:00:00.000Z`) and the sitemaps.org W3C Datetime profile.
+  const lastmodFailures = async () =>
+    (await audit()).filter((f) => /lastmod/.test(f));
+
+  it("fails a page missing its lastmod", async () => {
+    await write(dist, "sitemap-0.xml", sitemap(PATHS, { faq: null }));
+    const failures = await lastmodFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(url("faq"));
+    expect(failures[0]).toMatch(/no lastmod/);
+  });
+
+  it("fails the landing carrying a lastmod", async () => {
+    await write(dist, "sitemap-0.xml", sitemap(PATHS, { "": FOOTER_DATETIME }));
+    const failures = await lastmodFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(url(""));
+  });
+
+  it("fails a lastmod that differs from the footer date", async () => {
+    await write(
+      dist,
+      "sitemap-0.xml",
+      sitemap(PATHS, { faq: "2026-11-05T10:00:00.000Z" }),
+    );
+    const failures = await lastmodFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/differs from the footer date/);
+  });
+
+  it("fails a lastmod that is not a W3C Datetime", async () => {
+    // Not a date at all, and a date with no zone designator after its time.
+    for (const bad of ["Nov 4, 2026", `${DATE}T10:00:00`, "20261104"]) {
+      await write(dist, "sitemap-0.xml", sitemap(PATHS, { faq: bad }));
+      expect(
+        (await lastmodFailures()).some((f) => /not a W3C Datetime/.test(f)),
+        bad,
+      ).toBe(true);
+    }
+  });
+
+  it("accepts a lastmod that is a W3C Datetime equal to the footer's", async () => {
+    await write(dist, "sitemap-0.xml", sitemap(PATHS));
+    expect(await lastmodFailures()).toEqual([]);
+  });
+
+  // Hashed names under _astro/ (plan 287, D5 and §4.2): `immutable` is safe only if a name changes with its content.
+  // The accepted names are measured on a real build (docs/dist/_astro/, 2026-11-08): `common.xqO6OrSB.css`,
+  // `client.SkQ_jZIB.js` (a `_` in the hash) and Expressive Code's five-character `ec.0vx5m.js`. A hash that is
+  // absent, or shorter than five characters, is the case the rule exists for.
+  const hashFailures = async () =>
+    (await audit()).filter((f) => /hash/.test(f));
+
+  it("accepts the hashed names a real build emits", async () => {
+    for (const name of [
+      "common.xqO6OrSB.css",
+      "client.SkQ_jZIB.js",
+      "ec.0vx5m.js",
+      "x.ab-cd.js",
+    ])
+      await write(dist, `_astro/${name}`, "x");
+    expect(await hashFailures()).toEqual([]);
+  });
+
+  it("fails a file under _astro/ with no hash in its name, and names it", async () => {
+    await write(dist, "_astro/runtime.js", "x");
+    const failures = await hashFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("_astro/runtime.js");
+  });
+
+  it("fails a hash shorter than five characters", async () => {
+    await write(dist, "_astro/runtime.abcd.js", "x");
+    const failures = await hashFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("_astro/runtime.abcd.js");
+  });
+
+  it("fails an unhashed file in a subfolder of _astro/", async () => {
+    await write(dist, "_astro/sub/plain.css", "x");
+    expect((await hashFailures())[0]).toContain("_astro/sub/plain.css");
+  });
+
+  it("does not require a hash outside _astro/", async () => {
+    await write(dist, "fonts/plain.woff2", "x");
+    expect(await hashFailures()).toEqual([]);
+  });
+
+  // Page size (plan 287, D10): Apple TN3156 says "The main resource located at the previewed link is limited to 1 MB."
+  // The plan reads 1 MB as 1,048,576 bytes, so the boundary values are 1,048,576 (passes) and 1,048,577 (fails),
+  // by arithmetic: 1024 * 1024 = 1,048,576. Sizes are the bytes on disk, not characters.
+  const sizeFailures = async () =>
+    (await audit()).filter((f) => /bytes/.test(f));
+  const padTo = (html, bytes) =>
+    html + " ".repeat(bytes - Buffer.byteLength(html));
+
+  it("fails a page of 1,048,577 bytes, naming the page and its size", async () => {
+    await write(dist, "faq/index.html", padTo(page("faq"), 1_048_577));
+    const failures = await sizeFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("faq/index.html");
+    expect(failures[0]).toContain("1048577 bytes");
+  });
+
+  it("passes a page of exactly 1,048,576 bytes", async () => {
+    await write(dist, "faq/index.html", padTo(page("faq"), 1_048_576));
+    expect(await sizeFailures()).toEqual([]);
+  });
+
+  it("fails the landing and the 404 over the limit, naming each", async () => {
+    await write(dist, "index.html", padTo(page(""), 1_048_577));
+    await write(dist, "404.html", padTo(notFoundPage(), 1_048_577));
+    const failures = await sizeFailures();
+    expect(failures).toHaveLength(2);
+    expect(failures.some((f) => f.startsWith("index.html:"))).toBe(true);
+    expect(failures.some((f) => f.startsWith("404.html:"))).toBe(true);
+  });
+
   it("fails a sitemap with an extra URL", async () => {
     await write(dist, "sitemap-0.xml", sitemap([...PATHS, "extra"]));
     expect(
@@ -890,12 +1034,117 @@ describe("auditDist", () => {
     expect((await audit()).some((f) => /llms\.txt.*H1/.test(f))).toBe(true);
   });
 
+  // D9 / llmstxt.org: "Optional" is for links an agent can skip; the changelog alone goes there.
+  it("fails an llms.txt that lists the changelog under ## Documentation", async () => {
+    await write(
+      dist,
+      "llms.txt",
+      llmsTxt(PATHS, {}, { changelog: "Documentation" }),
+    );
+    expect(await audit()).toContain(
+      `llms.txt: ${url("changelog")} is under "## Documentation", expected "## Optional"`,
+    );
+  });
+
+  it("fails an llms.txt that lists another page under ## Optional", async () => {
+    await write(dist, "llms.txt", llmsTxt(PATHS, {}, { faq: "Optional" }));
+    expect(await audit()).toContain(
+      `llms.txt: ${url("faq")} is under "## Optional", expected "## Documentation"`,
+    );
+  });
+
+  // D8: the describedby link to llms.txt, on the 28 pages and not on the 404.
+  describe("the describedby link to llms.txt (D8)", () => {
+    const LLMS_URL = "https://northguild.dev/worktree/llms.txt";
+
+    it("fails a page with no describedby link", async () => {
+      await write(dist, htmlPath("faq"), page("faq", { describedby: "" }));
+      expect(await audit()).toEqual([
+        "/faq/: 0 describedby links, expected exactly 1",
+      ]);
+    });
+
+    it("fails a page with two describedby links", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", { describedby: `${LLMS_LINK}${LLMS_LINK}` }),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: 2 describedby links, expected exactly 1",
+      ]);
+    });
+
+    it("fails a link whose type is not text/plain", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          describedby: LLMS_LINK.replace("text/plain", "text/html"),
+        }),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: describedby link has type text/html, expected text/plain",
+      ]);
+    });
+
+    it("fails a link with no type", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          describedby: LLMS_LINK.replace(' type="text/plain"', ""),
+        }),
+      );
+      expect(await audit()).toEqual([
+        "/faq/: describedby link has type (none), expected text/plain",
+      ]);
+    });
+
+    it("fails a relative href: crawlers are given the absolute URL", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          describedby: LLMS_LINK.replace(LLMS_URL, "/worktree/llms.txt"),
+        }),
+      );
+      expect(await audit()).toEqual([
+        `/faq/: describedby link href is /worktree/llms.txt, expected ${LLMS_URL}`,
+      ]);
+    });
+
+    it("fails on every page when the file it names is not in the build", async () => {
+      await rm(join(dist, "llms.txt"));
+      const failures = await audit();
+      expect(failures).toContain(
+        `/faq/: describedby link ${LLMS_URL} is not a file in the build`,
+      );
+      expect(failures).toContain(
+        `/ (root): describedby link ${LLMS_URL} is not a file in the build`,
+      );
+    });
+
+    it("fails a 404 that carries the link: it is not a page of the site", async () => {
+      await write(dist, "404.html", notFoundPage({ head: LLMS_LINK }));
+      expect(await audit()).toEqual([
+        "404.html: has a describedby link, but /404/ is not a page of the site",
+      ]);
+    });
+  });
+
   // Last updated (D11): the page's <time> equals the independently computed date.
   it("fails a page whose last-updated date differs from the expected date", async () => {
     await write(
       dist,
       htmlPath("faq"),
       page("faq", { time: "2026-11-03T22:00:00.000Z" }),
+    );
+    // The sitemap follows the footer, so only the date rule fails.
+    await write(
+      dist,
+      "sitemap-0.xml",
+      sitemap(PATHS, { faq: "2026-11-03T22:00:00.000Z" }),
     );
     const failures = await audit();
     expect(failures).toHaveLength(1);
@@ -1186,7 +1435,7 @@ describe("auditDist", () => {
   describe("package-manager tabs", () => {
     // The entrance's keyframes stay, so only the tab rule is under test.
     const css = (rule) =>
-      write(dist, "_astro/common.abc.css", `${rule}${ENTRANCE_CSS}`);
+      write(dist, "_astro/common.abcabc.css", `${rule}${ENTRANCE_CSS}`);
 
     it("fails a build with no tab rule", async () => {
       await css(".other{min-block-size:44px}");
@@ -1493,7 +1742,7 @@ describe("the theme toggle (#266)", () => {
 
   it("fails a provider loaded as an external script rather than inline", async () => {
     const failures = await withProvider(
-      '<script src="/worktree/_astro/provider.abc.js"></script>',
+      '<script src="/worktree/_astro/provider.abcabc.js"></script>',
     );
     expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
   });
@@ -1956,7 +2205,7 @@ describe("the 404 speaks git", () => {
 // --gmt-cyan-bright #0e7490 and --gmt-cyan-ink #045268. The rest of each case is the rule written in the audit's header: a
 // declaration naming cyan is a finding only when it is the cascade winner and something uses it.
 describe("no cyan accent left", () => {
-  const sheet = (css) => write(dist, "_astro/theme.abc.css", css);
+  const sheet = (css) => write(dist, "_astro/theme.abcabc.css", css);
   const used = (selector = "a") =>
     write(
       dist,
@@ -2055,7 +2304,7 @@ describe("no cyan accent left", () => {
   it("reads a class used only by a script as used", async () => {
     await sheet(".widget-xyz{color:#67e8f9}");
     expect(await findings()).toEqual([]);
-    await write(dist, "_astro/page.abc.js", "el.className='widget-xyz';");
+    await write(dist, "_astro/page.abcabc.js", "el.className='widget-xyz';");
     expect(await findings()).toHaveLength(1);
   });
 
@@ -2092,7 +2341,7 @@ describe("no cyan accent left", () => {
       true,
     );
     await write(dist, "index.html", page(""));
-    await write(dist, "_astro/page.abc.js", "const c='var(--gmt-cyan)';");
+    await write(dist, "_astro/page.abcabc.js", "const c='var(--gmt-cyan)';");
     expect((await findings()).some((f) => /script names cyan/.test(f))).toBe(
       true,
     );
@@ -2153,7 +2402,7 @@ describe("the leaf-particle hero", () => {
     await rewrite("faq", (html) =>
       html.replace(
         "</head>",
-        '<script type="module" src="/worktree/_astro/particles.jkl.js"></script></head>',
+        '<script type="module" src="/worktree/_astro/particles.jkljkl.js"></script></head>',
       ),
     );
     expect((await heroFailures()).some((f) => /effect up front/.test(f))).toBe(
@@ -2166,7 +2415,7 @@ describe("the leaf-particle hero", () => {
       dist,
       "404.html",
       notFoundPage({
-        head: '<link rel="modulepreload" href="/worktree/_astro/particles.jkl.js">',
+        head: '<link rel="modulepreload" href="/worktree/_astro/particles.jkljkl.js">',
       }),
     );
     expect(
@@ -2179,8 +2428,8 @@ describe("the leaf-particle hero", () => {
   it("fails a loader that imports the effect statically", async () => {
     await write(
       dist,
-      "_astro/HeroLeaves.ghi.js",
-      'import"./particles.jkl.js";',
+      "_astro/HeroLeaves.ghighi.js",
+      'import"./particles.jkljkl.js";',
     );
     expect((await heroFailures()).some((f) => /effect up front/.test(f))).toBe(
       true,
@@ -2188,7 +2437,7 @@ describe("the leaf-particle hero", () => {
   });
 
   it("fails a loader with no dynamic import of the effect", async () => {
-    await write(dist, "_astro/HeroLeaves.ghi.js", "console.log(1);");
+    await write(dist, "_astro/HeroLeaves.ghighi.js", "console.log(1);");
     expect(
       (await heroFailures()).some((f) => /no dynamic import/.test(f)),
     ).toBe(true);
@@ -2197,9 +2446,9 @@ describe("the leaf-particle hero", () => {
   it("fails a loader over 2 KB gzipped", async () => {
     await write(
       dist,
-      "_astro/HeroLeaves.ghi.js",
+      "_astro/HeroLeaves.ghighi.js",
       Buffer.concat([
-        Buffer.from('import("./particles.jkl.js");//'),
+        Buffer.from('import("./particles.jkljkl.js");//'),
         incompressible(LOADER_BUDGET + 500),
       ]),
     );
@@ -2211,12 +2460,12 @@ describe("the leaf-particle hero", () => {
   it("counts the loader's own static imports against its 2 KB", async () => {
     await write(
       dist,
-      "_astro/HeroLeaves.ghi.js",
-      'import{t as e}from"./preload-helper.pqr.js";e(()=>import(`./particles.jkl.js`),[]);',
+      "_astro/HeroLeaves.ghighi.js",
+      'import{t as e}from"./preload-helper.pqrpqr.js";e(()=>import(`./particles.jkljkl.js`),[]);',
     );
     await write(
       dist,
-      "_astro/preload-helper.pqr.js",
+      "_astro/preload-helper.pqrpqr.js",
       incompressible(LOADER_BUDGET + 500),
     );
     expect(
@@ -2227,17 +2476,17 @@ describe("the leaf-particle hero", () => {
   it("reads the bundler's wrapped dynamic import, quoted with backticks, as the loader's import of the effect", async () => {
     await write(
       dist,
-      "_astro/HeroLeaves.ghi.js",
-      'import{t as e}from"./preload-helper.pqr.js";e(()=>import(`./particles.jkl.js`),[]);',
+      "_astro/HeroLeaves.ghighi.js",
+      'import{t as e}from"./preload-helper.pqrpqr.js";e(()=>import(`./particles.jkljkl.js`),[]);',
     );
-    await write(dist, "_astro/preload-helper.pqr.js", "export const t = 1;");
+    await write(dist, "_astro/preload-helper.pqrpqr.js", "export const t = 1;");
     expect(await heroFailures()).toEqual([]);
   });
 
   it("fails an effect over 32 KB gzipped", async () => {
     await write(
       dist,
-      "_astro/particles.jkl.js",
+      "_astro/particles.jkljkl.js",
       incompressible(EFFECT_BUDGET + 2000),
     );
     expect(
@@ -2248,7 +2497,7 @@ describe("the leaf-particle hero", () => {
   it("accepts an effect under 32 KB gzipped", async () => {
     const body = incompressible(20 * 1024);
     expect(gzipBytes(body)).toBeLessThan(EFFECT_BUDGET);
-    await write(dist, "_astro/particles.jkl.js", body);
+    await write(dist, "_astro/particles.jkljkl.js", body);
     expect(await heroFailures()).toEqual([]);
   });
 
@@ -2256,13 +2505,13 @@ describe("the leaf-particle hero", () => {
     // Each file is well under the budget; together they are over it: the budget is for "everything it imports, together".
     await write(
       dist,
-      "_astro/particles.jkl.js",
+      "_astro/particles.jkljkl.js",
       Buffer.concat([
-        Buffer.from('import"./ogl.mno.js";//'),
+        Buffer.from('import"./ogl.mnomno.js";//'),
         incompressible(20 * 1024),
       ]),
     );
-    await write(dist, "_astro/ogl.mno.js", incompressible(20 * 1024));
+    await write(dist, "_astro/ogl.mnomno.js", incompressible(20 * 1024));
     expect(
       (await heroFailures()).some((f) => /effect and what it imports/.test(f)),
     ).toBe(true);
@@ -2336,7 +2585,7 @@ describe("the landing header's entrance (#266)", () => {
   const css = (rules) =>
     write(
       dist,
-      "_astro/common.abc.css",
+      "_astro/common.abcabc.css",
       `.tab>[role=tab]{display:flex;min-block-size:44px}${rules}`,
     );
   const withLandingHeader = async (landingHeader) => {
@@ -2658,7 +2907,7 @@ describe("the Dox page (#309)", () => {
       (html) =>
         html.replace(
           "</body>",
-          '<script type="module" src="/worktree/_astro/DoxPage.mno.js"></script></body>',
+          '<script type="module" src="/worktree/_astro/DoxPage.mnomno.js"></script></body>',
         ),
     ],
     [
@@ -2666,7 +2915,7 @@ describe("the Dox page (#309)", () => {
       (html) =>
         html.replace(
           "</head>",
-          '<link rel="modulepreload" href="/worktree/_astro/DoxPage.mno.js"/></head>',
+          '<link rel="modulepreload" href="/worktree/_astro/DoxPage.mnomno.js"/></head>',
         ),
     ],
     [
@@ -2685,7 +2934,7 @@ describe("the Dox page (#309)", () => {
   });
 
   it("fails a page whose script imports the island's chunk statically", async () => {
-    await write(dist, "_astro/page.abc.js", 'import"./DoxPage.mno.js";');
+    await write(dist, "_astro/page.abcabc.js", 'import"./DoxPage.mnomno.js";');
     expect(
       (await audit()).some((f) => /loads Dox code; only \/dox\/ may/.test(f)),
     ).toBe(true);
