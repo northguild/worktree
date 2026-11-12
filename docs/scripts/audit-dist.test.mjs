@@ -125,10 +125,14 @@ const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}${THEME_SELECT}`;
 const NORTHGUILD_LINK =
   '<a href="https://northguild.dev/" class="wordmark"><svg aria-hidden="true"></svg><span>NorthGuild</span></a>';
 const PRODUCT_LINK = '<a href="/worktree/" class="product">worktree</a>';
-const community = (href, name, extra = "") =>
-  `<a ${extra || 'target="_blank" rel="noopener noreferrer"'} href="${href}" aria-label="NorthGuild on ${name} (opens in a new tab)"><svg aria-hidden="true"></svg></a>`;
-const GITHUB_LINK = community("https://github.com/northguild", "GitHub");
-const DISCORD_LINK = community("https://discord.gg/TdvQdP3t5a", "Discord");
+const community = (href, label, extra = "") =>
+  `<a ${extra || 'target="_blank" rel="noopener noreferrer"'} href="${href}" aria-label="${label} (opens in a new tab)"><svg aria-hidden="true"></svg></a>`;
+const GITHUB_HREF = "https://github.com/northguild/worktree";
+const GITHUB_LINK = community(GITHUB_HREF, "worktree on GitHub");
+const DISCORD_LINK = community(
+  "https://discord.gg/TdvQdP3t5a",
+  "NorthGuild on Discord",
+);
 // #309 phase 4 (D2): the header's "Chat with Dox" crystal link (gmt's Header.astro) is first in the right group, ahead of the
 // theme toggle; on /dox it is the current page. The mobile menu carries a copy before the social icons (gmt's
 // MobileMenuFooter.astro), on the pages that have a sidebar.
@@ -1875,7 +1879,7 @@ describe("the product header", () => {
     let failures = await withHeader(header({ github: "" }));
     expect(
       failures.some((f) =>
-        /0 links to https:\/\/github\.com\/northguild/.test(f),
+        /0 links to https:\/\/github\.com\/northguild\/worktree/.test(f),
       ),
     ).toBe(true);
     failures = await withHeader(
@@ -1889,20 +1893,14 @@ describe("the product header", () => {
       header({ github: GITHUB_LINK.replace(" (opens in a new tab)", "") }),
     );
     expect(
-      failures.some((f) =>
-        /GitHub link is named "NorthGuild on GitHub"/.test(f),
-      ),
+      failures.some((f) => /GitHub link is named "worktree on GitHub"/.test(f)),
     ).toBe(true);
   });
 
   it("fails a community link that does not open in a new tab, or has no rel=noopener", async () => {
     let failures = await withHeader(
       header({
-        github: community(
-          "https://github.com/northguild",
-          "GitHub",
-          'rel="noopener"',
-        ),
+        github: community(GITHUB_HREF, "worktree on GitHub", 'rel="noopener"'),
       }),
     );
     expect(
@@ -1910,11 +1908,7 @@ describe("the product header", () => {
     ).toBe(true);
     failures = await withHeader(
       header({
-        github: community(
-          "https://github.com/northguild",
-          "GitHub",
-          'target="_blank"',
-        ),
+        github: community(GITHUB_HREF, "worktree on GitHub", 'target="_blank"'),
       }),
     );
     expect(
