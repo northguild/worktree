@@ -272,7 +272,8 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
   `src/components/SiteTitle.astro` is the NorthGuild mark and
   "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home),
   then the CLI version (`cliVersion` from `src/lib/site-meta.ts`) in small grey text on the name's baseline, from 30rem up.
-  `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, opening in a new tab and saying so in
+  `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, with GitHub pointed at this repository
+  (`projectLink` from `src/lib/site-meta.ts`, #350), opening in a new tab and saying so in
   their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only),
   and so is the wide header's grid: the search box keeps to the right, beside the theme button, on every page, where Starlight
   would start it at the main column's edge (which moves with the sidebar and the table of contents).
