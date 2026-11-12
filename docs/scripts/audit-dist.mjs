@@ -359,10 +359,10 @@ const PX_PER_REM = 16;
 // D17: the mark and "NorthGuild" are one link to the apex; "worktree" is a second link to this site's home.
 const NORTHGUILD_HREF = "https://northguild.dev/";
 const PRODUCT_HREF = "/worktree/";
-// The community links of northguild.dev's Header.astro at ade22a5, and the wording the header must use for a link
-// that opens a new tab ("(opens in a new tab)", the same as northguild.dev).
+// The community links of northguild.dev's Header.astro at ade22a5, GitHub going to this project's repository (#350),
+// and the wording the header must use for a link that opens a new tab ("(opens in a new tab)", the same as northguild.dev).
 const COMMUNITY_LINKS = Object.freeze([
-  { href: "https://github.com/northguild", names: "GitHub" },
+  { href: "https://github.com/northguild/worktree", names: "GitHub" },
   { href: "https://discord.gg/TdvQdP3t5a", names: "Discord" },
 ]);
 const NEW_TAB_WORDING = "(opens in a new tab)";

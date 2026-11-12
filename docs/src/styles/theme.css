@@ -51,9 +51,11 @@
   --sl-color-bg-sidebar: var(--gmt-surface);
   --sl-color-bg-inline-code: var(--gmt-code-bg);
   --sl-color-hairline: var(--gmt-hairline);
-  /* northguild.dev's header is 55px tall with 16px sides (Header.astro: padding 0.75rem 16px); Starlight's wide-screen
-     values are 4rem and 1.5rem. This file is unlayered, so it beats Starlight's @layer values. */
-  --sl-nav-height: 3.5rem;
+  /* northguild.dev's header is 55px tall with 16px sides (Header.astro: padding 0.75rem 16px): 0.75rem above and below
+     a 30px row, and a 1px hairline under it, which here is Starlight's own bottom border, so the row lands on the same
+     pixels as northguild.dev's and GMT's (#350). Starlight's wide-screen values are 4rem and 1.5rem. This file is
+     unlayered, so it beats Starlight's @layer values. */
+  --sl-nav-height: calc(3.375rem + 1px);
   --sl-nav-pad-x: 1rem;
   --sl-color-hairline-shade: color-mix(
     in srgb,
