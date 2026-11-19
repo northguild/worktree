@@ -18,6 +18,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   installFakeAudio();
   stubStorage();
+  // The page is the docs landing, so northguild.dev's root is another page of the origin.
+  history.replaceState(null, "", "/worktree/");
   // Sound is opt-in: these tests stand for a reader who turned it on; "muted" clears it.
   saveSound();
   engine.attach.mockClear();
@@ -140,9 +142,14 @@ describe("the first gesture", () => {
 
 describe("a context that starts suspended", () => {
   it("is resumed by each press until it runs, then the listeners go and the engine is told again", async () => {
-    // A refresh: the context was made without a gesture. One resume at load, one per press, none once it runs.
+    // A link arrival from northguild.dev's root (the page is /worktree/, so "/" is another page) that the browser will not
+    // let run (Safari): the context is made at load and stays suspended. One resume at load, one per press, none once
+    // it runs.
     vi.stubGlobal("navigation", {
-      activation: { from: { url: `${location.origin}/` } },
+      activation: {
+        from: { url: `${location.origin}/` },
+        navigationType: "push",
+      },
     });
     FakeAudioContext.refuse = true;
     start();
@@ -221,9 +228,14 @@ describe("muted", () => {
 });
 
 describe("an in-site arrival", () => {
-  function arrival(from: string | null, policy?: string) {
+  /** The Navigation API's `activation`: where the entry left was, and how this document was reached. */
+  function arrival(
+    from: string | null,
+    policy?: string,
+    navigationType = "push",
+  ) {
     vi.stubGlobal("navigation", {
-      activation: { from: from ? { url: from } : null },
+      activation: { from: from ? { url: from } : null, navigationType },
     });
     if (policy) {
       Object.defineProperty(navigator, "getAutoplayPolicy", {
@@ -272,6 +284,66 @@ describe("an in-site arrival", () => {
     arrival("https://example.org/", "allowed");
     start();
     expect(FakeAudioContext.instances).toHaveLength(0);
+  });
+
+  // Phase 11, as the Chromium probe found it: Chrome carries a click across a link navigation but not across a refresh or
+  // a back/forward, so a context made at load on those logs "The AudioContext was not allowed to start". They wait for
+  // a press. `navigationType` tells the cases apart: "push" and "replace" are a link click, which is a gesture.
+  it.each([
+    ["reload", false],
+    ["reload", true],
+    ["traverse", false],
+  ])("makes no context at load on a %s (a press before it: %s), and the first press makes and resumes it", async (type, pressedBefore) => {
+    if (pressedBefore) {
+      start();
+      press();
+      teardown?.();
+      FakeAudioContext.instances.length = 0;
+    }
+    arrival(location.href, undefined, type);
+    start();
+    expect(FakeAudioContext.instances).toHaveLength(0);
+    press();
+    expect(FakeAudioContext.instances).toHaveLength(1);
+    expect(FakeAudioContext.instances[0].state).toBe("running");
+  });
+
+  it("makes no context at load where activation has no navigationType", async () => {
+    vi.stubGlobal("navigation", {
+      activation: { from: { url: `${location.origin}/` } },
+    });
+    start();
+    expect(FakeAudioContext.instances).toHaveLength(0);
+  });
+
+  it("makes no context at load where the browser has no Navigation API activation", async () => {
+    vi.stubGlobal("navigation", undefined);
+    start();
+    expect(FakeAudioContext.instances).toHaveLength(0);
+    vi.stubGlobal("navigation", {});
+    teardown?.();
+    start();
+    expect(FakeAudioContext.instances).toHaveLength(0);
+  });
+
+  // The owner: sound on at northguild.dev, or in localStorage, must play on landing at /worktree. A link click from any
+  // page of this origin is a gesture, so Chrome lets the context run and logs nothing.
+  it.each(
+    ["push", "replace"].flatMap((type) => [
+      [type, "northguild.dev's root", "/"],
+      [type, "a GMT docs page", "/gmt/some-page"],
+      [type, "another worktree page", "/worktree/guides/"],
+    ]),
+  )("makes the context at load on a %s arrival from %s", async (type, _name, path) => {
+    arrival(`${location.origin}${path}`, undefined, type);
+    start();
+    expect(FakeAudioContext.instances).toHaveLength(1);
+  });
+
+  it("makes the context at load on a push from the page's own URL, a link to itself such as the logo", async () => {
+    arrival(location.href, undefined, "push");
+    start();
+    expect(FakeAudioContext.instances).toHaveLength(1);
   });
 });
 

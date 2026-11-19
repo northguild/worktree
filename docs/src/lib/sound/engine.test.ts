@@ -645,8 +645,8 @@ describe("the aura", () => {
 });
 
 describe("sound starting at the first press", () => {
-  // Expected values: plan #352 Phase 10 Done-when. On a refresh with sound and aura on, the context is made without a
-  // gesture and Chrome keeps it suspended (the fake is gated on `userActivation`): nothing sounds until the first press.
+  // Expected values: plan #352 Phase 10 Done-when. On a refresh with sound and aura on no context is made at load; a link
+  // arrival that the browser keeps suspended (the fake is gated on `userActivation`) sounds nothing either, until the first press.
   // That press resumes it; the aura starts (Forest air: 2 sources, as the aura block counts); a stage still in flight
   // is joined from its offset (the sweep and the 2 grains of `longFlight` to come after 1.2 s, as 'the leaves' counts);
   // a stage that has landed plays no leaves; nothing happens while muted.
@@ -680,15 +680,27 @@ describe("sound starting at the first press", () => {
     });
   };
 
-  /** A refresh: the previous entry is this very page, which is an in-site arrival, with no activation. */
-  const refresh = async (saved: Record<string, unknown> = {}) => {
+  /**
+   * Load the landing as startCue sees it. A "reload" (the scenario of most tests here) makes no context until the first
+   * press, because Chrome refuses one at load; a "push" is a link arrival from another page, which makes the context at
+   * load, and with no activation (Safari) it stays suspended: the gated fake.
+   */
+  const load = async (
+    type: "reload" | "push" = "reload",
+    saved: Record<string, unknown> = {},
+  ) => {
     FakeAudioContext.gated = true;
     vi.stubGlobal("navigator", {
       ...navigator,
       userActivation: { isActive: false },
     });
     vi.stubGlobal("navigation", {
-      activation: { from: { url: `${location.origin}/` } },
+      activation: {
+        from: {
+          url: type === "reload" ? location.href : `${location.origin}/gmt/`,
+        },
+        navigationType: type,
+      },
     });
     document.documentElement.setAttribute("data-aura", "");
     const art = document.createElement("div");
@@ -711,17 +723,28 @@ describe("sound starting at the first press", () => {
     document.body.replaceChildren();
   });
 
-  it("is silent after a refresh until the first press", async () => {
-    await refresh();
+  it("makes no context on a refresh, and so is silent, until the first press", async () => {
+    await load("reload");
+    cueFlight("gust", longFlight);
+    vi.advanceTimersByTime(1200);
+    await vi.dynamicImportSettled();
+    expect(FakeAudioContext.instances).toHaveLength(0);
+  });
+
+  it("is silent on a link arrival the browser did not let run, until the first press", async () => {
+    await load("push");
     cueFlight("gust", longFlight);
     vi.advanceTimersByTime(1200);
     await vi.dynamicImportSettled();
     expect(FakeAudioContext.instances[0].state).toBe("suspended");
     expect(sounding()).toHaveLength(0);
+    press();
+    await vi.dynamicImportSettled();
+    expect(sounding()).toHaveLength(5); // the aura's 2 bands, the sweep and the 2 grains to come
   });
 
   it("resumes on the first press, starts the aura, joins a stage in flight, and lets the next change play", async () => {
-    await refresh();
+    await load("reload");
     cueFlight("gust", longFlight);
     vi.advanceTimersByTime(1200);
     await vi.dynamicImportSettled();
@@ -735,7 +758,7 @@ describe("sound starting at the first press", () => {
   });
 
   it("starts the aura but plays no leaves when the press comes after the stage has landed", async () => {
-    await refresh();
+    await load("reload");
     cueFlight("gust", longFlight);
     vi.advanceTimersByTime(3200);
     press();
@@ -744,7 +767,7 @@ describe("sound starting at the first press", () => {
   });
 
   it("makes no cue sound of its own: the press only unlocks", async () => {
-    await refresh();
+    await load("reload");
     press();
     await vi.dynamicImportSettled();
     // nothing but the aura's two bands: no notch, no key
@@ -753,7 +776,7 @@ describe("sound starting at the first press", () => {
 
   it("joins the stage and starts the aura when the browser lets the context run after a press it refused", async () => {
     // #353: Safari refuses the press's resume(); the context runs later, with no gesture of its own.
-    await refresh();
+    await load("reload");
     cueFlight("gust", longFlight);
     vi.advanceTimersByTime(1200);
     FakeAudioContext.refuse = true;
@@ -768,7 +791,7 @@ describe("sound starting at the first press", () => {
   });
 
   it("does nothing on a press while muted", async () => {
-    await refresh({ muted: true });
+    await load("reload", { muted: true });
     cueFlight("gust", longFlight);
     press();
     await vi.dynamicImportSettled();

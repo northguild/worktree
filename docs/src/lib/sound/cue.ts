@@ -14,11 +14,13 @@
  * 1. Muted: no context and no engine. Unmuting is itself a gesture, so it unlocks.
  * 2. Not muted: capture-phase listeners for `pointerdown`, `pointerup`, `keydown` and `touchend`. Each one creates or
  *    resumes the context synchronously; Safari does not count a resume after an `await`. The listeners stay until the
- *    context is running: a page reached without a gesture (a refresh, a typed address) has its context made
- *    suspended, and only the first press or key resumes it. When it runs, the engine is told, and starts the aura and
- *    joins the opening's stage if still in flight.
+ *    context is running: a page reached without a link (a refresh, back or forward, a typed address) makes no context
+ *    at load, and the first press or key makes and resumes it; one a browser keeps suspended (Safari) is resumed by
+ *    the first press. When it runs, the engine is told, and starts the aura and joins the opening's stage if still in
+ *    flight.
  * 3. After an in-site arrival, unlock at load unless the browser says autoplay is not allowed. Chrome has no
- *    `getAutoplayPolicy` but lets a document reached by a same-origin navigation after a gesture start audio; where it
+ *    `getAutoplayPolicy` but lets a document reached by a same-origin navigation after a gesture start audio; a link
+ *    from any page of this origin is one, but a reload or back/forward is not, and waits for step 2; where it
  *    refuses (Safari) the context stays suspended and the gesture listeners of step 2 keep waiting, so nothing is
  *    heard and nothing is logged.
  *
@@ -158,15 +160,28 @@ type AutoplayNavigator = Navigator & {
   getAutoplayPolicy?: (type: string) => string;
 };
 
-/** Whether the browser reported this arrival as one from our own pages. */
-function arrivedFromSite(): boolean {
-  const nav = (
+/**
+ * Whether this document was reached by a link click, from the Navigation API's `activation`: a "push" or "replace" from
+ * a page of this origin (northguild.dev's root, a GMT docs page, another worktree page, or this page itself, as the logo
+ * links). A click is a gesture, so Chrome lets that arrival's context run. A "reload" or a "traverse" (back, forward)
+ * is no gesture on the page, and a context made then logs "The AudioContext was not allowed to start"; the first press
+ * starts everything. A browser with no `navigation.activation` (Safari, Firefox) or no `navigationType` gets no unlock
+ * at load.
+ */
+function arrivedByLink(): boolean {
+  const activation = (
     window as Window & {
-      navigation?: { activation?: { from?: { url?: string } | null } };
+      navigation?: {
+        activation?: {
+          from?: { url?: string } | null;
+          navigationType?: string;
+        };
+      };
     }
-  ).navigation;
-  const from = nav?.activation?.from?.url;
-  if (!from) return false;
+  ).navigation?.activation;
+  const type = activation?.navigationType;
+  const from = activation?.from?.url;
+  if (!from || (type !== "push" && type !== "replace")) return false;
   try {
     return new URL(from).origin === location.origin;
   } catch {
@@ -256,7 +271,7 @@ export function startCue(): () => void {
     const policy = (navigator as AutoplayNavigator).getAutoplayPolicy?.(
       "audiocontext",
     );
-    if (arrivedFromSite() && (policy === undefined || policy === "allowed"))
+    if (arrivedByLink() && (policy === undefined || policy === "allowed"))
       unlock();
   }
 

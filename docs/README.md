@@ -317,11 +317,14 @@ Sound is a small feature of the header's settings panel (plan #352). The rules:
 - **No audio until it is wanted.** No `AudioContext` while muted or before a gesture; the engine is a chunk only
   `cue.ts`'s dynamic `import()` reaches, after a reader unmutes.
 - **Sound starts at the first press or key on a refreshed or direct page.** A browser lets audio start only after a
-  gesture, so a page reached by a refresh or a typed address has its context suspended and is silent (no aura, no
+  gesture, so a page reached by a refresh or a typed address makes no context and is silent (no aura, no
   opening) until the reader's first press or key; that press only unlocks and makes no sound of its own. `cue.ts` keeps
-  its gesture listeners until the context runs, resuming it inside each press, and when it runs the engine starts the
-  aura and joins the opening's stage if its leaves are still in flight. On an arrival by a link from another docs page
-  the browser may let it play at once (Chrome does; Safari waits for the first press, as a refresh does).
+  its gesture listeners until the context runs, making or resuming it inside each press, and when it runs the engine starts the
+  aura and joins the opening's stage if its leaves are still in flight. A link from any page of the origin (northguild.dev's root, a GMT docs page, another worktree page)
+  plays at once: the click is a gesture, `cue.ts` tells a link from the other ways in by `navigation.activation.navigationType`
+  ("push" or "replace"), and it makes its context at load (Chrome does; Safari and Firefox, with no such activation, wait
+  for the first press). A refresh, back or forward, a typed address or a bookmark waits for the first click, tap or key and logs no
+  autoplay warning, since Chrome carries a click across a link navigation but not across these.
 
 ### The volume control
 
@@ -361,8 +364,8 @@ the leaves themselves, not to a clock or a timer, and all are quiet; none plays 
   chunk exist, so `cue.ts` remembers the latest stage (its detail and when it started, `latestFlight`; a newer stage
   replaces it); when the chunk arrives, a stage whose leaves are still in flight joins from its offset (its curves cut
   to what remains, only the grains still to come, silent at the last landing) and one whose leaves have all landed
-  plays nothing. No sound is possible before a gesture on the page or an in-site arrival (no `AudioContext` until
-  then), so a refresh or direct visit with sound on hears no opening until the first press, which joins a stage still in
+  plays nothing. No sound is possible before a gesture on the page or an arrival by a link (no `AudioContext` until
+  then), so a refresh or a direct visit with sound on hears no opening until the first press, which joins a stage still in
   flight; a stage that has landed is not played late. `cue.ts` carries the flight in
   the cue's detail (`cueFlight`) and the pointer in `rustle()`.
 - **Safari and Firefox.** `setValueCurveAtTime` must not overlap another automation on the same parameter, so every
