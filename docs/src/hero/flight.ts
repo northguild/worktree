@@ -71,7 +71,8 @@ export function flight({
 
 /**
  * Which sound a stage makes (D11): the opening makes the gust and each later stage a change; a picture forming makes
- * none (it is not a stage), and neither does a stage re-fitted after a resize.
+ * none (it is not a stage), and neither does a stage re-fitted after a resize. Nothing at all while sound is muted, so a
+ * muted visitor, the default, pays nothing for the leaves' sound (#354 review).
  */
 export function soundFor(
   options: {
