@@ -75,7 +75,11 @@ const dark = () => host.querySelector<HTMLInputElement>('input[role="switch"]');
 
 describe("the settings control", () => {
   it("is one button named Settings that opens the popover, and one panel named Settings", () => {
-    expect(host.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      [...host.querySelectorAll("button")].filter(
+        (b) => b.getAttribute("aria-label") === "Settings",
+      ),
+    ).toHaveLength(1);
     expect(gear()?.getAttribute("aria-label")).toBe("Settings");
     const id = gear()?.getAttribute("popovertarget");
     const panel = host.querySelector(`#${id}`);
@@ -88,9 +92,13 @@ describe("the settings control", () => {
     expect(dark()?.closest("label")?.textContent?.trim()).toBe("Dark theme");
   });
 
-  it("holds nothing else in this phase", () => {
-    expect(host.querySelectorAll("[popover] input")).toHaveLength(1);
-    expect(host.querySelectorAll("[popover] button")).toHaveLength(0);
+  // Phase 5 adds the volume row (D9; its behaviour is tested in sound/control.test.ts): a mute button and a range.
+  it("holds the Dark theme switch and the volume row, and nothing else yet", () => {
+    expect(host.querySelectorAll("[popover] input")).toHaveLength(2);
+    expect(host.querySelectorAll("[popover] input[type=range]")).toHaveLength(
+      1,
+    );
+    expect(host.querySelectorAll("[popover] button")).toHaveLength(1);
   });
 
   it("tells the gear whether the panel is open, from the toggle event", () => {

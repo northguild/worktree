@@ -441,3 +441,54 @@ describe("the settings gear and its switch (#352)", () => {
     expect(measure("light", [pair], new Map())[0].ratio).toBeCloseTo(1, 5);
   });
 });
+
+// Plan #352 Phase 5: the volume row (D9). The tier is WCAG 2.2 SC 1.4.11, 3:1, for the glyph and the parts of a control that
+// show its state: the speaker and the reached stem (the spring, `--gmt-spring-ink` in light) and the rail ahead of it
+// (`--gmt-ice-dim` at 70% over the panel). Figures worked from the WCAG relative-luminance formula outside this codebase
+// (a short script of the formula, on the token values in tokens.css and tokens-light.css): the panel is #0a1a24 (dark) and
+// #ececec (light); the reached stem is #4ade80 at 10.16:1 (dark) and #0a5626 at 7.49:1 (light); the rail, ice-dim #98b2be and
+// #4b4b4b at 70% over the panel, is 4.51:1 (dark) and 3.58:1 (light). The first guess for the rail, the board's 38%, is
+// 2.24:1 and 1.86:1 and fails, which is why the share is 70%.
+describe("the volume row (#352 phase 5)", () => {
+  const named = (name) => PAIRS.find((p) => p.name === name);
+  const ratio = (theme, name) =>
+    measure(theme, [named(name)], themeProperties(theme))[0].ratio;
+  const NAMES = [
+    "settings: the mute speaker on the panel",
+    "settings: the reached stem on the panel",
+    "settings: the unreached rail on the panel",
+  ];
+
+  it.each(NAMES)("measures %s as a graphical object, 3:1", (name) => {
+    expect(named(name)?.kind).toBe("non-text");
+    expect(named(name)?.min).toBe(NON_TEXT_MIN);
+  });
+
+  for (const theme of ["dark", "light"]) {
+    it(`holds the reached and unreached stem colours at 3:1 in the ${theme} theme`, () => {
+      expect(
+        measure(theme, NAMES.map(named), themeProperties(theme))
+          .filter((m) => m.ratio < m.min)
+          .map((m) => `${m.name}: ${m.ratio.toFixed(2)}`),
+      ).toEqual([]);
+    });
+  }
+
+  it("measures the reached stem at 10.16:1 in dark and 7.49:1 in light", () => {
+    expect(
+      ratio("dark", "settings: the reached stem on the panel"),
+    ).toBeCloseTo(10.16, 1);
+    expect(
+      ratio("light", "settings: the reached stem on the panel"),
+    ).toBeCloseTo(7.49, 1);
+  });
+
+  it("measures the rail ahead at 4.51:1 in dark and 3.58:1 in light", () => {
+    expect(
+      ratio("dark", "settings: the unreached rail on the panel"),
+    ).toBeCloseTo(4.51, 1);
+    expect(
+      ratio("light", "settings: the unreached rail on the panel"),
+    ).toBeCloseTo(3.58, 1);
+  });
+});

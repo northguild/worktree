@@ -1,8 +1,8 @@
 ---
 /**
  * The header's settings control (plan #352, D1-D3): one gear button, last in the right group after Dox, GitHub and
- * Discord, that opens a popover holding the reader's settings. In this phase that is the "Dark theme" switch alone;
- * later phases add the sound controls. One copy, in the header: the mobile menu has none (the right group is hidden
+ * Discord, that opens a popover holding the reader's settings. That is the "Dark theme" switch and, below a hairline, the
+ * mute button and the volume fader (D9; `lib/sound/control.ts` wires them); later phases add the aura. One copy, in the header: the mobile menu has none (the right group is hidden
  * below `md`, and the plan keeps the menu as it is).
  *
  * The gear is GMT's exactly: the `GEAR` SVG below is copied from gmt apps/dox/src/components/settings-control.ts at
@@ -14,7 +14,9 @@
  *
  * The switch is a native `<input type="checkbox" role="switch">` (the APG Switch pattern) named by its label,
  * "Dark theme"; the pill and its leaf are the sibling SVG, drawn by settings-control.css, and the input sits over it,
- * invisible, so the control is the browser's own. `src/lib/settings-control.ts` wires it; the theme rule is
+ * invisible, so the control is the browser's own. The volume fader is built the same way: a native range over the SVG of
+ * a stem, drawn by settings-control.css from the `--level` property the wiring sets, and the mute button's speaker is
+ * drawn from `html[data-sound]`, which `ThemeProvider.astro` sets before first paint. `src/lib/settings-control.ts` wires it; the theme rule is
  * `src/lib/theme.ts`.
  */
 import "./settings-control.css";
@@ -48,6 +50,52 @@ const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor
         </svg>
       </span>
     </label>
+    <div class="settings-sound">
+      <button
+        type="button"
+        id="settings-sound-mute"
+        class="sound-mute"
+        aria-label="Mute"
+        aria-pressed="false"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path class="speaker-body" d="M11 5 6 9H3v6h3l5 4z"></path>
+          <path class="speaker-wave" d="M15.5 8.5a5 5 0 0 1 0 7"></path>
+          <path class="speaker-wave" d="M18.5 6a8.5 8.5 0 0 1 0 12"></path>
+          <path class="speaker-cross" d="M22 9 16 15M16 9l6 6"></path>
+        </svg>
+      </button>
+      <div class="stem-fader" style="--level: 5">
+        <input type="range" id="settings-sound-volume" min="1" max="11" step="1" value="5" aria-label="Volume" />
+        <svg viewBox="0 0 200 32" aria-hidden="true" focusable="false">
+          <path class="stem-rail" d="M 10 17 L 190 17"></path>
+          <path class="stem-grown" pathLength="10" d="M 10 17 L 190 17"></path>
+          <path class="stem-leaf" style="--i:1; transform-origin:10px 17px" d="M 10 17 C 11 11, 16 7, 20 7 C 19 12, 15 16, 10 17 Z"></path>
+          <path class="stem-leaf" style="--i:2; transform-origin:28px 17px" d="M 28 17 C 29 23, 34 27, 38 27 C 37 22, 33 18, 28 17 Z"></path>
+          <path class="stem-leaf" style="--i:3; transform-origin:46px 17px" d="M 46 17 C 47 11, 52 7, 56 7 C 55 12, 51 16, 46 17 Z"></path>
+          <path class="stem-leaf" style="--i:4; transform-origin:64px 17px" d="M 64 17 C 65 23, 70 27, 74 27 C 73 22, 69 18, 64 17 Z"></path>
+          <path class="stem-leaf" style="--i:5; transform-origin:82px 17px" d="M 82 17 C 83 11, 88 7, 92 7 C 91 12, 87 16, 82 17 Z"></path>
+          <path class="stem-leaf" style="--i:6; transform-origin:100px 17px" d="M 100 17 C 101 23, 106 27, 110 27 C 109 22, 105 18, 100 17 Z"></path>
+          <path class="stem-leaf" style="--i:7; transform-origin:118px 17px" d="M 118 17 C 119 11, 124 7, 128 7 C 127 12, 123 16, 118 17 Z"></path>
+          <path class="stem-leaf" style="--i:8; transform-origin:136px 17px" d="M 136 17 C 137 23, 142 27, 146 27 C 145 22, 141 18, 136 17 Z"></path>
+          <path class="stem-leaf" style="--i:9; transform-origin:154px 17px" d="M 154 17 C 155 11, 160 7, 164 7 C 163 12, 159 16, 154 17 Z"></path>
+          <path class="stem-leaf" style="--i:10; transform-origin:172px 17px" d="M 172 17 C 173 23, 178 27, 182 27 C 181 22, 177 18, 172 17 Z"></path>
+          <path class="stem-leaf" style="--i:11; transform-origin:190px 17px" d="M 190 17 C 191 11, 196 7, 200 7 C 199 12, 195 16, 190 17 Z"></path>
+          <circle class="stem-bud" style="--i:1" cx="10" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:2" cx="28" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:3" cx="46" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:4" cx="64" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:5" cx="82" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:6" cx="100" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:7" cx="118" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:8" cx="136" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:9" cx="154" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:10" cx="172" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:11" cx="190" cy="17" r="1.8"></circle>
+          <circle class="stem-head" cx="10" cy="17" r="3.4"></circle>
+        </svg>
+      </div>
+    </div>
   </div>
 </div>
 

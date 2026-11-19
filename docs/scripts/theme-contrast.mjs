@@ -417,6 +417,24 @@ export const PAIRS = [
       light: ["var(--switch-track-off)", ...RAISED],
     },
   ),
+  // The volume row (#352 phase 5, D9; settings-control.css): the speaker and the stem the fader has grown are the spring tier
+  // (`--stem-reached`, `--gmt-spring-ink` in light), the rail ahead of the stem is ice-dim at 70% (`--stem-rest`), each a
+  // graphical object on the panel. The leaves are decoration: the stem's length says the level.
+  shape(
+    "settings: the mute speaker on the panel",
+    "var(--stem-reached)",
+    RAISED,
+  ),
+  shape(
+    "settings: the reached stem on the panel",
+    "var(--stem-reached)",
+    RAISED,
+  ),
+  shape(
+    "settings: the unreached rail on the panel",
+    "var(--stem-rest)",
+    RAISED,
+  ),
   // The landing's "Ask Dox": white text and a currentColor border (Starlight's secondary LinkButton look) on the page.
   text("hero: Ask Dox text", "var(--sl-color-white)", PAGE),
   shape("hero: Ask Dox border", "var(--sl-color-white)", PAGE),

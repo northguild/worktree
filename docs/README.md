@@ -303,6 +303,32 @@ links and inline code still reach 4.5:1 on their surfaces in both themes, and ru
 `astro build` warns that `./fonts/michroma-latin-400-normal.woff2` did not resolve: that is the vendored
 `@font-face`, overridden by the one in `theme.css`; the warning is expected.
 
+## Sound
+
+Sound is a small feature of the header's settings panel (plan #352). The rules:
+
+- **Opt-in.** Every visitor starts muted, whatever the system asks (reduced motion included); only a reader's own choice
+  in the panel turns it on. A stored record that cannot be read never turns sound on.
+- **No press makes a sound.** Not a link, a button, a switch, the gear or the mute button.
+- **One shared choice.** The level (1 to 11, default 5) and whether it is muted are in the `dox:sound` key of
+  `localStorage`, shared with GMT and northguild.dev, so a choice made on one is heard on the others
+  (`src/lib/sound/settings.ts`). `ThemeProvider.astro` reads the same key inline, before first paint, and sets
+  `data-sound` on `<html>`, which draws the mute button's speaker.
+- **No audio until it is wanted.** No `AudioContext` while muted or before a gesture; the engine is a chunk only
+  `cue.ts`'s dynamic `import()` reaches, after a reader unmutes.
+
+### The volume control
+
+Below a hairline in the panel (the gear's popover, `components/SettingsControl.astro`) are the mute button, named
+"Mute" (`aria-pressed` while muted), and a native `<input type="range" min="1" max="11">` named "Volume", drawn as a
+growing stem: an SVG behind the transparent range, drawn by `components/settings-control.css` from a `--level` property,
+so the keyboard and assistive technology get the native slider (`aria-valuetext` "Volume 5 of 11", with ", muted"
+while muted). Each change of the fader plays one `notch` (the quiet "Leaf brush" noise, `lib/sound/voices.ts`) at the
+new level, and moving it while muted unmutes at that level. The mute button makes no sound. A change in another tab
+repaints the control and plays nothing. The wiring is `lib/sound/control.ts`, mounted by `lib/settings-control.ts`; the
+audit (`pnpm docs:audit-dist`) checks the two names, and `scripts/theme-contrast.mjs` holds the speaker and the stem at
+3:1 against the panel in both themes.
+
 ## Footer
 
 `src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (last updated,

@@ -116,8 +116,14 @@ const COPY_BUTTON =
 // button named "Settings", a native `popovertarget` onto a `[popover]`; there is no `starlight-theme-select` and no copy
 // in the mobile menu. The theme provider's script is inline in the head (no flash of the wrong theme) with a no-op
 // `updatePickers`, which Starlight's page may call. Both are what the build renders.
+// #352 phase 5 (D9): below the switch, a mute button named "Mute" (a toggle: `aria-pressed`) and a native range named
+// "Volume", 1 to 11, which the build renders.
+const SOUND_ROW =
+  '<div class="settings-sound"><button type="button" id="settings-sound-mute" class="sound-mute" aria-label="Mute" aria-pressed="false"><svg aria-hidden="true"></svg></button><div class="stem-fader"><input type="range" id="settings-sound-volume" min="1" max="11" step="1" value="5" aria-label="Volume"><svg aria-hidden="true"></svg></div></div>';
 const SETTINGS_BUTTON =
-  '<div class="settings-control"><button type="button" id="settings-button" class="header-chip settings-toggle" popovertarget="settings-pop" aria-label="Settings" title="Settings" aria-expanded="false"><svg aria-hidden="true" focusable="false"></svg></button><div id="settings-pop" class="settings-pop" popover role="group" aria-label="Settings"><label><span>Dark theme</span><input type="checkbox" role="switch" id="settings-theme-dark"></label></div></div>';
+  '<div class="settings-control"><button type="button" id="settings-button" class="header-chip settings-toggle" popovertarget="settings-pop" aria-label="Settings" title="Settings" aria-expanded="false"><svg aria-hidden="true" focusable="false"></svg></button><div id="settings-pop" class="settings-pop" popover role="group" aria-label="Settings"><label><span>Dark theme</span><input type="checkbox" role="switch" id="settings-theme-dark"></label>' +
+  SOUND_ROW +
+  "</div></div>";
 const THEME_PROVIDER =
   "<script>window.StarlightThemeProvider = (() => { localStorage.getItem('starlight-theme'); document.documentElement.dataset.theme = 'dark'; return { updatePickers() {} }; })();</script>";
 const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}`;
@@ -1668,6 +1674,84 @@ describe("the theme control (#352)", () => {
 
   it("passes a page with the gear, no theme select, and an inline provider", async () => {
     expect(await audit()).toEqual([]);
+  });
+
+  // #352 phase 5 (D9): the volume row's two controls are named for assistive technology, on every page that has the gear.
+  describe("the volume row", () => {
+    const withSettings = async (settings, path = "faq") => {
+      await write(
+        dist,
+        htmlPath(path),
+        page(path, { header: header({ settings }) }),
+      );
+      return audit();
+    };
+
+    it("fails a gear whose panel has no volume range", async () => {
+      const failures = await withSettings(
+        SETTINGS_BUTTON.replace(/<input type="range"[^>]*>/, ""),
+      );
+      expect(
+        failures.some((f) => /faq.*0 range inputs named "Volume"/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails a volume range with no name, or another name", async () => {
+      for (const label of ["", ' aria-label="Level"']) {
+        const failures = await withSettings(
+          SETTINGS_BUTTON.replace(' aria-label="Volume"', label),
+        );
+        expect(
+          failures.some((f) => /faq.*0 range inputs named "Volume"/.test(f)),
+        ).toBe(true);
+      }
+    });
+
+    it("fails a volume range that is not 1 to 11", async () => {
+      const failures = await withSettings(
+        SETTINGS_BUTTON.replace('max="11"', 'max="10"'),
+      );
+      expect(failures.some((f) => /faq.*range.*1 to 11/.test(f))).toBe(true);
+    });
+
+    it("fails a gear whose panel has no mute button", async () => {
+      const failures = await withSettings(
+        SETTINGS_BUTTON.replace(
+          /<button type="button" id="settings-sound-mute".*?<\/button>/,
+          "",
+        ),
+      );
+      expect(failures.some((f) => /faq.*0 buttons named "Mute"/.test(f))).toBe(
+        true,
+      );
+    });
+
+    it("fails a mute button that is not a toggle (no aria-pressed)", async () => {
+      const failures = await withSettings(
+        SETTINGS_BUTTON.replace(' aria-pressed="false"', ""),
+      );
+      expect(
+        failures.some((f) => /faq.*button "Mute".*aria-pressed/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails the 404 on the same rule", async () => {
+      await write(
+        dist,
+        "404.html",
+        notFoundPage({
+          controls: `${CONTROLS}`,
+          header: header({
+            settings: SETTINGS_BUTTON.replace(' aria-label="Volume"', ""),
+          }),
+        }),
+      );
+      expect(
+        (await audit()).some((f) =>
+          /404\.html.*0 range inputs named "Volume"/.test(f),
+        ),
+      ).toBe(true);
+    });
   });
 
   it("fails a page that still has a starlight-theme-select, in the body or the mobile menu", async () => {

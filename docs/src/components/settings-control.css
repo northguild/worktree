@@ -182,3 +182,158 @@
     fill: Highlight;
   }
 }
+
+/*
+ * The sound row (D9, phase 5): below a hairline, a mute button and the volume fader "Growing stem", from
+ * prototypes/settings-gear/sound-audition.html (FADERS[1], `.mute`, `.fader`). Wired by lib/sound/control.ts; the
+ * sound they control is silent to press (the mute button makes none).
+ *
+ * The stem is drawn from `--level` (1 to 11, set on `.stem-fader`): the grown line, the leaves it has reached (scaled
+ * 1 or 0 by whether their notch `--i` is at or below the level), the buds ahead of it and the head. The range over it
+ * is native and invisible, so the keyboard and assistive technology get a slider.
+ *
+ * Colours that carry meaning are measured by theme-contrast.mjs at 3:1 against the panel: the reached stem and the
+ * speaker (`--stem-reached`), the unreached rail (`--stem-rest`). The leaves are decoration: the stem's length says the
+ * level. INVENTED tokens: the two stem colours, chosen to meet that tier in both themes.
+ */
+:root {
+  --stem-reached: var(--gmt-spring);
+  --stem-rest: color-mix(in srgb, var(--gmt-ice-dim) 70%, transparent);
+}
+
+[data-theme="light"] {
+  --stem-reached: var(--gmt-spring-ink);
+}
+
+.settings-sound {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--gmt-border);
+}
+
+.sound-mute {
+  flex: none;
+  display: grid;
+  place-items: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0;
+  border: 1px solid var(--gmt-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--stem-reached);
+  cursor: pointer;
+}
+.sound-mute svg {
+  inline-size: 1.05rem;
+  block-size: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sound-mute:focus-visible,
+.stem-fader:focus-within {
+  outline: 2px solid var(--gmt-spring-ink);
+  outline-offset: 2px;
+}
+/* The speaker is drawn from `data-sound` on <html>, which is set before first paint: waves while sound is on, a cross
+   while it is muted. Muted is also the state without the attribute, so a page that could not set it still reads right. */
+.speaker-cross {
+  display: none;
+}
+html[data-sound="off"] .speaker-wave,
+html:not([data-sound]) .speaker-wave {
+  display: none;
+}
+html[data-sound="off"] .speaker-cross,
+html:not([data-sound]) .speaker-cross {
+  display: inline;
+}
+
+.stem-fader {
+  position: relative;
+  flex: 1;
+  min-inline-size: 0;
+  block-size: 2rem;
+  border-radius: 999px;
+}
+.stem-fader input {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.stem-fader svg {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.stem-rail {
+  fill: none;
+  stroke: var(--stem-rest);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.stem-grown {
+  fill: none;
+  stroke: var(--stem-reached);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  /* pathLength is 10, so one notch is one unit: dashes of (level - 1), then a gap longer than the rest. */
+  stroke-dasharray: calc(var(--level) - 1) 20;
+}
+.stem-leaf {
+  fill: var(--stem-reached);
+  opacity: 0.8;
+  transform: scale(max(0.0001, min(1, calc(var(--level) - var(--i) + 1))));
+}
+.stem-bud {
+  fill: var(--stem-rest);
+  opacity: clamp(0, calc(var(--i) - var(--level)), 1);
+}
+.stem-head {
+  fill: var(--stem-reached);
+  transform: translateX(calc((var(--level) - 1) * 18px));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .stem-grown,
+  .stem-leaf,
+  .stem-bud,
+  .stem-head {
+    transition:
+      stroke-dasharray 220ms var(--settings-ease),
+      transform 220ms var(--settings-ease),
+      opacity 160ms;
+  }
+}
+
+@media (forced-colors: active) {
+  .settings-sound {
+    border-color: CanvasText;
+  }
+  .sound-mute {
+    border-color: CanvasText;
+    color: CanvasText;
+  }
+  .stem-rail,
+  .stem-grown {
+    stroke: CanvasText;
+  }
+  .stem-leaf,
+  .stem-head {
+    fill: Highlight;
+  }
+  .stem-bud {
+    fill: GrayText;
+  }
+}

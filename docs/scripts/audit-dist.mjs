@@ -54,6 +54,9 @@
  * `<header>` holds exactly one `<button>` named "Settings" with a `popovertarget` that names a `[popover]` on the page; the
  * page holds no second one (the mobile menu has no copy).
  *
+ * Also (#352 phase 5, D9): the settings panel's volume row is named for assistive technology: one native range named
+ * "Volume", 1 to 11, and one toggle button named "Mute" (`aria-pressed`), on every page and the 404.
+ *
  * Also (#352, D1): in every page's and the 404's `<header>` the right group reads Dox, GitHub, Discord, then the gear.
  *
  * Also (#266 phase 3, D6-D9, the landing header's entrance): the entrance marker (`data-landing-entrance`) is on the
@@ -379,6 +382,9 @@ const DOX_HREF = "/worktree/dox/";
 const DOX_LINK_NAME = "Chat with Dox";
 // #352 D1: the settings gear, a native button that opens a native popover.
 const SETTINGS_NAME = "Settings";
+// #352 phase 5 (D9): the volume row's two controls.
+const VOLUME_NAME = "Volume";
+const MUTE_NAME = "Mute";
 
 /** The page's `<header>` element, from its opening tag to its closing tag; "" when it has none. */
 function headerOf(html) {
@@ -925,6 +931,43 @@ function auditThemeControl(html, where) {
   if (!inlineProvider)
     fail(
       "the theme provider script is not inline in <head> (expected the override, ThemeProvider.astro)",
+    );
+  return failures;
+}
+
+/**
+ * The volume row in the settings panel (#352 phase 5, D9): exactly one native `<input type="range">` named "Volume" (its
+ * `aria-label`), running 1 to 11, and exactly one `<button>` named "Mute", a toggle (`aria-pressed`). Both are named only
+ * for assistive technology: the mute button is an icon and the stem is drawn behind the range, so a build that lost either
+ * name would still look right.
+ */
+function auditSoundControl(html, where) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: ${rule}`);
+  const ranges = [...html.matchAll(/<input\b([^>]*)>/g)]
+    .map(([, rawAttrs]) => attributes(rawAttrs))
+    .filter((attrs) => attrs.type === "range");
+  const volumes = ranges.filter(
+    (attrs) => (attrs["aria-label"] ?? "").trim() === VOLUME_NAME,
+  );
+  if (volumes.length !== 1)
+    fail(
+      `${volumes.length} range inputs named "${VOLUME_NAME}", expected exactly 1 (the volume fader)`,
+    );
+  else if (volumes[0].min !== "1" || volumes[0].max !== "11")
+    fail(
+      `the "${VOLUME_NAME}" range runs ${volumes[0].min} to ${volumes[0].max}, expected 1 to 11`,
+    );
+  const mutes = [...html.matchAll(/<button\b([^>]*)>/g)]
+    .map(([, rawAttrs]) => attributes(rawAttrs))
+    .filter((attrs) => (attrs["aria-label"] ?? "").trim() === MUTE_NAME);
+  if (mutes.length !== 1)
+    fail(
+      `${mutes.length} buttons named "${MUTE_NAME}", expected exactly 1 (the mute button)`,
+    );
+  else if (!("aria-pressed" in mutes[0]))
+    fail(
+      `button "${MUTE_NAME}" has no aria-pressed, expected a toggle that says whether sound is muted`,
     );
   return failures;
 }
@@ -1559,6 +1602,7 @@ async function auditPage(path, dist, descriptions, options) {
 
   failures.push(...auditControls(html, label(path)));
   failures.push(...auditThemeControl(html, label(path)));
+  failures.push(...auditSoundControl(html, label(path)));
   failures.push(...auditHeader(html, label(path)));
   failures.push(
     ...auditMobileMenu(html, label(path), { required: path !== "" }),
@@ -1760,6 +1804,7 @@ function auditNotFound(html) {
   const failures = [
     ...auditControls(html, "404.html"),
     ...auditThemeControl(html, "404.html"),
+    ...auditSoundControl(html, "404.html"),
     ...auditHeader(html, "404.html"),
     ...auditSvgs(html, "404.html"),
   ];
