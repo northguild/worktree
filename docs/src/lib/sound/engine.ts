@@ -10,8 +10,8 @@
  * it playing the stored track; it stops on a mute, a switch off, a hidden tab and `pagehide`.
  *
  * It is handed an `AudioContext` that a gesture or an in-site arrival has created and resumed (`attach`), and only
- * then listens for `worktree:cue`: a cue before that is unheard, which drops it. A cue while the context is suspended
- * is dropped too, unless a gesture is starting it (`live`). Every schedule, gap and fade is on `ctx.currentTime`.
+ * then listens for `worktree:cue`: a cue before that is unheard, which drops it (except a leaves' stage,
+ * which `joinLate` takes up). A cue while the context is suspended is dropped too, unless a gesture is starting it (`live`). Every schedule, gap and fade is on `ctx.currentTime`.
  */
 
 import type { Aura } from "./aura";

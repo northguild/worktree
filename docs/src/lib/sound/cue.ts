@@ -6,8 +6,9 @@
  *
  * Nothing here makes a sound. `cue` dispatches `worktree:cue` on the document; the engine (./engine.ts) listens once it
  * has loaded and a gesture has unlocked the audio context, and until then the event is unheard, which drops the cue.
- * Nothing queues. The engine is only ever reached through `import()` here, never a static import, so the first paint
- * carries this file and the settings and none of the audio code.
+ * Nothing queues, with one exception: `cueFlight` remembers its latest stage (`latestFlight`), which the engine joins
+ * from its offset when it is ready. The engine is only ever reached through `import()` here, never a static import,
+ * so the first paint carries this file and the settings and none of the audio code.
  *
  * Unlock, in order of a page's life:
  * 1. Muted: no context and no engine. Unmuting is itself a gesture, so it unlocks.
@@ -19,7 +20,9 @@
  *    refuses (Safari) the context stays suspended and the gesture listeners of step 2 keep waiting, so nothing is
  *    heard and nothing is logged.
  *
- * Every time is on the audio clock; this file reads no other.
+ * Every schedule is on the audio clock. The one other clock this file reads is `performance.now()`, in `cueFlight`:
+ * it stamps its stage with it because no audio clock exists yet when the opening is cued, so the engine can work out
+ * how far into the stage it is and join it from its offset.
  */
 import { onSoundChange, readSound } from "./settings";
 
