@@ -1,8 +1,8 @@
 /**
- * The leaves' voices (plan #352, D11 and D12): the opening gust, each change of picture and the pointer's rustle, all
- * ported unchanged from the audition board (prototypes/settings-gear/sound-audition.html): `flightCanopy` with GUSTS
- * "H" Soft canopy, MORPHS "D" Sweep and grains (MORPHS "A" Rustle sweep at 0.6 through `scaled`, a `leafTick` at 0.008
- * for each landing grain), TOUCHES "D" Soft rustle, and the helpers `panTo`, `swell`, `leafTick`, `scaled` and
+ * The leaves' voices (plan #352, D11 and D12): each change of picture, which the opening gust shares, and the pointer's
+ * rustle, ported from the audition board (prototypes/settings-gear/sound-audition.html): MORPHS "D" Sweep and grains
+ * (MORPHS "A" Rustle sweep at 0.6 through `scaled`, a `leafTick` at 0.008 for each landing grain), TOUCHES "D" Soft
+ * rustle, and the helpers `panTo`, `swell`, `leafTick`, `scaled` and
  * `untilLanded`.
  *
  * This is a chunk of its own: the engine imports it only on the landing, so no other page loads a byte of it. It makes
@@ -102,56 +102,6 @@ function untilLanded(
   return g;
 }
 
-/** GUSTS "H" Soft canopy. */
-const CANOPY = {
-  band: 2400,
-  q: 0.45,
-  peak: 0.0106,
-  width: 0.75,
-  lowpass: 6000,
-};
-
-/**
- * High air in the trees, driven by the leaves: the flight curve sets the loudness, so it rises as leaves take off and is
- * gone the moment the last one lands. Two wide bandpassed bands, gently lowpassed. Each band's gain and filter have one
- * curve each and nothing else.
- */
-function flightCanopy(
-  c: AudioContext,
-  out: AudioNode,
-  t: number,
-  flight: FlightDetail,
-) {
-  const o = CANOPY;
-  const dur = flight.curve.length * flight.step;
-  const loud = Float32Array.from(flight.curve, (v) => o.peak * Math.sqrt(v));
-  const soft = biquad(c, "lowpass", o.lowpass);
-  soft.connect(out);
-  [-o.width, o.width].forEach((side, k) => {
-    const src = c.createBufferSource();
-    src.buffer = noiseBuffer(c);
-    src.loop = true;
-    const f = biquad(c, "bandpass", o.band * (1 + k * 0.15), o.q);
-    f.frequency.setValueCurveAtTime(
-      Float32Array.from(
-        flight.curve,
-        (v) => o.band * (1 + k * 0.15) * (0.8 + 0.4 * v),
-      ),
-      t,
-      dur,
-    );
-    const g = c.createGain();
-    g.gain.value = 0;
-    g.gain.setValueCurveAtTime(loud, t, dur);
-    src
-      .connect(f)
-      .connect(g)
-      .connect(panTo(c, soft, clamp(side, -1, 1)));
-    src.start(t, Math.random() * 2.5);
-    src.stop(t + dur + 0.05);
-  });
-}
-
 /** MORPHS "A" Rustle sweep: a rustle that travels with the leaves, left to right as the wordmark is written. */
 function rustleSweep(
   c: AudioContext,
@@ -178,16 +128,6 @@ function rustleSweep(
   });
 }
 
-/** The opening: the leaves sweeping in. Silent from the last landing. */
-export function gust(
-  c: AudioContext,
-  out: AudioNode,
-  t: number,
-  flight: FlightDetail,
-): void {
-  flightCanopy(c, untilLanded(c, out, t, flight.duration), t, flight);
-}
-
 /** One picture becoming the next: MORPHS "D" Sweep and grains. Silent from the last landing. */
 export function change(
   c: AudioContext,
@@ -199,6 +139,36 @@ export function change(
   rustleSweep(c, scaled(c, bus, 0.6), t, flight);
   for (const g of flight.grains)
     leafTick(c, panTo(c, bus, g.pan), t + g.at, 0.008);
+}
+
+/**
+ * The opening: the leaves sweeping in, in the change's voice over the opening's own flight (plan #352, D11 as amended:
+ * "use the same sound for the initial entrance of the particles"). Not a second voice: the same function.
+ */
+export const gust = change;
+
+/**
+ * What is left of a stage `elapsed` seconds after it started: its curves from the sample it is in, only the grains still
+ * to come (timed from now), and the time to its last landing. Nothing (`undefined`) once its last leaf has landed. A
+ * stage that has not started is returned as it is. A stage that began before sound was ready is joined here, not
+ * replayed.
+ */
+export function fromOffset(
+  flight: FlightDetail,
+  elapsed: number,
+): FlightDetail | undefined {
+  if (!(elapsed < flight.duration)) return undefined;
+  if (elapsed <= 0) return flight;
+  const sample = Math.floor(elapsed / flight.step);
+  return {
+    ...flight,
+    curve: flight.curve.slice(sample),
+    panCurve: flight.panCurve.slice(sample),
+    duration: flight.duration - elapsed,
+    grains: flight.grains
+      .filter((g) => g.at >= elapsed)
+      .map((g) => ({ ...g, at: g.at - elapsed })),
+  };
 }
 
 /** A voice that follows the pointer: `set` every frame, `stop` to let it go. */

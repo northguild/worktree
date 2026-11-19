@@ -5,7 +5,7 @@ import {
   installFakeAudio,
 } from "../../test/fake-audio";
 import type { FlightDetail } from "./cue";
-import { change, gust, startRustle } from "./leaves";
+import { change, fromOffset, gust, startRustle } from "./leaves";
 
 let ctx: FakeAudioContext;
 let out: FakeNode;
@@ -19,8 +19,7 @@ beforeEach(() => {
 
 /**
  * A short flight: four samples 50 ms apart, so a curve of 0.2 s, ending at a duration of 0.15 s (the last landing).
- * The numbers the voices are expected to make from it are the audition board's: Soft canopy peak 0.0106 times the
- * square root of the curve, a band at 2,400 Hz (the second band 15% higher) riding 0.8 to 1.2 of itself with the curve.
+ * The numbers the voices are expected to make from it are the audition board's (Sweep and grains).
  */
 function stage(stageName: FlightDetail["stage"]): FlightDetail {
   return {
@@ -36,93 +35,69 @@ function stage(stageName: FlightDetail["stage"]): FlightDetail {
   };
 }
 
-/** The gain nodes whose gain has a value curve. */
-const curved = (kind: "gain" | "biquad") =>
-  ctx.nodes.filter(
-    (n) =>
-      n.kind === kind &&
-      (n.gain.curves.length > 0 || n.frequency.curves.length > 0),
-  );
+describe("the gust", () => {
+  it("is the change's voice: Sweep and grains, with nothing of Soft canopy", () => {
+    expect(gust).toBe(change);
+    gust(ctx as unknown as AudioContext, as(out), 2, stage("leaf"));
+    // the swell and one tick per grain, no pair of bands with value curves
+    expect(ctx.started("bufferSource")).toHaveLength(1 + 2);
+    expect(ctx.nodes.every((n) => n.gain.curves.length === 0)).toBe(true);
+  });
+});
 
-describe("the gust (Soft canopy)", () => {
-  it("makes two bands whose loudness is 0.0106 times the square root of the flight and whose filter rides with it", () => {
-    gust(ctx as unknown as AudioContext, as(out), 1, stage("leaf"));
-    const bands = ctx.started("bufferSource");
-    expect(bands).toHaveLength(2);
-    expect(bands.map((b) => b.startedAt)).toEqual([1, 1]);
-    // 0.2 s of curve, then 50 ms of tail: stopped at 1.25
-    expect(bands.map((b) => b.stoppedAt)).toEqual([1.25, 1.25]);
-
-    const gains = ctx.nodes.filter((n) => n.gain.curves.length);
-    expect(gains).toHaveLength(2);
-    for (const g of gains) {
-      expect(g.gain.curves).toHaveLength(1);
-      expect(g.gain.curves[0].start).toBe(1);
-      expect(g.gain.curves[0].duration).toBeCloseTo(0.2);
-      // 0.0106 * sqrt(0, 0.25, 1, 0)
-      const [a, b, c2, d] = g.gain.curves[0].values;
-      expect(a).toBe(0);
-      expect(b).toBeCloseTo(0.0053, 6);
-      expect(c2).toBeCloseTo(0.0106, 6);
-      expect(d).toBe(0);
-    }
-    const filters = ctx.nodes.filter((n) => n.frequency.curves.length);
-    expect(filters).toHaveLength(2);
-    expect(filters[0].Q.value).toBe(0.45);
-    // 2,400 * (0.8 + 0.4 * v): v = 0 -> 1,920, 1 -> 2,880; the second band is 15% higher
-    expect(filters[0].frequency.curves[0].values[0]).toBeCloseTo(1920, 3);
-    expect(filters[0].frequency.curves[0].values[2]).toBeCloseTo(2880, 3);
-    expect(filters[1].frequency.curves[0].values[2]).toBeCloseTo(
-      2880 * 1.15,
-      3,
-    );
+describe("what is left of a stage (fromOffset)", () => {
+  // Decided from D11 (amended) and the Done-when: only the grains still to come, silent at the last landing.
+  const long = (): FlightDetail => ({
+    stage: "leaf",
+    curve: Float32Array.of(0, 0.5, 1, 0.5, 0, 0),
+    panCurve: Float32Array.of(0, 0.125, 0.25, 0.375, 0.5, 0.625),
+    step: 0.05,
+    duration: 0.25,
+    grains: [
+      { at: 0.05, pan: -1 },
+      { at: 0.1, pan: -0.5 },
+      { at: 0.2, pan: 0.5 },
+    ],
   });
 
-  it("gives every automated parameter one curve and nothing else, which Safari and Firefox require", () => {
-    gust(ctx as unknown as AudioContext, as(out), 1, stage("leaf"));
-    for (const n of ctx.nodes) {
-      for (const param of [n.gain, n.frequency]) {
-        const curves = param.of("setValueCurveAtTime").length;
-        if (curves > 0) expect(param.calls).toHaveLength(1);
-      }
-    }
+  it("keeps the grains still to come, timed from now, and ends at the last landing", () => {
+    const rest = fromOffset(long(), 0.12);
+    expect(rest?.duration).toBeCloseTo(0.13);
+    expect(rest?.grains).toHaveLength(1);
+    expect(rest?.grains[0].at).toBeCloseTo(0.08);
+    expect(rest?.grains[0].pan).toBe(0.5);
+    // sample 2 (0.10 s) is the one the stage is in: 0.12 / 0.05 floors to 2
+    expect(Array.from(rest?.curve ?? [])).toEqual([1, 0.5, 0, 0]);
+    expect(Array.from(rest?.panCurve ?? [])).toEqual([0.25, 0.375, 0.5, 0.625]);
   });
 
-  it("is silent from its last landing: the curve ends at 0 and a guard bus reaches 0 at the landing", () => {
-    gust(ctx as unknown as AudioContext, as(out), 1, stage("leaf"));
-    for (const g of ctx.nodes.filter((n) => n.gain.curves.length))
-      expect(g.gain.curves[0].values.at(-1)).toBe(0);
-    // The guard: the bus the canopy ends in. It holds at 1 until 0.25 s before the landing (0 here: dur 0.15), then
-    // ramps to 0 at 1 + 0.15.
+  it("plays nothing once every leaf has landed, and the whole stage if it has not started", () => {
+    expect(fromOffset(long(), 0.25)).toBeUndefined();
+    expect(fromOffset(long(), 3)).toBeUndefined();
+    expect(fromOffset(long(), 0)?.grains).toHaveLength(3);
+  });
+
+  it("makes a voice that reaches 0 at the last landing and ticks only the grains left", () => {
+    const rest = fromOffset(long(), 0.12);
+    if (!rest) throw new Error("the stage is still in flight");
+    gust(ctx as unknown as AudioContext, as(out), 5, rest);
     const guard = ctx.nodes.find(
-      (n) => n.gain.of("linearRampToValueAtTime").length,
+      (n) =>
+        n.gain.of("linearRampToValueAtTime").length === 1 &&
+        n.gain.of("setValueAtTime").length === 2,
     );
-    expect(guard?.gain.of("linearRampToValueAtTime")[0].args).toEqual([
-      0, 1.15,
-    ]);
-    expect(guard?.outputs).toContain(out);
-  });
-
-  it("holds the guard at 1 until the last 0.25 s of a long gust", () => {
-    const long = { ...stage("leaf"), duration: 3 };
-    gust(ctx as unknown as AudioContext, as(out), 2, long);
-    const guard = ctx.nodes.find(
-      (n) => n.gain.of("linearRampToValueAtTime").length,
+    expect(guard?.gain.of("linearRampToValueAtTime")[0].args[0]).toBe(0);
+    expect(guard?.gain.of("linearRampToValueAtTime")[0].args[1]).toBeCloseTo(
+      5.13,
     );
-    expect(guard?.gain.of("setValueAtTime").map((c) => c.args)).toEqual([
-      [1, 2],
-      [1, 4.75],
-    ]);
-    expect(guard?.gain.of("linearRampToValueAtTime")[0].args).toEqual([0, 5]);
-  });
-
-  it("pans the two bands to -0.75 and 0.75", () => {
-    gust(ctx as unknown as AudioContext, as(out), 1, stage("leaf"));
-    const pans = ctx.nodes
-      .filter((n) => n.kind === "stereoPanner")
-      .map((n) => n.pan.value);
-    expect(pans.sort()).toEqual([-0.75, 0.75]);
-    expect(curved("biquad").length).toBe(2);
+    const ticks = ctx.nodes.filter(
+      (n) =>
+        n.kind === "bufferSource" &&
+        n.startedAt !== undefined &&
+        n.startedAt > 5,
+    );
+    expect(ticks).toHaveLength(1);
+    expect(ticks[0].startedAt).toBeCloseTo(5.08);
   });
 });
 

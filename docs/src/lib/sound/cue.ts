@@ -84,11 +84,35 @@ export function cue(name: CueName, rank?: number): boolean {
   return detail.heard === true;
 }
 
+/** The latest stage of the leaves and when it started, on `performance.now()` (the page's clock, in ms). */
+export interface RememberedFlight {
+  name: "gust" | "change";
+  flight: FlightDetail;
+  at: number;
+}
+
+let latest: RememberedFlight | undefined;
+
+/**
+ * The latest stage cued, heard or not, for an engine that attaches after it started (the opening is cued before the
+ * engine exists). A newer cue replaces it, so a superseded stage is forgotten. Nothing here makes a sound.
+ */
+export function latestFlight(): RememberedFlight | undefined {
+  return latest;
+}
+
+/** Forget the remembered stage. */
+export function forgetFlight(): void {
+  latest = undefined;
+}
+
 /**
  * Play the sound of one stage of the leaves: `gust` for the opening, `change` for each later stage. Starts at the stage's
- * start on the audio clock and is silent when its last leaf lands. Heard only on the landing, with the engine running.
+ * start on the audio clock and is silent when its last leaf lands. Heard only on the landing, with the engine running; a stage that starts before the engine has loaded is remembered
+ * (`latestFlight`) and joined from its offset.
  */
 export function cueFlight(name: "gust" | "change", flight: FlightDetail): void {
+  latest = { name, flight, at: performance.now() };
   document.dispatchEvent(
     new CustomEvent<CueDetail>(CUE_EVENT, { detail: { name, flight } }),
   );

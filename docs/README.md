@@ -340,10 +340,9 @@ the leaves themselves, not to a clock or a timer, and all are quiet; none plays 
   that is the share of leaves in the air, with the weighted mean x as the side of the page, plus about 46 landing places
   for the gust and 34 for a change. That is about 60 numbers, computed once per stage and never per frame, and it reads
   every third leaf (the curve is a share, so a regular sample has the same shape; this keeps the pass near 1.4 ms for the
-  9,200 leaves). It is cued as `gust` (the opening, **Soft canopy**: two wide bands of high air whose loudness and
-  brightness follow the share in flight) or `change` (leaf to graph, graph to wordmark, wordmark to leaf; **Sweep and
-  grains**: a rustle swell that travels with the leaves, left to right for the wordmark, with a dry tick for each landing
-  grain, panned to where it lands). A picture forming makes no sound, and neither does a stage re-fitted after a
+  9,200 leaves). It is cued as `gust` (the opening) or `change` (leaf to graph, graph to wordmark, wordmark to leaf).
+  Both play the one voice, **Sweep and grains** (the opening has no voice of its own, by the owner's choice): a rustle swell that travels with the leaves, left to right for the wordmark, with a dry tick for each landing
+  grain, panned to where it lands. A picture forming makes no sound, and neither does a stage re-fitted after a
   resize (`soundFor`). Each starts at its stage's start on the audio clock and is silent at its last landing: its envelopes
   end there and a guard bus fades to 0 over the last 0.25 s. The simulation runs at 1/`PACE` of the wall clock, so
   `flight()` is told the pace and every time it returns is on the audio clock.
@@ -352,9 +351,13 @@ the leaves themselves, not to a clock or a timer, and all are quiet; none plays 
   with a 0.1 s time constant, and it is let go, and silent within about half a second, when the pointer stops or leaves.
 - **Where it lives.** `src/lib/sound/leaves.ts` holds the voices (the audition board's numbers, ported unchanged:
   `prototypes/settings-gear/sound-audition.html`). It is a chunk of its own that `engine.ts` imports only where the page
-  has the hero's art box (`[data-hero-art]`), so no other page loads any of it; a gust or change that arrives before the
-  chunk has loaded is dropped, like a cue before the engine. `cue.ts` carries the flight in the cue's detail (`cueFlight`)
-  and the pointer in `rustle()`.
+  has the hero's art box (`[data-hero-art]`), so no other page loads any of it. The opening starts before the engine and the
+  chunk exist, so `cue.ts` remembers the latest stage (its detail and when it started, `latestFlight`; a newer stage
+  replaces it); when the chunk arrives, a stage whose leaves are still in flight joins from its offset (its curves cut
+  to what remains, only the grains still to come, silent at the last landing) and one whose leaves have all landed
+  plays nothing. No sound is possible before a gesture on the page or an in-site arrival (no `AudioContext` until
+  then), so a reader's first visit with sound on, before any press, hears no opening. `cue.ts` carries the flight in
+  the cue's detail (`cueFlight`) and the pointer in `rustle()`.
 - **Safari and Firefox.** `setValueCurveAtTime` must not overlap another automation on the same parameter, so every
   parameter with a curve has that one curve and nothing else.
 

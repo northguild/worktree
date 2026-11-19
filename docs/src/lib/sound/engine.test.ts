@@ -304,15 +304,15 @@ describe("the leaves", () => {
     document.body.replaceChildren();
   });
 
-  it("plays the gust 5 ms ahead on the audio clock, once the landing's chunk has loaded", async () => {
+  it("plays the gust 5 ms ahead on the audio clock, in the change's voice, once the landing's chunk has loaded", async () => {
     landing();
     boot();
     await vi.dynamicImportSettled();
     ctx.advance(2);
-    cueFlight("gust", flightDetail);
-    const bands = ctx.started("bufferSource");
-    expect(bands).toHaveLength(2);
-    expect(bands[0].startedAt).toBeCloseTo(2.005);
+    cueFlight("gust", { ...flightDetail, grains: [{ at: 0.05, pan: 0.5 }] });
+    const sources = ctx.started("bufferSource");
+    expect(sources).toHaveLength(2); // the sweep and one grain, not two canopy bands
+    expect(sources[0].startedAt).toBeCloseTo(2.005);
   });
 
   it("plays a change as the sweep and its grains", async () => {
@@ -327,10 +327,88 @@ describe("the leaves", () => {
     expect(ctx.started("bufferSource")).toHaveLength(2); // the sweep and one grain
   });
 
-  it("drops a flight cue that comes before the chunk has loaded, and queues nothing", async () => {
+  const longFlight: FlightDetail = {
+    stage: "leaf",
+    curve: Float32Array.of(0, 1, 1, 0, 0, 0),
+    panCurve: Float32Array.of(0, 0, 0, 0, 0, 0),
+    step: 0.5,
+    duration: 3,
+    grains: [
+      { at: 0.5, pan: -0.5 },
+      { at: 1.5, pan: 0.2 },
+      { at: 2.5, pan: 0.7 },
+    ],
+  };
+
+  it("plays a gust cued before the chunk loaded from its offset once it loads: only the grains to come, silent at the last landing", async () => {
     landing();
     boot();
-    cueFlight("gust", flightDetail);
+    cueFlight("gust", longFlight);
+    // 1.2 s of the 3 s flight go by before the chunk arrives
+    vi.advanceTimersByTime(1200);
+    ctx.advance(1.2);
+    await vi.dynamicImportSettled();
+    const sources = ctx.started("bufferSource");
+    // the sweep and the two grains at 1.5 s and 2.5 s, now 0.3 s and 1.3 s ahead
+    expect(sources).toHaveLength(3);
+    const now = ctx.currentTime;
+    expect(
+      sources
+        .map((s) => s.startedAt)
+        .slice(1)
+        .sort(),
+    ).toEqual([
+      expect.closeTo(now + 0.005 + 0.3, 6),
+      expect.closeTo(now + 0.005 + 1.3, 6),
+    ]);
+    const guard = ctx.nodes.find(
+      (n) =>
+        n.gain.of("linearRampToValueAtTime").length === 1 &&
+        n.gain.of("setValueAtTime").length === 2,
+    );
+    // 3 s - 1.2 s = 1.8 s of flight remain, from now + 5 ms
+    expect(guard?.gain.of("linearRampToValueAtTime")[0].args[0]).toBe(0);
+    expect(guard?.gain.of("linearRampToValueAtTime")[0].args[1]).toBeCloseTo(
+      now + 0.005 + 1.8,
+      6,
+    );
+  });
+
+  it("plays nothing for a gust whose leaves have all landed before the chunk loads", async () => {
+    landing();
+    boot();
+    cueFlight("gust", longFlight);
+    vi.advanceTimersByTime(3000);
+    await vi.dynamicImportSettled();
+    expect(ctx.started("bufferSource")).toHaveLength(0);
+  });
+
+  it("remembers only the newest cue: a stage that was superseded is not joined", async () => {
+    landing();
+    boot();
+    cueFlight("gust", longFlight);
+    vi.advanceTimersByTime(500);
+    cueFlight("change", { ...longFlight, stage: "graph", grains: [] });
+    await vi.dynamicImportSettled();
+    // only the change's sweep, 0 grains: not the gust's three
+    expect(ctx.started("bufferSource")).toHaveLength(1);
+  });
+
+  it("does not play a stage twice: a live cue is not joined again", async () => {
+    landing();
+    boot();
+    await vi.dynamicImportSettled();
+    cueFlight("gust", longFlight);
+    const heard = ctx.started("bufferSource").length;
+    expect(heard).toBe(4);
+    engine?.attach(ctx as unknown as AudioContext);
+    expect(ctx.started("bufferSource")).toHaveLength(heard);
+  });
+
+  it("joins nothing while muted", async () => {
+    landing();
+    boot({ muted: true });
+    cueFlight("gust", longFlight);
     await vi.dynamicImportSettled();
     expect(ctx.started("bufferSource")).toHaveLength(0);
   });

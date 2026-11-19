@@ -4,7 +4,7 @@
  *
  * Ported from gmt apps/dox/src/lib/sound/engine.ts at d6031ecd, cut down (plan #352, D7): no press hooks, no native
  * panel, code-copy or typing watcher. Phase 6 adds the leaves: on the landing only (the art box, `[data-hero-art]`), the engine imports `leaves.ts`, a chunk of its own, and
- * plays the hero's `gust` and `change` cues (which carry the leaves' flight) and the pointer's rustle with it.
+ * plays the hero's `gust` and `change` cues (which carry the leaves' flight; both in the change's voice, and a stage already in flight when the chunk arrives is joined from its offset) and the pointer's rustle with it.
  * Phase 7 adds the aura (D14), as GMT's engine does: where `<html>` has `data-aura` (the landing), while the reader is
  * unmuted and has switched the aura on (`worktree:aura`, D6), the engine imports `aura.ts`, a chunk of its own, and keeps
  * it playing the stored track; it stops on a mute, a switch off, a hidden tab and `pagehide`.
@@ -19,9 +19,12 @@ import {
   CUE_EVENT,
   type CueDetail,
   type CueName,
+  forgetFlight,
   LOOP_EVENT,
   type LoopDetail,
   type LoopName,
+  latestFlight,
+  type RememberedFlight,
   RUSTLE_EVENT,
   type RustleDetail,
 } from "./cue";
@@ -114,11 +117,30 @@ export function createEngine(): Engine {
   let together = -Infinity;
   const loops = new Map<LoopName, () => void>();
   let stopWaiting: (() => void) | undefined;
-  /** The landing's voices, once their chunk has arrived; a cue before then is dropped, as before the engine. */
+  /** The landing's voices, once their chunk has arrived; a cue before then is not played live, but `joinLate` takes it up. */
   let leaves: typeof import("./leaves") | undefined;
   let leavesLoading = false;
   /** The pointer's rustle: one voice for a whole drag. */
   let rustleVoice: Rustle | undefined;
+
+  /** The remembered stage this engine has already played, live or joined late: a stage is heard once. */
+  let heardStage: RememberedFlight | undefined;
+
+  /**
+   * A stage that started before the leaves' chunk had loaded (the opening always does) is joined from its offset, if
+   * its leaves are still in flight, and not at all once the last has landed. Only on a context a gesture started.
+   */
+  const joinLate = () => {
+    const stage = latestFlight();
+    if (!stage || stage === heardStage) return;
+    if (!ctx || !master || !leaves || settings.muted || !live(ctx)) return;
+    heardStage = stage;
+    const rest = leaves.fromOffset(
+      stage.flight,
+      (performance.now() - stage.at) / 1000,
+    );
+    if (rest) leaves.change(ctx, master, ctx.currentTime + LEAD, rest);
+  };
 
   const loadLeaves = () => {
     if (leaves || leavesLoading || !document.querySelector(LANDING)) return;
@@ -126,6 +148,7 @@ export function createEngine(): Engine {
     void import("./leaves")
       .then((mod) => {
         leaves = mod;
+        joinLate();
       })
       .catch(() => {
         // A chunk that will not load leaves the landing as silent as before this phase.
@@ -242,6 +265,7 @@ export function createEngine(): Engine {
     const at = together + LEAD;
     if (flight && leaves) {
       (name === "gust" ? leaves.gust : leaves.change)(ctx, master, at, flight);
+      heardStage = latestFlight();
     } else if (voice) {
       voice(ctx, master, at, detail.rank ?? 0);
     }
@@ -356,6 +380,7 @@ export function createEngine(): Engine {
       document.addEventListener(LOOP_EVENT, onLoop);
       document.addEventListener(RUSTLE_EVENT, onRustle);
       loadLeaves();
+      joinLate();
       syncAura();
     },
     destroy() {
@@ -373,6 +398,7 @@ export function createEngine(): Engine {
       clearTimeout(suspendTimer);
       clearTimeout(hideTimer);
       stopLoops();
+      forgetFlight();
       if (ctx && ctx.state !== "closed") void ctx.close().catch(() => {});
       ctx = null;
       master = null;
