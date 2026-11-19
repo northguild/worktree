@@ -10,8 +10,8 @@ starlight-tabs .tab > [role="tab"] {
 }
 
 /*
- * The header's icon chip (plan #266, D4): the GitHub and Discord links (SocialIcons.astro) and the theme toggle
- * (ThemeSelect.astro) share it, so the three controls are one size and cannot drift apart. A chip with the same reach as
+ * The header's icon chip (plan #266, D4): the GitHub and Discord links (SocialIcons.astro), the Dox link and the settings
+ * gear (SettingsControl.astro) share it, so the four controls are one size and cannot drift apart. A chip with the same reach as
  * northguild.dev's icon button (0.5em of padding round a 1.25em glyph); the negative margin keeps the larger target from
  * spreading the header row. Hover and focus are changes of colour and of the chip's fill and border, not of position, so
  * there is no motion to reduce. The accent colour, not `.gmt-icon-button`'s cyan, which the audit forbids.
@@ -41,7 +41,7 @@ starlight-tabs .tab > [role="tab"] {
 
 /*
  * The Dox crystal (plan #309 D2, D5), ported from gmt's gmt-primitives.css. It is drawn on every page, in the header's and the
- * menu's "Chat with Dox" link (`.dox-link`, a `.header-chip`, so one size and one hover with the theme toggle and the two
+ * menu's "Chat with Dox" link (`.dox-link`, a `.header-chip`, so one size and one hover with the gear and the two
  * links) and in the landing's "Ask Dox" (`.gmt-dox-cta`), and in the hive on /dox. The stylesheet that carries the hive is
  * loaded on /dox alone, so the mark's presentation is here. Every colour is `currentColor` or a token: spring where gmt
  * has cyan (the site's accent), the ice token for the sheen.
@@ -387,29 +387,37 @@ a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)) {
 }
 
 /*
- * The landing header's entrance (plan #266, D6-D9). Header.astro puts `data-landing-entrance` on its root on the landing
- * only, and its inline script puts `data-entrance-off` on <html> for an arrival from another page of this site by link or by
- * history (not a reload), so this plays on an arrival from outside it and on every reload. Two passes, both CSS, both after the hero copy's model (`hero-copy-in`, Hero.astro):
- *   1. "/ worktree vX.Y.Z" (not the shield or the NorthGuild wordmark, which stay static), the search button and the theme
- *      button fade up, left to right;
- *   2. once they are in, the theme button, GitHub and Discord paint, one after another, from northguild.dev's resting icon
- *      colour (--gmt-ice-dim) into their own resting colour (.header-chip). GitHub and Discord do not fade: they are
- *      there throughout and only change colour.
- * The Dox link (.dox-link, #309) takes part in neither pass: it is a plain link, there from the first paint (the plan's §9 Q8,
- * whether it should enter, is open).
+ * The landing header's entrance (plan #266, D6-D9, rewritten by #352 D16 to the rule GMT's gmt-entrance-freeze.css at
+ * d6031ecd follows, with this site's fade and colour pass in place of GMT's freeze and shine). Header.astro puts
+ * `data-landing-entrance` on its root on the landing only, and its inline script puts `data-entrance-off` on <html> for an
+ * arrival from another page of this site by link or by history (not a reload), so this plays on an arrival from outside
+ * it and on every reload. The owner's rule (2026-11-19): what is not on northguild.dev enters first, everything starts
+ * grey, then a second sweep paints the app's primary colour. Two passes, both CSS, both after the hero copy's model
+ * (`hero-copy-in`, Hero.astro):
+ *   1. "/ worktree vX.Y.Z", the search button and the Dox link fade up, left to right: they are this site's own. The shield,
+ *      the "NorthGuild" wordmark (a.wordmark), GitHub, Discord and the settings gear are northguild.dev's, so they do not
+ *      move; they are on screen from the first paint;
+ *   2. every chip starts in northguild.dev's resting icon colour (--gmt-ice-dim): the Dox link from the start of its fade,
+ *      the other three from the first paint. Once the Dox link's fade has ended, the colour pass paints Dox, GitHub, Discord
+ *      and the gear into --sl-color-text-accent one after another, in the order they stand, so one animation at a time
+ *      drives a chip's colour. The Dox link's fade ends at 1.2s (0.6s + 0.6s) and the pass starts at 1.4s.
+ * This closes #309's question Q8, whether the Dox link should enter (docs/README.md).
  * Only opacity, transform and colour animate. The `backwards` fill holds the first frame during the delay and releases
  * the element at the end, so the rest style (and :hover, :focus-visible) is what remains. Nothing is ever set to
  * opacity 0 outside a keyframe, and everything is inside the no-preference query, so a visitor who asks for no motion,
- * or a page whose script failed, simply gets the finished header. audit-dist.mjs holds each of those to the build.
+ * or a page whose script failed, simply gets the finished header. audit-dist.mjs holds each of those to the build, and
+ * (entranceCssFindings) the order: Dox with a fade and a colour pass, the gear with a colour pass and no fade, and the
+ * pass's delays rising Dox < GitHub < Discord < gear.
  */
 @media (prefers-reduced-motion: no-preference) {
   /* Every number of the entrance, in one place (D9). The delays are the hero copy's own first two (0.3s, 0.45s) and one
-     more step; the colour pass starts after the last fade ends (0.6s + 0.6s = 1.2s). Starting values, for review. */
+     more step; the colour pass starts after the last fade ends (0.6s + 0.6s = 1.2s), and its four steps are
+     `--entrance-ink-start + n * --entrance-ink-step`, n = 0 to 3. Starting values, for review. */
   :root:not([data-entrance-off]) .header[data-landing-entrance] {
     --entrance-fade-duration: 0.6s;
     --entrance-fade-delay-title: 0.3s;
     --entrance-fade-delay-search: 0.45s;
-    --entrance-fade-delay-theme: 0.6s;
+    --entrance-fade-delay-dox: 0.6s;
     --entrance-ink-start: 1.4s;
     --entrance-ink-step: 0.15s;
     --entrance-ink-duration: 0.5s;
@@ -432,14 +440,16 @@ a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)) {
     animation: header-entrance-fade var(--entrance-fade-duration)
       cubic-bezier(0.22, 1, 0.36, 1) var(--entrance-fade-delay-search) backwards;
   }
-  /* The theme button does both: it fades in, then takes the colour pass first (left to right). */
-  :root:not([data-entrance-off]) .header[data-landing-entrance] .theme-toggle {
+  /* The Dox link does both: it fades in (grey from the first frame of its fade, because the colour animation's `backwards`
+     fill holds its grey first frame through the fade), then takes the colour pass first. */
+  :root:not([data-entrance-off]) .header[data-landing-entrance] a.dox-link {
     animation:
       header-entrance-fade var(--entrance-fade-duration)
-      cubic-bezier(0.22, 1, 0.36, 1) var(--entrance-fade-delay-theme) backwards,
+      cubic-bezier(0.22, 1, 0.36, 1) var(--entrance-fade-delay-dox) backwards,
       header-entrance-ink var(--entrance-ink-duration) ease-out
       var(--entrance-ink-start) backwards;
   }
+  /* GitHub, Discord and the gear do not fade: grey from the first paint, painted in the order they stand. */
   :root:not([data-entrance-off])
     .header[data-landing-entrance]
     a.header-chip:not(.dox-link) {
@@ -450,11 +460,14 @@ a:not(:where(.not-content *, .sl-anchor-link, .sl-link-button)) {
     .header[data-landing-entrance]
     a.header-chip:not(.dox-link)
     + a.header-chip {
-    animation-delay: calc(
-      var(--entrance-ink-start) +
-      2 *
-      var(--entrance-ink-step)
-    );
+    animation: header-entrance-ink var(--entrance-ink-duration) ease-out
+      calc(var(--entrance-ink-start) + 2 * var(--entrance-ink-step)) backwards;
+  }
+  :root:not([data-entrance-off])
+    .header[data-landing-entrance]
+    .settings-toggle {
+    animation: header-entrance-ink var(--entrance-ink-duration) ease-out
+      calc(var(--entrance-ink-start) + 3 * var(--entrance-ink-step)) backwards;
   }
 
   @keyframes header-entrance-fade {

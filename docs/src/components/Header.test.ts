@@ -80,20 +80,20 @@ describe("Header.astro's inline internal-arrival script", () => {
 
 // #309 phase 4 (D2). Header.astro imports Starlight's virtual modules and cannot be rendered here; the built page is held
 // to these rules by `docs/scripts/audit-dist.mjs`, and this pins the source that produces them: the right group lists the
-// Dox link, named "Chat with Dox", ahead of the theme toggle, current on /dox alone (gmt's Header.astro).
+// Dox link, named "Chat with Dox", current on /dox alone (gmt's Header.astro), and ends with the settings gear (#352, D1:
+// Dox, language select, GitHub and Discord, then the gear; the owner wants the three bars identical to GMT's).
 describe("Header.astro's Dox link", () => {
   const right = source.slice(
     source.indexOf('<div class="sl-flex social-icons">'),
   );
 
-  it("is the first of the right group, ahead of the theme toggle", () => {
-    expect(right.indexOf('class="header-chip dox-link"')).toBeGreaterThan(-1);
-    expect(right.indexOf("dox-link")).toBeLessThan(
-      right.indexOf("<ThemeSelect"),
-    );
-    expect(right.indexOf("<ThemeSelect")).toBeLessThan(
-      right.indexOf("<SocialIcons"),
-    );
+  it("is the first of the right group, and the gear is the last: Dox, language select, GitHub and Discord, gear", () => {
+    const at = (needle: string) => right.indexOf(needle);
+    expect(at('class="header-chip dox-link"')).toBeGreaterThan(-1);
+    expect(at("dox-link")).toBeLessThan(at("<LanguageSelect"));
+    expect(at("<LanguageSelect")).toBeLessThan(at("<SocialIcons"));
+    expect(at("<SocialIcons")).toBeLessThan(at("<SettingsControl"));
+    expect(right).not.toMatch(/Theme\w*Select/);
   });
 
   it("is named Chat with Dox and goes to /dox/ under the site base", () => {

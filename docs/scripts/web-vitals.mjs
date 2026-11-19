@@ -8,7 +8,7 @@
  * - Lighthouse, mobile and desktop presets, `--runs` runs each (default 3): the median LCP, CLS and TBT.
  *   TBT is Lighthouse's lab stand-in for INP.
  * - INP, in Playwright Chromium with 4x CPU throttling: the page loads and settles, then does what a reader
- *   does — opens search with Ctrl+K and types, toggles the theme, opens and closes the mobile menu at 390x844.
+ *   does — opens search with Ctrl+K and types, opens the settings gear and flips the Dark theme switch, opens and closes the mobile menu at 390x844.
  *   Each interaction is reported with its own worst duration; the page's INP is the worst of them (with fewer
  *   than 50 interactions the INP is the longest one, web.dev/articles/inp).
  * - The PageSpeed Insights API, read-only, for the same pages on a live origin: lab numbers and the CrUX field
@@ -143,8 +143,14 @@ async function interactionsOf(browser, url) {
   await page.keyboard.press("Escape");
   await pause();
 
-  await step("theme toggle");
-  await page.locator("button.theme-toggle:visible").first().click();
+  // The settings gear (#352) opens a native popover; its "Dark theme" switch is the one control in it, and flipping it
+  // re-themes the page. Escape closes the panel and returns focus to the gear.
+  await step("settings gear");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await pause();
+  await page.getByRole("switch", { name: "Dark theme" }).click();
+  await pause();
+  await page.keyboard.press("Escape");
   await pause();
 
   // Starlight's menu button shows below its 50rem breakpoint.
@@ -234,7 +240,7 @@ if (values.origin && !skip.has("inp")) {
       browser,
       values.origin + p.path,
     );
-    for (const name of ["search", "theme toggle", "mobile menu"]) {
+    for (const name of ["search", "settings gear", "mobile menu"]) {
       row(
         "INP 4x CPU",
         p.name,

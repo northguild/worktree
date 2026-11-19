@@ -4,7 +4,7 @@
  * apps/dox/src/virtual-starlight.d.ts at commit b15b3899, plus `user-config`.
  *
  * Header.astro imports the components by these virtual paths, not from `@astrojs/starlight/components/X.astro`, so it
- * composes this site's overrides (SocialIcons, ThemeSelect, SiteTitle) as Starlight's own Header does.
+ * composes this site's overrides (SocialIcons, SiteTitle) as Starlight's own Header does.
  */
 declare module "virtual:starlight/user-config" {
   const config: import("@astrojs/starlight/types").StarlightConfig;
@@ -25,8 +25,4 @@ declare module "virtual:starlight/components/SiteTitle" {
 declare module "virtual:starlight/components/SocialIcons" {
   const SocialIcons: typeof import("@astrojs/starlight/components/SocialIcons.astro").default;
   export default SocialIcons;
-}
-declare module "virtual:starlight/components/ThemeSelect" {
-  const ThemeSelect: typeof import("@astrojs/starlight/components/ThemeSelect.astro").default;
-  export default ThemeSelect;
 }

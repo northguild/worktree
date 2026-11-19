@@ -233,10 +233,13 @@ The site wears the NorthGuild theme. `src/styles/northguild/{tokens,tokens-light
 that commit's bytes, so **never edit them in place**. `src/styles/theme.css` is this site's own: it maps the
 `--gmt-*` tokens onto Starlight's `--sl-*` variables, repoints the `@font-face` at `/worktree/fonts/`
 (the vendored one looks for `./fonts/`) and sets the few rules Starlight has no variable for. Light or dark
-follows the visitor's system until they press the header's theme button. Every press shows the opposite of the theme on screen
-and sets `data-theme` on `<html>`; Starlight's `starlight-theme` key holds `light` or `dark` only while that differs from the
-system's, and is removed when it matches, so a reader back on the system's theme follows the system live again (GMT's rule;
-`src/components/ThemeSelect.astro`, `ThemeProvider.astro`, the logic in `src/lib/theme.ts`).
+follows the visitor's system until they use the "Dark theme" switch in the header's settings panel (the gear, last in the header's right
+group). Every press shows the opposite of the theme on screen and sets `data-theme` on `<html>`; Starlight's `starlight-theme` key holds
+`light` or `dark` only while that differs from the system's, and is removed when it matches, so a reader back on the system's theme
+follows the system live again (GMT's rule, `src/lib/theme.ts`, which also keeps the switch in step with the system and with another
+tab; `src/components/ThemeProvider.astro` applies the same rule inline before first paint, so there is no flash of the wrong theme).
+The switch is a native `<input type="checkbox" role="switch">` named "Dark theme", drawn as a pill whose knob is a leaf that slides and
+turns over (pale face for light, deep face for dark); it makes no sound. See *Header* below for the panel.
 The header's NorthGuild mark is `src/components/SiteTitle.astro`, copied the same way.
 
 ### The accent, and how a product picks its colour
@@ -264,19 +267,17 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 ### The header, the sidebar and the page details
 
 - **Header.** `src/components/Header.astro` overrides Starlight's `Header` (copied from Starlight 0.42.8, with the right group from GMT's `apps/dox`, commit `b15b3899`):
-  the right group is the "Chat with Dox" crystal (see *Opening it*), the theme button, the language select, then GitHub and Discord, as four controls of one size in one row with one gap and no divider,
-  and `scripts/audit-dist.mjs` fails a page whose header orders them otherwise. The three direct children of `.header` (title, search, right group) keep their order, because `theme.css` selects them by position.
-  The components it renders (`SiteTitle`, `SocialIcons`, `ThemeSelect`) are overridden too, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head. `src/components/ThemeSelect.astro` and `ThemeProvider.astro` make the theme
-  control a two-state button (ported from GMT's `apps/dox`, commit `b15b3899`; Starlight also renders the select in the mobile
-  menu); the provider's script stays inline so the theme is set before first paint, and replacing both is what keeps the
-  button's icon current. The button and the two links below share one chip, `.header-chip` in `src/styles/custom.css`.
+  the right group is the "Chat with Dox" crystal (see *Opening it*), the language select (which renders nothing on this one-locale site), GitHub, Discord, then the settings gear, as four controls of one size in one row with one gap and no divider,
+  and `scripts/audit-dist.mjs` fails a page whose header orders them otherwise, or holds anything but exactly one `button` named "Settings" with a `popovertarget` (#352). The three direct children of `.header` (title, search, right group) keep their order, because `theme.css` selects them by position.
+  The components it renders (`SiteTitle`, `SocialIcons`) are overridden too, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head: its script stays inline so the theme is set before first paint, and its `updatePickers` is a no-op that Starlight may still call. There is no `ThemeSelect` override any more (the toggle it was is gone; #352): the theme control is the switch in the gear's panel, and Starlight's mobile menu has no copy of it.
+  **The settings gear** (`src/components/SettingsControl.astro`, wired by `src/lib/settings-control.ts`, styled in `src/components/settings-control.css`) is a native `<button popovertarget>` named "Settings" that opens a native `[popover]`; the icon is GMT's exactly (Lucide `settings`, from `apps/dox`, commit `d6031ecd`). Escape, an outside press and the return of focus to the gear are the browser's (`src/chat/components/use-esc-layer.ts` leaves an Escape alone while a popover is open, so /dox does not swallow it); `aria-expanded` follows the popover's `toggle` event, and opening moves focus to the switch. The panel is in the top layer, anchored under the gear and right-aligned, inside a 1rem gutter down to 320px, so opening it moves nothing in the bar. The gear and the two links share one chip, `.header-chip` in `src/styles/custom.css`.
   `src/components/SiteTitle.astro` is the NorthGuild mark and
   "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home),
   then the CLI version (`cliVersion` from `src/lib/site-meta.ts`) in small grey text on the name's baseline, from 30rem up.
   `src/components/SocialIcons.astro` is the GitHub and Discord pair from northguild.dev, with GitHub pointed at this repository
   (`projectLink` from `src/lib/site-meta.ts`, #350), opening in a new tab and saying so in
   their names; Starlight also renders it in the mobile menu. The glass bar is in `theme.css` (4px blur, a hairline under it only),
-  and so is the wide header's grid: the search box keeps to the right, beside the theme button, on every page, where Starlight
+  and so is the wide header's grid: the search box keeps to the right, beside the right group, on every page, where Starlight
   would start it at the main column's edge (which moves with the sidebar and the table of contents).
 - **Sidebar as a git graph, and the leaf list markers (a smaller, paler leaf for a nested item), and the growing link underline.** All in `src/styles/custom.css`, as
   CSS on Starlight's own markup: pseudo-elements with empty content, so nothing is added to the page, nothing decorative can take
@@ -391,7 +392,7 @@ shortcut are gone, and every other page links to it (*Opening it* above).
   `astro-island`, the title `Dox · @northguild/worktree`, the site header, named controls, no footer, hidden or named
   graphics, unique ids, absent from the sitemap and `llms.txt`, and no other page (the 404 included) loading the island's chunk or the
   stylesheet that carries the hive. Its header's Dox link is the current page (`aria-current="page"`); on every other page and the
-  404 the header has one link to `/worktree/dox/` named "Chat with Dox", before the theme toggle, without `aria-current`, and a page
+  404 the header has one link to `/worktree/dox/` named "Chat with Dox", first in the right group, without `aria-current`, and a page
   with a mobile menu has the same link there before the social icons.
 
 ## The landing hero
@@ -417,16 +418,16 @@ long as the page is visible. The pointer pushes leaves near the art box.
   `data-hero` attribute (`live` or `still`) and CSS choose between the SVG and the canvas. A WebGL context the browser takes back
   later turns the box to the still for good. The hero's CSS is in the site's shared stylesheet; only its script is landing-only.
 - **Theme**: the leaves read the `--leaf-*` tokens, defined at the foot of `HeroLeaves.astro` (leaf 1 is `--gmt-spring`; the rest
-  are an invented palette), and re-tint when the header's theme toggle (`ThemeSelect.astro`, `ThemeProvider.astro`) changes `data-theme` on `<html>`.
+  are an invented palette), and re-tint when the settings panel's "Dark theme" switch (`SettingsControl.astro`, `src/lib/theme.ts`) changes `data-theme` on `<html>`.
 - **Drawing** pauses, with the clock, while the tab is hidden or the art box is off screen; the device pixel ratio is capped at 1.5.
 - Both the canvas and the SVG are `aria-hidden`: the heading and the link carry the meaning.
-- **The Dox link and the entrance.** The Dox link (`.dox-link`) takes part in neither the fade nor the colour pass of the landing header's entrance: custom.css excludes it with `a.header-chip:not(.dox-link)`. No audit rule checks this; plan §9 Q8 asks whether it should enter.
-- **The header's entrance** (#266, 2026-11-06): on the landing only, and on an arrival from outside the docs site and on every reload, the header's
-  `/ worktree vX.Y.Z` (the shield and the "NorthGuild" wordmark stay static), search button and theme toggle fade up like the hero copy (`hero-copy-in`), left to right. Once they are
-  in, a second pass paints the theme toggle, GitHub and Discord, one after another, from northguild.dev's resting icon colour
-  (`--gmt-ice-dim`) into their own green. GitHub and Discord do not fade; they are there throughout. It is CSS in `custom.css` ("The
+- **The Dox link and the entrance** (#352, D16; this answers #309's open question, plan §9 Q8, whether the Dox link should enter: it does). The owner's rule (2026-11-19) is GMT's: what is not on northguild.dev enters first, everything starts grey, then a second sweep paints the app's primary colour. The Dox link is this site's own, so it fades in with the title and the search button and joins the colour pass; the shield, the wordmark, GitHub, Discord and the gear are northguild.dev's and do not move.
+- **The header's entrance** (#266, 2026-11-06; rewritten by #352): on the landing only, and on an arrival from outside the docs site and on every reload, the header's
+  `/ worktree vX.Y.Z` (the shield and the "NorthGuild" wordmark stay static), search button and Dox link fade up like the hero copy (`hero-copy-in`), left to right. Every chip starts in northguild.dev's resting icon colour
+  (`--gmt-ice-dim`): the Dox link from the start of its fade, GitHub, Discord and the gear from the first paint. Once the Dox fade has ended, a second pass paints the Dox link, GitHub, Discord and the gear, one after another and in that order, into the accent (`--sl-color-text-accent`). GitHub, Discord and the gear do not fade; they are there throughout. It is CSS in `custom.css` ("The
   landing header's entrance"), all inside `prefers-reduced-motion: no-preference`, animating opacity, transform and colour only, with a
   `backwards` fill so hover and focus take over afterwards; with reduced motion, or no script, the finished header is simply there.
+  `pnpm docs:audit-dist` holds it to the build (`entranceCssFindings`): the Dox link has a fade and a colour pass, the gear has a colour pass and no fade, every chip's colour pass starts from `--gmt-ice-dim`, the pass starts after the Dox fade has ended, and its delays rise Dox < GitHub < Discord < gear.
   **Timings** are the `--entrance-*` custom properties at the top of that block (fade duration and the three fade delays, the colour
   pass's start, step and duration); change numbers there, not rules. `Header.astro` marks its root `data-landing-entrance` on the
   landing, and an inline script in it sets `data-entrance-off` on `<html>` when the navigation followed a link or used Back/Forward

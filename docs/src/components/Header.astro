@@ -1,21 +1,23 @@
 ---
 /**
- * Starlight's Header, overridden so the right group reads Dox, theme, language select, GitHub, Discord (plan #266, D5,
- * and #309 D2): the controls sit in one row at one size with one gap and no divider, as on northguild.dev and GMT's docs.
+ * Starlight's Header, overridden so the right group reads Dox, language select, GitHub, Discord, settings gear (plan #266,
+ * D5, #309 D2 and #352 D1): the controls sit in one row at one size with one gap and no divider, as on northguild.dev and
+ * GMT's docs. (Until #352 the theme toggle was the second of them; the gear's panel holds the theme switch now.)
  * The first is the "Chat with Dox" crystal link, a plain link to /dox/ on every page (the chat is that page); on /dox it
  * is the current page (`aria-current`, and the bar custom.css draws from it).
  *
  * Structure copied from @astrojs/starlight 0.42.8, dist/components/Header.astro, and the right group from GMT's
  * apps/dox/src/components/Header.astro at commit b15b3899, Dox link included. What differs
- * from Starlight's: one `social-icons` group holding the Dox link, ThemeSelect, LanguageSelect and SocialIcons in that order, no
- * `.social-icons::after` divider, and `starlight-theme-select` as a flex box so the toggle shares the row's centre line.
+ * from Starlight's: one `social-icons` group holding the Dox link, LanguageSelect, SocialIcons and SettingsControl in that order (the language
+ * select renders nothing on this one-locale site), and no `.social-icons::after` divider.
  *
  * Keep the three direct children of `.header` in this order (title, search, right group): theme.css selects them by
  * position to keep the search box at the right. The NorthGuild wordmark is SiteTitle.astro's.
  *
  * The landing's entrance (plan #266, D6-D9): on the landing only, the root carries `data-landing-entrance`, and
- * custom.css ("The landing header's entrance") fades "/ worktree vX.Y.Z" (the shield and wordmark stay static), search and theme button in and then paints the theme
- * button and the two links into the accent. The Dox link is left out of both passes (§9 Q8 is open): it is there from the first paint. The inline script before the header turns that off for an arrival from
+ * custom.css ("The landing header's entrance") fades "/ worktree vX.Y.Z" (the shield and wordmark stay static), search and the Dox link in, then paints the Dox
+ * link, GitHub, Discord and the gear into the accent, in that order, every chip starting in northguild.dev's grey (#352,
+ * D16; GitHub, Discord and the gear do not fade, as on northguild.dev). The inline script before the header turns that off for an arrival from
  * another page of this site by following a link or by history (never a reload, which always plays it) by setting
  * `data-entrance-off` on <html>; it can only turn the entrance off, so with no script the CSS just plays. Inline because it must run before the header paints (a module script would not).
  */
@@ -24,9 +26,9 @@ import LanguageSelect from "virtual:starlight/components/LanguageSelect";
 import Search from "virtual:starlight/components/Search";
 import SiteTitle from "virtual:starlight/components/SiteTitle";
 import SocialIcons from "virtual:starlight/components/SocialIcons";
-import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 import config from "virtual:starlight/user-config";
 import DoxMark from "./DoxMark.astro";
+import SettingsControl from "./SettingsControl.astro";
 
 const isLanding = Astro.locals.starlightRoute.id === "";
 // The site base with a trailing slash, as the script compares it against the referrer's path.
@@ -67,7 +69,7 @@ const shouldRenderSearch =
   <div class="sl-hidden md:sl-flex print:hidden right-group">
     <div class="sl-flex social-icons">
       {/* The crystal is the link: icon-only, so `aria-label` is the name and `title` the hover tooltip. It shares the
-          chip look with the theme toggle, GitHub and Discord, and one gap with them. */}
+          chip look with GitHub, Discord and the gear, and one gap with them. */}
       <a
         href={`${base}dox/`}
         class="header-chip dox-link"
@@ -77,9 +79,9 @@ const shouldRenderSearch =
       >
         <DoxMark id="header" />
       </a>
-      <ThemeSelect />
       <LanguageSelect />
       <SocialIcons />
+      <SettingsControl />
     </div>
   </div>
 </div>
@@ -107,12 +109,6 @@ const shouldRenderSearch =
     .social-icons {
       gap: 1rem;
       align-items: center;
-    }
-
-    /* The toggle's wrapper is an inline element, which sets the button on the text baseline, 2px off the row's
-       centre. As a flex box it centres like its neighbours (as in GMT's Header.astro). */
-    .social-icons > :global(starlight-theme-select) {
-      display: flex;
     }
 
     @media (min-width: 50rem) {

@@ -31,7 +31,7 @@ function stubStorage(blocked = false): void {
   });
 }
 
-// The click in ThemeSelect.astro: show the opposite of the theme on the screen (not of what storage says).
+// A press of the settings switch (mountThemeSwitch): show the opposite of the theme on the screen (not of what storage says).
 function press(): void {
   const shown =
     document.documentElement.dataset.theme === "dark" ? "dark" : "light";

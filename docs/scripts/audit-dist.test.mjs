@@ -112,13 +112,15 @@ const MENU_BUTTON =
   '<button popovertarget="starlight__sidebar"><svg aria-hidden="true"></svg><span class="sr-only">Menu</span></button>';
 const COPY_BUTTON =
   '<button title="Copy to clipboard" data-code="x"><div></div></button>';
-// #266: the theme control is a two-state toggle, one named button in one `starlight-theme-select`, and its provider's
-// script is inline in the head (no flash of the wrong theme). Both are what the build renders.
-const THEME_SELECT =
-  '<starlight-theme-select><button type="button" class="theme-toggle header-chip" aria-label="Toggle color theme"><svg class="theme-icon" aria-hidden="true"></svg></button></starlight-theme-select>';
+// #352 (D1, D4): the theme control is the "Dark theme" switch in the settings gear's panel. The gear is the header's one
+// button named "Settings", a native `popovertarget` onto a `[popover]`; there is no `starlight-theme-select` and no copy
+// in the mobile menu. The theme provider's script is inline in the head (no flash of the wrong theme) with a no-op
+// `updatePickers`, which Starlight's page may call. Both are what the build renders.
+const SETTINGS_BUTTON =
+  '<div class="settings-control"><button type="button" id="settings-button" class="header-chip settings-toggle" popovertarget="settings-pop" aria-label="Settings" title="Settings" aria-expanded="false"><svg aria-hidden="true" focusable="false"></svg></button><div id="settings-pop" class="settings-pop" popover role="group" aria-label="Settings"><label><span>Dark theme</span><input type="checkbox" role="switch" id="settings-theme-dark"></label></div></div>';
 const THEME_PROVIDER =
-  "<script>window.StarlightThemeProvider = (() => { localStorage.getItem('starlight-theme'); document.documentElement.dataset.theme = 'dark'; return { updatePickers() { document.querySelectorAll('starlight-theme-select button.theme-toggle'); } }; })();</script>";
-const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}${THEME_SELECT}`;
+  "<script>window.StarlightThemeProvider = (() => { localStorage.getItem('starlight-theme'); document.documentElement.dataset.theme = 'dark'; return { updatePickers() {} }; })();</script>";
+const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}`;
 
 // Phase 13 (D17, northguild.dev's Header.astro at ade22a5): the header's two NorthGuild links and its two community
 // links, as the build renders them. The wording "(opens in a new tab)" is northguild.dev's own.
@@ -134,13 +136,13 @@ const DISCORD_LINK = community(
   "NorthGuild on Discord",
 );
 // #309 phase 4 (D2): the header's "Chat with Dox" crystal link (gmt's Header.astro) is first in the right group, ahead of the
-// theme toggle; on /dox it is the current page. The mobile menu carries a copy before the social icons (gmt's
+// gear; on /dox it is the current page. The mobile menu carries a copy before the social icons (gmt's
 // MobileMenuFooter.astro), on the pages that have a sidebar.
 const DOX_HREF = "/worktree/dox/";
 const doxLink = (current = false) =>
   `<a href="${DOX_HREF}" class="header-chip dox-link" aria-label="Chat with Dox" title="Chat with Dox"${current ? ' aria-current="page"' : ""}><svg aria-hidden="true" focusable="false"></svg></a>`;
 const header = (parts = {}) =>
-  `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.dox ?? doxLink()}${parts.theme ?? THEME_SELECT}${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}</header>`;
+  `<header class="header"><div class="brand">${parts.northguild ?? NORTHGUILD_LINK}<span aria-hidden="true">/</span>${parts.product ?? PRODUCT_LINK}</div>${parts.dox ?? doxLink()}${parts.github ?? GITHUB_LINK}${parts.discord ?? DISCORD_LINK}${parts.settings ?? SETTINGS_BUTTON}</header>`;
 const HEADER = header();
 const MOBILE_MENU = `<div class="mobile-preferences sl-flex"><div class="social-icons">${doxLink()}${GITHUB_LINK}${DISCORD_LINK}</div></div>`;
 
@@ -155,7 +157,23 @@ const LANDING_HEADER = HEADER.replace(
   `<header class="header" data-landing-entrance>${ENTRANCE_SCRIPT}`,
 );
 const GATE = ":root:not([data-entrance-off]) .header[data-landing-entrance]";
-const ENTRANCE_CSS = `@media (prefers-reduced-motion:no-preference){@keyframes header-entrance-fade{from{opacity:0;transform:translateY(.75rem)}}@keyframes header-entrance-ink{from{color:#888}}${GATE} .brand>:is(.slash,.product-line){animation:header-entrance-fade .6s backwards}${GATE} site-search>button[data-open-modal]{animation:header-entrance-fade .6s backwards}${GATE} a.header-chip{animation:header-entrance-ink .5s backwards}}`;
+// #352 D16: the entrance's built CSS as custom.css writes it. Title, search and Dox fade; the colour pass paints Dox, GitHub,
+// Discord, gear in that order at `--entrance-ink-start + n * --entrance-ink-step`, starting (1.4s) after the Dox fade has
+// ended (0.6s delay + 0.6s duration = 1.2s); GitHub, Discord and the gear do not fade. `entranceChips` takes each chip's
+// animation so a test can break one alone.
+const ENTRANCE_VARS = `${GATE}{--entrance-fade-duration:.6s;--entrance-fade-delay-title:.3s;--entrance-fade-delay-search:.45s;--entrance-fade-delay-dox:.6s;--entrance-ink-start:1.4s;--entrance-ink-step:.15s;--entrance-ink-duration:.5s}`;
+const ENTRANCE_FADE_DOX =
+  "header-entrance-fade var(--entrance-fade-duration) cubic-bezier(.22, 1, .36, 1) var(--entrance-fade-delay-dox) backwards";
+const entranceInk = (n) =>
+  `header-entrance-ink var(--entrance-ink-duration) ease-out ${n === 0 ? "var(--entrance-ink-start)" : `calc(var(--entrance-ink-start) + ${n === 1 ? "" : `${n} * `}var(--entrance-ink-step))`} backwards`;
+const entranceChips = ({
+  dox = `${ENTRANCE_FADE_DOX}, ${entranceInk(0)}`,
+  github = entranceInk(1),
+  discord = entranceInk(2),
+  gear = entranceInk(3),
+} = {}) =>
+  `${GATE} a.dox-link{animation:${dox}}${GATE} a.header-chip:not(.dox-link){animation:${github}}${GATE} a.header-chip:not(.dox-link)+a.header-chip{animation:${discord}}${GATE} .settings-toggle{animation:${gear}}`;
+const ENTRANCE_CSS = `@media (prefers-reduced-motion:no-preference){@keyframes header-entrance-fade{from{opacity:0;transform:translateY(.75rem)}}@keyframes header-entrance-ink{from{color:var(--gmt-ice-dim)}}${ENTRANCE_VARS}${GATE} .brand>:is(.slash,.product-line){animation:header-entrance-fade .6s backwards}${GATE} site-search>button[data-open-modal]{animation:header-entrance-fade .6s backwards}${entranceChips()}}`;
 
 // Phase 15 (the user, 2026-11-04): the landing is the hero alone, with no footer, so it carries no date; every other
 // page keeps one. And no page carries the project line, the footer's licence, version and
@@ -295,14 +313,14 @@ function notFoundPage(overrides = {}) {
 
 // #309 phase 1 (D6): `/dox/` is built by Astro as a StarlightPage that is not one of the 28 pages. What it carries is what
 // the build renders (read off dist/dox/index.html): `noindex`, the inline script that marks the document, the site header,
-// the search and menu buttons and the theme toggle, no footer, and one `astro-island` holding the
+// the search and menu buttons and the settings gear, no footer, and one `astro-island` holding the
 // island's chunk (`DoxPage.<hash>.js`), whose stylesheet is linked from this page alone.
 const DOX_TITLE = "Dox · @northguild/worktree";
 const DOX_SHELL_SCRIPT =
   "<script>document.documentElement.setAttribute('data-dox-shell','')</script>";
 const DOX_ISLAND =
   '<astro-island component-url="/worktree/_astro/DoxPage.mnomno.js" client="load"><svg aria-hidden="true" focusable="false"></svg></astro-island>';
-const DOX_CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${THEME_SELECT}`;
+const DOX_CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}`;
 const DOX_STYLESHEET =
   '<link rel="stylesheet" href="/worktree/_astro/dox.pqrpqr.css"/>';
 
@@ -1354,7 +1372,7 @@ describe("auditDist", () => {
         dist,
         htmlPath(path),
         page(path, {
-          controls: `${SEARCH_BUTTON}${THEME_SELECT}${controls}`,
+          controls: `${SEARCH_BUTTON}${controls}`,
         }),
       );
 
@@ -1638,103 +1656,72 @@ describe("sourcePathOf", () => {
 // Phase 13. The header's expected links come from D17 (the mark and "NorthGuild" to https://northguild.dev/, "worktree" to
 // /worktree/) and from northguild.dev's Header.astro at ade22a5 (the GitHub and Discord hrefs, the new-tab wording). That a
 // name contains the visible text is WCAG 2.2 SC 2.5.3; that a control has a name at all is SC 4.1.2.
-describe("the theme toggle (#266)", () => {
-  // The header carries a toggle of its own, so a page "with no theme select" has neither it nor the menu's.
-  const withControls = async (path, controls) => {
-    await write(
-      dist,
-      htmlPath(path),
-      page(path, {
-        controls,
-        header: controls.includes("starlight-theme-select")
-          ? HEADER
-          : header({ theme: "" }),
-      }),
-    );
-    return audit();
-  };
+describe("the theme control (#352)", () => {
   const withProvider = async (provider) => {
     await write(dist, htmlPath("faq"), page("faq", { provider }));
     return audit();
   };
-  const without = (html) => CONTROLS.replace(THEME_SELECT, html);
+  const withHeader = async (html, path = "faq") => {
+    await write(dist, htmlPath(path), page(path, { header: html }));
+    return audit();
+  };
 
-  it("passes a named button in the starlight-theme-select and an inline provider", async () => {
+  it("passes a page with the gear, no theme select, and an inline provider", async () => {
     expect(await audit()).toEqual([]);
   });
 
-  it("fails a page with no starlight-theme-select", async () => {
-    const failures = await withControls("faq", without(""));
-    expect(failures.some((f) => /faq.*0 starlight-theme-select/.test(f))).toBe(
-      true,
+  it("fails a page that still has a starlight-theme-select, in the body or the mobile menu", async () => {
+    await write(
+      dist,
+      htmlPath("faq"),
+      page("faq", {
+        menu: `${MOBILE_MENU}<starlight-theme-select><select></select></starlight-theme-select>`,
+      }),
     );
-  });
-
-  // Starlight renders ThemeSelect in the header and again in the mobile menu, so two on a page is what the build has.
-  it("passes the header's and the mobile menu's theme select together", async () => {
     expect(
-      await withControls("faq", without(THEME_SELECT + THEME_SELECT)),
-    ).toEqual([]);
+      (await audit()).some((f) => /faq.*1 starlight-theme-select/.test(f)),
+    ).toBe(true);
   });
 
-  it("fails the second theme select when it is the one without a button", async () => {
-    const failures = await withControls(
-      "faq",
-      without(
-        `${THEME_SELECT}<starlight-theme-select></starlight-theme-select>`,
-      ),
+  it("fails a header that holds a starlight-theme-select", async () => {
+    const failures = await withHeader(
+      header({
+        settings: `${SETTINGS_BUTTON}<starlight-theme-select></starlight-theme-select>`,
+      }),
     );
-    expect(failures.some((f) => /faq.*0 <button>/.test(f))).toBe(true);
-  });
-
-  it("fails a theme select that holds a <select>, as Starlight's own does", async () => {
-    const failures = await withControls(
-      "faq",
-      without(
-        '<starlight-theme-select><label><span class="sr-only">Select theme</span><select><option>Dark</option></select></label></starlight-theme-select>',
-      ),
-    );
-    expect(failures.some((f) => /faq.*<select>/.test(f))).toBe(true);
-  });
-
-  it("fails a theme select with no button", async () => {
-    const failures = await withControls(
-      "faq",
-      without("<starlight-theme-select></starlight-theme-select>"),
-    );
-    expect(failures.some((f) => /faq.*0 <button>/.test(f))).toBe(true);
-  });
-
-  it("fails a theme select with two buttons", async () => {
-    const button = THEME_SELECT.replace(/<\/?starlight-theme-select>/g, "");
-    const failures = await withControls(
-      "faq",
-      without(
-        `<starlight-theme-select>${button}${button}</starlight-theme-select>`,
-      ),
-    );
-    expect(failures.some((f) => /faq.*2 <button>/.test(f))).toBe(true);
-  });
-
-  it("fails a theme button with no accessible name", async () => {
-    const failures = await withControls(
-      "faq",
-      without(
-        '<starlight-theme-select><button type="button"><svg aria-hidden="true"></svg></button></starlight-theme-select>',
-      ),
-    );
-    expect(failures.some((f) => /faq.*no accessible name/.test(f))).toBe(true);
+    expect(
+      failures.some((f) => /faq.*header:.*starlight-theme-select/.test(f)),
+    ).toBe(true);
   });
 
   it("fails the 404 on the same rules", async () => {
     await write(
       dist,
       "404.html",
-      notFoundPage({ controls: without(""), header: header({ theme: "" }) }),
+      notFoundPage({
+        controls: `${CONTROLS}<starlight-theme-select></starlight-theme-select>`,
+      }),
+    );
+    expect(
+      (await audit()).some((f) => /404\.html.*starlight-theme-select/.test(f)),
+    ).toBe(true);
+  });
+
+  // The mobile menu has no copy of the gear (#352 D1): a second "Settings" button is a failure.
+  it("fails a second button named Settings, as a copy in the mobile menu would be", async () => {
+    await write(
+      dist,
+      htmlPath("faq"),
+      page("faq", {
+        menu: MOBILE_MENU.replace(
+          "</div></div>",
+          `</div>${SETTINGS_BUTTON.replace(/ id="[^"]*"/g, "")}</div>`,
+        ),
+      }),
     );
     expect(
       (await audit()).some((f) =>
-        /404\.html.*0 starlight-theme-select/.test(f),
+        /faq.*2 buttons named "Settings" on the page/.test(f),
       ),
     ).toBe(true);
   });
@@ -1763,18 +1750,26 @@ describe("the theme toggle (#266)", () => {
   });
 
   // Shaped like Starlight 0.42.8's own ThemeProvider.astro:7-31: defines window.StarlightThemeProvider and updates a
-  // <select> through picker.querySelector('select'), not a button. A build that lost the override has this.
-  it("fails Starlight's own provider, which updates a select and not the toggle", async () => {
+  // <select> through picker.querySelector('select'). A build that lost the override has this.
+  it("fails Starlight's own provider, which looks for a select", async () => {
     const failures = await withProvider(
       "<script>window.StarlightThemeProvider = (() => { const storedTheme = localStorage.getItem('starlight-theme'); return { updatePickers(theme) { document.querySelectorAll('starlight-theme-select').forEach((picker) => { const select = picker.querySelector('select'); if (select) select.value = theme; }); } }; })();</script>",
     );
     expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
   });
 
-  // D2: the key is Starlight's `starlight-theme`; another key would reset every returning visitor's choice.
+  // D4: the key is Starlight's `starlight-theme`; another key would reset every returning visitor's choice.
   it("fails a provider that reads another storage key", async () => {
     const failures = await withProvider(
       THEME_PROVIDER.replace("'starlight-theme'", "'theme'"),
+    );
+    expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
+  });
+
+  // Starlight's Page.astro may call `StarlightThemeProvider.updatePickers`, so the provider must still define it.
+  it("fails a provider with no updatePickers", async () => {
+    const failures = await withProvider(
+      THEME_PROVIDER.replace("updatePickers() {}", ""),
     );
     expect(failures.some((f) => /faq.*theme provider/.test(f))).toBe(true);
   });
@@ -1783,6 +1778,93 @@ describe("the theme toggle (#266)", () => {
     await write(dist, "404.html", notFoundPage({ provider: "" }));
     expect(
       (await audit()).some((f) => /404\.html.*theme provider/.test(f)),
+    ).toBe(true);
+  });
+
+  // The gear itself: the header holds exactly one button named Settings, with a popovertarget naming a [popover].
+  it("fails a header with no gear", async () => {
+    const failures = await withHeader(header({ settings: "" }));
+    expect(
+      failures.some((f) => /faq.*header: 0 buttons named "Settings"/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a header with two gears", async () => {
+    const failures = await withHeader(
+      header({ settings: SETTINGS_BUTTON + SETTINGS_BUTTON }),
+    );
+    expect(
+      failures.some((f) => /faq.*header: 2 buttons named "Settings"/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a gear with no popovertarget", async () => {
+    const failures = await withHeader(
+      header({
+        settings: SETTINGS_BUTTON.replace(' popovertarget="settings-pop"', ""),
+      }),
+    );
+    expect(failures.some((f) => /faq.*header:.*no popovertarget/.test(f))).toBe(
+      true,
+    );
+  });
+
+  it("fails a gear whose popovertarget names nothing that is a popover", async () => {
+    const failures = await withHeader(
+      header({ settings: SETTINGS_BUTTON.replace(" popover ", " ") }),
+    );
+    expect(
+      failures.some((f) => /faq.*header:.*names no \[popover\]/.test(f)),
+    ).toBe(true);
+  });
+
+  it("fails a gear that is not named Settings", async () => {
+    const failures = await withHeader(
+      header({
+        settings: SETTINGS_BUTTON.replace(
+          'aria-label="Settings" title',
+          'aria-label="Preferences" title',
+        ),
+      }),
+    );
+    expect(
+      failures.some((f) => /faq.*header: 0 buttons named "Settings"/.test(f)),
+    ).toBe(true);
+  });
+
+  // D1: Dox, GitHub, Discord, then the gear. The expected order is the plan's (and GMT's bar), not the build's.
+  it("fails a header whose gear comes before GitHub", async () => {
+    const failures = await withHeader(
+      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${doxLink()}${SETTINGS_BUTTON}${GITHUB_LINK}${DISCORD_LINK}</header>`,
+    );
+    expect(
+      failures.some((f) =>
+        /faq.*header:.*gear comes before GitHub or Discord/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a header whose gear comes before Discord", async () => {
+    const failures = await withHeader(
+      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${doxLink()}${GITHUB_LINK}${SETTINGS_BUTTON}${DISCORD_LINK}</header>`,
+    );
+    expect(
+      failures.some((f) =>
+        /faq.*header:.*gear comes before GitHub or Discord/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("checks the gear on 404.html too", async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({ header: header({ settings: "" }) }),
+    );
+    expect(
+      (await audit()).some((f) =>
+        /404\.html: header: 0 buttons named "Settings"/.test(f),
+      ),
     ).toBe(true);
   });
 });
@@ -1916,45 +1998,15 @@ describe("the product header", () => {
     ).toBe(true);
   });
 
-  // #266 phase 2, D5: the order theme, GitHub, Discord is the reading and keyboard order. The expected order is the
-  // issue's acceptance criterion (the user: "theme, GitHub, Discord"), not anything the build was observed to emit.
-  it("fails a header whose GitHub link comes before the theme toggle", async () => {
-    const failures = await withHeader(
-      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${GITHUB_LINK}${THEME_SELECT}${DISCORD_LINK}</header>`,
-    );
-    expect(
-      failures.some((f) => /faq.*header:.*theme toggle.*GitHub/.test(f)),
-    ).toBe(true);
-  });
-
+  // #352 D1: GitHub before Discord is the reading and keyboard order (the gear's own order is tested with the theme
+  // control above). The expected order is the issue's: Dox, GitHub, Discord, gear.
   it("fails a header whose Discord link comes before the GitHub link", async () => {
     const failures = await withHeader(
-      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${THEME_SELECT}${DISCORD_LINK}${GITHUB_LINK}</header>`,
+      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${doxLink()}${DISCORD_LINK}${GITHUB_LINK}${SETTINGS_BUTTON}</header>`,
     );
     expect(failures.some((f) => /faq.*header:.*GitHub.*Discord/.test(f))).toBe(
       true,
     );
-  });
-
-  // The page-wide rule needs only one toggle (the mobile menu's counts); this one needs the header's own.
-  it("fails a header with no theme toggle even when the page has one elsewhere", async () => {
-    const failures = await withHeader(header({ theme: "" }));
-    expect(failures.some((f) => /faq.*header:.*no theme toggle/.test(f))).toBe(
-      true,
-    );
-  });
-
-  it("checks the order on 404.html too", async () => {
-    await write(
-      dist,
-      "404.html",
-      notFoundPage({
-        header: `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${GITHUB_LINK}${THEME_SELECT}${DISCORD_LINK}</header>`,
-      }),
-    );
-    expect(
-      (await audit()).some((f) => /404\.html: header:.*theme toggle/.test(f)),
-    ).toBe(true);
   });
 
   it("checks 404.html's header too", async () => {
@@ -1970,8 +2022,8 @@ describe("the product header", () => {
 });
 
 // #309 phase 4. Expected values: the phase's Done-when. On every built page and the 404 the header has one link to
-// /worktree/dox/ named "Chat with Dox", ahead of the theme toggle (gmt's Header.astro lists Dox, theme, then GitHub and
-// Discord); on /dox that link carries aria-current="page" and on no other page; where the page has a mobile menu, the
+// /worktree/dox/ named "Chat with Dox", ahead of GitHub, Discord and the gear (gmt's Header.astro lists Dox, then GitHub and
+// Discord, then settings); on /dox that link carries aria-current="page" and on no other page; where the page has a mobile menu, the
 // menu has the same link before the social icons (gmt's MobileMenuFooter.astro). WCAG 2.2 SC 2.5.3 holds the name to
 // the visible text (an icon has none, so the name is free), SC 1.4.1 is why the current page is told by an attribute.
 describe("the Dox link (#309 phase 4)", () => {
@@ -2016,18 +2068,20 @@ describe("the Dox link (#309 phase 4)", () => {
     );
   });
 
-  it("fails a Dox link that comes after the theme toggle", async () => {
+  it("fails a Dox link that comes after the gear", async () => {
     const failures = await withHeader(
       header({ dox: "" }).replace("</header>", `${doxLink()}</header>`),
     );
     expect(
-      failures.some((f) => /faq.*header:.*Dox link.*theme toggle/.test(f)),
+      failures.some((f) =>
+        /faq.*header:.*Dox link.*GitHub or the gear/.test(f),
+      ),
     ).toBe(true);
   });
 
   it("fails a Dox link that comes after GitHub, as the right group reads Dox first", async () => {
     const failures = await withHeader(
-      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${GITHUB_LINK}${doxLink()}${THEME_SELECT}${DISCORD_LINK}</header>`,
+      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div>${GITHUB_LINK}${doxLink()}${DISCORD_LINK}${SETTINGS_BUTTON}</header>`,
     );
     expect(failures.some((f) => /faq.*header:.*Dox link/.test(f))).toBe(true);
   });
@@ -2668,11 +2722,13 @@ describe("the landing header's entrance (#266)", () => {
 
   it("fails an animation of the entrance applied outside the query", async () => {
     await css(
-      `${ENTRANCE_CSS}.header .theme-toggle{animation:header-entrance-ink .5s backwards}`,
+      `${ENTRANCE_CSS}.header .settings-toggle{animation:header-entrance-ink .5s backwards}`,
     );
     expect(
       (await audit()).some((f) =>
-        /\.theme-toggle.*header-entrance-ink.*prefers-reduced-motion/.test(f),
+        /\.settings-toggle.*header-entrance-ink.*prefers-reduced-motion/.test(
+          f,
+        ),
       ),
     ).toBe(true);
   });
@@ -2686,7 +2742,8 @@ describe("the landing header's entrance (#266)", () => {
 
   it.each([
     [".header .title-wrapper{opacity:0}"],
-    ["header .theme-toggle{opacity:0%}"],
+    ["header .settings-toggle{opacity:0%}"],
+    [".header a.dox-link{opacity:0}"],
     ["@media (min-width:50rem){.header-chip{opacity:0!important}}"],
     [
       "@media (prefers-reduced-motion:no-preference){.header[data-landing-entrance] site-search button{opacity:0}}",
@@ -2738,6 +2795,139 @@ describe("the landing header's entrance (#266)", () => {
     expect((await audit()).some((f) => /keeps an end state/.test(f))).toBe(
       true,
     );
+  });
+
+  // #352 D16 (the owner, 2026-11-19): the Dox link fades and takes the colour pass; the gear takes the colour pass and does
+  // not fade; the pass paints Dox, GitHub, Discord, gear in that order, once the Dox fade has ended; every chip starts grey.
+  describe("the chips' fade and colour pass (#352, D16)", () => {
+    const chips = (parts) =>
+      css(
+        ENTRANCE_CSS.replace(entranceChips(), "").replace(
+          /}$/,
+          `${entranceChips(parts)}}`,
+        ),
+      );
+
+    it("passes the build's chips: Dox fades and is painted first, the gear is painted last and does not fade", async () => {
+      await chips({});
+      expect(await audit()).toEqual([]);
+    });
+
+    it("fails a Dox link with no fade", async () => {
+      await chips({ dox: entranceInk(0) });
+      expect(
+        (await audit()).some((f) => /the Dox link has no fade/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails a Dox link with no colour pass", async () => {
+      await chips({ dox: ENTRANCE_FADE_DOX });
+      expect(
+        (await audit()).some((f) => /the Dox link has no colour pass/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails a gear with a fade", async () => {
+      await chips({ gear: `${ENTRANCE_FADE_DOX}, ${entranceInk(3)}` });
+      expect(
+        (await audit()).some((f) => /the settings gear has a fade/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails a gear with no colour pass", async () => {
+      await css(
+        ENTRANCE_CSS.replace(
+          `${GATE} .settings-toggle{animation:${entranceInk(3)}}`,
+          "",
+        ),
+      );
+      expect(
+        (await audit()).some((f) =>
+          /the settings gear has no colour pass/.test(f),
+        ),
+      ).toBe(true);
+    });
+
+    it.each([
+      ["GitHub", { github: entranceInk(0) }],
+      ["Discord", { discord: entranceInk(0) }],
+      ["the gear", { gear: entranceInk(1) }],
+      ["Dox", { dox: `${ENTRANCE_FADE_DOX}, ${entranceInk(2)}` }],
+    ])("fails a colour pass whose delays are out of order (%s)", async (_name, parts) => {
+      await chips(parts);
+      expect(
+        (await audit()).some((f) =>
+          /not in the order Dox < GitHub < Discord < gear/.test(f),
+        ),
+      ).toBe(true);
+    });
+
+    it("fails equal delays, as one chip must not be painted with another", async () => {
+      await chips({ discord: entranceInk(1) });
+      expect(
+        (await audit()).some((f) => /not in the order Dox < GitHub/.test(f)),
+      ).toBe(true);
+    });
+
+    it("reads the delays from the custom properties, so a changed --entrance-ink-step that reverses nothing still passes", async () => {
+      await css(
+        ENTRANCE_CSS.replace(
+          "--entrance-ink-step:.15s",
+          "--entrance-ink-step:.4s",
+        ),
+      );
+      expect(await audit()).toEqual([]);
+    });
+
+    it("fails a zero --entrance-ink-step, which paints GitHub, Discord and the gear together", async () => {
+      await css(
+        ENTRANCE_CSS.replace(
+          "--entrance-ink-step:.15s",
+          "--entrance-ink-step:0s",
+        ),
+      );
+      expect(
+        (await audit()).some((f) => /not in the order Dox < GitHub/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails a colour pass that starts before the Dox fade has ended", async () => {
+      // The fade ends at 0.6s + 0.6s = 1.2s; a pass starting at 1.0s overlaps it.
+      await css(
+        ENTRANCE_CSS.replace(
+          "--entrance-ink-start:1.4s",
+          "--entrance-ink-start:1s",
+        ),
+      );
+      expect(
+        (await audit()).some((f) =>
+          /before the Dox fade ends at 1\.2s/.test(f),
+        ),
+      ).toBe(true);
+    });
+
+    it("fails keyframes that do not start from the grey", async () => {
+      await css(
+        ENTRANCE_CSS.replace(
+          "from{color:var(--gmt-ice-dim)}",
+          "from{color:#888}",
+        ),
+      );
+      expect(
+        (await audit()).some((f) =>
+          /does not start from var\(--gmt-ice-dim\)/.test(f),
+        ),
+      ).toBe(true);
+    });
+
+    it("fails a chip's animation with no backwards fill, which would show it in the accent before the pass", async () => {
+      await chips({ github: entranceInk(1).replace(" backwards", "") });
+      expect(
+        (await audit()).some((f) =>
+          /GitHub is not grey from the first paint/.test(f),
+        ),
+      ).toBe(true);
+    });
   });
 
   it("fails an entrance keyframe that animates anything but opacity, transform and color", async () => {
@@ -2862,7 +3052,7 @@ describe("the Dox page (#309)", () => {
 
   it("fails a page with no search button", async () => {
     const failures = await withDox({
-      controls: `${MENU_BUTTON}${THEME_SELECT}`,
+      controls: `${MENU_BUTTON}`,
     });
     expect(failures.some((f) => /no search button/.test(f))).toBe(true);
   });

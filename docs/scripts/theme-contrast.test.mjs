@@ -179,8 +179,8 @@ describe("every pair the theme puts on screen", () => {
 });
 
 // Plan #309 Phase 4: the links to /dox are measured on the surfaces they sit on. The thresholds are WCAG 2.2's (an icon, a
-// ring or a bar that marks the current page is a graphical object, 3:1; text, 4.5:1). The header's glass is what the theme
-// toggle's icon is measured on, so the Dox crystal is measured on the same.
+// ring or a bar that marks the current page is a graphical object, 3:1; text, 4.5:1). The header's glass is what the settings
+// gear's icon is measured on, so the Dox crystal is measured on the same.
 describe("the links to /dox (the header, the menu and the landing)", () => {
   const named = (name) => PAIRS.find((p) => p.name === name);
 
@@ -194,12 +194,12 @@ describe("the links to /dox (the header, the menu and the landing)", () => {
     expect(named(name)?.kind).toBe(kind);
   });
 
-  it("measures the icon in the colour the theme toggle's is, on the same header glass", () => {
+  it("measures the icon in the colour the gear's is, on the same header glass", () => {
     expect(named("header: Dox link icon")?.fg).toBe(
-      named("header: theme toggle icon")?.fg,
+      named("header: settings gear icon")?.fg,
     );
     expect(named("header: Dox link icon")?.bg).toEqual(
-      named("header: theme toggle icon")?.bg,
+      named("header: settings gear icon")?.bg,
     );
   });
 
@@ -364,5 +364,80 @@ describe("the hive's pairs (the Dox page)", () => {
       expect(measure(theme, [edge])[0].ratio).toBeGreaterThanOrEqual(
         NON_TEXT_MIN,
       );
+  });
+});
+
+// Plan #352 Phase 2: the settings gear and the "Dark theme" switch (D1, D3). The tier is WCAG 2.2 SC 1.4.11, 3:1, for a control's
+// boundary, a glyph and the part of a control that shows its state. The figures below are worked from the WCAG relative-luminance
+// formula outside this codebase (a short script of the formula, on the token values in tokens.css and tokens-light.css, which are
+// the vendored values at ade22a5): panel `--gmt-surface-2` is #0a1a24 (dark) and #ececec (light); `--gmt-ice-dim` is #98b2be and
+// #4b4b4b; the track is ice-dim at 22% (off) or spring at 30% (on) over the panel; the leaf's edge is spring #4ade80 over the "on"
+// track in dark, and #166534 over the "off" track in light (a dark theme shows the switch on, a light theme off).
+describe("the settings gear and its switch (#352)", () => {
+  const named = (name) => PAIRS.find((p) => p.name === name);
+  const ratio = (theme, name) =>
+    measure(theme, [named(name)], themeProperties(theme))[0].ratio;
+
+  it.each([
+    "header: settings gear icon",
+    "settings: the switch's track edge on the panel",
+    "settings: the switch's leaf edge on its track",
+  ])("measures %s as a graphical object, 3:1", (name) => {
+    expect(named(name)?.kind).toBe("non-text");
+    expect(named(name)?.min).toBe(NON_TEXT_MIN);
+  });
+
+  it("no longer measures the theme toggle, which is gone", () => {
+    expect(PAIRS.filter((p) => /theme toggle/.test(p.name))).toEqual([]);
+  });
+
+  for (const theme of ["dark", "light"]) {
+    it(`meets 3:1 on every new pair in the ${theme} theme`, () => {
+      const properties = themeProperties(theme);
+      const fresh = PAIRS.filter((p) => /settings/.test(p.name));
+      expect(fresh.length).toBeGreaterThanOrEqual(3);
+      expect(
+        measure(theme, fresh, properties)
+          .filter((m) => m.ratio < m.min)
+          .map((m) => `${m.name}: ${m.ratio.toFixed(2)}`),
+      ).toEqual([]);
+    });
+  }
+
+  it("measures the track's edge on the panel at 7.96:1 in dark and 7.38:1 in light", () => {
+    expect(
+      ratio("dark", "settings: the switch's track edge on the panel"),
+    ).toBeCloseTo(7.96, 1);
+    expect(
+      ratio("light", "settings: the switch's track edge on the panel"),
+    ).toBeCloseTo(7.38, 1);
+  });
+
+  it("measures the leaf's edge on its track at 4.97:1 in dark (on) and 4.31:1 in light (off)", () => {
+    expect(
+      ratio("dark", "settings: the switch's leaf edge on its track"),
+    ).toBeCloseTo(4.97, 1);
+    expect(
+      ratio("light", "settings: the switch's leaf edge on its track"),
+    ).toBeCloseTo(4.31, 1);
+  });
+
+  it("reads the switch's own tokens from settings-control.css, not the hero's, so they exist on every page", () => {
+    for (const theme of ["dark", "light"])
+      expect(themeProperties(theme).has("--switch-leaf-deep")).toBe(true);
+    expect(themeProperties("light").get("--switch-leaf-pale")).toBe("#86efac");
+    expect(themeProperties("dark").get("--switch-leaf-pale")).toBe("#bbf7d0");
+  });
+
+  it("lets a pair name a different background for each theme", () => {
+    const pair = {
+      name: "x",
+      fg: "#000000",
+      bg: { dark: ["#ffffff"], light: ["#000000"] },
+      min: NON_TEXT_MIN,
+      kind: "non-text",
+    };
+    expect(measure("dark", [pair], new Map())[0].ratio).toBeCloseTo(21, 5);
+    expect(measure("light", [pair], new Map())[0].ratio).toBeCloseTo(1, 5);
   });
 });

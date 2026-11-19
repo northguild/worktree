@@ -103,11 +103,11 @@ export default defineConfig({
         // Discord pair. Header.astro renders both, and the mobile menu renders SocialIcons again.
         SiteTitle: "./src/components/SiteTitle.astro",
         SocialIcons: "./src/components/SocialIcons.astro",
-        // The theme control is a two-state toggle (#266, D1/D3): the button, and the provider that sets and draws it. Both
-        // are needed: Starlight's provider updates a <select>, which the button is not. The mobile menu renders ThemeSelect too.
-        ThemeSelect: "./src/components/ThemeSelect.astro",
+        // The provider sets `data-theme` before first paint by GMT's rule (#266 D3, #352 D4). It is needed: Starlight's
+        // updates a <select>, and there is none. There is no ThemeSelect override since #352: the theme control is the
+        // "Dark theme" switch in the settings gear's panel (SettingsControl.astro), which Header.astro renders.
         ThemeProvider: "./src/components/ThemeProvider.astro",
-        // The header's right group reads theme, language select, GitHub, Discord (#266, D5); Starlight's puts GitHub first.
+        // The header's right group reads Dox, language select, GitHub, Discord, settings gear (#352, D1); Starlight's puts GitHub first.
         Header: "./src/components/Header.astro",
         // The mobile menu repeats the header's "Chat with Dox" link before the social icons (#309 D2): the right group is hidden on a phone.
         MobileMenuFooter: "./src/components/MobileMenuFooter.astro",

@@ -1,0 +1,184 @@
+/*
+ * The header's settings control: the panel under the gear and the "Dark theme" switch (SettingsControl.astro; plan #352,
+ * D2 and D3). The gear itself is the shared `.header-chip` in custom.css.
+ *
+ * The panel's structure (a top-layer panel anchored under the button, right-aligned, inside a 1rem gutter down to
+ * 320px) is gmt's apps/dox/src/components/settings-control.module.css at commit d6031ecd. Its look is not: round shapes
+ * and this site's tokens, no `corner-shape: bevel`, no ice (D2).
+ *
+ * The switch is "Turning leaf" (D3), from prototypes/settings-gear/sound-audition.html (SWITCHES[1]): a pill whose knob
+ * is a leaf that slides and turns over, its pale face for light, its deep face for dark. It makes no sound.
+ *
+ * INVENTED tokens (the audition board's, marked there as invented): the switch's track, its two states and the
+ * leaf's faces and edges. The leaf's two greens are the hero's `--leaf-vein` and `--leaf-deep` (HeroLeaves.astro, with
+ * the same values in each theme), restated here as `--switch-*` because HeroLeaves' stylesheet reaches the landing
+ * alone and this one is on every page. A pair that is a switch state is held to its tier by theme-contrast.mjs, which
+ * reads this file: keep the `:root` and `[data-theme="light"]` blocks top-level.
+ */
+
+:root {
+  /* Dark theme: the switch is on, so its leaf shows the deep face, edged in the spring. */
+  --switch-leaf-pale: #bbf7d0;
+  --switch-leaf-deep: #166534;
+  --switch-leaf-edge-off: #166534;
+  --switch-leaf-edge-on: var(--gmt-spring);
+  --switch-track-off: color-mix(in srgb, var(--gmt-ice-dim) 22%, transparent);
+  --switch-track-on: color-mix(in srgb, var(--gmt-spring) 30%, transparent);
+  --switch-track-edge: var(--gmt-ice-dim);
+  --settings-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme="light"] {
+  --switch-leaf-pale: #86efac;
+  --switch-leaf-deep: #14532d;
+  --switch-leaf-edge-off: #166534;
+}
+
+.settings-control {
+  display: flex;
+  align-items: center;
+}
+
+/* A top-layer panel under the button, inside the viewport down to 320px. Fixed insets are the fallback where anchor
+   positioning is missing; they sit under the bar's right end. */
+.settings-pop {
+  box-sizing: border-box;
+  inline-size: min(16rem, calc(100vw - 2rem));
+  inset: auto;
+  inset-block-start: calc(var(--sl-nav-height, 3.5rem) + 0.25rem);
+  inset-inline-end: 1rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--gmt-border);
+  border-radius: var(--gmt-radius-lg);
+  background: var(--gmt-surface-2);
+  color: var(--gmt-ice);
+  font-size: var(--gmt-text-sm, 0.875rem);
+  overflow: visible;
+}
+.settings-pop:popover-open {
+  display: grid;
+  gap: 1.25rem;
+}
+
+/* A switch row reads as a setting does everywhere: its words at the start, the switch at the end. */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.leaf-switch {
+  position: relative;
+  flex: none;
+  inline-size: 2.9rem;
+  block-size: 1.6rem;
+}
+/* The input is the control and sits over the drawing, invisible: it takes the press, the focus and the keys. */
+.leaf-switch input {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.leaf-switch svg {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.leaf-switch-track {
+  fill: var(--switch-track-off);
+  stroke: var(--switch-track-edge);
+  stroke-width: 1;
+}
+.leaf-switch-blade {
+  fill: var(--switch-leaf-pale);
+  stroke: var(--switch-leaf-edge-off);
+  stroke-width: 1.2;
+}
+.leaf-switch-midrib {
+  fill: none;
+  stroke: var(--switch-leaf-edge-off);
+  stroke-width: 1;
+}
+.leaf-switch-leaf {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.leaf-switch input:checked + svg .leaf-switch-track {
+  fill: var(--switch-track-on);
+}
+.leaf-switch input:checked + svg .leaf-switch-blade {
+  fill: var(--switch-leaf-deep);
+  stroke: var(--switch-leaf-edge-on);
+}
+.leaf-switch input:checked + svg .leaf-switch-midrib {
+  stroke: var(--switch-leaf-edge-on);
+}
+.leaf-switch input:checked + svg .leaf-switch-leaf {
+  transform: translateX(20px) rotate(180deg);
+}
+.leaf-switch input:focus-visible + svg .leaf-switch-track {
+  stroke: var(--gmt-spring-ink);
+  stroke-width: 2.5;
+}
+
+/* Colour and position change on a press, and only where motion is welcome. */
+@media (prefers-reduced-motion: no-preference) {
+  .leaf-switch-track,
+  .leaf-switch-blade,
+  .leaf-switch-midrib {
+    transition:
+      fill 320ms,
+      stroke 320ms;
+  }
+  .leaf-switch-leaf {
+    transition: transform 320ms var(--settings-ease);
+  }
+}
+
+@supports (position-area: bottom) {
+  .settings-toggle {
+    anchor-name: --settings-gear;
+  }
+
+  .settings-pop {
+    position-anchor: --settings-gear;
+    position-area: bottom span-left;
+
+    /* Right-aligned to the button where it fits; on a narrow bar, where that would reach the window's 1rem gutter
+       (the margin), centred under the button instead. */
+    position-try-fallbacks: bottom;
+    inset: auto;
+    margin-block-start: 0.25rem;
+    margin-inline-start: 1rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .settings-pop {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .leaf-switch-track,
+  .leaf-switch-blade,
+  .leaf-switch-midrib {
+    stroke: CanvasText;
+  }
+  .leaf-switch-track,
+  .leaf-switch-blade {
+    fill: Canvas;
+  }
+  .leaf-switch input:checked + svg .leaf-switch-blade {
+    fill: Highlight;
+  }
+}
