@@ -37,7 +37,7 @@ Read [`context/workflow.md`](../../../context/workflow.md) for the tier model.
 |---|---|
 | [`context/verify.md`](../../../context/verify.md) | the real Lint / Typecheck / Build / Test commands, plus whatever else a phase should pass — **only ones that exited 0** |
 | [`context/executors.md`](../../../context/executors.md) | how this project dispatches a coder and a reviewer, and the exact command that makes a branch or a worktree |
-| [`context/git.md`](../../../context/git.md) | who commits, where work lands, whether it is pushed, and at what granularity |
+| [`context/git.md`](../../../context/git.md) | who commits, where work lands, whether it is pushed, what a pull request carries, and at what granularity |
 | [`context/tracking.md`](../../../context/tracking.md) | where the backlog, the plans and the phase ledgers live |
 | [`context/release.md`](../../../context/release.md) | what a change here announces and to whom, what records a note, and how often |
 | [`context/stack.md`](../../../context/stack.md) | runtime, layout, conventions, and the index of where this project documents itself |
@@ -192,11 +192,24 @@ and say that either answer can be set on its own if none of the three fits:
 **Anything past the first shape needs the agent to commit.** A branch nobody commits to is an empty branch.
 If the answers collide, say so and ask again rather than writing a pair that cannot both be true.
 
-Write the chosen answer in each of the four sections — the shipped line where it stands, and the paragraph
+**Then, and only where a pull request is in that answer, ask what one carries.** This is the fifth
+section — *What a pull request carries* — and it is the shape of the artifact rather than a permission, so
+it is asked as a follow-up to the question above rather than as a question of its own. A project that
+pushes nothing has nothing to label and is never asked:
+
+- **No label** — the default, and what the stub ships saying.
+- **A label.** Where this project has one that asks for a review — an automated reviewer that triggers on
+  it, say an `ai-review`, or a queue somebody watches — take the literal name and **check it exists in this
+  repository before writing it down.** A guessed label fails when it is used rather than when it is
+  written. Say what answers it, in a clause, for the next reader of the file. `/orchestrate --pr` is the
+  command that most depends on this one: it stays to answer the review the label asks for.
+
+Write the chosen answer in each of the five sections — the shipped line where it stands, and the paragraph
 pasted from [`context/git.notes.md`](../../../context/git.notes.md) where it does not — and delete what it
-replaces. Keep the **Under the worktree answer** subsection only under that answer; delete it otherwise. If
+replaces. **Where the file predates a section, the sentences that count them are part of that edit**: a
+`git.md` still saying *four answers* above five of them is read by the next reader as the file's own word. Keep the **Under the worktree answer** subsection only under that answer; delete it otherwise. If
 `context/git.md` does not exist — an install from before it shipped — create it from those notes with all
-four sections, **What no answer here authorises**, and the rules that hold either way.
+five sections, **What no answer here authorises**, and the rules that hold either way.
 
 **Never negotiate away *What no answer here authorises*.** It is not one of the questions. Whatever is
 chosen above, that section is written out as shipped: the answers cover the workflow's own commands at the

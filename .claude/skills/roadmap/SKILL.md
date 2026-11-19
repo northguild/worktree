@@ -1,9 +1,6 @@
 ---
 name: roadmap
-description: "Print the Tier-1 feature backlog, or append one new pending entry to it — in context/roadmap.md, or in the issue tracker where context/tracking.md says so. Explicit invocation only — run this when the user types /roadmap. Do NOT match on general planning talk, 'what should we build next', or any request to design, plan, or implement a feature."
-disable-model-invocation: true
-model: sonnet
-effort: low
+description: "Print the Tier-1 feature backlog, or append one new pending entry to it — in context/roadmap.md, or in the issue tracker where context/tracking.md says so. Run this when the user types /roadmap, when they ask in their own words for something to go on the backlog, or when a gate's finding is work context/workflow.md routes here. Do NOT match on general planning talk, 'what should we build next', an idea of your own, or any request to design, plan, or implement a feature."
 ---
 
 # /roadmap
@@ -28,6 +25,16 @@ file names the tracker, read [`tracker.md`](tracker.md) beside this file before 
 /roadmap #123         # adopt an existing issue — tracker answer only
 ```
 
+## When nobody typed it
+
+**This is the one command you may run yourself**, in two cases and no third: the user asked, in their own
+words, for something to go on the backlog; or a gate's non-blocking observation is work you would want a
+`history.md` row for, which [`context/workflow.md`](../../../context/workflow.md) routes here. An idea of
+your own is neither.
+
+Everything below holds unchanged, the duplicate check first. **Say that you ran it and why**, beside the
+entry you show. Under the tracker answer, [`tracker.md`](tracker.md) asks before anything is opened.
+
 ## No arguments — print the backlog
 
 1. Read `context/roadmap.md`.
@@ -36,6 +43,20 @@ file names the tracker, read [`tracker.md`](tracker.md) beside this file before 
    the `pending`/`active` marker, and reporting them as one is the mistake the two fields exist to prevent.
 4. If nothing is `active`, name `/feature-plan` as the way to get there. **Do not pick a candidate** — that
    command ranks the backlog and asks.
+5. **Count what is open outside the backlog, and list none of it** — a print of the backlog alone made a
+   repository with 56 open issues look like it had one. Wherever this project files bugs, count the open
+   issues without the backlog label, every page of the listing, under this project's own labels, and print
+   one line beneath the backlog:
+
+   ```
+   OUTSIDE THE BACKLOG (55)
+     question 49 · accessibility 4 · bug 4 · enhancement 2
+   ```
+
+   The heading counts issues; one with two labels counts under both, one with none as `no label`. Print
+   each label as named and **do not decide what it means**. **Counts, never titles, and no order** — a list
+   here is a queue for work the loop does not rank. Where bugs are filed nowhere, or the tracker cannot be
+   reached, say so in one line.
 
 **Do not** read a plan's ledger or report phase status. That is `/feature-status`. This command answers
 "what is on the list", not "what is next".

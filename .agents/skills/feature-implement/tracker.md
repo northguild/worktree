@@ -110,6 +110,18 @@ that is never written is worse than one whose evidence is still owed, and this i
 
 **Never edit a row to get past a refusal**, exactly as no phase is marked `done` to get past one.
 
+### A backlog finding, in steps 9, 13 and 14
+
+**It cannot ride the commit either.** Step 9's `/roadmap` writes no file here: nobody typed it, so it asks,
+and a yes opens the issue at once — step 13 names its number. A no, or a run that cannot ask, opens
+nothing, and step 13 says the entry was **proposed**, with the `/roadmap "…"` line to type.
+
+**Under `--all`, hold the ask until the run stops.** A question between phases is the pause the flag
+removes, and the finding is no reason to stop: it came out of a gate that passed, and the next phase reads
+nothing it would change. So `/roadmap` goes as far as the ask and opens nothing, the phase's report carries
+the entry as proposed with its line, and **the hand-back that ends the run makes every held ask**, one
+question each. A run that dies first has left the lines in its reports.
+
 ### A round of phases, in steps 6 and 11
 
 [`parallel.md`](parallel.md) holds the round itself. Three things change under this answer:

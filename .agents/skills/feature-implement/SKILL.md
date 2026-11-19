@@ -239,9 +239,11 @@ argument is *What happens to a defect the gate found* in
   [`context/workflow.md`](../../../context/workflow.md). The backlog is a list of features and this is not
   one.
 - **Not a defect, but work you would want a `history.md` row for** → that is a backlog entry, and adding
-  one is `/roadmap`'s. **Name it and say what you would add**; do not append to the backlog from here. That
+  one is `/roadmap`'s. **Run it with what you would add**; never append to the backlog by hand. That
   command applies the worth-adopting test and writes what the ranking reads, and a gate doing it by hand
-  produces neither.
+  produces neither. **Under the working-tree answer**, run it before step 12, so the entry rides this
+  phase's commit. Under the tracker answer nothing rides it: `/roadmap` asks first, then opens an issue at
+  once or nothing at all, and [`tracker.md`](tracker.md) says what each means here.
 - **Anything else** → one short entry in `context/notes.md`, naming the phase it came from. Create the file
   if it is not there. It is branch-local, it rides this phase's commit the way the ledger row does, and
   `/feature-close` deletes it whole.
@@ -309,8 +311,9 @@ feature and turns every phase after it into a force-push.
 - What changed, and which files — and whether it is committed or waiting in the tree.
 - Gate 1 output, and Gate 2's verdict.
 - Loopback counts, if any.
-- Any non-blocking observation the review raised, and where each one went — a bug, a `/roadmap` you
-  named, or `notes.md`.
+- Any non-blocking observation the review raised, and where each one went — a bug, the entry `/roadmap`
+  added, or `notes.md`. **An entry it opened nothing for was *proposed*, not added** — a tracker ask
+  declined, held or not made: say so, with the `/roadmap "…"` line to type.
 - The phase's new ledger status, and which phase is next.
 
 **When every phase is `done`, say so and name `/feature-close`.** Do not move files, stamp headers or sweep
@@ -365,6 +368,9 @@ report, and name the line that stopped you**, when:
 the user typing that one.
 
 A Gate 2 `PASS WITH NOTES` continues, and so does a `FAIL` that passes on its loopback. Only the cap stops.
+**A finding step 9 sends to `/roadmap` does not stop it either.** Under the tracker answer, where that
+command asks before opening an issue, the ask waits for the run to stop — [`tracker.md`](tracker.md) says
+what happens to the finding until then.
 
 **Never widen the flag to cover what it does not.** It runs the phases of one plan. It does not pick a
 second feature, re-plan a phase whose scope turned out wrong, or lift any refusal above — a stop list

@@ -25,7 +25,7 @@ the standing rules, and every command cites it rather than restating it.
 | `/feature-implement` | activates a planned feature and runs its phases, through both gates |
 | `/feature-status` | read-only "where do things stand". **Never a prerequisite** for anything |
 | `/feature-close` | retires a finished or abandoned feature into `context/archive/` |
-| `/orchestrate` | one ad-hoc, gated, commit-sized change — no roadmap entry, no ledger. `--pr` ends it at a pull request |
+| `/orchestrate` | one ad-hoc, gated, commit-sized change — no roadmap entry, no ledger. `--pr` ends it at a pull request and answers its review |
 | `/release` | consumes the notes waiting on the default branch into a release pull request — the one command that bumps, and only when typed |
 | `/prototype` | a throwaway HTML/CSS mockup under `prototypes/` — no gates, no ledger, no application code |
 | `/onboard` | fills in this project's own stubs — `verify.md`, `executors.md`, `git.md`, `tracking.md`, `release.md`, `stack.md` — adopting what an existing `AGENTS.md` already said |
@@ -36,7 +36,7 @@ the standing rules, and every command cites it rather than restating it.
 | [`context/stack.md`](context/stack.md) | runtime, layout, conventions, and where this project documents itself |
 | [`context/standards/README.md`](context/standards/README.md) | engineering standards — load per its conditional table |
 | [`context/verify.md`](context/verify.md) | the real lint / typecheck / build / test commands — the only file that names one |
-| [`context/git.md`](context/git.md) | who commits, where work lands, whether it is pushed, and at what granularity — read it before any `git` or `gh` command; absent, the user commits |
+| [`context/git.md`](context/git.md) | who commits, where work lands, whether it is pushed, what a pull request carries, and at what granularity — read it before any `git` or `gh` command; absent, the user commits |
 | [`context/tracking.md`](context/tracking.md) | where the backlog, the plans and the phase ledgers live — a file in `context/`, or the issue tracker |
 
 **Phase status lives in the active plan's status ledger and nowhere else.** Work the lowest-numbered phase
