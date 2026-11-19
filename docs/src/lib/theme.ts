@@ -2,7 +2,7 @@
  * The reader's theme: dark or light. Starlight's key and rule: `starlight-theme` holds a theme only
  * while it differs from the system's colour scheme; with nothing saved the page follows the
  * system, live. `ThemeProvider.astro` applies the same rule inline before first paint, and this
- * module changes it afterwards: the header's toggle and, later, the settings panel's "Dark theme" switch.
+ * module changes it afterwards: the "Dark theme" switch in the header's settings panel (`mountThemeSwitch`).
  *
  * Ported from GMT, apps/dox/src/lib/theme.ts at commit d6031ecd (plan #352, D4).
  */
