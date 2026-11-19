@@ -277,6 +277,19 @@ describe("the chat's sound: typing in the composer", () => {
     expect(cues("key")).toBe(1);
   });
 
+  it("is silent in a text field outside the composer, such as the site's search box", () => {
+    render(
+      <>
+        <DoxChat />
+        <input type="text" aria-label="Search" />
+      </>,
+    );
+    press({ key: "a" }, screen.getByLabelText("Search"));
+    expect(cues("key")).toBe(0);
+    press({ key: "a" });
+    expect(cues("key")).toBe(1);
+  });
+
   it("stops listening when the chat unmounts", () => {
     render(<DoxChat />);
     cleanup();

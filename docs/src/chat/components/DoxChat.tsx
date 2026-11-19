@@ -349,8 +349,10 @@ export function DoxChat({
       cue("done");
   }, [isStreaming, warning, answerLength]);
 
-  // The Data blip under the reader's typing, for as long as the chat is on the page.
-  useEffect(() => watchTyping(), []);
+  // The Data blip under the reader's typing in the composer, for as long as the chat is on the page.
+  useEffect(() => {
+    if (inputRef.current) return watchTyping(inputRef.current);
+  }, []);
 
   // "Try again" clears the warning, which unmounts the button the keyboard user is on, and focus would fall to the page.
   // It goes to the submit button instead, which is "Stop answer" for as long as the retry is answering. The button only

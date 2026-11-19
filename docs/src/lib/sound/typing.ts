@@ -1,7 +1,7 @@
 /**
  * The Data blip for typing: one capture-phase `keydown` listener on the document that plays `key`
- * whenever the reader types into a text field. Ported from gmt apps/dox/src/lib/sound/typing.ts at d6031ecd (plan #352,
- * D13), with that one change.
+ * whenever the reader types into the one field it is given (the Dox composer; gmt's was any text field). Ported from gmt apps/dox/src/lib/sound/typing.ts at d6031ecd (plan #352,
+ * D13), with two changes: the one field, and no blip on Enter.
  *
  * - A text field is a `<textarea>`, a contenteditable element, or an `<input>` of a text-entry
  *   type (`TYPED`). A read-only field takes no typing, so it is silent.
@@ -26,7 +26,8 @@ function isTextField(target: EventTarget | undefined): boolean {
   return target instanceof HTMLElement && target.isContentEditable;
 }
 
-export function watchTyping(): () => void {
+/** Listens for typing in `field` only: gmt's listener was site-wide, this site's is the Dox composer's alone (D13). */
+export function watchTyping(field: HTMLElement): () => void {
   const controller = new AbortController();
   document.addEventListener(
     "keydown",
@@ -34,7 +35,8 @@ export function watchTyping(): () => void {
       if (event.isComposing || event.repeat || event.ctrlKey || event.metaKey)
         return;
       // The field itself, even inside a shadow root (the document sees its host).
-      if (!isTextField(event.composedPath()[0])) return;
+      const target = event.composedPath()[0];
+      if (target !== field || !isTextField(target)) return;
       if (event.key.length === 1 || event.key === "Backspace") cue("key");
     },
     { capture: true, signal: controller.signal },
