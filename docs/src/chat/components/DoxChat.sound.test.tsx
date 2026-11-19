@@ -208,8 +208,10 @@ describe("the chat's sound: a question and its answer", () => {
     render(<DoxChat />);
     ask();
     await screen.findByText(/reached its daily limit/);
-    expect(cues("error")).toBe(1);
-    expect(sound.stopThinking).toHaveBeenCalledTimes(1);
+    // The warning renders on commit; the buzz and the thinking loop's stop are effects that run just after it, so a
+    // slow machine can see the text before them (CI did, run 44541962833).
+    await waitFor(() => expect(cues("error")).toBe(1));
+    await waitFor(() => expect(sound.stopThinking).toHaveBeenCalledTimes(1));
     expect(cues("done")).toBe(0);
   });
 
