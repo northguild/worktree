@@ -103,7 +103,7 @@ function untilLanded(
   return g;
 }
 
-/** MORPHS "A" Rustle sweep: a rustle that travels with the leaves, left to right as the wordmark is written. */
+/** MORPHS "A" Rustle sweep: one swell of rustle over the stage, panned left to right only as the wordmark is written. */
 function rustleSweep(
   c: AudioContext,
   out: AudioNode,

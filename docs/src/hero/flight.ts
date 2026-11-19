@@ -73,10 +73,13 @@ export function flight({
  * Which sound a stage makes (D11): the opening makes the gust and each later stage a change; a picture forming makes
  * none (it is not a stage), and neither does a stage re-fitted after a resize.
  */
-export function soundFor(options: {
-  quick?: boolean;
-  gustIn?: boolean;
-}): Extract<CueName, "gust" | "change"> | null {
-  if (options.quick) return null;
+export function soundFor(
+  options: {
+    quick?: boolean;
+    gustIn?: boolean;
+  },
+  soundOn: boolean,
+): Extract<CueName, "gust" | "change"> | null {
+  if (!soundOn || options.quick) return null;
   return options.gustIn ? "gust" : "change";
 }

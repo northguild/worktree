@@ -166,7 +166,10 @@ describe("the panel's starting states, set by the inline script before the modul
     else root.dataset.theme = theme;
     new Function("document", startScript)(document);
   }
-  afterEach(() => delete document.documentElement.dataset.sound);
+  afterEach(() => {
+    delete document.documentElement.dataset.sound;
+    delete document.documentElement.dataset.theme;
+  });
 
   // The expected values are the review's: the sound defaults to muted (fail-closed, ThemeProvider's "off"), so Mute is pressed
   // unless the provider said "on"; the switch is "Dark theme", so it is on unless the theme is light.

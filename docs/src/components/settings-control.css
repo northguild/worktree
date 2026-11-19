@@ -2,7 +2,7 @@
  * The header's settings control: the panel under the gear and the "Dark theme" switch (SettingsControl.astro; plan #352,
  * D2 and D3). The gear itself is the shared `.header-chip` in custom.css.
  *
- * The panel's structure (a top-layer panel anchored under the button, right-aligned, inside a 1rem gutter down to
+ * The panel's structure (a top-layer panel anchored under the button, right-aligned, inside the viewport down to
  * 320px) is gmt's apps/dox/src/components/settings-control.module.css at commit d6031ecd. Its look is not: round shapes
  * and this site's tokens, no `corner-shape: bevel`, no ice (D2).
  *

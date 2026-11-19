@@ -655,11 +655,13 @@ export function startParticles(host: HeroHost): HeroHandle | null {
    * seconds on the audio clock.
    */
   function playStage(name: Stage, options: EnterOptions) {
-    const sound = soundFor(options);
-    if (!sound) return;
     // A muted visitor hears nothing, so the stage's numbers are not made. `data-sound` is one attribute read, set before
     // first paint (ThemeProvider.astro) and kept true to the mute (control.ts); `readSound()` would parse storage.
-    if (document.documentElement.dataset.sound !== "on") return;
+    const sound = soundFor(
+      options,
+      document.documentElement.dataset.sound === "on",
+    );
+    if (!sound) return;
     let n = 0;
     const add = (i: number) => {
       flyDelay[n] = delay[i];

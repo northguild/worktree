@@ -2080,7 +2080,7 @@ describe("the theme control (#352)", () => {
     }
   });
 
-  it("passes a gear in a visible group beside a hidden Dox group", async () => {
+  it("passes a gear in the header's right group beside the Dox, GitHub and Discord links", async () => {
     const failures = await withHeader(
       `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div><div class="sl-flex right-group"><div class="sl-flex social-icons">${doxLink()}${GITHUB_LINK}${DISCORD_LINK}${SETTINGS_BUTTON}</div></div></header>`,
     );

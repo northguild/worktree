@@ -369,8 +369,8 @@ the leaves themselves, not to a clock or a timer, and all are quiet; none plays 
   then), so a refresh or a direct visit with sound on hears no opening until the first press, which joins a stage still in
   flight; a stage that has landed is not played late. `cue.ts` carries the flight in
   the cue's detail (`cueFlight`) and the pointer in `rustle()`.
-- **Safari and Firefox.** `setValueCurveAtTime` must not overlap another automation on the same parameter, so every
-  parameter with a curve has that one curve and nothing else.
+- **Safari and Firefox.** `setValueCurveAtTime` must not overlap another automation on the same parameter. No voice
+  schedules a curve today; one that does must leave that parameter nothing else after the curve starts.
 
 ### The Dox chat's sounds
 

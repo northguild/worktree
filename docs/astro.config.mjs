@@ -109,7 +109,7 @@ export default defineConfig({
         ThemeProvider: "./src/components/ThemeProvider.astro",
         // The header's right group reads Dox, language select, GitHub, Discord, settings gear (#352, D1); Starlight's puts GitHub first.
         Header: "./src/components/Header.astro",
-        // The mobile menu repeats the header's "Chat with Dox" link before the social icons (#309 D2): the right group is hidden on a phone.
+        // The mobile menu repeats the header's "Chat with Dox" link before the social icons (#309 D2): below 50rem the bar shows only the gear, and Dox, GitHub and Discord stay in the mobile menu.
         MobileMenuFooter: "./src/components/MobileMenuFooter.astro",
         Footer: "./src/components/Footer.astro",
         Head: "./src/components/Head.astro",

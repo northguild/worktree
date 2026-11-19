@@ -590,7 +590,7 @@ function auditHeader(html, where, { onDox = false } = {}) {
 
 /**
  * The mobile menu (Starlight's `mobile-preferences`, on the pages with a sidebar) repeats the Dox link before the social
- * icons, because the header's right group is hidden below the `md` breakpoint (gmt's MobileMenuFooter.astro). Every one of
+ * icons, because below 50rem the header shows only the gear and Dox, GitHub and Discord are left to the menu (gmt's MobileMenuFooter.astro). Every one of
  * the 28 pages but the landing has a sidebar, so the caller says where a menu must be (`required`) and a page there with
  * none fails: a probe that stopped matching the build would otherwise skip the rule on every page and pass. The class is
  * matched as a token, not as the start of the attribute. The landing, the 404 and /dox/ have no menu to check.

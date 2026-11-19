@@ -87,12 +87,18 @@ describe("flight, the landing grains", () => {
 
 describe("soundFor, which stage makes which sound", () => {
   it("is the gust for the opening and a change for every later stage", () => {
-    expect(soundFor({ gustIn: true })).toBe("gust");
-    expect(soundFor({})).toBe("change");
+    expect(soundFor({ gustIn: true }, true)).toBe("gust");
+    expect(soundFor({}, true)).toBe("change");
+  });
+
+  // Source: PR 354 thread on flight.ts:104 and the phase's Scope: a muted visitor's stages are not computed at all.
+  it("is nothing while sound is muted, for the opening and for a change", () => {
+    expect(soundFor({ gustIn: true }, false)).toBeNull();
+    expect(soundFor({}, false)).toBeNull();
   });
 
   it("is nothing for a re-fit after a resize", () => {
-    expect(soundFor({ quick: true })).toBeNull();
-    expect(soundFor({ quick: true, gustIn: true })).toBeNull();
+    expect(soundFor({ quick: true }, true)).toBeNull();
+    expect(soundFor({ quick: true, gustIn: true }, true)).toBeNull();
   });
 });

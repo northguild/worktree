@@ -129,8 +129,8 @@ const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor
 
 {/* The panel's two starting states, true before the module runs and before the reader can open the panel: Mute is pressed unless
     `html[data-sound]` is "on" (fail-closed, as the speaker is drawn), and the "Dark theme" switch is on unless `html[data-theme]`
-    is "light" (both are set by ThemeProvider.astro before first paint). The markup's defaults are the no-script ones: muted, and
-    dark (the site's own theme). `lib/settings-control.test.ts` runs this script as written. */}
+    is "light" (both are set by ThemeProvider.astro before first paint). The markup's defaults are the no-script ones: muted, with the
+    switch off. `lib/settings-control.test.ts` runs this script as written. */}
 <script is:inline>
   (function () {
     var root = document.documentElement;
