@@ -267,18 +267,19 @@ export function startCue(): () => void {
   function loadEngine() {
     if (loading || dead) return;
     loading = true;
-    void import("./engine")
-      .then((mod) => {
+    void import("./engine").then(
+      (mod) => {
         if (dead) return;
         engine = mod.createEngine();
         attach();
-      })
-      .catch(() => {
-        // The chunk did not load (a network error): wait for the next press, which tries again (the listeners left once the
-        // context ran), and stay silent meanwhile.
+      },
+      () => {
+        // The chunk did not load (a network error): wait for the next press, which tries again (the listeners left once
+        // the context ran), and stay silent meanwhile.
         loading = false;
         if (!readSound().muted) arm();
-      });
+      },
+    );
   }
 
   const onIdle = () => {

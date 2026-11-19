@@ -1156,18 +1156,26 @@ async function chipHidingCssFindings(dist) {
       /([^{}@]+)\{[^{}]*\bdisplay:\s*none\b[^{}]*\}/g,
     )) {
       for (const one of selector.split(",")) {
-        // A rule on the group itself (Starlight's `.social-icons:empty`) is not one that hides its children.
-        if (/\.social-icons[^>]*>/.test(one)) {
+        // The rule's subject is the rightmost compound selector. A rule hides the group's chips only when that subject is a
+        // direct child of `.social-icons` (`>` right after it, its scope suffix `:where(...)` allowed, nothing after the child
+        // compound); Starlight's own `.social-icons:empty` and a descendant like `.social-icons a>svg` are about other things.
+        const flat = one.replace(/:where\([^)]*\)/g, "").trim();
+        if (/\.social-icons\s*>\s*[^\s>+~]+$/.test(flat)) {
           hiding++;
           if (!one.includes(":not([data-settings-control])"))
             findings.push(
               `chips: ${one.trim()} { display: none } does not exclude :not([data-settings-control]), expected the gear to stay in the bar below 50rem`,
             );
         }
-        const outsideNot = one.replace(/:not\([^)]*\)/g, "");
+        // The gear is hidden only when it, or its wrapper, is the subject: `.settings-control .x` hides something inside it.
+        const subject = flat
+          .replace(/:not\([^)]*\)/g, "")
+          .split(/[\s>+~]+/)
+          .filter(Boolean)
+          .at(-1);
         if (
           /\.settings-toggle|\.settings-control|\[data-settings-control\]/.test(
-            outsideNot,
+            subject ?? "",
           )
         )
           findings.push(

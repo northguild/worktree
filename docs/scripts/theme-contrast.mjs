@@ -418,7 +418,7 @@ export const PAIRS = [
     },
   ),
   // The switches' focus ring (`input:focus-visible + svg .leaf-switch-track`, a thicker `--gmt-spring-ink` stroke on the Dark theme
-  // and Aura switches): a focus indicator is a graphical object, 3:1 against what it sits on (WCAG 2.2 SC 1.4.11, 2.4.11), here the panel.
+  // and Aura switches): a focus indicator is a graphical object, 3:1 against what it sits on (WCAG 2.2 SC 1.4.11, Non-text Contrast), here the panel.
   shape(
     "settings: the switch's focus ring on the panel",
     "var(--gmt-spring-ink)",

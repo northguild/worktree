@@ -2116,6 +2116,23 @@ describe("the theme control (#352)", () => {
       const failures = await findings(".social-icons{gap:1rem}");
       expect(failures.some((f) => /no rule hides/.test(f))).toBe(true);
     });
+    // Reviewer note 4 (phase 13): the checks follow the rule's subject, so a rule about something else is not a finding.
+    it("passes a rule whose subject is a deeper descendant of the group, not a direct child", async () => {
+      expect(
+        await findings(
+          `${HIDE_CHIPS_CSS}.social-icons:where(.astro-abc) a>svg{display:none}`,
+        ),
+      ).toEqual([]);
+    });
+    it("does not count a descendant rule as the rule that hides the chips", async () => {
+      const failures = await findings(".social-icons a>svg{display:none}");
+      expect(failures.some((f) => /no rule hides/.test(f))).toBe(true);
+    });
+    it("passes a rule that hides something inside the gear's wrapper", async () => {
+      expect(
+        await findings(`${HIDE_CHIPS_CSS}.settings-control .x{display:none}`),
+      ).toEqual([]);
+    });
     it("fails a rule that hides the gear by name", async () => {
       const failures = await findings(
         `${HIDE_CHIPS_CSS}@media (width<=49.9375rem){.settings-toggle{display:none}}`,

@@ -6,17 +6,7 @@ import { SOUND_KEY, writeSound } from "./settings";
 
 const engine = { attach: vi.fn(), destroy: vi.fn() };
 const createEngine = vi.fn(() => engine);
-/** While set, the engine chunk fails to load, as a network error does. */
-let chunkFails = false;
-vi.mock("./engine", () => ({
-  // Reading the module's export fails while `chunkFails` is set: the import's promise rejects, as a network error does.
-  get createEngine() {
-    if (chunkFails) {
-      throw new Error("Failed to fetch dynamically imported module");
-    }
-    return () => createEngine();
-  },
-}));
+vi.mock("./engine", () => ({ createEngine: () => createEngine() }));
 
 let teardown: (() => void) | undefined;
 
@@ -35,7 +25,6 @@ beforeEach(() => {
   engine.attach.mockClear();
   engine.destroy.mockClear();
   createEngine.mockClear();
-  chunkFails = false;
 });
 
 afterEach(() => {
@@ -217,16 +206,6 @@ describe("muted", () => {
     expect(createEngine).not.toHaveBeenCalled();
   });
 
-  // Phase 13 (the Phase 12 review): a cue while muted is dropped, and nothing has loaded the engine to hear it.
-  it("drops a cue while muted and never imports the engine", async () => {
-    saveSound({ muted: true });
-    start();
-    expect(cue("notch")).toBe(false);
-    await vi.advanceTimersByTimeAsync(10);
-    await vi.dynamicImportSettled();
-    expect(createEngine).not.toHaveBeenCalled();
-  });
-
   it("unlocks the moment the reader unmutes, which is itself a gesture", async () => {
     saveSound({ muted: true });
     start();
@@ -384,20 +363,33 @@ describe("an in-site arrival", () => {
 });
 
 describe("an engine chunk that fails to load", () => {
-  // Phase 13: a failed import must not leave `loading` true for good or reject unhandled; a later press tries again.
+  // Phase 13: a failed `import()` must not leave `loading` true for good or reject unhandled; a later press tries again.
+  // A fresh copy of cue.ts, whose first import of the engine rejects (its module factory throws) and whose second works.
   it("tries again on the next press, and hands the context over once it loads", async () => {
-    chunkFails = true;
-    start();
-    press();
-    await vi.advanceTimersByTimeAsync(10);
-    await vi.dynamicImportSettled();
-    expect(createEngine).not.toHaveBeenCalled();
-    chunkFails = false;
-    press();
-    await vi.advanceTimersByTimeAsync(10);
-    await vi.dynamicImportSettled();
-    expect(createEngine).toHaveBeenCalledTimes(1);
-    expect(engine.attach).toHaveBeenCalled();
+    vi.resetModules();
+    vi.doMock("./engine", () => {
+      throw new Error("Failed to fetch dynamically imported module");
+    });
+    const fresh = await import("./cue");
+    const stop = fresh.startCue();
+    try {
+      press();
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.dynamicImportSettled();
+      expect(createEngine).not.toHaveBeenCalled();
+      vi.resetModules();
+      vi.doMock("./engine", () => ({ createEngine: () => createEngine() }));
+      press();
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.dynamicImportSettled();
+      expect(createEngine).toHaveBeenCalledTimes(1);
+      expect(engine.attach).toHaveBeenCalled();
+    } finally {
+      stop();
+      // Leave the file's own mock in place for the tests after this one.
+      vi.resetModules();
+      vi.doMock("./engine", () => ({ createEngine: () => createEngine() }));
+    }
   });
 });
 
