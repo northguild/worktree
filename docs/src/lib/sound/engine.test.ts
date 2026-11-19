@@ -10,7 +10,7 @@ import {
 } from "vitest";
 import { FakeAudioContext, installFakeAudio } from "../../test/fake-audio";
 import { saveSound, stubStorage } from "../../test/sound-storage";
-import { cue, cueFlight, type FlightDetail, rustle } from "./cue";
+import { cue, cueFlight, type FlightDetail, rustle, startCue } from "./cue";
 import { createEngine, type Engine, HIDE_TAIL_MS } from "./engine";
 import { SOUND_KEY, writeAura, writeSound } from "./settings";
 import { VOICES, type Voice } from "./voices";
@@ -23,8 +23,8 @@ function boot(saved: Record<string, unknown> = {}) {
   saveSound(saved);
   engine = createEngine();
   ctx = new FakeAudioContext();
+  ctx.become("running"); // cue.ts hands over a context a gesture has started
   engine.attach(ctx as unknown as AudioContext);
-  ctx.become("running");
   return ctx.nodes[0]; // the master gain
 }
 
@@ -641,5 +641,121 @@ describe("the aura", () => {
     const record = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "{}");
     expect(record.aura).toBe(false);
     expect(record.track).toBe("deep");
+  });
+});
+
+describe("sound starting at the first press", () => {
+  // Expected values: plan #352 Phase 10 Done-when. On a refresh with sound and aura on, the context is made without a
+  // gesture and Chrome keeps it suspended (the fake is gated on `userActivation`): nothing sounds until the first press.
+  // That press resumes it; the aura starts (Forest air: 2 sources, as the aura block counts); a stage still in flight
+  // is joined from its offset (the sweep and the 2 grains of `longFlight` to come after 1.2 s, as 'the leaves' counts);
+  // a stage that has landed plays no leaves; nothing happens while muted.
+  const longFlight: FlightDetail = {
+    stage: "leaf",
+    curve: Float32Array.of(0, 1, 1, 0, 0, 0),
+    panCurve: Float32Array.of(0, 0, 0, 0, 0, 0),
+    step: 0.5,
+    duration: 3,
+    grains: [
+      { at: 0.5, pan: -0.5 },
+      { at: 1.5, pan: 0.2 },
+      { at: 2.5, pan: 0.7 },
+    ],
+  };
+  const nextChange: FlightDetail = { ...longFlight, grains: [], duration: 1 };
+  let stop: (() => void) | undefined;
+  const sounding = () => FakeAudioContext.instances[0].started("bufferSource");
+
+  /** A press: activation is live for the dispatch only, as the browser's is. */
+  const press = () => {
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation: { isActive: true },
+    });
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    document.body.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation: { isActive: false },
+    });
+  };
+
+  /** A refresh: the previous entry is this very page, which is an in-site arrival, with no activation. */
+  const refresh = async (saved: Record<string, unknown> = {}) => {
+    FakeAudioContext.gated = true;
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation: { isActive: false },
+    });
+    vi.stubGlobal("navigation", {
+      activation: { from: { url: `${location.origin}/` } },
+    });
+    document.documentElement.setAttribute("data-aura", "");
+    const art = document.createElement("div");
+    art.dataset.heroArt = "";
+    document.body.append(art);
+    saveSound(saved);
+    writeAura({ on: true });
+    stop = startCue();
+    await vi.dynamicImportSettled();
+  };
+
+  beforeAll(async () => {
+    await import("./aura");
+    await import("./leaves");
+  });
+  afterEach(() => {
+    stop?.();
+    stop = undefined;
+    document.documentElement.removeAttribute("data-aura");
+    document.body.replaceChildren();
+  });
+
+  it("is silent after a refresh until the first press", async () => {
+    await refresh();
+    cueFlight("gust", longFlight);
+    vi.advanceTimersByTime(1200);
+    await vi.dynamicImportSettled();
+    expect(FakeAudioContext.instances[0].state).toBe("suspended");
+    expect(sounding()).toHaveLength(0);
+  });
+
+  it("resumes on the first press, starts the aura, joins a stage in flight, and lets the next change play", async () => {
+    await refresh();
+    cueFlight("gust", longFlight);
+    vi.advanceTimersByTime(1200);
+    await vi.dynamicImportSettled();
+    press();
+    await vi.dynamicImportSettled();
+    expect(FakeAudioContext.instances[0].state).toBe("running");
+    // the aura's 2 bands, the sweep and the 2 grains still to come
+    expect(sounding()).toHaveLength(5);
+    cueFlight("change", { ...nextChange, grains: [{ at: 0.5, pan: 0 }] });
+    expect(sounding()).toHaveLength(7); // a sweep and a grain
+  });
+
+  it("starts the aura but plays no leaves when the press comes after the stage has landed", async () => {
+    await refresh();
+    cueFlight("gust", longFlight);
+    vi.advanceTimersByTime(3200);
+    press();
+    await vi.dynamicImportSettled();
+    expect(sounding()).toHaveLength(2);
+  });
+
+  it("makes no cue sound of its own: the press only unlocks", async () => {
+    await refresh();
+    press();
+    await vi.dynamicImportSettled();
+    // nothing but the aura's two bands: no notch, no key
+    expect(sounding()).toHaveLength(2);
+  });
+
+  it("does nothing on a press while muted", async () => {
+    await refresh({ muted: true });
+    cueFlight("gust", longFlight);
+    press();
+    await vi.dynamicImportSettled();
+    expect(FakeAudioContext.instances).toHaveLength(0);
   });
 });

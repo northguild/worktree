@@ -172,6 +172,7 @@ export function createEngine(): Engine {
   /** The landing sets `data-aura` on `<html>`; no other page does. */
   const wantsAura = () =>
     !!ctx &&
+    ctx.state === "running" &&
     !hidden &&
     !settings.muted &&
     auraChoice.on &&
@@ -183,7 +184,9 @@ export function createEngine(): Engine {
   };
 
   /**
-   * Start or stop the aura to match what the page and the reader ask for. A mute stops it at once: the master is
+   * Start or stop the aura to match what the page and the reader ask for. It starts only on a running context: one
+   * suspended (a refresh, which no gesture has started yet) would take the aura's sources and play them all at once
+   * when it woke. A mute stops it at once: the master is
    * already fading and the context sleeps a moment later, so a longer fade would finish on the way back.
    */
   const syncAura = () => {
@@ -362,7 +365,15 @@ export function createEngine(): Engine {
 
   return {
     attach(next) {
-      if (ctx === next) return;
+      if (ctx === next) {
+        // The same context again: `cue.ts` hands it over when its state changes. Once it runs (the first press on a
+        // refreshed or direct page, or a browser's late grant), what waited for it starts.
+        if (next.state === "running") {
+          joinLate();
+          syncAura();
+        }
+        return;
+      }
       ctx = next;
       settings = readSound();
       auraChoice = readAura();

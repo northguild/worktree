@@ -138,6 +138,38 @@ describe("the first gesture", () => {
   });
 });
 
+describe("a context that starts suspended", () => {
+  it("is resumed by each press until it runs, then the listeners go and the engine is told again", async () => {
+    // A refresh: the context was made without a gesture. One resume at load, one per press, none once it runs.
+    vi.stubGlobal("navigation", {
+      activation: { from: { url: `${location.origin}/` } },
+    });
+    FakeAudioContext.refuse = true;
+    start();
+    await vi.dynamicImportSettled();
+    const [ctx] = FakeAudioContext.instances;
+    expect(ctx.calls).toEqual(["resume"]);
+    press("keydown");
+    expect(ctx.calls).toEqual(["resume", "resume"]);
+    FakeAudioContext.refuse = false;
+    engine.attach.mockClear();
+    press("keydown");
+    expect(ctx.state).toBe("running");
+    expect(engine.attach).toHaveBeenCalledWith(ctx);
+    press("keydown");
+    press();
+    expect(ctx.calls).toEqual(["resume", "resume", "resume"]);
+  });
+
+  it("does nothing while muted: no context, whatever the press", async () => {
+    localStorage.clear();
+    writeSound({ muted: true });
+    start();
+    press();
+    expect(FakeAudioContext.instances).toHaveLength(0);
+  });
+});
+
 describe("muted", () => {
   it.each([
     ["a visitor who never chose", () => localStorage.clear()],

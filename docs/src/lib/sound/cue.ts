@@ -12,9 +12,11 @@
  *
  * Unlock, in order of a page's life:
  * 1. Muted: no context and no engine. Unmuting is itself a gesture, so it unlocks.
- * 2. Not muted: capture-phase listeners for `pointerdown`, `pointerup`, `keydown` and `touchend`. The first one
- *    creates and resumes the context synchronously; Safari does not count a resume after an `await`. The listeners go
- *    once the context is running.
+ * 2. Not muted: capture-phase listeners for `pointerdown`, `pointerup`, `keydown` and `touchend`. Each one creates or
+ *    resumes the context synchronously; Safari does not count a resume after an `await`. The listeners stay until the
+ *    context is running: a page reached without a gesture (a refresh, a typed address) has its context made
+ *    suspended, and only the first press or key resumes it. When it runs, the engine is told, and starts the aura and
+ *    joins the opening's stage if still in flight.
  * 3. After an in-site arrival, unlock at load unless the browser says autoplay is not allowed. Chrome has no
  *    `getAutoplayPolicy` but lets a document reached by a same-origin navigation after a gesture start audio; where it
  *    refuses (Safari) the context stays suspended and the gesture listeners of step 2 keep waiting, so nothing is
@@ -201,8 +203,12 @@ export function startCue(): () => void {
     if (dead) return;
     try {
       ctx ??= new AudioContext({ latencyHint: "interactive" });
+      // The engine waits for a running context (the aura, the opening's stage): tell it when this one runs, whether the
+      // press that resumed it or the browser's late grant did it.
       ctx.onstatechange = () => {
-        if (ctx?.state === "running") disarm();
+        if (ctx?.state !== "running") return;
+        disarm();
+        attach();
       };
       void ctx.resume().catch(() => {});
     } catch {

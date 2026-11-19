@@ -96,6 +96,11 @@ export class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
   /** When true, `resume()` leaves the context suspended, as a browser does without a gesture. */
   static refuse = false;
+  /**
+   * When true, `resume()` works only while `navigator.userActivation.isActive`, Chrome's rule: a context made without a
+   * gesture starts suspended, and a resume outside one leaves it so.
+   */
+  static gated = false;
 
   currentTime = 0;
   readonly sampleRate = 48000;
@@ -125,7 +130,11 @@ export class FakeAudioContext {
   }
   resume(): Promise<void> {
     this.calls.push("resume");
-    if (!FakeAudioContext.refuse && this.current !== "closed")
+    const activation = (
+      navigator as Navigator & { userActivation?: { isActive: boolean } }
+    ).userActivation?.isActive;
+    const allowed = !FakeAudioContext.gated || activation === true;
+    if (!FakeAudioContext.refuse && allowed && this.current !== "closed")
       this.set("running");
     return Promise.resolve();
   }
@@ -191,6 +200,7 @@ export class FakeAudioContext {
 export function installFakeAudio(): typeof FakeAudioContext {
   FakeAudioContext.instances = [];
   FakeAudioContext.refuse = false;
+  FakeAudioContext.gated = false;
   vi.stubGlobal("AudioContext", FakeAudioContext);
   return FakeAudioContext;
 }
