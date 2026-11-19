@@ -120,9 +120,19 @@ const COPY_BUTTON =
 // "Volume", 1 to 11, which the build renders.
 const SOUND_ROW =
   '<div class="settings-sound"><button type="button" id="settings-sound-mute" class="sound-mute" aria-label="Mute" aria-pressed="false"><svg aria-hidden="true"></svg></button><div class="stem-fader"><input type="range" id="settings-sound-volume" min="1" max="11" step="1" value="5" aria-label="Volume"><svg aria-hidden="true"></svg></div></div>';
+// #352 phase 7 (D14): below the sound row, the aura's switch named "Aura" and a radio group named "Aura track" (Forest air,
+// Leaves overhead), in every page's markup; CSS hides them wherever `<html>` has no `data-aura`, which an inline script
+// on the landing alone sets.
+const AURA_ROW =
+  '<div class="settings-aura"><label class="settings-row"><span>Aura</span><span class="leaf-switch"><input type="checkbox" role="switch" id="settings-aura"><svg aria-hidden="true"></svg></span></label><div class="aura-track" role="radiogroup" aria-label="Aura track" hidden><label><input type="radio" name="settings-aura-track" value="forest" checked><span>Forest air</span></label><label><input type="radio" name="settings-aura-track" value="overhead"><span>Leaves overhead</span></label></div></div>';
+const AURA_MARK =
+  '<script>document.documentElement.setAttribute("data-aura","");</script>';
+const AURA_CSS =
+  "html:not([data-aura]) .settings-aura,.aura-track[hidden]{display:none}";
 const SETTINGS_BUTTON =
   '<div class="settings-control"><button type="button" id="settings-button" class="header-chip settings-toggle" popovertarget="settings-pop" aria-label="Settings" title="Settings" aria-expanded="false"><svg aria-hidden="true" focusable="false"></svg></button><div id="settings-pop" class="settings-pop" popover role="group" aria-label="Settings"><label><span>Dark theme</span><input type="checkbox" role="switch" id="settings-theme-dark"></label>' +
   SOUND_ROW +
+  AURA_ROW +
   "</div></div>";
 const THEME_PROVIDER =
   "<script>window.StarlightThemeProvider = (() => { localStorage.getItem('starlight-theme'); document.documentElement.dataset.theme = 'dark'; return { updatePickers() {} }; })();</script>";
@@ -292,7 +302,7 @@ function page(path, overrides = {}) {
     `<script type="application/ld+json">${overrides.jsonLd ?? jsonLd(path)}</script>`,
     '<script type="module" src="/worktree/_astro/page.abcabc.js"></script>',
     path === "" ? (overrides.heroScript ?? HERO_SCRIPT) : "",
-    `</head><body>${overrides.header ?? (path === "" ? LANDING_HEADER : HEADER)}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${path === "" ? "" : (overrides.menu ?? MOBILE_MENU)}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${overrides.body ?? ""}</body></html>`,
+    `</head><body>${overrides.header ?? (path === "" ? LANDING_HEADER : HEADER)}<h1>${heading}</h1>${overrides.edit ?? ""}${overrides.updated ?? (path === "" ? "" : `<p>Last updated: <time datetime="${time}">Nov 4, 2026</time></p>`)}${overrides.footer ?? ""}${overrides.controls ?? CONTROLS}${path === "" ? "" : (overrides.menu ?? MOBILE_MENU)}${landing}${path === "" ? (overrides.heroArt ?? HERO_ART) : ""}${path === "" ? (overrides.auraMark ?? AURA_MARK) : ""}${overrides.body ?? ""}</body></html>`,
   ].join("\n");
 }
 
@@ -385,6 +395,7 @@ beforeEach(async () => {
     "_astro/common.abcabc.css",
     `.tab>[role=tab]{display:flex;min-block-size:44px}${ENTRANCE_CSS}`,
   );
+  await write(dist, "_astro/aura.abcabc.css", AURA_CSS);
   await write(
     dist,
     "sitemap-index.xml",
@@ -1749,6 +1760,108 @@ describe("the theme control (#352)", () => {
       expect(
         (await audit()).some((f) =>
           /404\.html.*0 range inputs named "Volume"/.test(f),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  // #352 phase 7 (D14, the plan's Done-when): the Aura controls are named "Aura" and "Aura track" and are in every page's
+  // built HTML (the 404 too), hidden by CSS wherever `<html>` has no `data-aura`; the one inline script that sets
+  // `data-aura` is on the landing and on no other page.
+  describe("the aura controls", () => {
+    const withSettings = async (settings, path = "faq") => {
+      await write(
+        dist,
+        htmlPath(path),
+        page(path, { header: header({ settings }) }),
+      );
+      return audit();
+    };
+
+    it("passes the markup the build renders, on the landing and elsewhere", async () => {
+      expect(await audit()).toEqual([]);
+    });
+
+    it("fails a gear with no Aura switch", async () => {
+      const failures = await withSettings(
+        SETTINGS_BUTTON.replace(
+          /<input type="checkbox" role="switch" id="settings-aura">/,
+          "",
+        ),
+      );
+      expect(failures.some((f) => /faq.*0 switches named "Aura"/.test(f))).toBe(
+        true,
+      );
+    });
+
+    it("fails an Aura switch with another name", async () => {
+      const failures = await withSettings(
+        SETTINGS_BUTTON.replace("<span>Aura</span>", "<span>Ambience</span>"),
+      );
+      expect(failures.some((f) => /faq.*0 switches named "Aura"/.test(f))).toBe(
+        true,
+      );
+    });
+
+    it("fails a gear with no Aura track group, or one with another name", async () => {
+      for (const replacement of ["", ' aria-label="Track"']) {
+        const failures = await withSettings(
+          SETTINGS_BUTTON.replace(' aria-label="Aura track"', replacement),
+        );
+        expect(
+          failures.some((f) =>
+            /faq.*0 radio groups named "Aura track"/.test(f),
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it("fails an Aura track group that does not hold both tracks", async () => {
+      const failures = await withSettings(
+        SETTINGS_BUTTON.replace(' value="overhead"', ' value="deep"'),
+      );
+      expect(
+        failures.some((f) => /faq.*"Aura track".*forest.*overhead/.test(f)),
+      ).toBe(true);
+    });
+
+    it("fails the 404 on the same rule", async () => {
+      await write(
+        dist,
+        "404.html",
+        notFoundPage({
+          controls: CONTROLS,
+          header: header({
+            settings: SETTINGS_BUTTON.replace(' aria-label="Aura track"', ""),
+          }),
+        }),
+      );
+      expect(
+        (await audit()).some((f) =>
+          /404\.html.*0 radio groups named "Aura track"/.test(f),
+        ),
+      ).toBe(true);
+    });
+
+    it("fails a landing without the data-aura script", async () => {
+      await write(dist, "index.html", page("", { auraMark: "" }));
+      expect((await audit()).some((f) => /root.*data-aura/.test(f))).toBe(true);
+    });
+
+    it("fails any other page that sets data-aura", async () => {
+      await write(dist, htmlPath("faq"), page("faq", { body: AURA_MARK }));
+      expect((await audit()).some((f) => /faq.*data-aura/.test(f))).toBe(true);
+    });
+
+    it("fails a build whose CSS does not hide the controls where there is no data-aura", async () => {
+      await write(
+        dist,
+        "_astro/aura.abcabc.css",
+        ".settings-aura{display:grid}",
+      );
+      expect(
+        (await audit()).some((f) =>
+          /no stylesheet hides the aura controls/.test(f),
         ),
       ).toBe(true);
     });

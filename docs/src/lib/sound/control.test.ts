@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveSound, stubStorage } from "../../test/sound-storage";
 import { mountSoundControl } from "./control";
 import { cue } from "./cue";
-import { readSound, SOUND_KEY } from "./settings";
+import { AURA_KEY, readAura, readSound, SOUND_KEY } from "./settings";
 
 // Expected values: plan #352 Phase 5 Done-when and D9. Each value change of the fader plays one `notch` at the new level
 // (the engine reads the level when the cue is dispatched, so the level saved at the moment of the cue is what is heard),
@@ -235,5 +235,102 @@ describe("destroy", () => {
     expect(cue).not.toHaveBeenCalled();
     expect(readSound().level).toBe(2);
     expect(fader()?.getAttribute("aria-valuetext")).toBe("Volume 5 of 11");
+  });
+});
+
+describe("the aura controls", () => {
+  // Expected values: plan #352 Phase 7 and D6/D14. A fresh visitor has the aura off with Forest air chosen, so the switch
+  // reads off, the "Aura track" pair is hidden (a hidden element leaves the tab order and the accessibility tree) and
+  // "Forest air" is the checked radio. Switching on reveals the pair; the choices are written to `worktree:aura` only,
+  // never to `dox:sound`; and no press makes a sound (the plan's constraints), so `cue` is never called.
+  const aura = () =>
+    host.querySelector<HTMLInputElement>("#settings-aura") as HTMLInputElement;
+  const group = () =>
+    host.querySelector<HTMLElement>("[role=radiogroup]") as HTMLElement;
+  const radio = (value: string) =>
+    host.querySelector<HTMLInputElement>(
+      `input[type=radio][value=${value}]`,
+    ) as HTMLInputElement;
+
+  it("is a native switch named Aura, and a radio group named Aura track holding Forest air and Leaves overhead", () => {
+    mount();
+    expect(aura().type).toBe("checkbox");
+    expect(aura().getAttribute("role")).toBe("switch");
+    expect(aura().closest("label")?.textContent).toContain("Aura");
+    expect(group().getAttribute("aria-label")).toBe("Aura track");
+    expect(radio("forest").closest("label")?.textContent?.trim()).toBe(
+      "Forest air",
+    );
+    expect(radio("overhead").closest("label")?.textContent?.trim()).toBe(
+      "Leaves overhead",
+    );
+  });
+
+  it("reads off for a fresh visitor, with Forest air chosen and the track pair hidden, and writes nothing", () => {
+    mount();
+    expect(aura().checked).toBe(false);
+    expect(radio("forest").checked).toBe(true);
+    expect(radio("overhead").checked).toBe(false);
+    expect(group().hidden).toBe(true);
+    expect(localStorage.getItem(AURA_KEY)).toBeNull();
+    expect(cue).not.toHaveBeenCalled();
+  });
+
+  it("shows a reader's stored choice: on, Leaves overhead, pair visible", () => {
+    localStorage.setItem(
+      AURA_KEY,
+      JSON.stringify({ v: 1, on: true, track: "overhead" }),
+    );
+    mount();
+    expect(aura().checked).toBe(true);
+    expect(radio("overhead").checked).toBe(true);
+    expect(group().hidden).toBe(false);
+  });
+
+  it("switching on writes it and reveals the pair; switching off hides it again; neither plays", () => {
+    saveSound({ level: 6, aura: false, track: "deep" });
+    mount();
+    aura().click();
+    expect(readAura()).toEqual({ on: true, track: "forest" });
+    expect(group().hidden).toBe(false);
+    aura().click();
+    expect(readAura()).toEqual({ on: false, track: "forest" });
+    expect(group().hidden).toBe(true);
+    expect(cue).not.toHaveBeenCalled();
+    // dox:sound's aura and track are GMT's, and untouched.
+    const record = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "{}");
+    expect(record).toMatchObject({ level: 6, aura: false, track: "deep" });
+  });
+
+  it("choosing Leaves overhead writes the track and keeps the switch", () => {
+    localStorage.setItem(
+      AURA_KEY,
+      JSON.stringify({ v: 1, on: true, track: "forest" }),
+    );
+    mount();
+    radio("overhead").click();
+    expect(readAura()).toEqual({ on: true, track: "overhead" });
+    expect(cue).not.toHaveBeenCalled();
+  });
+
+  it("repaints from another tab, and plays nothing", async () => {
+    mount();
+    localStorage.setItem(
+      AURA_KEY,
+      JSON.stringify({ v: 1, on: true, track: "overhead" }),
+    );
+    window.dispatchEvent(new StorageEvent("storage", { key: AURA_KEY }));
+    await settle();
+    expect(aura().checked).toBe(true);
+    expect(radio("overhead").checked).toBe(true);
+    expect(group().hidden).toBe(false);
+    expect(cue).not.toHaveBeenCalled();
+  });
+
+  it("stops listening on destroy", () => {
+    mount();
+    destroy();
+    aura().click();
+    expect(localStorage.getItem(AURA_KEY)).toBeNull();
   });
 });

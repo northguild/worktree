@@ -18,7 +18,11 @@ const clamp = (v: number, lo: number, hi: number): number =>
   v < lo ? lo : v > hi ? hi : v;
 
 /** A stereo panner to `out`, set to `p` (-1 to 1). */
-function panTo(c: AudioContext, out: AudioNode, p: number): StereoPannerNode {
+export function panTo(
+  c: AudioContext,
+  out: AudioNode,
+  p: number,
+): StereoPannerNode {
   const s = c.createStereoPanner();
   s.pan.value = clamp(p, -1, 1);
   s.connect(out);
@@ -64,7 +68,12 @@ function swell(c: AudioContext, out: AudioNode, t: number, o: SwellOptions) {
 }
 
 /** One dry leaf touching another: a few milliseconds of bright noise. */
-function leafTick(c: AudioContext, out: AudioNode, t: number, peak = 0.012) {
+export function leafTick(
+  c: AudioContext,
+  out: AudioNode,
+  t: number,
+  peak = 0.012,
+) {
   noise(c, out, t, {
     type: "bandpass",
     freq: rand(2800, 6200),

@@ -3,14 +3,18 @@
  * never on the first-paint path.
  *
  * Ported from gmt apps/dox/src/lib/sound/engine.ts at d6031ecd, cut down (plan #352, D7): no press hooks, no native
- * panel, code-copy or typing watcher, and no aura yet (phase 7 adds it, with its own switch, D6). Phase 6 adds the
- * leaves: on the landing only (the art box, `[data-hero-art]`), the engine imports `leaves.ts`, a chunk of its own, and
+ * panel, code-copy or typing watcher. Phase 6 adds the leaves: on the landing only (the art box, `[data-hero-art]`), the engine imports `leaves.ts`, a chunk of its own, and
  * plays the hero's `gust` and `change` cues (which carry the leaves' flight) and the pointer's rustle with it.
+ * Phase 7 adds the aura (D14), as GMT's engine does: where `<html>` has `data-aura` (the landing), while the reader is
+ * unmuted and has switched the aura on (`worktree:aura`, D6), the engine imports `aura.ts`, a chunk of its own, and keeps
+ * it playing the stored track; it stops on a mute, a switch off, a hidden tab and `pagehide`.
  *
  * It is handed an `AudioContext` that a gesture or an in-site arrival has created and resumed (`attach`), and only
  * then listens for `worktree:cue`: a cue before that is unheard, which drops it. A cue while the context is suspended
  * is dropped too, unless a gesture is starting it (`live`). Every schedule, gap and fade is on `ctx.currentTime`.
  */
+
+import type { Aura } from "./aura";
 import {
   CUE_EVENT,
   type CueDetail,
@@ -23,7 +27,14 @@ import {
 } from "./cue";
 import { ceiling, setMaster } from "./kit";
 import type { Rustle } from "./leaves";
-import { onSoundChange, readSound, type SoundSettings } from "./settings";
+import {
+  type AuraSettings,
+  onAuraChange,
+  onSoundChange,
+  readAura,
+  readSound,
+  type SoundSettings,
+} from "./settings";
 import { LOOPS, VOICES } from "./voices";
 
 /**
@@ -32,6 +43,11 @@ import { LOOPS, VOICES } from "./voices";
  * end; a tail cut short would play its rest on the way back.
  */
 export const HIDE_TAIL_MS = 1200;
+
+/** The aura fades in over 2 s and a change of track crossfades over 1.5 s (D14); it fades out over 0.6 s, as GMT's. */
+const AURA_FADE_IN = 2;
+const AURA_CROSSFADE = 1.5;
+const AURA_OUT_FADE = 0.6;
 
 const MAX_GAIN = 0.6;
 const MUTE_RAMP = 0.05;
@@ -86,6 +102,10 @@ export function createEngine(): Engine {
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
   let settings = readSound();
+  let auraChoice: AuraSettings = readAura();
+  let aura: Aura | null = null;
+  let auraLoading = false;
+  let dead = false;
   let hidden = false;
   let suspendTimer: ReturnType<typeof setTimeout> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -126,6 +146,47 @@ export function createEngine(): Engine {
     master.gain.linearRampToValueAtTime(to, now + over);
   };
 
+  /** The landing sets `data-aura` on `<html>`; no other page does. */
+  const wantsAura = () =>
+    !!ctx &&
+    !hidden &&
+    !settings.muted &&
+    auraChoice.on &&
+    document.documentElement.hasAttribute("data-aura");
+
+  const stopAura = (over: number) => {
+    aura?.stop(over);
+    aura = null;
+  };
+
+  /**
+   * Start or stop the aura to match what the page and the reader ask for. A mute stops it at once: the master is
+   * already fading and the context sleeps a moment later, so a longer fade would finish on the way back.
+   */
+  const syncAura = () => {
+    if (!wantsAura()) return stopAura(settings.muted ? 0 : AURA_OUT_FADE);
+    if (aura || auraLoading) return;
+    auraLoading = true;
+    void import("./aura").then(
+      (mod) => {
+        auraLoading = false;
+        if (dead || !ctx || !master || aura || !wantsAura()) return;
+        aura = mod.startAura(ctx, master, AURA_FADE_IN, auraChoice.track);
+      },
+      () => {
+        // A chunk that will not load leaves the landing without its aura, as before this phase.
+        auraLoading = false;
+      },
+    );
+  };
+
+  const applyAura = (next: AuraSettings) => {
+    const was = auraChoice;
+    auraChoice = next;
+    if (next.on !== was.on) syncAura();
+    if (next.track !== was.track) aura?.switchTo(next.track, AURA_CROSSFADE);
+  };
+
   const stopLoops = () => {
     for (const stop of loops.values()) stop();
     loops.clear();
@@ -154,6 +215,7 @@ export function createEngine(): Engine {
     } else {
       master.gain.setTargetAtTime(levelGain(next), ctx.currentTime, 0.015);
     }
+    if (next.muted !== was.muted) syncAura();
   };
 
   const onCue = (event: Event) => {
@@ -219,18 +281,23 @@ export function createEngine(): Engine {
     clearTimeout(hideTimer);
     hideTimer = undefined;
     if (hidden) {
-      // What is sounding finishes first.
+      stopAura(AURA_OUT_FADE);
+      // What is sounding finishes first: the aura's fade.
       hideTimer = setTimeout(() => {
         hideTimer = undefined;
         if (ctx && hidden) void ctx.suspend().catch(() => {});
       }, HIDE_TAIL_MS);
     } else if (!settings.muted) {
-      void ctx.resume().catch(() => {});
+      void ctx
+        .resume()
+        .catch(() => {})
+        .then(syncAura);
     }
   };
 
-  /** The back/forward cache froze the page: the context sleeps. */
+  /** The back/forward cache froze the page: the aura goes, the context sleeps. */
   const onPageHide = () => {
+    stopAura(0);
     if (ctx) void ctx.suspend().catch(() => {});
   };
 
@@ -239,7 +306,12 @@ export function createEngine(): Engine {
     if (!event.persisted || !ctx || settings.muted) return;
     const c = ctx;
     const revive = () => {
-      void c.resume().catch(() => {});
+      void c
+        .resume()
+        .catch(() => {})
+        .then(() => {
+          if (c.state === "running") syncAura();
+        });
     };
     revive();
     if (c.state === "running") return;
@@ -259,6 +331,7 @@ export function createEngine(): Engine {
   };
 
   const unsubscribe = onSoundChange(apply);
+  const unsubscribeAura = onAuraChange(applyAura);
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("pagehide", onPageHide);
   window.addEventListener("pageshow", onPageShow);
@@ -268,6 +341,7 @@ export function createEngine(): Engine {
       if (ctx === next) return;
       ctx = next;
       settings = readSound();
+      auraChoice = readAura();
       master = next.createGain();
       master.gain.value = levelGain(settings);
       // Nothing reaches the speakers over the ceiling, whatever a voice does.
@@ -282,13 +356,17 @@ export function createEngine(): Engine {
       document.addEventListener(LOOP_EVENT, onLoop);
       document.addEventListener(RUSTLE_EVENT, onRustle);
       loadLeaves();
+      syncAura();
     },
     destroy() {
       unsubscribe();
+      unsubscribeAura();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("pageshow", onPageShow);
       stopWaiting?.();
+      dead = true;
+      stopAura(0);
       document.removeEventListener(CUE_EVENT, onCue);
       document.removeEventListener(LOOP_EVENT, onLoop);
       document.removeEventListener(RUSTLE_EVENT, onRustle);

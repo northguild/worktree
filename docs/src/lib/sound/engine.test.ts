@@ -1,9 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { FakeAudioContext, installFakeAudio } from "../../test/fake-audio";
 import { saveSound, stubStorage } from "../../test/sound-storage";
 import { cue, cueFlight, type FlightDetail, rustle } from "./cue";
 import { createEngine, type Engine, HIDE_TAIL_MS } from "./engine";
-import { writeSound } from "./settings";
+import { SOUND_KEY, writeAura, writeSound } from "./settings";
 import { VOICES, type Voice } from "./voices";
 
 let engine: Engine | undefined;
@@ -381,5 +390,178 @@ describe("the leaves", () => {
     const [voice] = ctx.started("bufferSource");
     writeSound({ muted: true });
     expect(voice.stoppedAt).toBeDefined();
+  });
+});
+
+describe("the aura", () => {
+  // Expected values: plan #352 Phase 7 Done-when and D14. The aura is wanted only where <html> has `data-aura` (the
+  // landing), the reader is unmuted and the stored aura is on; a fresh visitor has it off (D6), so unmuting alone starts
+  // nothing. A track change crossfades 1.5 s; switching off or muting stops it; `pagehide` stops it at once. The bus is
+  // the one node that feeds the master.
+  const setAura = (present: boolean) => {
+    if (present) document.documentElement.setAttribute("data-aura", "");
+    else document.documentElement.removeAttribute("data-aura");
+  };
+  const bus = (master: ReturnType<typeof boot>) =>
+    ctx.nodes.find((n) => n.outputs.includes(master)) as (typeof ctx.nodes)[0];
+  /** The master and the ceiling are the only nodes the engine makes on its own, and a page with no aura makes no more. */
+  const baseline = 2;
+  const sounding = () => ctx.started("bufferSource").length;
+  const settle = () => vi.dynamicImportSettled();
+
+  // A cold module graph can outlast one settle; the engine's own import then finds the module ready.
+  beforeAll(async () => {
+    await import("./aura");
+  });
+  beforeEach(() => setAura(true));
+  afterEach(() => setAura(false));
+
+  it("is silent for a fresh visitor who unmutes: the switch is off, so nothing is imported or started", async () => {
+    boot();
+    await settle();
+    expect(ctx.nodes).toHaveLength(baseline);
+    expect(sounding()).toBe(0);
+  });
+
+  it("starts the stored track on the landing, fading in over 2 s", async () => {
+    writeAura({ on: true });
+    const master = boot();
+    await settle();
+    expect(sounding()).toBe(2); // Forest air: two bands, no ticks
+    expect(bus(master).gain.of("linearRampToValueAtTime")[0].args).toEqual([
+      0.25, 2,
+    ]);
+  });
+
+  it("starts Leaves overhead when that is the stored track", async () => {
+    writeAura({ on: true, track: "overhead" });
+    boot();
+    await settle();
+    expect(sounding()).toBe(3); // the two bands and the first tick
+  });
+
+  it("imports nothing on a page without data-aura, though the aura is on and the reader unmuted", async () => {
+    setAura(false);
+    writeAura({ on: true });
+    boot();
+    await settle();
+    expect(ctx.nodes).toHaveLength(baseline);
+  });
+
+  it("imports nothing while muted, and starts when the reader unmutes", async () => {
+    writeAura({ on: true });
+    const master = boot({ muted: true });
+    await settle();
+    expect(ctx.nodes).toHaveLength(baseline);
+    writeSound({ muted: false });
+    await settle();
+    expect(sounding()).toBe(2);
+    expect(bus(master).gain.of("linearRampToValueAtTime").at(-1)?.args[0]).toBe(
+      0.25,
+    );
+  });
+
+  it("starts when the reader switches it on, with the engine already loaded", async () => {
+    boot();
+    await settle();
+    writeAura({ on: true });
+    await settle();
+    expect(sounding()).toBe(2);
+  });
+
+  it("crossfades over 1.5 s on a track change, and the bus holds", async () => {
+    writeAura({ on: true });
+    const master = boot();
+    await settle();
+    ctx.advance(10);
+    const busCalls = bus(master).gain.calls.length;
+    writeAura({ track: "overhead" });
+    const gains = ctx.nodes.filter((n) => n.outputs.includes(bus(master)));
+    expect(gains).toHaveLength(2);
+    expect(gains[0].gain.of("linearRampToValueAtTime").at(-1)?.args).toEqual([
+      0, 11.5,
+    ]);
+    expect(gains[1].gain.of("linearRampToValueAtTime").at(-1)?.args).toEqual([
+      1, 11.5,
+    ]);
+    expect(bus(master).gain.calls).toHaveLength(busCalls);
+  });
+
+  it("stops when it is switched off, fading out", async () => {
+    writeAura({ on: true });
+    const master = boot();
+    await settle();
+    ctx.advance(10);
+    writeAura({ on: false });
+    expect(bus(master).gain.of("linearRampToValueAtTime").at(-1)?.args).toEqual(
+      [0, 10.6],
+    );
+  });
+
+  it("stops when the reader mutes, and does not come back as a blip when they unmute", async () => {
+    writeAura({ on: true });
+    const master = boot();
+    await settle();
+    ctx.advance(10);
+    writeSound({ muted: true });
+    expect(bus(master).gain.of("linearRampToValueAtTime").at(-1)?.args).toEqual(
+      [0, 10],
+    );
+    vi.advanceTimersByTime(100);
+    writeSound({ muted: false });
+    await settle();
+    expect(bus(master).gain.of("linearRampToValueAtTime").at(-1)?.args[0]).toBe(
+      0.25,
+    );
+  });
+
+  it("stops at once on pagehide, with the context asleep behind it", async () => {
+    writeAura({ on: true, track: "overhead" });
+    const master = boot();
+    await settle();
+    ctx.advance(10);
+    window.dispatchEvent(new Event("pagehide"));
+    expect(bus(master).gain.of("linearRampToValueAtTime").at(-1)?.args).toEqual(
+      [0, 10],
+    );
+    expect(ctx.calls).toContain("suspend");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops when the tab is hidden and starts again when it is back", async () => {
+    writeAura({ on: true });
+    const master = boot();
+    await settle();
+    ctx.advance(10);
+    setVisibility("hidden");
+    expect(bus(master).gain.of("linearRampToValueAtTime").at(-1)?.args).toEqual(
+      [0, 10.6],
+    );
+    setVisibility("visible");
+    await settle();
+    expect(sounding()).toBe(4);
+  });
+
+  it("is reached only by a dynamic import, so no page carries it up front", () => {
+    const source = readFileSync("src/lib/sound/engine.ts", "utf8");
+    const imports = [
+      ...source.matchAll(/^import\s[^;]*?from\s+"\.\/aura";/gms),
+    ];
+    expect(imports.map((m) => m[0])).toEqual([
+      'import type { Aura } from "./aura";',
+    ]);
+    expect(source).toContain('import("./aura")');
+  });
+
+  it("never changes dox:sound's aura or track, whatever the reader does here", async () => {
+    saveSound({ level: 7, aura: false, track: "deep" });
+    boot({ level: 7, aura: false, track: "deep" });
+    await settle();
+    writeAura({ on: true, track: "overhead" });
+    writeAura({ on: false });
+    writeSound({ muted: true });
+    const record = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "{}");
+    expect(record.aura).toBe(false);
+    expect(record.track).toBe("deep");
   });
 });

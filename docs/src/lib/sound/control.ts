@@ -13,16 +13,55 @@
  *
  * Every listener is on one `AbortController`; the returned function is `destroy()`.
  *
+ * - The aura (#352 phase 7, D6/D14): an "Aura" switch and, only while it is on, an "Aura track" radio pair, written to
+ *   `worktree:aura` (never to `dox:sound`, whose `aura` and `track` are GMT's). A change here or in another tab repaints
+ *   them. They make no sound. Where the page has no `data-aura` CSS hides them; the wiring is the same everywhere.
+ *
  * Ported from GMT, apps/dox/src/lib/sound/control.ts at commit d6031ecd, without its press sounds (its toggle cue), its
- * aura and track controls (phase 7) or its `gmt-range` widget.
+ * Ice/Deep track select (the tracks and their markup are this site's) or its `gmt-range` widget.
  */
 import { cue } from "./cue";
 import {
+  type AuraSettings,
+  isAuraTrack,
+  onAuraChange,
   onSoundChange,
+  readAura,
   readSound,
   type SoundSettings,
+  writeAura,
   writeSound,
 } from "./settings";
+
+/** The aura switch and track pair, wired on `signal`. Nothing is written on mount. */
+function mountAuraControl(root: ParentNode, signal: AbortSignal): void {
+  const toggle = root.querySelector<HTMLInputElement>("#settings-aura");
+  const group = root.querySelector<HTMLElement>("[aria-label='Aura track']");
+  const radios = [
+    ...root.querySelectorAll<HTMLInputElement>("input[type=radio][value]"),
+  ].filter((r) => isAuraTrack(r.value));
+  if (!toggle || !group) return;
+
+  const paint = (s: AuraSettings) => {
+    toggle.checked = s.on;
+    group.hidden = !s.on;
+    for (const r of radios) r.checked = r.value === s.track;
+  };
+  paint(readAura());
+  signal.addEventListener("abort", onAuraChange(paint), { once: true });
+
+  toggle.addEventListener("change", () => writeAura({ on: toggle.checked }), {
+    signal,
+  });
+  for (const r of radios)
+    r.addEventListener(
+      "change",
+      () => {
+        if (r.checked && isAuraTrack(r.value)) writeAura({ track: r.value });
+      },
+      { signal },
+    );
+}
 
 export function mountSoundControl(root: ParentNode = document): () => void {
   const mute = root.querySelector<HTMLButtonElement>("#settings-sound-mute");
@@ -70,6 +109,8 @@ export function mountSoundControl(root: ParentNode = document): () => void {
     },
     { signal },
   );
+
+  mountAuraControl(root, signal);
 
   return () => controller.abort();
 }

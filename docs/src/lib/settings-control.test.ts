@@ -93,8 +93,16 @@ describe("the settings control", () => {
   });
 
   // Phase 5 adds the volume row (D9; its behaviour is tested in sound/control.test.ts): a mute button and a range.
-  it("holds the Dark theme switch and the volume row, and nothing else yet", () => {
-    expect(host.querySelectorAll("[popover] input")).toHaveLength(2);
+  // Phase 7 adds the aura (D14; sound/control.test.ts): the Aura switch and the "Aura track" pair of radios. Inputs:
+  // theme switch 1 + volume range 1 + Aura switch 1 + 2 radios = 5; the one button is the mute button.
+  it("holds the Dark theme switch, the volume row and the aura's switch and track pair, and nothing else", () => {
+    expect(host.querySelectorAll("[popover] input")).toHaveLength(5);
+    expect(host.querySelectorAll("[popover] input[role=switch]")).toHaveLength(
+      2,
+    );
+    expect(host.querySelectorAll("[popover] input[type=radio]")).toHaveLength(
+      2,
+    );
     expect(host.querySelectorAll("[popover] input[type=range]")).toHaveLength(
       1,
     );

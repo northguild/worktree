@@ -369,6 +369,26 @@ buzz. "Try again" plays the Servo spin-up. Send and "Try again" are the only pre
 voices live in `docs/src/lib/sound/voices.ts`, typing in `docs/src/lib/sound/typing.ts`, and the wiring in
 `docs/src/chat/components/DoxChat.tsx`.
 
+### The aura
+
+The landing alone has an aura, a quiet bed under the page, and it is off until a reader turns it on. `HeroLeaves.astro`
+sets `data-aura` on `<html>` with a small inline script; on every other page the aura's two controls are in the markup
+but hidden (`html:not([data-aura])` in `components/settings-control.css`, so they are out of the tab order and the
+accessibility tree), and the engine never imports it. The panel (below the volume row) has an "Aura" switch (the Dark
+theme switch's Turning leaf, silent) and, only while it is on, an "Aura track" pair: "Forest air" (the default) and
+"Leaves overhead". The choice is its own key, `worktree:aura` (`{ v: 1, on, track }`; `lib/sound/settings.ts`), not
+`dox:sound`, whose `aura` and `track` belong to GMT's landing and are never changed here. A change in another tab
+repaints the controls; the wiring is `lib/sound/control.ts`.
+
+`lib/sound/aura.ts` is a chunk the engine imports only when the page has `data-aura`, the reader is unmuted and the aura
+is on. Everything sits on one bus 12 dB under the cues (0.25 of the master), each track in its own gain: it fades in over
+2 s, a change of track crossfades over 1.5 s, and it stops (0.6 s out) when switched off, when the reader mutes or the tab
+is hidden, and at once on `pagehide`. "Forest air" is two bands of looped noise, panned either side, low-passed, each
+breathing through a slow LFO; "Leaves overhead" is the same with a faint leaf tick every 1.5 to 4.5 s. Both are ported
+from the audition board unchanged (`prototypes/settings-gear/sound-audition.html`, `BEDS`); the structure is GMT's
+`aura.ts`. The audit checks the two names ("Aura", "Aura track"), that `data-aura` is set on the landing only, and that a
+stylesheet hides the controls without it.
+
 ## Footer
 
 `src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (last updated,

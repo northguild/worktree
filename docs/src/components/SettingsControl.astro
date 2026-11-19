@@ -2,7 +2,9 @@
 /**
  * The header's settings control (plan #352, D1-D3): one gear button, last in the right group after Dox, GitHub and
  * Discord, that opens a popover holding the reader's settings. That is the "Dark theme" switch and, below a hairline, the
- * mute button and the volume fader (D9; `lib/sound/control.ts` wires them); later phases add the aura. One copy, in the header: the mobile menu has none (the right group is hidden
+ * mute button and the volume fader (D9; `lib/sound/control.ts` wires them) and, last, the landing's aura (D14): an "Aura"
+ * switch (the same Turning leaf, silent) and, while it is on, an "Aura track" radio pair. The aura block is on every page
+ * but hidden by CSS wherever `<html>` has no `data-aura`, which only the landing sets (`HeroLeaves.astro`). One copy, in the header: the mobile menu has none (the right group is hidden
  * below `md`, and the plan keeps the menu as it is).
  *
  * The gear is GMT's exactly: the `GEAR` SVG below is copied from gmt apps/dox/src/components/settings-control.ts at
@@ -94,6 +96,31 @@ const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor
           <circle class="stem-bud" style="--i:11" cx="190" cy="17" r="1.8"></circle>
           <circle class="stem-head" cx="10" cy="17" r="3.4"></circle>
         </svg>
+      </div>
+    </div>
+    <div class="settings-aura">
+      <label class="settings-row">
+        <span class="settings-row-label">Aura</span>
+        <span class="leaf-switch">
+          <input type="checkbox" role="switch" id="settings-aura" />
+          <svg viewBox="0 0 46 26" aria-hidden="true" focusable="false">
+            <rect class="leaf-switch-track" x="1" y="1" width="44" height="24" rx="12"></rect>
+            <g class="leaf-switch-leaf">
+              <path class="leaf-switch-blade" d="M6 18 C 6 10, 11 6, 20 6 C 20 14, 15 19, 6 18 Z"></path>
+              <path class="leaf-switch-midrib" d="M7 17 L 17 9"></path>
+            </g>
+          </svg>
+        </span>
+      </label>
+      <div class="aura-track" role="radiogroup" aria-label="Aura track" hidden>
+        <label class="aura-track-row">
+          <input type="radio" name="settings-aura-track" value="forest" checked />
+          <span>Forest air</span>
+        </label>
+        <label class="aura-track-row">
+          <input type="radio" name="settings-aura-track" value="overhead" />
+          <span>Leaves overhead</span>
+        </label>
       </div>
     </div>
   </div>

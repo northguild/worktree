@@ -337,3 +337,35 @@ html:not([data-sound]) .speaker-cross {
     fill: GrayText;
   }
 }
+
+/* The aura (#352 phase 7, D14): the landing's alone. Every page carries the markup; `data-aura` on <html>, set by
+   HeroLeaves.astro, is what shows it, and display:none takes it out of the tab order and the accessibility tree. The
+   track pair shows only while the switch is on (the wiring sets `hidden`). The switch is the Dark theme switch's. */
+.settings-aura {
+  display: grid;
+  gap: 0.75rem;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--gmt-border);
+}
+html:not([data-aura]) .settings-aura,
+.aura-track[hidden] {
+  display: none;
+}
+.aura-track {
+  display: grid;
+  gap: 0.5rem;
+}
+.aura-track-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+.aura-track-row input {
+  margin: 0;
+  accent-color: var(--stem-reached);
+}
+.aura-track-row input:focus-visible {
+  outline: 2px solid var(--gmt-spring-ink);
+  outline-offset: 2px;
+}

@@ -57,6 +57,11 @@
  * Also (#352 phase 5, D9): the settings panel's volume row is named for assistive technology: one native range named
  * "Volume", 1 to 11, and one toggle button named "Mute" (`aria-pressed`), on every page and the 404.
  *
+ * Also (#352 phase 7, D14): the aura's two controls, a switch named "Aura" and a radio group named "Aura track" holding
+ * the tracks "forest" and "overhead", are in the built HTML of every page and the 404 (the same markup everywhere), and a
+ * stylesheet hides them under `html:not([data-aura])`; the one inline script that sets `data-aura` is on the landing and on no
+ * other page, so the controls show on the landing alone.
+ *
  * Also (#352, D1): in every page's and the 404's `<header>` the right group reads Dox, GitHub, Discord, then the gear.
  *
  * Also (#266 phase 3, D6-D9, the landing header's entrance): the entrance marker (`data-landing-entrance`) is on the
@@ -385,6 +390,9 @@ const SETTINGS_NAME = "Settings";
 // #352 phase 5 (D9): the volume row's two controls.
 const VOLUME_NAME = "Volume";
 const MUTE_NAME = "Mute";
+// #352 phase 7 (D14): the aura's switch and its track pair.
+const AURA_NAME = "Aura";
+const AURA_TRACK_NAME = "Aura track";
 
 /** The page's `<header>` element, from its opening tag to its closing tag; "" when it has none. */
 function headerOf(html) {
@@ -970,6 +978,88 @@ function auditSoundControl(html, where) {
       `button "${MUTE_NAME}" has no aria-pressed, expected a toggle that says whether sound is muted`,
     );
   return failures;
+}
+
+/**
+ * The aura's controls (#352 phase 7, D14). The markup is the same on every page; what differs is `data-aura`, which an
+ * inline script sets on the landing alone (HeroLeaves.astro) and which a stylesheet's `html:not([data-aura])` rule needs
+ * before it shows them (`auraCssFindings`). So: exactly one switch named "Aura" (the text of the `<label>` around the
+ * `settings-aura` checkbox), exactly one radio group named "Aura track" holding a "forest" and an "overhead" radio, and an
+ * inline script that mentions `data-aura` on the landing and on no other page.
+ */
+function auditAura(html, where, landing) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: ${rule}`);
+  const switches = [
+    ...html.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/g),
+  ].filter(([, inner]) => {
+    const input = inner.match(/<input\b([^>]*)>/)?.[1];
+    if (input === undefined) return false;
+    const attrs = attributes(input);
+    return (
+      attrs.type === "checkbox" &&
+      attrs.role === "switch" &&
+      attrs.id === "settings-aura" &&
+      inner.replace(/<[^>]*>/g, "").trim() === AURA_NAME
+    );
+  });
+  if (switches.length !== 1)
+    fail(
+      `${switches.length} switches named "${AURA_NAME}", expected exactly 1 (the aura switch)`,
+    );
+  const groups = [
+    ...html.matchAll(/<div\b([^>]*)>((?:(?!<div\b)[\s\S])*?)<\/div>/g),
+  ].filter(
+    ([, rawAttrs]) =>
+      attributes(rawAttrs).role === "radiogroup" &&
+      (attributes(rawAttrs)["aria-label"] ?? "").trim() === AURA_TRACK_NAME,
+  );
+  if (groups.length !== 1)
+    fail(
+      `${groups.length} radio groups named "${AURA_TRACK_NAME}", expected exactly 1 (the aura track pair)`,
+    );
+  else {
+    const values = [...groups[0][2].matchAll(/<input\b([^>]*)>/g)]
+      .map(([, rawAttrs]) => attributes(rawAttrs))
+      .filter((attrs) => attrs.type === "radio")
+      .map((attrs) => attrs.value)
+      .sort();
+    if (values.join() !== "forest,overhead")
+      fail(
+        `the "${AURA_TRACK_NAME}" radios are [${values}], expected forest and overhead`,
+      );
+  }
+  const marks = [
+    ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g),
+  ].filter(
+    ([, rawAttrs, body]) =>
+      !("src" in attributes(rawAttrs)) && body.includes("data-aura"),
+  );
+  if (landing && marks.length === 0)
+    fail(
+      "the landing has no inline script that sets data-aura, expected one (the aura is the landing's alone)",
+    );
+  if (!landing && marks.length > 0)
+    fail(
+      "sets data-aura, which only the landing may (the aura is the landing's alone)",
+    );
+  return failures;
+}
+
+/** A stylesheet that hides the aura's controls where `<html>` has no `data-aura`. Returns failures. */
+async function auraCssFindings(dist) {
+  for (const file of await filesUnder(dist)) {
+    if (!file.endsWith(".css")) continue;
+    if (
+      /html:not\(\[data-aura\]\)[^{}]*\.settings-aura[^{}]*\{[^}]*display:\s*none/.test(
+        await readFile(file, "utf8"),
+      )
+    )
+      return [];
+  }
+  return [
+    "aura: no stylesheet hides the aura controls under html:not([data-aura]) (settings-control.css, plan #352 phase 7)",
+  ];
 }
 
 /** The attribute on the landing header's root that switches the entrance on (Header.astro). */
@@ -1603,6 +1693,7 @@ async function auditPage(path, dist, descriptions, options) {
   failures.push(...auditControls(html, label(path)));
   failures.push(...auditThemeControl(html, label(path)));
   failures.push(...auditSoundControl(html, label(path)));
+  failures.push(...auditAura(html, label(path), path === ""));
   failures.push(...auditHeader(html, label(path)));
   failures.push(
     ...auditMobileMenu(html, label(path), { required: path !== "" }),
@@ -1805,6 +1896,7 @@ function auditNotFound(html) {
     ...auditControls(html, "404.html"),
     ...auditThemeControl(html, "404.html"),
     ...auditSoundControl(html, "404.html"),
+    ...auditAura(html, "404.html", false),
     ...auditHeader(html, "404.html"),
     ...auditSvgs(html, "404.html"),
   ];
@@ -1976,6 +2068,7 @@ async function auditSite(dist) {
   failures.push(...(await auditDox(dist)));
   failures.push(...(await cyanFindings(dist)));
   failures.push(...(await entranceCssFindings(dist)));
+  failures.push(...(await auraCssFindings(dist)));
 
   const heights = [];
   for (const file of await filesUnder(dist)) {
