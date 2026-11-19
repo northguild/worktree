@@ -178,10 +178,12 @@ describe("the panel's starting states, set by the inline script before the modul
 
   // The expected values are the review's: the sound defaults to muted (fail-closed, ThemeProvider's "off"), so Mute is pressed
   // unless the provider said "on"; the switch is "Dark theme", so it is on unless the theme is light.
-  it("ships the no-script defaults: Mute pressed, Dark theme not hard-coded on", () => {
+  // Baldur on #354 (SettingsControl.astro:61): with script blocked, ThemeProvider sets no data-theme and the page renders
+  // dark (the dark tokens are on :root; light needs [data-theme="light"]), so the switch must ship on.
+  it("ships the no-script defaults: Mute pressed, Dark theme on (the page renders dark without script)", () => {
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).not.toContain('aria-pressed="false"');
-    expect(markup).not.toMatch(/id="settings-theme-dark"[^>]*\schecked/);
+    expect(markup).toMatch(/id="settings-theme-dark"[^>]*\schecked/);
   });
 
   it.each([

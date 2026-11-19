@@ -835,7 +835,12 @@ export function startParticles(host: HeroHost): HeroHandle | null {
    */
   function feedRustle(wall: number) {
     const step = rustleStep(
-      { speed: pointer.speed, active: pointer.active, rustling },
+      {
+        speed: pointer.speed,
+        active: pointer.active,
+        rustling,
+        soundOn: document.documentElement.dataset.sound === "on",
+      },
       wall,
     );
     if (step.sound) rustle(pointer.speed, pointer.nx);

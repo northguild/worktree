@@ -43,7 +43,7 @@ const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor
     <label class="settings-row">
       <span class="settings-row-label">Dark theme</span>
       <span class="leaf-switch">
-        <input type="checkbox" role="switch" id="settings-theme-dark" />
+        <input type="checkbox" role="switch" id="settings-theme-dark" checked />
         <svg viewBox="0 0 46 26" aria-hidden="true" focusable="false">
           <rect class="leaf-switch-track" x="1" y="1" width="44" height="24" rx="12"></rect>
           <g class="leaf-switch-leaf">
@@ -129,8 +129,9 @@ const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor
 
 {/* The panel's two starting states, true before the module runs and before the reader can open the panel: Mute is pressed unless
     `html[data-sound]` is "on" (fail-closed, as the speaker is drawn), and the "Dark theme" switch is on unless `html[data-theme]`
-    is "light" (both are set by ThemeProvider.astro before first paint). The markup's defaults are the no-script ones: muted, with the
-    switch off. `lib/settings-control.test.ts` runs this script as written. */}
+    is "light" (both are set by ThemeProvider.astro before first paint). The markup's defaults are the no-script ones: muted, and
+    dark, because with script blocked ThemeProvider sets no data-theme and the page renders from the dark tokens on :root (light
+    needs [data-theme="light"]). `lib/settings-control.test.ts` runs this script as written. */}
 <script is:inline>
   (function () {
     var root = document.documentElement;

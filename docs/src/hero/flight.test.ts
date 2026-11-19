@@ -137,6 +137,26 @@ describe("rustleStep, the pointer's rustle dying away", () => {
     expect(silentAt).toBeLessThanOrEqual(0.5);
   });
 
+  // Source: Baldur on #354 (flight.ts:104 thread): the rustle event still fired on every pointer frame for muted visitors.
+  it("never sounds while sound is muted, however fast the pointer moves", () => {
+    const step = rustleStep(
+      { speed: 1, active: true, rustling: false, soundOn: false },
+      FRAME,
+    );
+    expect(step.sound).toBe(false);
+    expect(step.release).toBe(false);
+    expect(step.rustling).toBe(false);
+  });
+
+  it("lets go of a rustle that was sounding when sound is muted mid-drag", () => {
+    const step = rustleStep(
+      { speed: 1, active: true, rustling: true, soundOn: false },
+      FRAME,
+    );
+    expect(step.sound).toBe(false);
+    expect(step.release).toBe(true);
+  });
+
   it("releases at once when the pointer leaves, and not again", () => {
     const left = rustleStep({ speed: 1, active: false, rustling: true }, FRAME);
     expect(left.release).toBe(true);

@@ -81,6 +81,8 @@ export interface RustleState {
   active: boolean;
   /** Whether the voice has been told to sound and not yet to let go. */
   rustling: boolean;
+  /** Whether the reader has sound on (`html[data-sound="on"]`). Muted, nothing is sent; absent counts as on. */
+  soundOn?: boolean;
 }
 
 /**
@@ -90,10 +92,11 @@ export interface RustleState {
  * released inside half a second, with the voice's own follow after it. `wall` is the frame's wall-clock seconds.
  */
 export function rustleStep(
-  { speed, active, rustling }: RustleState,
+  { speed, active, rustling, soundOn = true }: RustleState,
   wall: number,
 ): { sound: boolean; release: boolean; speed: number; rustling: boolean } {
-  const sound = active && speed > RUSTLE_FLOOR;
+  // Muted, no rustle is sent on any frame (Baldur, #354); one still sounding is let go.
+  const sound = soundOn && active && speed > RUSTLE_FLOOR;
   return {
     sound,
     release: !sound && rustling,
