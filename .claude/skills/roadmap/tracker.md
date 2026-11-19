@@ -22,13 +22,22 @@ backlog is a set of issues rather than a file.
 | the print's **Doc** field | nothing to print; *has a plan* is read off the body, and the shape below says how |
 | the print's *nothing is `active`* | no issue carrying the backlog label is assigned |
 
-**The print has its own shape under this answer**, because three of its four steps name things this
+**The print has its own shape under this answer**, because three of its steps name things this
 substrate does not have. *The backlog, printed* below replaces steps 2 to 4; step 1 becomes the listing
-above, and everything under *With an argument* is unaffected.
+above, step 5's count is unchanged, and everything under *With an argument* is unaffected.
 
 **Write no file.** No entry, no draft, no `Doc` field. The issue body carries the one or two lines, and the
 reference material goes into that same body under a heading rather than into a separate document — the
 draft and the plan are one object here, edited in place, which is why `/feature-plan` can keep the id.
+
+**Ask before opening anything, when the user did not type `/roadmap`.** An issue notifies whoever watches
+the repository and outlives the session that opened it; a line in a working-tree file does neither. Show
+the title, the body with its `Size:` and `Priority:`, and any type or relationship you would set, and ask
+whether to open it — one question, which is also where the priority is asked. **No ends it, with nothing
+written.** Adoption asks the same way, since its label and comment reach the reporter. Where the run
+cannot ask, open nothing and report the `/roadmap "…"` line to type. Under `/feature-implement --all`, open
+nothing yet: that run makes the ask when it stops. **Declined, held or never asked, the entry is
+*proposed*, not added**, and the caller's report says so, with that line.
 
 **Set two things the file answer has no room for**, both named in
 [`context/tracking.md`](../../../context/tracking.md) and neither read by anything in this workflow's loop:
@@ -56,9 +65,9 @@ Everything the *Capturing reference material* section says still holds, includin
 
 ### The backlog, printed
 
-**One read answers all of it.** The listing that carries the open backlog issues carries each one's body,
-its assignee and what it waits on, so this whole print is a single query — no per-issue fetch, and nothing
-cached between runs.
+**Two reads answer all of it.** The listing that carries the open backlog issues carries each one's body,
+its assignee and what it waits on, so the backlog is a single query — no per-issue fetch, and nothing
+cached between runs. Step 5's count is the second, and asks for labels alone.
 
 **Group by tier, because that is the question this command answers.** Planned first, ideas second, and
 each row on one line:
@@ -74,6 +83,9 @@ IDEAS (3)
   #21  billing-export  Large · Medium             waits on #12 export-api
 
 2 planned · 3 ideas · 1 waiting
+
+OUTSIDE THE BACKLOG (9)
+  bug 6 · question 3
 ```
 
 - **`Size:` and `Priority:` come off the body**, and an issue carrying no `Priority:` line reads as

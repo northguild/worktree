@@ -67,8 +67,8 @@ settle* in [`context/workflow.md`](../../../context/workflow.md) is the standing
   saying what has to be looked at and who it waits on. **Never the backlog label**, and not written up as a
   defect — it is a check nobody has run, not a thing known to be wrong. **It is filed as what it is, and
   not as a bug**: a pending screen-reader pass recorded as a defect is a defect report nobody can
-  reproduce. **The person who does the check is what closes it**, and the workflow neither reads it nor
-  ranks it.
+  reproduce. **The person who does the check is what closes it**, and the workflow neither ranks it nor
+  acts on it.
 - **waived** → the user says in this turn that it does not matter. Mark the item waived and move on.
 
 **The user picks, item by item, and silence is not a waiver.** Use your runtime's question mechanism if it
@@ -252,7 +252,9 @@ is the only command in the workflow that acts on that answer.
 - **Neither** → stop here. Report what changed and hand it over.
 - **The agent pushes and opens a pull request** → push this feature's branch and open the pull request. Its
   body is the plan's summary and the phases it landed; link the archived plan at its **new** path, the one
-  the sweep just rewrote everything else to.
+  the sweep just rewrote everything else to. **It carries the label *What a pull request carries* names**,
+  in the same file — and where that names none, or names one this repository does not have, say so and
+  leave the pull request as it is. A finished feature does not fail on a label.
 
 **A plain push of this feature's branch, and nothing else.** If it will not fast-forward, **stop and say
 so** — force-pushing, pushing to the default branch and rewriting published history are asked for by name
