@@ -1,6 +1,6 @@
 /**
  * The leaves' voices (plan #352, D11 and D12): each change of picture, which the opening gust shares, and the pointer's
- * rustle, ported from the audition board (prototypes/settings-gear/sound-audition.html): MORPHS "D" Sweep and grains
+ * rustle, ported from the audition board (context/reference/settings-gear/sound-audition.html): MORPHS "D" Sweep and grains
  * (MORPHS "A" Rustle sweep at 0.6 through `scaled`, a `leafTick` at 0.008 for each landing grain), TOUCHES "D" Soft
  * rustle, and the helpers `panTo`, `swell`, `leafTick`, `scaled` and
  * `untilLanded`.

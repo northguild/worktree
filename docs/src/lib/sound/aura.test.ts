@@ -7,7 +7,7 @@ import {
 import { AURA_LEVEL, type Aura, startAura } from "./aura";
 
 // Expected values: plan #352 D14 (bus 12 dB under the cues, 2 s fade in, 1.5 s crossfade) and the audition board's BEDS in
-// prototypes/settings-gear/sound-audition.html: A "Forest air" (two looped noise bands panned -0.6 and 0.6, low-passed at
+// context/reference/settings-gear/sound-audition.html: A "Forest air" (two looped noise bands panned -0.6 and 0.6, low-passed at
 // 500 and 500 + 120 Hz, Q 0.6, level 0.009 with an LFO of 0.07 and 0.07 + 0.03 Hz at depth 0.006) and B "Leaves overhead"
 // (A, and a leafTick of peak 0.006 every rand(1.5, 4.5) s, panned within -0.8..0.8). 12 dB is a factor of 10 ** (-12 / 20),
 // 0.251, by hand.

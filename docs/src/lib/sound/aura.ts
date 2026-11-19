@@ -1,6 +1,6 @@
 /**
  * The landing's aura (plan #352, D14): one of two tracks the reader picks in the settings panel, ported unchanged from
- * the audition board's `BEDS` (prototypes/settings-gear/sound-audition.html). Loaded by the engine only where `<html>`
+ * the audition board's `BEDS` (context/reference/settings-gear/sound-audition.html). Loaded by the engine only where `<html>`
  * has `data-aura` (the landing), the reader is unmuted and the aura is on, so no other page fetches it.
  *
  * - "Forest air" (A, the default): two bands of looped noise, panned -0.6 and 0.6, low-passed at 500 and 620 Hz, each

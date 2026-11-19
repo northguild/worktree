@@ -3,7 +3,7 @@
  * animation already holds (every leaf's `delay`, `dur` and the x it flies from and to) and returns about 60 numbers for
  * the stage, computed once when the stage starts, never per frame.
  *
- * Ported from the audition board's `flight` (prototypes/settings-gear/sound-audition.html): every 50 ms the leaves in
+ * Ported from the audition board's `flight` (context/reference/settings-gear/sound-audition.html): every 50 ms the leaves in
  * flight are summed, each weighted `sin(pi * p)` for how far through its flight it is (so fastest mid-flight), and the
  * sum is normalised to the stage's peak; the pan is the weighted mean x of those leaves.
  */

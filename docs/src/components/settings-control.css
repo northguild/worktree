@@ -6,7 +6,7 @@
  * 320px) is gmt's apps/dox/src/components/settings-control.module.css at commit d6031ecd. Its look is not: round shapes
  * and this site's tokens, no `corner-shape: bevel`, no ice (D2).
  *
- * The switch is "Turning leaf" (D3), from prototypes/settings-gear/sound-audition.html (SWITCHES[1]): a pill whose knob
+ * The switch is "Turning leaf" (D3), from context/reference/settings-gear/sound-audition.html (SWITCHES[1]): a pill whose knob
  * is a leaf that slides and turns over, its pale face for light, its deep face for dark. It makes no sound.
  *
  * INVENTED tokens (the audition board's, marked there as invented): the switch's track, its two states and the
@@ -185,7 +185,7 @@
 
 /*
  * The sound row (D9, phase 5): below a hairline, a mute button and the volume fader "Growing stem", from
- * prototypes/settings-gear/sound-audition.html (FADERS[1], `.mute`, `.fader`). Wired by lib/sound/control.ts; the
+ * context/reference/settings-gear/sound-audition.html (FADERS[1], `.mute`, `.fader`). Wired by lib/sound/control.ts; the
  * sound they control is silent to press (the mute button makes none).
  *
  * The stem is drawn from `--level` (1 to 11, set on `.stem-fader`): the grown line, the leaves it has reached (scaled

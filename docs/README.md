@@ -356,7 +356,7 @@ the leaves themselves, not to a clock or a timer, and all are quiet; none plays 
   simulated frame; a touch drag is the same events. It is a single continuous voice for the whole drag, following the speed
   with a 0.1 s time constant, and it is let go, and silent within about half a second, when the pointer stops or leaves.
 - **Where it lives.** `src/lib/sound/leaves.ts` holds the voices (the audition board's numbers, ported unchanged:
-  `prototypes/settings-gear/sound-audition.html`). It is a chunk of its own that `engine.ts` imports only where the page
+  `context/reference/settings-gear/sound-audition.html`). It is a chunk of its own that `engine.ts` imports only where the page
   has the hero's art box (`[data-hero-art]`), so no other page loads any of it. The opening starts before the engine and the
   chunk exist, so `cue.ts` remembers the latest stage (its detail and when it started, `latestFlight`; a newer stage
   replaces it); when the chunk arrives, a stage whose leaves are still in flight joins from its offset (its curves cut
@@ -395,7 +395,7 @@ is on. Everything sits on one bus 12 dB under the cues (0.25 of the master), eac
 2 s, a change of track crossfades over 1.5 s, and it stops over 0.6 s when switched off or the tab
 is hidden, and at once when the reader mutes and on `pagehide`. "Forest air" is two bands of looped noise, panned either side, low-passed, each
 breathing through a slow LFO; "Leaves overhead" is the same with a faint leaf tick every 1.5 to 4.5 s. Both are ported
-from the audition board with their numbers unchanged (`prototypes/settings-gear/sound-audition.html`, `BEDS`); the structure is GMT's
+from the audition board with their numbers unchanged (`context/reference/settings-gear/sound-audition.html`, `BEDS`); the structure is GMT's
 `aura.ts`. The audit checks the two names ("Aura", "Aura track"), that `data-aura` is set on the landing only, and that a
 stylesheet hides the controls without it.
 
