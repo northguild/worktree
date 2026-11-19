@@ -751,6 +751,22 @@ describe("sound starting at the first press", () => {
     expect(sounding()).toHaveLength(2);
   });
 
+  it("joins the stage and starts the aura when the browser lets the context run after a press it refused", async () => {
+    // #353: Safari refuses the press's resume(); the context runs later, with no gesture of its own.
+    await refresh();
+    cueFlight("gust", longFlight);
+    vi.advanceTimersByTime(1200);
+    FakeAudioContext.refuse = true;
+    press();
+    await vi.dynamicImportSettled();
+    expect(sounding()).toHaveLength(0);
+    FakeAudioContext.refuse = false;
+    FakeAudioContext.instances[0].become("running");
+    await vi.dynamicImportSettled();
+    // the aura's 2 bands, the sweep and the 2 grains still to come
+    expect(sounding()).toHaveLength(5);
+  });
+
   it("does nothing on a press while muted", async () => {
     await refresh({ muted: true });
     cueFlight("gust", longFlight);

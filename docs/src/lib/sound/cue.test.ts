@@ -161,6 +161,21 @@ describe("a context that starts suspended", () => {
     expect(ctx.calls).toEqual(["resume", "resume", "resume"]);
   });
 
+  it("tells the engine when the browser lets the context run after the press has returned", async () => {
+    // A real resume() settles later, as in Chromium and WebKit: the press's own attach sees a suspended context.
+    FakeAudioContext.refuse = true;
+    start();
+    press("keydown");
+    await vi.dynamicImportSettled();
+    const [ctx] = FakeAudioContext.instances;
+    expect(ctx.state).toBe("suspended");
+    engine.attach.mockClear();
+    ctx.become("running");
+    expect(engine.attach).toHaveBeenCalledWith(ctx);
+    press("keydown");
+    expect(ctx.calls).toEqual(["resume"]);
+  });
+
   it("does nothing while muted: no context, whatever the press", async () => {
     localStorage.clear();
     writeSound({ muted: true });
