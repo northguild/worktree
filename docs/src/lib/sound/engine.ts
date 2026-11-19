@@ -3,7 +3,9 @@
  * never on the first-paint path.
  *
  * Ported from gmt apps/dox/src/lib/sound/engine.ts at d6031ecd, cut down (plan #352, D7): no press hooks, no native
- * panel, code-copy or typing watcher, and no aura yet (phase 7 adds it, with its own switch, D6).
+ * panel, code-copy or typing watcher, and no aura yet (phase 7 adds it, with its own switch, D6). Phase 6 adds the
+ * leaves: on the landing only (the art box, `[data-hero-art]`), the engine imports `leaves.ts`, a chunk of its own, and
+ * plays the hero's `gust` and `change` cues (which carry the leaves' flight) and the pointer's rustle with it.
  *
  * It is handed an `AudioContext` that a gesture or an in-site arrival has created and resumed (`attach`), and only
  * then listens for `worktree:cue`: a cue before that is unheard, which drops it. A cue while the context is suspended
@@ -16,8 +18,11 @@ import {
   LOOP_EVENT,
   type LoopDetail,
   type LoopName,
+  RUSTLE_EVENT,
+  type RustleDetail,
 } from "./cue";
 import { ceiling, setMaster } from "./kit";
+import type { Rustle } from "./leaves";
 import { onSoundChange, readSound, type SoundSettings } from "./settings";
 import { LOOPS, VOICES } from "./voices";
 
@@ -45,6 +50,9 @@ const GAPS: Partial<Record<CueName, number>> = {
   stream: STEP_GAP,
   key: 0.025,
 };
+
+/** The one element only the landing has: the hero's art box. Where it is absent, nothing of the leaves loads. */
+const LANDING = "[data-hero-art]";
 
 export interface Engine {
   attach(ctx: AudioContext): void;
@@ -86,6 +94,29 @@ export function createEngine(): Engine {
   let together = -Infinity;
   const loops = new Map<LoopName, () => void>();
   let stopWaiting: (() => void) | undefined;
+  /** The landing's voices, once their chunk has arrived; a cue before then is dropped, as before the engine. */
+  let leaves: typeof import("./leaves") | undefined;
+  let leavesLoading = false;
+  /** The pointer's rustle: one voice for a whole drag. */
+  let rustleVoice: Rustle | undefined;
+
+  const loadLeaves = () => {
+    if (leaves || leavesLoading || !document.querySelector(LANDING)) return;
+    leavesLoading = true;
+    void import("./leaves")
+      .then((mod) => {
+        leaves = mod;
+      })
+      .catch(() => {
+        // A chunk that will not load leaves the landing as silent as before this phase.
+        leavesLoading = false;
+      });
+  };
+
+  const letRustleGo = () => {
+    rustleVoice?.stop();
+    rustleVoice = undefined;
+  };
 
   const fade = (to: number, over: number) => {
     if (!ctx || !master) return;
@@ -98,6 +129,7 @@ export function createEngine(): Engine {
   const stopLoops = () => {
     for (const stop of loops.values()) stop();
     loops.clear();
+    letRustleGo();
   };
 
   const apply = (next: SoundSettings) => {
@@ -128,16 +160,44 @@ export function createEngine(): Engine {
     if (!ctx || !master || settings.muted) return;
     const detail = (event as CustomEvent<CueDetail>).detail;
     const name = detail?.name;
-    const voice = VOICES[name];
-    if (!voice) return;
+    const flight = detail.flight;
+    // The leaves' cues carry their flight and are played by the landing's chunk, not by `voices.ts`.
+    const voice =
+      flight && (name === "gust" || name === "change")
+        ? undefined
+        : VOICES[name];
+    if (!voice && !flight) return;
+    if (flight) {
+      loadLeaves();
+      if (!leaves) return;
+    }
     if (!live(ctx)) return;
     const now = ctx.currentTime;
     const last = lastPlayed.get(name);
     if (last !== undefined && now - last < (GAPS[name] ?? DEFAULT_GAP)) return;
     lastPlayed.set(name, now);
     if (!(now - together < LEAD)) together = now;
-    voice(ctx, master, together + LEAD, detail.rank ?? 0);
+    const at = together + LEAD;
+    if (flight && leaves) {
+      (name === "gust" ? leaves.gust : leaves.change)(ctx, master, at, flight);
+    } else if (voice) {
+      voice(ctx, master, at, detail.rank ?? 0);
+    }
     detail.heard = true;
+  };
+
+  /** The pointer: a speed above 0 follows it with one rustle; 0 lets the rustle go. */
+  const onRustle = (event: Event) => {
+    if (!ctx || !master || settings.muted) return;
+    const { speed, pan } = (event as CustomEvent<RustleDetail>).detail;
+    if (!(speed > 0)) {
+      letRustleGo();
+      return;
+    }
+    loadLeaves();
+    if (!leaves || !live(ctx)) return;
+    rustleVoice ??= leaves.startRustle(ctx, master);
+    rustleVoice.set(speed, pan);
   };
 
   const onLoop = (event: Event) => {
@@ -220,6 +280,8 @@ export function createEngine(): Engine {
       if (session) session.type = "ambient";
       document.addEventListener(CUE_EVENT, onCue);
       document.addEventListener(LOOP_EVENT, onLoop);
+      document.addEventListener(RUSTLE_EVENT, onRustle);
+      loadLeaves();
     },
     destroy() {
       unsubscribe();
@@ -229,6 +291,7 @@ export function createEngine(): Engine {
       stopWaiting?.();
       document.removeEventListener(CUE_EVENT, onCue);
       document.removeEventListener(LOOP_EVENT, onLoop);
+      document.removeEventListener(RUSTLE_EVENT, onRustle);
       clearTimeout(suspendTimer);
       clearTimeout(hideTimer);
       stopLoops();

@@ -31,6 +31,7 @@ export type CueName =
   | "stream"
   | "done"
   | "error"
+  | "loading"
   | "gust"
   | "change";
 
@@ -39,11 +40,31 @@ export type LoopName = "thinking";
 
 export const CUE_EVENT = "worktree:cue";
 export const LOOP_EVENT = "worktree:loop";
+export const RUSTLE_EVENT = "worktree:rustle";
+
+/** A leaf picture a stage can be, as the hero names them. */
+export type FlightStage = "leaf" | "graph" | "word";
+
+/**
+ * What the leaves of one stage do, computed once when the stage starts (`hero/flight.ts`, plan #352 D10): the share of
+ * leaves in flight and the side of the page they are on every `step` seconds, the seconds from the first take-off to the
+ * last landing, and the places and times of a few landings. Every time is on the audio clock, from the stage's start.
+ */
+export interface FlightDetail {
+  stage: FlightStage;
+  curve: Float32Array;
+  panCurve: Float32Array;
+  step: number;
+  duration: number;
+  grains: { at: number; pan: number }[];
+}
 
 export interface CueDetail {
   name: CueName;
   /** The cue's place on its scale, absent means 0: in a run of like cues. */
   rank?: number;
+  /** The leaves' flight, on `gust` and `change` only. */
+  flight?: FlightDetail;
   /** Set by the engine when it plays the cue. */
   heard?: boolean;
 }
@@ -61,6 +82,29 @@ export function cue(name: CueName, rank?: number): boolean {
   const detail: CueDetail = rank === undefined ? { name } : { name, rank };
   document.dispatchEvent(new CustomEvent<CueDetail>(CUE_EVENT, { detail }));
   return detail.heard === true;
+}
+
+/**
+ * Play the sound of one stage of the leaves: `gust` for the opening, `change` for each later stage. Starts at the stage's
+ * start on the audio clock and is silent when its last leaf lands. Heard only on the landing, with the engine running.
+ */
+export function cueFlight(name: "gust" | "change", flight: FlightDetail): void {
+  document.dispatchEvent(
+    new CustomEvent<CueDetail>(CUE_EVENT, { detail: { name, flight } }),
+  );
+}
+
+/** What the pointer does to the leaves: `speed` 0 to 1 and `pan` -1 to 1. A speed of 0 lets the rustle go. */
+export interface RustleDetail {
+  speed: number;
+  pan: number;
+}
+
+/** Feed the pointer's rustle. Dispatched every simulated frame while the pointer moves over the art box. */
+export function rustle(speed: number, pan: number): void {
+  document.dispatchEvent(
+    new CustomEvent<RustleDetail>(RUSTLE_EVENT, { detail: { speed, pan } }),
+  );
 }
 
 /** Start a loop. Returns the stop function. Dropped like a cue when the engine is not running. */

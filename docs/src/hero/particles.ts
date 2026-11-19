@@ -16,12 +16,19 @@
  * the ambient field), the graph writes itself into the "worktree" wordmark, and the wordmark becomes the leaf again.
  * The pointer pushes leaves away over the art box; they spring back.
  *
+ * It also feeds the sound (plan #352, D10-D12; `lib/sound/leaves.ts` plays it, only for a reader who turned sound on):
+ * each stage's `enter()` hands the leaves' own delays and durations to `flight()` once and cues `gust` (the opening) or
+ * `change`, never on a re-fit; the pointer's speed and side go to the rustle every simulated frame. Nothing is read
+ * back from the sound, and no sound is made here.
+ *
  * Rendering is OGL (Renderer, Program, Geometry, Mesh only) with the simulation on the CPU: two Float32Arrays are
  * uploaded per frame. Everything is drawn in CSS pixels with the origin at the centre of the viewport and y up; a
  * shape's targets are kept relative to the art box's centre (the anchor), re-measured on scroll and resize.
  */
 
 import { Geometry, Mesh, Program, Renderer } from "ogl";
+import { cueFlight, rustle } from "../lib/sound/cue";
+import { flight as flightOf, soundFor } from "./flight";
 import { clamp01, shapeScale } from "./geometry";
 import { fragment, vertex } from "./shaders";
 import { buildTargets, LeafKind } from "./targets";
@@ -88,6 +95,15 @@ const NEXT_STAGE: Record<Stage, Stage> = {
   word: "leaf",
 };
 const WORD = "worktree";
+/** The pointer's speed, in art-box heights per second, that sounds the rustle at its loudest. */
+const RUSTLE_FULL = 3;
+/** Below this share of that speed the rustle is let go. */
+const RUSTLE_FLOOR = 0.02;
+/** How fast the pointer's remembered speed dies away, per second, when it has stopped moving. */
+const RUSTLE_DECAY = 20;
+/** Landing grains the sound ticks for: the gust and each change (the audition board's 46 and 34). */
+const GUST_GRAINS = 46;
+const CHANGE_GRAINS = 34;
 
 interface Gust {
   x: number;
@@ -225,6 +241,11 @@ export function startParticles(host: HeroHost): HeroHandle | null {
   const delay = new Float32Array(COUNT);
   const dur = new Float32Array(COUNT);
   const swirl = new Float32Array(COUNT);
+  // The stage's flight, compacted, for the sound: the shape's leaves first, then (the opening) the ambient ones.
+  const flyDelay = new Float32Array(COUNT);
+  const flyDur = new Float32Array(COUNT);
+  const flyFrom = new Float32Array(COUNT);
+  const flyTo = new Float32Array(COUNT);
   const ox = new Float32Array(COUNT); // pointer offset and its velocity
   const oy = new Float32Array(COUNT);
   const vx = new Float32Array(COUNT);
@@ -626,14 +647,72 @@ export function startParticles(host: HeroHost): HeroHandle | null {
     }
     // HOLD is wall-clock seconds; T runs at 1/PACE of the wall clock.
     stageLength = longest + HOLD / PACE;
+    playStage(name, { quick, gustIn });
+  }
+
+  /**
+   * Give the stage to the sound, once, from the numbers the leaves were just given. Not on a re-fit, and not when a
+   * picture forms: only a stage's flight has a sound, and the sound ends at its last landing, `longest * PACE`
+   * seconds on the audio clock.
+   */
+  function playStage(name: Stage, options: EnterOptions) {
+    const sound = soundFor(options);
+    if (!sound) return;
+    let n = 0;
+    const add = (i: number) => {
+      flyDelay[n] = delay[i];
+      flyDur[n] = dur[i];
+      flyFrom[n] = sx[i];
+      flyTo[n] = drifts[i] ? driftX(i, T) : ax + gx[i];
+      n++;
+    };
+    for (let k = 0; k < shapeIndex.length; k++) add(shapeIndex[k]);
+    if (options.gustIn) for (let i = 0; i < COUNT; i++) if (!isShape[i]) add(i);
+    cueFlight(sound, {
+      stage: name,
+      ...flightOf({
+        delay: flyDelay,
+        dur: flyDur,
+        from: flyFrom,
+        to: flyTo,
+        count: n,
+        halfWidth: W / 2,
+        pace: PACE,
+        every: 3,
+        grains: {
+          count: options.gustIn ? GUST_GRAINS : CHANGE_GRAINS,
+          pool: shapeIndex.length,
+        },
+      }),
+    });
   }
 
   // ---- Pointer: over the art box and a 40 px margin round it ----
-  const pointer = { x: 0, y: 0, active: false, nx: 0, ny: 0 };
+  const pointer = {
+    x: 0,
+    y: 0,
+    active: false,
+    nx: 0,
+    ny: 0,
+    speed: 0, // 0 to 1, the fastest move since the last frame, for the sound
+    lastT: 0,
+  };
+  let rustling = false;
   const parallax = [0, 0];
   addEventListener(
     "pointermove",
     (event) => {
+      const dt = Math.max(1, event.timeStamp - pointer.lastT) / 1000;
+      const moved = Math.hypot(
+        event.clientX - W / 2 - pointer.x,
+        H / 2 - event.clientY - pointer.y,
+      );
+      if (pointer.lastT)
+        pointer.speed = Math.max(
+          pointer.speed,
+          clamp01(moved / dt / (RUSTLE_FULL * AH)),
+        );
+      pointer.lastT = event.timeStamp;
       pointer.x = event.clientX - W / 2;
       pointer.y = H / 2 - event.clientY;
       pointer.active =
@@ -749,6 +828,24 @@ export function startParticles(host: HeroHost): HeroHandle | null {
     const goalY = pointer.active ? pointer.ny * 9 : Math.cos(T * 0.17) * 3;
     parallax[0] += (goalX - parallax[0]) * Math.min(1, dt * 3);
     parallax[1] += (goalY - parallax[1]) * Math.min(1, dt * 3);
+    feedRustle(dt * PACE);
+  }
+
+  /**
+   * The pointer's sound: its speed and side, every simulated frame while it is over the art box, then let go. `wall` is
+   * the frame's wall-clock seconds. The remembered speed dies away quickly, so a pointer that stops is silent within
+   * about half a second, with the voice's own 0.1 s follow.
+   */
+  function feedRustle(wall: number) {
+    const over = pointer.active && pointer.speed > RUSTLE_FLOOR;
+    if (over) {
+      rustle(pointer.speed, pointer.nx);
+      rustling = true;
+    } else if (rustling) {
+      rustle(0, 0);
+      rustling = false;
+    }
+    pointer.speed *= Math.exp(-RUSTLE_DECAY * wall);
   }
 
   function draw() {
@@ -812,6 +909,10 @@ export function startParticles(host: HeroHost): HeroHandle | null {
   function pause() {
     cancelAnimationFrame(raf);
     raf = 0;
+    if (rustling) {
+      rustle(0, 0);
+      rustling = false;
+    }
   }
 
   // ---- Start: everything is measured and sampled before the first frame ----

@@ -329,6 +329,35 @@ repaints the control and plays nothing. The wiring is `lib/sound/control.ts`, mo
 audit (`pnpm docs:audit-dist`) checks the two names, and `scripts/theme-contrast.mjs` holds the speaker and the stem at
 3:1 against the panel in both themes.
 
+### The leaves' sounds
+
+On the landing, for a reader who has turned sound on, the leaf animation (`src/hero/`) has three sounds. All are tied to
+the leaves themselves, not to a clock or a timer, and all are quiet; none plays on a press.
+
+- **The opening gust and each change.** When a stage starts, `particles.ts`'s `enter()` hands every leaf's own delay and
+  duration (and where it flies from and to) to `flight()` (`src/hero/flight.ts`, pure). Every 50 ms it adds up the leaves
+  in flight, each weighted `sin(π·p)` for how far through its flight it is, and normalises the sum to the stage's peak:
+  that is the share of leaves in the air, with the weighted mean x as the side of the page, plus about 46 landing places
+  for the gust and 34 for a change. That is about 60 numbers, computed once per stage and never per frame, and it reads
+  every third leaf (the curve is a share, so a regular sample has the same shape; this keeps the pass near 1.4 ms for the
+  9,200 leaves). It is cued as `gust` (the opening, **Soft canopy**: two wide bands of high air whose loudness and
+  brightness follow the share in flight) or `change` (leaf to graph, graph to wordmark, wordmark to leaf; **Sweep and
+  grains**: a rustle swell that travels with the leaves, left to right for the wordmark, with a dry tick for each landing
+  grain, panned to where it lands). A picture forming makes no sound, and neither does a stage re-fitted after a
+  resize (`soundFor`). Each starts at its stage's start on the audio clock and is silent at its last landing: its envelopes
+  end there and a guard bus fades to 0 over the last 0.25 s. The simulation runs at 1/`PACE` of the wall clock, so
+  `flight()` is told the pace and every time it returns is on the audio clock.
+- **The pointer.** Over the art box (and its 40 px margin) the pointer's speed and side go to one **Soft rustle** every
+  simulated frame; a touch drag is the same events. It is a single continuous voice for the whole drag, following the speed
+  with a 0.1 s time constant, and it is let go, and silent within about half a second, when the pointer stops or leaves.
+- **Where it lives.** `src/lib/sound/leaves.ts` holds the voices (the audition board's numbers, ported unchanged:
+  `prototypes/settings-gear/sound-audition.html`). It is a chunk of its own that `engine.ts` imports only where the page
+  has the hero's art box (`[data-hero-art]`), so no other page loads any of it; a gust or change that arrives before the
+  chunk has loaded is dropped, like a cue before the engine. `cue.ts` carries the flight in the cue's detail (`cueFlight`)
+  and the pointer in `rustle()`.
+- **Safari and Firefox.** `setValueCurveAtTime` must not overlap another automation on the same parameter, so every
+  parameter with a curve has that one curve and nothing else.
+
 ## Footer
 
 `src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (last updated,
@@ -430,11 +459,13 @@ counted as a second link action). `pnpm docs:audit-dist` holds both, and no othe
 The landing's art box (`src/components/HeroLeaves.astro`, rendered by the landing branch of `Hero.astro` only) is a field of
 leaf-shaped WebGL particles (D18): on load they gust in from every edge of the viewport and from behind the header, build one
 large leaf, become a git graph, write the `worktree` wordmark and flow back into the leaf, holding 5 s on each picture, for as
-long as the page is visible. The pointer pushes leaves near the art box.
+long as the page is visible. The pointer pushes leaves near the art box. For a reader who has turned sound on, the leaves also
+make quiet sounds tied to their flight (see [The leaves' sounds](#the-leaves-sounds)); with sound off, or under reduced motion
+(which shows the still), the hero is silent.
 
 - **Code**: `src/hero/` holds `geometry.ts` (the shapes, in design units), `targets.ts` (where each particle goes in the leaf and the
-  graph), `shaders.ts`, `particles.ts` (the simulation and the drawing, on OGL: `Renderer`, `Program`, `Geometry`, `Mesh`) and
-  `loader.ts`. The effect is a port of the approved prototype; the numbers are its.
+  graph), `shaders.ts`, `particles.ts` (the simulation and the drawing, on OGL: `Renderer`, `Program`, `Geometry`, `Mesh`), `flight.ts` (the share of
+  leaves in flight, for the sound) and `loader.ts`. The effect is a port of the approved prototype; the numbers are its.
 - **Loading**: the loader is the hero's only static script, on the landing alone. It waits for the first paint, then probes for
   WebGL and `import()`s
   `particles.ts`, which Vite bundles with OGL into a chunk nothing else references, so every other page, the 404 included, ships no

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeAudioContext, installFakeAudio } from "../../test/fake-audio";
 import { saveSound, stubStorage } from "../../test/sound-storage";
-import { cue } from "./cue";
+import { cue, cueFlight, type FlightDetail, rustle } from "./cue";
 import { createEngine, type Engine, HIDE_TAIL_MS } from "./engine";
 import { writeSound } from "./settings";
 import { VOICES, type Voice } from "./voices";
@@ -274,5 +274,112 @@ describe("destroy", () => {
     setVisibility("hidden");
     expect(notch).not.toHaveBeenCalled();
     engine = undefined;
+  });
+});
+
+describe("the leaves", () => {
+  const flightDetail: FlightDetail = {
+    stage: "leaf",
+    curve: Float32Array.of(0, 1, 0),
+    panCurve: Float32Array.of(0, 0, 0),
+    step: 0.05,
+    duration: 0.1,
+    grains: [],
+  };
+  const landing = () => {
+    const art = document.createElement("div");
+    art.dataset.heroArt = "";
+    document.body.append(art);
+  };
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it("plays the gust 5 ms ahead on the audio clock, once the landing's chunk has loaded", async () => {
+    landing();
+    boot();
+    await vi.dynamicImportSettled();
+    ctx.advance(2);
+    cueFlight("gust", flightDetail);
+    const bands = ctx.started("bufferSource");
+    expect(bands).toHaveLength(2);
+    expect(bands[0].startedAt).toBeCloseTo(2.005);
+  });
+
+  it("plays a change as the sweep and its grains", async () => {
+    landing();
+    boot();
+    await vi.dynamicImportSettled();
+    cueFlight("change", {
+      ...flightDetail,
+      stage: "word",
+      grains: [{ at: 0.05, pan: 0.5 }],
+    });
+    expect(ctx.started("bufferSource")).toHaveLength(2); // the sweep and one grain
+  });
+
+  it("drops a flight cue that comes before the chunk has loaded, and queues nothing", async () => {
+    landing();
+    boot();
+    cueFlight("gust", flightDetail);
+    await vi.dynamicImportSettled();
+    expect(ctx.started("bufferSource")).toHaveLength(0);
+  });
+
+  it("never loads the leaves anywhere but the landing", async () => {
+    boot();
+    await vi.dynamicImportSettled();
+    cueFlight("gust", flightDetail);
+    await vi.dynamicImportSettled();
+    cueFlight("gust", flightDetail);
+    rustle(0.5, 0);
+    expect(ctx.started("bufferSource")).toHaveLength(0);
+  });
+
+  it("is silent while muted", async () => {
+    landing();
+    boot({ muted: true });
+    await vi.dynamicImportSettled();
+    cueFlight("gust", flightDetail);
+    rustle(0.5, 0);
+    expect(ctx.started("bufferSource")).toHaveLength(0);
+  });
+
+  it("makes one rustle for a whole drag and lets it go when the speed reaches 0", async () => {
+    landing();
+    boot();
+    await vi.dynamicImportSettled();
+    ctx.advance(1);
+    rustle(0.4, -0.5);
+    ctx.advance(0.016);
+    rustle(0.8, -0.4);
+    ctx.advance(0.016);
+    rustle(0.6, -0.3);
+    const [voice] = ctx.started("bufferSource");
+    expect(ctx.started("bufferSource")).toHaveLength(1);
+    expect(voice.stoppedAt).toBeUndefined();
+    const gain = ctx.nodes.find(
+      (n) => n.gain.of("setTargetAtTime").length === 3,
+    );
+    expect(gain?.gain.of("setTargetAtTime").map((c) => c.args[0])).toEqual([
+      0.008, 0.016, 0.012,
+    ]);
+    ctx.advance(0.1);
+    rustle(0, 0);
+    // let go: stopped within 0.5 s of now (1.132)
+    expect(voice.stoppedAt).toBeCloseTo(1.632);
+    // a second touch is a new voice
+    rustle(0.5, 0);
+    expect(ctx.started("bufferSource")).toHaveLength(2);
+  });
+
+  it("lets the rustle go when the reader mutes", async () => {
+    landing();
+    boot();
+    await vi.dynamicImportSettled();
+    rustle(0.5, 0);
+    const [voice] = ctx.started("bufferSource");
+    writeSound({ muted: true });
+    expect(voice.stoppedAt).toBeDefined();
   });
 });

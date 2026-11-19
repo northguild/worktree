@@ -38,6 +38,16 @@ export class FakeParam {
   setTargetAtTime(v: number, t: number, c: number) {
     return this.record("setTargetAtTime", [v, t, c]);
   }
+  /** `args` is [start, duration, ...values]: the curve's own numbers are kept in `curves`. */
+  readonly curves: { values: number[]; start: number; duration: number }[] = [];
+  setValueCurveAtTime(
+    values: ArrayLike<number>,
+    start: number,
+    duration: number,
+  ) {
+    this.curves.push({ values: Array.from(values), start, duration });
+    return this.record("setValueCurveAtTime", [start, duration]);
+  }
   cancelScheduledValues(t: number) {
     return this.record("cancelScheduledValues", [t]);
   }
@@ -55,6 +65,7 @@ export class FakeNode {
   readonly detune = new FakeParam(0);
   readonly Q = new FakeParam(1);
   readonly delayTime = new FakeParam(0);
+  readonly pan = new FakeParam(0);
   type = "";
   loop = false;
   buffer: unknown = null;
@@ -135,6 +146,9 @@ export class FakeAudioContext {
     const node = new FakeNode(kind);
     this.nodes.push(node);
     return node;
+  }
+  createStereoPanner() {
+    return this.make("stereoPanner");
   }
   createGain() {
     return this.make("gain");
