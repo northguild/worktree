@@ -17,7 +17,7 @@
  * The pointer pushes leaves away over the art box; they spring back.
  *
  * It also feeds the sound (plan #352, D10-D12; `lib/sound/leaves.ts` plays it, only for a reader who turned sound on):
- * each stage's `enter()` hands the leaves' own delays and durations to `flight()` once and cues `gust` (the opening) or
+ * each stage's `enter()` hands the leaves' own delays and durations to `flight()` once (not at all while sound is muted) and cues `gust` (the opening) or
  * `change`, never on a re-fit; the pointer's speed and side go to the rustle every simulated frame. Nothing is read
  * back from the sound, and no sound is made here.
  *
@@ -244,7 +244,6 @@ export function startParticles(host: HeroHost): HeroHandle | null {
   // The stage's flight, compacted, for the sound: the shape's leaves first, then (the opening) the ambient ones.
   const flyDelay = new Float32Array(COUNT);
   const flyDur = new Float32Array(COUNT);
-  const flyFrom = new Float32Array(COUNT);
   const flyTo = new Float32Array(COUNT);
   const ox = new Float32Array(COUNT); // pointer offset and its velocity
   const oy = new Float32Array(COUNT);
@@ -658,11 +657,13 @@ export function startParticles(host: HeroHost): HeroHandle | null {
   function playStage(name: Stage, options: EnterOptions) {
     const sound = soundFor(options);
     if (!sound) return;
+    // A muted visitor hears nothing, so the stage's numbers are not made. `data-sound` is one attribute read, set before
+    // first paint (ThemeProvider.astro) and kept true to the mute (control.ts); `readSound()` would parse storage.
+    if (document.documentElement.dataset.sound !== "on") return;
     let n = 0;
     const add = (i: number) => {
       flyDelay[n] = delay[i];
       flyDur[n] = dur[i];
-      flyFrom[n] = sx[i];
       flyTo[n] = drifts[i] ? driftX(i, T) : ax + gx[i];
       n++;
     };
@@ -673,12 +674,10 @@ export function startParticles(host: HeroHost): HeroHandle | null {
       ...flightOf({
         delay: flyDelay,
         dur: flyDur,
-        from: flyFrom,
         to: flyTo,
         count: n,
         halfWidth: W / 2,
         pace: PACE,
-        every: 3,
         grains: {
           count: options.gustIn ? GUST_GRAINS : CHANGE_GRAINS,
           pool: shapeIndex.length,

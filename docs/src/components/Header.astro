@@ -11,6 +11,11 @@
  * from Starlight's: one `social-icons` group holding the Dox link, LanguageSelect, SocialIcons and SettingsControl in that order (the language
  * select renders nothing on this one-locale site), and no `.social-icons::after` divider.
  *
+ * The right group shows at every width (#352 phase 12, as GMT's does): below 50rem the settings gear is all it shows, the Dox
+ * link, GitHub and Discord hiding by the unlayered rule at the foot (the mobile menu carries Dox and the social icons), because
+ * the gear is the only route to the theme and the sound there, and the landing has no menu. It is not inside an element that is
+ * hidden below `md`, which the audit checks.
+ *
  * Keep the three direct children of `.header` in this order (title, search, right group): theme.css selects them by
  * position to keep the search box at the right. The NorthGuild wordmark is SiteTitle.astro's.
  *
@@ -66,7 +71,7 @@ const shouldRenderSearch =
   <div class="sl-flex print:hidden">
     {shouldRenderSearch && <Search />}
   </div>
-  <div class="sl-hidden md:sl-flex print:hidden right-group">
+  <div class="sl-flex print:hidden right-group">
     <div class="sl-flex social-icons">
       {/* The crystal is the link: icon-only, so `aria-label` is the name and `title` the hover tooltip. It shares the
           chip look with GitHub, Discord and the gear, and one gap with them. */}
@@ -140,6 +145,17 @@ const shouldRenderSearch =
           auto;
         align-content: center;
       }
+    }
+  }
+</style>
+
+<style>
+  /* Below 50rem the gear is all the right group shows: it is the one route to the theme and the sound there (the landing has no
+     mobile menu, and the menu holds the Dox link and the social icons). Unlayered on purpose: `.header-chip` in custom.css is
+     unlayered and sets `display`, which would beat a rule in Starlight's layer. */
+  @media (max-width: 49.9375rem) {
+    .social-icons > :global(:not([data-settings-control])) {
+      display: none;
     }
   }
 </style>

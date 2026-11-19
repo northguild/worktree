@@ -18,15 +18,12 @@ beforeEach(() => {
 });
 
 /**
- * A short flight: four samples 50 ms apart, so a curve of 0.2 s, ending at a duration of 0.15 s (the last landing).
+ * A short flight, ending at a duration of 0.15 s (the last landing).
  * The numbers the voices are expected to make from it are the audition board's (Sweep and grains).
  */
 function stage(stageName: FlightDetail["stage"]): FlightDetail {
   return {
     stage: stageName,
-    curve: Float32Array.of(0, 0.25, 1, 0),
-    panCurve: Float32Array.of(0, -0.5, 0.5, 0),
-    step: 0.05,
     duration: 0.15,
     grains: [
       { at: 0.05, pan: -0.85 },
@@ -49,9 +46,6 @@ describe("what is left of a stage (fromOffset)", () => {
   // Decided from D11 (amended) and the Done-when: only the grains still to come, silent at the last landing.
   const long = (): FlightDetail => ({
     stage: "leaf",
-    curve: Float32Array.of(0, 0.5, 1, 0.5, 0, 0),
-    panCurve: Float32Array.of(0, 0.125, 0.25, 0.375, 0.5, 0.625),
-    step: 0.05,
     duration: 0.25,
     grains: [
       { at: 0.05, pan: -1 },
@@ -66,9 +60,7 @@ describe("what is left of a stage (fromOffset)", () => {
     expect(rest?.grains).toHaveLength(1);
     expect(rest?.grains[0].at).toBeCloseTo(0.08);
     expect(rest?.grains[0].pan).toBe(0.5);
-    // sample 2 (0.10 s) is the one the stage is in: 0.12 / 0.05 floors to 2
-    expect(Array.from(rest?.curve ?? [])).toEqual([1, 0.5, 0, 0]);
-    expect(Array.from(rest?.panCurve ?? [])).toEqual([0.25, 0.375, 0.5, 0.625]);
+    expect(rest?.stage).toBe("leaf");
   });
 
   it("plays nothing once every leaf has landed, and the whole stage if it has not started", () => {

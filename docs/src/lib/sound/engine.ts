@@ -115,7 +115,10 @@ export function createEngine(): Engine {
   const lastPlayed = new Map<CueName, number>();
   /** The clock reading the latest cues start from, shared by every cue less than LEAD after it. */
   let together = -Infinity;
+  /** The loops sounding now, by their stop. */
   const loops = new Map<LoopName, () => void>();
+  /** The loops a caller asked for and has not stopped. A mute silences them without ending the want; an unmute restarts them. */
+  const wanted = new Set<LoopName>();
   let stopWaiting: (() => void) | undefined;
   /** The landing's voices, once their chunk has arrived; a cue before then is not played live, but `joinLate` takes it up. */
   let leaves: typeof import("./leaves") | undefined;
@@ -161,11 +164,25 @@ export function createEngine(): Engine {
     rustleVoice = undefined;
   };
 
+  /**
+   * Cancel what the master gain has scheduled from `now` on, holding the value it has reached, so a ramp in progress
+   * neither jumps nor wins over what is set next. `cancelAndHoldAtTime` where the browser has it (Firefox does not);
+   * elsewhere the same by hand.
+   */
+  const holdGain = (now: number) => {
+    if (!master) return;
+    if (typeof master.gain.cancelAndHoldAtTime === "function") {
+      master.gain.cancelAndHoldAtTime(now);
+      return;
+    }
+    master.gain.cancelScheduledValues(now);
+    master.gain.setValueAtTime(master.gain.value, now);
+  };
+
   const fade = (to: number, over: number) => {
     if (!ctx || !master) return;
     const now = ctx.currentTime;
-    master.gain.cancelScheduledValues(now);
-    master.gain.setValueAtTime(master.gain.value, now);
+    holdGain(now);
     master.gain.linearRampToValueAtTime(to, now + over);
   };
 
@@ -213,10 +230,17 @@ export function createEngine(): Engine {
     if (next.track !== was.track) aura?.switchTo(next.track, AURA_CROSSFADE);
   };
 
+  /** Silence every loop and the rustle. What callers still want stays in `wanted`. */
   const stopLoops = () => {
     for (const stop of loops.values()) stop();
     loops.clear();
     letRustleGo();
+  };
+
+  const startLoop = (name: LoopName) => {
+    const start = LOOPS[name];
+    if (ctx && master && start && !loops.has(name) && live(ctx))
+      loops.set(name, start(ctx, master));
   };
 
   const apply = (next: SoundSettings) => {
@@ -238,7 +262,10 @@ export function createEngine(): Engine {
     } else if (was.muted) {
       if (!hidden) void ctx.resume().catch(() => {});
       fade(levelGain(next), MUTE_RAMP);
+      for (const name of wanted) startLoop(name);
     } else {
+      // A drag that began from muted is still inside the unmute ramp: cancel it first, or it ends last and wins.
+      holdGain(ctx.currentTime);
       master.gain.setTargetAtTime(levelGain(next), ctx.currentTime, 0.015);
     }
     if (next.muted !== was.muted) syncAura();
@@ -290,13 +317,13 @@ export function createEngine(): Engine {
   };
 
   const onLoop = (event: Event) => {
-    if (!ctx || !master || settings.muted) return;
+    if (!ctx || !master) return;
     const { name, on } = (event as CustomEvent<LoopDetail>).detail;
     if (on) {
-      const start = LOOPS[name];
-      if (start && !loops.has(name) && live(ctx))
-        loops.set(name, start(ctx, master));
+      wanted.add(name);
+      if (!settings.muted) startLoop(name);
     } else {
+      wanted.delete(name);
       loops.get(name)?.();
       loops.delete(name);
     }
@@ -408,6 +435,7 @@ export function createEngine(): Engine {
       document.removeEventListener(RUSTLE_EVENT, onRustle);
       clearTimeout(suspendTimer);
       clearTimeout(hideTimer);
+      wanted.clear();
       stopLoops();
       forgetFlight();
       if (ctx && ctx.state !== "closed") void ctx.close().catch(() => {});

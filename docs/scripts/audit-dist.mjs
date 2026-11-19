@@ -62,7 +62,8 @@
  * stylesheet hides them under `html:not([data-aura])`; the one inline script that sets `data-aura` is on the landing and on no
  * other page, so the controls show on the landing alone.
  *
- * Also (#352, D1): in every page's and the 404's `<header>` the right group reads Dox, GitHub, Discord, then the gear.
+ * Also (#352, D1): in every page's and the 404's `<header>` the right group reads Dox, GitHub, Discord, then the gear, and
+ * (phase 12) the gear is in no element hidden below `md` (`sl-hidden`, `hidden`, `display: none`): it shows at every width.
  *
  * Also (#266 phase 3, D6-D9, the landing header's entrance): the entrance marker (`data-landing-entrance`) is on the
  * landing's header and no other page's, and that header holds the internal-arrival script inline (no `src`); in the built
@@ -404,6 +405,48 @@ function headerOf(html) {
 /** What the sighted see of a link: its text without icons or screen-reader-only text. */
 const linkVisibleText = (inner) => visibleLabel(inner);
 
+const VOID_TAGS = new Set([
+  "br",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "path",
+  "rect",
+  "circle",
+  "source",
+  "wbr",
+]);
+
+/**
+ * Whether an element enclosing the character at `at` of `fragment` is hidden: the class token `sl-hidden`, a `hidden`
+ * attribute, or an inline `display: none`. A stack of the open tags before `at`, which is enough for the built header.
+ */
+function hiddenAncestor(fragment, at) {
+  const stack = [];
+  for (const m of fragment
+    .slice(0, at)
+    .matchAll(/<(\/?)([a-zA-Z][\w-]*)\b([^>]*)>/g)) {
+    const [whole, closing, tag, rawAttrs] = m;
+    const name = tag.toLowerCase();
+    if (closing) {
+      const k = stack.findLastIndex((e) => e.name === name);
+      if (k !== -1) stack.length = k;
+    } else if (!VOID_TAGS.has(name) && !whole.endsWith("/>")) {
+      stack.push({ name, attrs: attributes(rawAttrs) });
+    }
+  }
+  return stack.some(({ attrs }) => {
+    const classes = (attrs.class ?? "").split(/\s+/);
+    return (
+      classes.includes("sl-hidden") ||
+      Object.hasOwn(attrs, "hidden") ||
+      /display\s*:\s*none/.test(attrs.style ?? "")
+    );
+  });
+}
+
 /**
  * The header's links (WCAG 4.1.2 name, 2.5.3 label in name): the two NorthGuild links exist, resolve where D17 says and
  * are named by their own text; the community icons open in a new tab, say so, and carry `rel=noopener`.
@@ -510,6 +553,12 @@ function auditHeader(html, where, { onDox = false } = {}) {
         `the "${SETTINGS_NAME}" gear comes before GitHub or Discord, expected it last in the right group`,
       );
   }
+  // #352 phase 12: the gear is the only control that shows below md, so none of its ancestors may be the element Starlight
+  // hides there (`sl-hidden`, brought back by `md:sl-flex`), nor hidden by `hidden` or an inline `display: none`.
+  if (gears.length === 1 && hiddenAncestor(header, gears[0].at))
+    fail(
+      `the "${SETTINGS_NAME}" gear is inside an element hidden below md, expected it in the bar at every width`,
+    );
   // #309 phase 4, D2: Dox first in the right group, so ahead of GitHub, Discord and the gear.
   const doxLinks = links.filter((l) => l.attrs.href === DOX_HREF);
   if (doxLinks.length !== 1)

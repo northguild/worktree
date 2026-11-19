@@ -53,15 +53,12 @@ export const RUSTLE_EVENT = "worktree:rustle";
 export type FlightStage = "leaf" | "graph" | "word";
 
 /**
- * What the leaves of one stage do, computed once when the stage starts (`hero/flight.ts`, plan #352 D10): the share of
- * leaves in flight and the side of the page they are on every `step` seconds, the seconds from the first take-off to the
- * last landing, and the places and times of a few landings. Every time is on the audio clock, from the stage's start.
+ * What the leaves of one stage do, computed once when the stage starts (`hero/flight.ts`, plan #352 D10): the seconds
+ * from the stage's start to the last landing, and the places and times of a few landings. Every time is on the audio
+ * clock, from the stage's start.
  */
 export interface FlightDetail {
   stage: FlightStage;
-  curve: Float32Array;
-  panCurve: Float32Array;
-  step: number;
   duration: number;
   grains: { at: number; pan: number }[];
 }

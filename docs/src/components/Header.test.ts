@@ -105,3 +105,42 @@ describe("Header.astro's Dox link", () => {
     expect(right).toContain('aria-current={onDox ? "page" : undefined}');
   });
 });
+
+// Phase 12 (Baldur, PR #354, Header.astro:84): the gear shows at every width, as GMT's does. The component cannot be
+// rendered here, so the source is read: the expected structure is the review's, and the rendered result is checked by
+// the audit (the gear is in no element hidden below md) and by the browser pass at 375px.
+describe("Header.astro's right group", () => {
+  const markup = source.slice(
+    source.indexOf('<div class="header"'),
+    source.indexOf("<style>"),
+  );
+
+  it("is not hidden below md, and holds Dox, the social icons and the gear in that order", () => {
+    expect(markup).not.toMatch(/sl-hidden/);
+    const order = [
+      'class="header-chip dox-link"',
+      "<SocialIcons />",
+      "<SettingsControl />",
+    ].map((part) => markup.indexOf(part));
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it("hides every chip but the gear below 50rem, by a rule that is not in a layer", () => {
+    const rule = source.match(
+      /<style>\s*(?:\/\*[\s\S]*?\*\/\s*)?@media \(max-width: 49\.9375rem\) \{\s*\.social-icons > :global\(:not\(\[data-settings-control\]\)\) \{\s*display: none;/,
+    );
+    expect(rule).not.toBeNull();
+  });
+
+  it("keeps three direct children of .header: title, search, right group", () => {
+    const direct = [...markup.matchAll(/^ {2}<div class="([^"]*)"/gm)].map(
+      (m) => m[1],
+    );
+    expect(direct).toEqual([
+      "title-wrapper sl-flex",
+      "sl-flex print:hidden",
+      "sl-flex print:hidden right-group",
+    ]);
+  });
+});

@@ -8,8 +8,9 @@
  * This is a chunk of its own: the engine imports it only on the landing, so no other page loads a byte of it. It makes
  * no sound by itself; the engine hands it the audio context, the master bus and the stage's flight (`hero/flight.ts`).
  *
- * Every time is on the audio clock. Safari and Firefox throw when `setValueCurveAtTime` overlaps another automation on
- * the same `AudioParam`, so a parameter that has a curve has that curve and nothing else scheduled after its start.
+ * Every time is on the audio clock. No voice here schedules a value curve (`setValueCurveAtTime`): Safari and Firefox throw
+ * when one overlaps another automation on the same `AudioParam`, so a voice that ever needs one must leave its parameter
+ * nothing else scheduled after the curve's start.
  */
 import type { FlightDetail } from "./cue";
 import { biquad, noise, noiseBuffer, rand } from "./kit";
@@ -148,8 +149,8 @@ export function change(
 export const gust = change;
 
 /**
- * What is left of a stage `elapsed` seconds after it started: its curves from the sample it is in, only the grains still
- * to come (timed from now), and the time to its last landing. Nothing (`undefined`) once its last leaf has landed. A
+ * What is left of a stage `elapsed` seconds after it started: only the grains still to come (timed from now), and the
+ * time to its last landing. Nothing (`undefined`) once its last leaf has landed. A
  * stage that has not started is returned as it is. A stage that began before sound was ready is joined here, not
  * replayed.
  */
@@ -159,11 +160,8 @@ export function fromOffset(
 ): FlightDetail | undefined {
   if (!(elapsed < flight.duration)) return undefined;
   if (elapsed <= 0) return flight;
-  const sample = Math.floor(elapsed / flight.step);
   return {
     ...flight,
-    curve: flight.curve.slice(sample),
-    panCurve: flight.panCurve.slice(sample),
     duration: flight.duration - elapsed,
     grains: flight.grains
       .filter((g) => g.at >= elapsed)

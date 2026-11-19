@@ -22,9 +22,13 @@ const source = readFileSync(
 const markup = source
   .slice(
     source.indexOf("---", source.indexOf("---") + 3) + 3,
-    source.indexOf("<script>"),
+    source.indexOf("{/* The panel's two starting states"),
   )
   .replace("<Fragment set:html={GEAR} />", "");
+
+// The inline script after the controls (Phase 12, review thread on SettingsControl.astro:61): it sets Mute's `aria-pressed` and
+// the Dark theme switch's `checked` from `html[data-sound]` and `html[data-theme]`, before the module runs.
+const startScript = source.match(/<script is:inline>([\s\S]*?)<\/script>/)?.[1];
 
 let host: HTMLElement;
 let destroy: () => void;
@@ -144,6 +148,44 @@ describe("the settings control", () => {
     expect(() =>
       mountSettingsControl(document.createElement("div"))(),
     ).not.toThrow();
+  });
+});
+
+describe("the panel's starting states, set by the inline script before the module runs", () => {
+  const mute = () =>
+    host.querySelector<HTMLButtonElement>("#settings-sound-mute");
+
+  /** Runs the inline script as the browser would, on a page whose provider set these two attributes. */
+  function start(sound?: string, theme?: string): void {
+    if (startScript === undefined)
+      throw new Error("SettingsControl.astro has no inline script");
+    const root = document.documentElement;
+    if (sound === undefined) delete root.dataset.sound;
+    else root.dataset.sound = sound;
+    if (theme === undefined) delete root.dataset.theme;
+    else root.dataset.theme = theme;
+    new Function("document", startScript)(document);
+  }
+  afterEach(() => delete document.documentElement.dataset.sound);
+
+  // The expected values are the review's: the sound defaults to muted (fail-closed, ThemeProvider's "off"), so Mute is pressed
+  // unless the provider said "on"; the switch is "Dark theme", so it is on unless the theme is light.
+  it("ships the no-script defaults: Mute pressed, Dark theme not hard-coded on", () => {
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).not.toContain('aria-pressed="false"');
+    expect(markup).not.toMatch(/id="settings-theme-dark"[^>]*\schecked/);
+  });
+
+  it.each([
+    ["off", "dark", "true", true],
+    ["on", "dark", "false", true],
+    ["off", "light", "true", false],
+    ["on", "light", "false", false],
+    [undefined, undefined, "true", true],
+  ])("with data-sound=%s and data-theme=%s, Mute is aria-pressed=%s and Dark theme checked=%s", (sound, theme, pressed, checked) => {
+    start(sound, theme);
+    expect(mute()?.getAttribute("aria-pressed")).toBe(pressed);
+    expect(dark()?.checked).toBe(checked);
   });
 });
 

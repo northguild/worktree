@@ -269,8 +269,8 @@ If gmt adopts the same accent it moves into `@northguild/theme`, and these overr
 - **Header.** `src/components/Header.astro` overrides Starlight's `Header` (copied from Starlight 0.42.8, with the right group from GMT's `apps/dox`, commit `b15b3899`):
   the right group is the "Chat with Dox" crystal (see *Opening it*), the language select (which renders nothing on this one-locale site), GitHub, Discord, then the settings gear, as four controls of one size in one row with one gap and no divider,
   and `scripts/audit-dist.mjs` fails a page whose header orders them otherwise, or holds anything but exactly one `button` named "Settings" with a `popovertarget` (#352). The three direct children of `.header` (title, search, right group) keep their order, because `theme.css` selects them by position.
-  The components it renders (`SiteTitle`, `SocialIcons`) are overridden too, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head: its script stays inline so the theme is set before first paint, and its `updatePickers` is a no-op that Starlight may still call. There is no `ThemeSelect` override any more (the toggle it was is gone; #352): the theme control is the switch in the gear's panel, and Starlight's mobile menu has no copy of it.
-  **The settings gear** (`src/components/SettingsControl.astro`, wired by `src/lib/settings-control.ts`, styled in `src/components/settings-control.css`) is a native `<button popovertarget>` named "Settings" that opens a native `[popover]`; the icon is GMT's exactly (Lucide `settings`, from `apps/dox`, commit `d6031ecd`). Escape, an outside press and the return of focus to the gear are the browser's (`src/chat/components/use-esc-layer.ts` leaves an Escape alone while a popover is open, so /dox does not swallow it); `aria-expanded` follows the popover's `toggle` event, and opening moves focus to the switch. The panel is in the top layer, anchored under the gear and right-aligned, inside a 1rem gutter down to 320px, so opening it moves nothing in the bar. The gear and the two links share one chip, `.header-chip` in `src/styles/custom.css`.
+  The components it renders (`SiteTitle`, `SocialIcons`) are overridden too, and so is `ThemeProvider`, which Starlight's `Page.astro` loads in the head: its script stays inline so the theme is set before first paint, and its `updatePickers` is a no-op that Starlight may still call. There is no `ThemeSelect` override any more (the toggle it was is gone; #352): the theme control is the switch in the gear's panel, and Starlight's mobile menu has no copy of it. The right group shows at every width: below 50rem only the gear stays in the bar (the other three hide by an unlayered rule in `Header.astro`, and the mobile menu holds the Dox link and the social icons), so a phone and the landing, which has no mobile menu, reach the theme and the sound. `scripts/audit-dist.mjs` fails a gear inside an element hidden below `md`.
+  **The settings gear** (`src/components/SettingsControl.astro`, wired by `src/lib/settings-control.ts`, styled in `src/components/settings-control.css`) is a native `<button popovertarget>` named "Settings" that opens a native `[popover]`; the icon is GMT's exactly (Lucide `settings`, from `apps/dox`, commit `d6031ecd`). Escape, an outside press and the return of focus to the gear are the browser's (`src/chat/components/use-esc-layer.ts` leaves an Escape alone while a popover is open, so /dox does not swallow it); `aria-expanded` follows the popover's `toggle` event, and opening moves focus to the switch. The panel is in the top layer, anchored under the gear and right-aligned, inside the viewport down to 320px (it is `min(16rem, 100vw - 2rem)` wide; at 375px its right edge sits about 12px from the window's), so opening it moves nothing in the bar. The gear and the two links share one chip, `.header-chip` in `src/styles/custom.css`.
   `src/components/SiteTitle.astro` is the NorthGuild mark and
   "NorthGuild" (one link to `https://northguild.dev/`) and `worktree` in the accent (a second link, to the site's home),
   then the CLI version (`cliVersion` from `src/lib/site-meta.ts`) in small grey text on the name's baseline, from 30rem up.
@@ -309,7 +309,7 @@ Sound is a small feature of the header's settings panel (plan #352). The rules:
 
 - **Opt-in.** Every visitor starts muted, whatever the system asks (reduced motion included); only a reader's own choice
   in the panel turns it on. A stored record that cannot be read never turns sound on.
-- **No press makes a sound.** Not a link, a button, a switch, the gear or the mute button.
+- **No press makes a sound**, with one exception: Send and "Try again" in the Dox chat (see *The Dox chat's sounds* below). Not a link, a button, a switch, the gear or the mute button.
 - **One shared choice.** The level (1 to 11, default 5) and whether it is muted are in the `dox:sound` key of
   `localStorage`, shared with GMT and northguild.dev, so a choice made on one is heard on the others
   (`src/lib/sound/settings.ts`). `ThemeProvider.astro` reads the same key inline, before first paint, and sets
@@ -343,18 +343,19 @@ audit (`pnpm docs:audit-dist`) checks the two names, and `scripts/theme-contrast
 On the landing, for a reader who has turned sound on, the leaf animation (`src/hero/`) has three sounds. All are tied to
 the leaves themselves, not to a clock or a timer, and all are quiet; none plays on a press.
 
-- **The opening gust and each change.** When a stage starts, `particles.ts`'s `enter()` hands every leaf's own delay and
-  duration (and where it flies from and to) to `flight()` (`src/hero/flight.ts`, pure). Every 50 ms it adds up the leaves
-  in flight, each weighted `sin(π·p)` for how far through its flight it is, and normalises the sum to the stage's peak:
-  that is the share of leaves in the air, with the weighted mean x as the side of the page, plus about 46 landing places
-  for the gust and 34 for a change. That is about 60 numbers, computed once per stage and never per frame, and it reads
-  every third leaf (the curve is a share, so a regular sample has the same shape; this keeps the pass near 1.4 ms for the
-  9,200 leaves). It is cued as `gust` (the opening) or `change` (leaf to graph, graph to wordmark, wordmark to leaf).
-  Both play the one voice, **Sweep and grains** (the opening has no voice of its own, by the owner's choice): a rustle swell that travels with the leaves, left to right for the wordmark, with a dry tick for each landing
-  grain, panned to where it lands. A picture forming makes no sound, and neither does a stage re-fitted after a
-  resize (`soundFor`). Each starts at its stage's start on the audio clock and is silent at its last landing: its envelopes
-  end there and a guard bus fades to 0 over the last 0.25 s. The simulation runs at 1/`PACE` of the wall clock, so
-  `flight()` is told the pace and every time it returns is on the audio clock.
+- **The opening gust and each change.** Each change of picture (leaf to graph, graph to wordmark, wordmark to leaf), and the
+  opening gust in the same voice, plays one band-passed rustle, **Sweep and grains** (the opening has no voice of its own, by
+  the owner's choice), that swells over the stage's length and is silent at the true last landing of any leaf (its envelopes
+  end there and a guard bus fades to 0 over the last 0.25 s). The word stage's rustle pans from -0.7 to 0.7 across that time,
+  the others stay centred, and a few short leaf ticks sound at where and when randomly picked leaves land (about 46 for the
+  gust and 34 for a change). The swell does not follow the leaves in the air. When a
+  stage starts, `particles.ts`'s `enter()` hands every leaf's own delay and duration (and where it flies to) to `flight()`
+  (`src/hero/flight.ts`, pure), which returns only the stage's length and those landing grains, once per stage and never per
+  frame, and only for a reader with sound on: a muted visitor's stages are not computed at all, so a reader who unmutes
+  partway through a stage does not hear the remainder of that stage, and the next change plays normally. It is cued as `gust`
+  or `change`. A picture forming makes no sound, and neither does a stage re-fitted after a resize (`soundFor`). Each starts
+  at its stage's start on the audio clock. The simulation runs at 1/`PACE` of the wall clock, so `flight()` is told the pace
+  and every time it returns is on the audio clock.
 - **The pointer.** Over the art box (and its 40 px margin) the pointer's speed and side go to one **Soft rustle** every
   simulated frame; a touch drag is the same events. It is a single continuous voice for the whole drag, following the speed
   with a 0.1 s time constant, and it is let go, and silent within about half a second, when the pointer stops or leaves.
@@ -362,7 +363,7 @@ the leaves themselves, not to a clock or a timer, and all are quiet; none plays 
   `context/reference/settings-gear/sound-audition.html`). It is a chunk of its own that `engine.ts` imports only where the page
   has the hero's art box (`[data-hero-art]`), so no other page loads any of it. The opening starts before the engine and the
   chunk exist, so `cue.ts` remembers the latest stage (its detail and when it started, `latestFlight`; a newer stage
-  replaces it); when the chunk arrives, a stage whose leaves are still in flight joins from its offset (its curves cut
+  replaces it); when the chunk arrives, a stage whose leaves are still in flight joins from its offset (its envelopes cut
   to what remains, only the grains still to come, silent at the last landing) and one whose leaves have all landed
   plays nothing. No sound is possible before a gesture on the page or an arrival by a link (no `AudioContext` until
   then), so a refresh or a direct visit with sound on hears no opening until the first press, which joins a stage still in

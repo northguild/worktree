@@ -10,10 +10,17 @@ import {
 } from "vitest";
 import { FakeAudioContext, installFakeAudio } from "../../test/fake-audio";
 import { saveSound, stubStorage } from "../../test/sound-storage";
-import { cue, cueFlight, type FlightDetail, rustle, startCue } from "./cue";
+import {
+  cue,
+  cueFlight,
+  type FlightDetail,
+  loop,
+  rustle,
+  startCue,
+} from "./cue";
 import { createEngine, type Engine, HIDE_TAIL_MS } from "./engine";
 import { SOUND_KEY, writeAura, writeSound } from "./settings";
-import { VOICES, type Voice } from "./voices";
+import { LOOPS, VOICES, type Voice } from "./voices";
 
 let engine: Engine | undefined;
 let ctx: FakeAudioContext;
@@ -94,6 +101,112 @@ describe("level and mute", () => {
     expect(
       master.gain.of("linearRampToValueAtTime").at(-1)?.args[0],
     ).toBeCloseTo(0.6);
+  });
+});
+
+describe("the fader racing the unmute ramp", () => {
+  // Source: PR 354 thread on engine.ts:242. The first input of a drag from muted unmutes with a linear ramp to the first
+  // notch's level, ending 0.05 s on. Each input after it must cancel what is scheduled before it sets its target, or the
+  // ramp lands last and the gain holds the first notch. Levels: 2/11 * 0.6 then 9/11 * 0.6 then 11/11 * 0.6.
+  it("cancels the ramp before each target, and the last target is the last level", () => {
+    const master = boot({ level: 1, muted: true });
+    ctx.advance(1);
+    writeSound({ muted: false, level: 2 });
+    expect(master.gain.of("linearRampToValueAtTime").at(-1)?.args).toEqual([
+      (2 / 11) * 0.6,
+      1.05,
+    ]);
+    ctx.advance(0.01);
+    writeSound({ level: 9 });
+    ctx.advance(0.01);
+    writeSound({ level: 11 });
+    const calls = master.gain.calls;
+    const targets = calls.filter((c) => c.method === "setTargetAtTime");
+    expect(targets.map((c) => c.args[0])).toEqual([(9 / 11) * 0.6, 0.6]);
+    // each target is directly preceded by a cancel and a hold of the value the ramp had reached
+    for (const [i, c] of calls.entries()) {
+      if (c.method !== "setTargetAtTime") continue;
+      expect(calls[i - 2].method).toBe("cancelScheduledValues");
+      expect(calls[i - 1].method).toBe("setValueAtTime");
+    }
+    // nothing is scheduled after the last target
+    expect(calls.at(-1)?.method).toBe("setTargetAtTime");
+  });
+
+  it("uses cancelAndHoldAtTime where the browser has it", () => {
+    const master = boot({ level: 1, muted: false });
+    const held: number[] = [];
+    (master.gain as unknown as Record<string, unknown>).cancelAndHoldAtTime = (
+      t: number,
+    ) => {
+      held.push(t);
+    };
+    ctx.advance(2);
+    writeSound({ level: 8 });
+    expect(held).toEqual([2]);
+    expect(master.gain.of("cancelScheduledValues")).toHaveLength(0);
+    expect(master.gain.of("setTargetAtTime")[0].args[0]).toBeCloseTo(
+      (8 / 11) * 0.6,
+    );
+  });
+});
+
+describe("the thinking loop across a mute", () => {
+  // Source: PR 354 thread on engine.ts:229. The chat asks for the loop once, when the wait starts. A mute stops its
+  // sound; an unmute while the caller still wants it brings it back; the caller's stop ends the want.
+  const original = LOOPS.thinking;
+  let started: number;
+  let stopped: number;
+  beforeEach(() => {
+    started = 0;
+    stopped = 0;
+    LOOPS.thinking = () => {
+      started++;
+      return () => {
+        stopped++;
+      };
+    };
+  });
+  afterEach(() => {
+    LOOPS.thinking = original;
+  });
+
+  it("restarts after a mute and unmute during the wait", () => {
+    boot({ muted: false });
+    const stop = loop("thinking");
+    expect([started, stopped]).toEqual([1, 0]);
+    writeSound({ muted: true });
+    expect([started, stopped]).toEqual([1, 1]);
+    writeSound({ muted: false });
+    expect([started, stopped]).toEqual([2, 1]);
+    stop();
+    expect([started, stopped]).toEqual([2, 2]);
+  });
+
+  it("does not restart on a later unmute once the caller has stopped it", () => {
+    boot({ muted: false });
+    const stop = loop("thinking");
+    stop();
+    writeSound({ muted: true });
+    writeSound({ muted: false });
+    expect(started).toBe(1);
+  });
+
+  it("does not restart after the caller stops it while muted", () => {
+    boot({ muted: false });
+    const stop = loop("thinking");
+    writeSound({ muted: true });
+    stop();
+    writeSound({ muted: false });
+    expect(started).toBe(1);
+  });
+
+  it("starts a loop asked for while muted when the reader unmutes during the wait", () => {
+    boot({ muted: true });
+    loop("thinking");
+    expect(started).toBe(0);
+    writeSound({ muted: false });
+    expect(started).toBe(1);
   });
 });
 
@@ -289,9 +402,6 @@ describe("destroy", () => {
 describe("the leaves", () => {
   const flightDetail: FlightDetail = {
     stage: "leaf",
-    curve: Float32Array.of(0, 1, 0),
-    panCurve: Float32Array.of(0, 0, 0),
-    step: 0.05,
     duration: 0.1,
     grains: [],
   };
@@ -329,9 +439,6 @@ describe("the leaves", () => {
 
   const longFlight: FlightDetail = {
     stage: "leaf",
-    curve: Float32Array.of(0, 1, 1, 0, 0, 0),
-    panCurve: Float32Array.of(0, 0, 0, 0, 0, 0),
-    step: 0.5,
     duration: 3,
     grains: [
       { at: 0.5, pan: -0.5 },
@@ -652,9 +759,6 @@ describe("sound starting at the first press", () => {
   // a stage that has landed plays no leaves; nothing happens while muted.
   const longFlight: FlightDetail = {
     stage: "leaf",
-    curve: Float32Array.of(0, 1, 1, 0, 0, 0),
-    panCurve: Float32Array.of(0, 0, 0, 0, 0, 0),
-    step: 0.5,
     duration: 3,
     grains: [
       { at: 0.5, pan: -0.5 },

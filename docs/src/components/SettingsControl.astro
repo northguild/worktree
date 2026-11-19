@@ -4,8 +4,9 @@
  * Discord, that opens a popover holding the reader's settings. That is the "Dark theme" switch and, below a hairline, the
  * mute button and the volume fader (D9; `lib/sound/control.ts` wires them) and, last, the landing's aura (D14): an "Aura"
  * switch (the same Turning leaf, silent) and, while it is on, an "Aura track" radio pair. The aura block is on every page
- * but hidden by CSS wherever `<html>` has no `data-aura`, which only the landing sets (`HeroLeaves.astro`). One copy, in the header: the mobile menu has none (the right group is hidden
- * below `md`, and the plan keeps the menu as it is).
+ * but hidden by CSS wherever `<html>` has no `data-aura`, which only the landing sets (`HeroLeaves.astro`). One copy, in the header, and it shows at every width: Header.astro hides the other chips of the right group below
+ * `md` and leaves the gear, so the phone and the landing (which has no menu) reach the theme and the sound; the mobile menu
+ * has no copy.
  *
  * The gear is GMT's exactly: the `GEAR` SVG below is copied from gmt apps/dox/src/components/settings-control.ts at
  * commit d6031ecd (Lucide `settings`, ISC, filled so it reads as solid as GitHub's and Discord's marks beside it, at the
@@ -42,7 +43,7 @@ const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor
     <label class="settings-row">
       <span class="settings-row-label">Dark theme</span>
       <span class="leaf-switch">
-        <input type="checkbox" role="switch" id="settings-theme-dark" checked />
+        <input type="checkbox" role="switch" id="settings-theme-dark" />
         <svg viewBox="0 0 46 26" aria-hidden="true" focusable="false">
           <rect class="leaf-switch-track" x="1" y="1" width="44" height="24" rx="12"></rect>
           <g class="leaf-switch-leaf">
@@ -58,7 +59,7 @@ const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor
         id="settings-sound-mute"
         class="sound-mute"
         aria-label="Mute"
-        aria-pressed="false"
+        aria-pressed="true"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path class="speaker-body" d="M11 5 6 9H3v6h3l5 4z"></path>
@@ -125,6 +126,20 @@ const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor
     </div>
   </div>
 </div>
+
+{/* The panel's two starting states, true before the module runs and before the reader can open the panel: Mute is pressed unless
+    `html[data-sound]` is "on" (fail-closed, as the speaker is drawn), and the "Dark theme" switch is on unless `html[data-theme]`
+    is "light" (both are set by ThemeProvider.astro before first paint). The markup's defaults are the no-script ones: muted, and
+    dark (the site's own theme). `lib/settings-control.test.ts` runs this script as written. */}
+<script is:inline>
+  (function () {
+    var root = document.documentElement;
+    var mute = document.getElementById("settings-sound-mute");
+    var dark = document.getElementById("settings-theme-dark");
+    if (mute) mute.setAttribute("aria-pressed", String(root.dataset.sound !== "on"));
+    if (dark) dark.checked = root.dataset.theme !== "light";
+  })();
+</script>
 
 <script>
   import { mountSettingsControl } from "../lib/settings-control";

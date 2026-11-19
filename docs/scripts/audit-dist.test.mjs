@@ -2052,6 +2052,41 @@ describe("the theme control (#352)", () => {
     ).toBe(true);
   });
 
+  // #352 phase 12 (Baldur, PR #354): the gear shows at every width, so no ancestor of it may be the element Starlight hides
+  // below md (`sl-hidden`, whose `md:sl-flex` brings it back). The expected result is the review's, not the build's.
+  it("fails a gear inside an element hidden below md", async () => {
+    const failures = await withHeader(
+      header({
+        settings: `<div class="sl-hidden md:sl-flex right-group">${SETTINGS_BUTTON}</div>`,
+      }),
+    );
+    expect(
+      failures.some((f) =>
+        /faq.*header:.*gear is inside an element hidden below md/.test(f),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails a gear inside an element hidden by display: none or the hidden attribute", async () => {
+    for (const open of ['<div style="display: none">', "<div hidden>"]) {
+      const failures = await withHeader(
+        header({ settings: `${open}${SETTINGS_BUTTON}</div>` }),
+      );
+      expect(
+        failures.some((f) =>
+          /faq.*header:.*gear is inside an element hidden below md/.test(f),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("passes a gear in a visible group beside a hidden Dox group", async () => {
+    const failures = await withHeader(
+      `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div><div class="sl-flex right-group"><div class="sl-flex social-icons">${doxLink()}${GITHUB_LINK}${DISCORD_LINK}${SETTINGS_BUTTON}</div></div></header>`,
+    );
+    expect(failures.filter((f) => /gear is inside/.test(f))).toEqual([]);
+  });
+
   it("checks the gear on 404.html too", async () => {
     await write(
       dist,
