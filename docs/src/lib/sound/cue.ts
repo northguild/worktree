@@ -135,14 +135,36 @@ export function rustle(speed: number, pan: number): void {
   );
 }
 
-/** Start a loop. Returns the stop function. Dropped like a cue when the engine is not running. */
+const wanted = new Set<LoopName>();
+
+/**
+ * The loops a caller has asked for and not stopped. A loop asked for before the engine exists, or while the context is
+ * not running, is not lost: the engine reads this when it attaches and when the context runs. Nothing here makes a sound.
+ */
+export function wantedLoops(): ReadonlySet<LoopName> {
+  return wanted;
+}
+
+/** Forget every wanted loop (the engine's end). */
+export function forgetLoops(): void {
+  wanted.clear();
+}
+
+/**
+ * Start a loop. Returns the stop function. Heard only while the engine runs, but remembered (`wantedLoops`) until the
+ * caller stops it, so it starts when the engine and a running context are there.
+ */
 export function loop(name: LoopName): () => void {
   const send = (on: boolean) =>
     document.dispatchEvent(
       new CustomEvent<LoopDetail>(LOOP_EVENT, { detail: { name, on } }),
     );
+  wanted.add(name);
   send(true);
-  return () => send(false);
+  return () => {
+    wanted.delete(name);
+    send(false);
+  };
 }
 
 /** The slice of the engine module `cue.ts` talks to. */
@@ -245,11 +267,18 @@ export function startCue(): () => void {
   function loadEngine() {
     if (loading || dead) return;
     loading = true;
-    void import("./engine").then((mod) => {
-      if (dead) return;
-      engine = mod.createEngine();
-      attach();
-    });
+    void import("./engine")
+      .then((mod) => {
+        if (dead) return;
+        engine = mod.createEngine();
+        attach();
+      })
+      .catch(() => {
+        // The chunk did not load (a network error): wait for the next press, which tries again (the listeners left once the
+        // context ran), and stay silent meanwhile.
+        loading = false;
+        if (!readSound().muted) arm();
+      });
   }
 
   const onIdle = () => {

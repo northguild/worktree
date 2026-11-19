@@ -69,6 +69,39 @@ export function flight({
   return { duration: length, grains: landing };
 }
 
+/** The pointer's speed, as a share of the loudest, below which the rustle is let go. */
+export const RUSTLE_FLOOR = 0.02;
+/** How fast the pointer's remembered speed dies away, per second, when it has stopped moving. */
+export const RUSTLE_DECAY = 20;
+
+export interface RustleState {
+  /** The pointer's remembered speed, 0 to 1. */
+  speed: number;
+  /** Whether the pointer is over the art box. */
+  active: boolean;
+  /** Whether the voice has been told to sound and not yet to let go. */
+  rustling: boolean;
+}
+
+/**
+ * One frame of the pointer's rustle: whether to sound at the speed it has now (`sound`), whether to tell the voice to let
+ * go (`release`: a speed of 0), the speed after this frame's decay, and whether the voice is still sounding. The speed
+ * dies away at `RUSTLE_DECAY` per second, so a pointer that stops falls below `RUSTLE_FLOOR` in about 0.2 s and is
+ * released inside half a second, with the voice's own follow after it. `wall` is the frame's wall-clock seconds.
+ */
+export function rustleStep(
+  { speed, active, rustling }: RustleState,
+  wall: number,
+): { sound: boolean; release: boolean; speed: number; rustling: boolean } {
+  const sound = active && speed > RUSTLE_FLOOR;
+  return {
+    sound,
+    release: !sound && rustling,
+    speed: speed * Math.exp(-RUSTLE_DECAY * wall),
+    rustling: sound,
+  };
+}
+
 /**
  * Which sound a stage makes (D11): the opening makes the gust and each later stage a change; a picture forming makes
  * none (it is not a stage), and neither does a stage re-fitted after a resize. Nothing at all while sound is muted, so a

@@ -194,6 +194,15 @@ describe("onSoundChange", () => {
     stop();
   });
 
+  it("reads again when another tab clears its storage (a storage event with no key)", () => {
+    const fn = vi.fn();
+    const stop = onSoundChange(fn);
+    saveSound({ level: 7 });
+    window.dispatchEvent(new StorageEvent("storage", { key: null }));
+    expect(fn).toHaveBeenCalledWith({ level: 7, muted: false }, "storage");
+    stop();
+  });
+
   it("reads again on a return from the back/forward cache, not on a plain load", () => {
     const fn = vi.fn();
     const stop = onSoundChange(fn);

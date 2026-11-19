@@ -126,6 +126,9 @@ describe("Header.astro's right group", () => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
+  // A source-text check of intent only. The real check is the audit's, over the built CSS (`chipHidingCssFindings` in
+  // scripts/audit-dist.mjs: every rule hiding a `.social-icons` child excludes the gear's wrapper), which a selector that
+  // also hid the gear would fail.
   it("hides every chip but the gear below 50rem, by a rule that is not in a layer", () => {
     const rule = source.match(
       /<style>\s*(?:\/\*[\s\S]*?\*\/\s*)?@media \(max-width: 49\.9375rem\) \{\s*\.social-icons > :global\(:not\(\[data-settings-control\]\)\) \{\s*display: none;/,

@@ -3,6 +3,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mountSettingsControl } from "./settings-control";
 import { THEME_KEY } from "./theme";
@@ -74,8 +75,12 @@ function toggle(state: "open" | "closed"): void {
   );
 }
 
-const gear = () => host.querySelector<HTMLButtonElement>("button");
-const dark = () => host.querySelector<HTMLInputElement>('input[role="switch"]');
+// By accessible role and name (react/testing.md, "Query by accessible role"). `getByRole` throws on a missing or a second match,
+// so the one-gear and one-Dark-theme-switch expectations are part of every query.
+const gear = () =>
+  within(host).getByRole<HTMLButtonElement>("button", { name: "Settings" });
+const dark = () =>
+  within(host).getByRole<HTMLInputElement>("switch", { name: "Dark theme" });
 
 describe("the settings control", () => {
   it("is one button named Settings that opens the popover, and one panel named Settings", () => {
@@ -84,16 +89,16 @@ describe("the settings control", () => {
         (b) => b.getAttribute("aria-label") === "Settings",
       ),
     ).toHaveLength(1);
-    expect(gear()?.getAttribute("aria-label")).toBe("Settings");
-    const id = gear()?.getAttribute("popovertarget");
+    expect(gear().getAttribute("aria-label")).toBe("Settings");
+    const id = gear().getAttribute("popovertarget");
     const panel = host.querySelector(`#${id}`);
     expect(panel?.hasAttribute("popover")).toBe(true);
     expect(panel?.getAttribute("aria-label")).toBe("Settings");
   });
 
   it("holds the Dark theme switch, a native checkbox with the switch role, named by its label", () => {
-    expect(dark()?.type).toBe("checkbox");
-    expect(dark()?.closest("label")?.textContent?.trim()).toBe("Dark theme");
+    expect(dark().type).toBe("checkbox");
+    expect(dark().closest("label")?.textContent?.trim()).toBe("Dark theme");
   });
 
   // Phase 5 adds the volume row (D9; its behaviour is tested in sound/control.test.ts): a mute button and a range.
@@ -114,33 +119,33 @@ describe("the settings control", () => {
   });
 
   it("tells the gear whether the panel is open, from the toggle event", () => {
-    expect(gear()?.getAttribute("aria-expanded")).toBe("false");
+    expect(gear().getAttribute("aria-expanded")).toBe("false");
     toggle("open");
-    expect(gear()?.getAttribute("aria-expanded")).toBe("true");
+    expect(gear().getAttribute("aria-expanded")).toBe("true");
     toggle("closed");
-    expect(gear()?.getAttribute("aria-expanded")).toBe("false");
+    expect(gear().getAttribute("aria-expanded")).toBe("false");
   });
 
   it("moves focus to the Dark theme switch on open, and not on close", () => {
-    gear()?.focus();
+    gear().focus();
     toggle("open");
     expect(document.activeElement).toBe(dark());
-    gear()?.focus();
+    gear().focus();
     toggle("closed");
     expect(document.activeElement).toBe(gear());
   });
 
   it("wires the switch to the theme rule: the opposite of what shows is saved, and the page flips", () => {
     // The system is dark (matchMedia reports no light preference) and nothing is saved, so the switch shows on.
-    expect(dark()?.checked).toBe(true);
-    dark()?.click();
+    expect(dark().checked).toBe(true);
+    dark().click();
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(localStorage.getItem(THEME_KEY)).toBe("light");
   });
 
   it("stops listening when destroyed", () => {
     destroy();
-    dark()?.click();
+    dark().click();
     expect(localStorage.getItem(THEME_KEY)).toBeNull();
   });
 
@@ -153,7 +158,7 @@ describe("the settings control", () => {
 
 describe("the panel's starting states, set by the inline script before the module runs", () => {
   const mute = () =>
-    host.querySelector<HTMLButtonElement>("#settings-sound-mute");
+    within(host).getByRole<HTMLButtonElement>("button", { name: "Mute" });
 
   /** Runs the inline script as the browser would, on a page whose provider set these two attributes. */
   function start(sound?: string, theme?: string): void {
@@ -187,8 +192,8 @@ describe("the panel's starting states, set by the inline script before the modul
     [undefined, undefined, "true", true],
   ])("with data-sound=%s and data-theme=%s, Mute is aria-pressed=%s and Dark theme checked=%s", (sound, theme, pressed, checked) => {
     start(sound, theme);
-    expect(mute()?.getAttribute("aria-pressed")).toBe(pressed);
-    expect(dark()?.checked).toBe(checked);
+    expect(mute().getAttribute("aria-pressed")).toBe(pressed);
+    expect(dark().checked).toBe(checked);
   });
 });
 

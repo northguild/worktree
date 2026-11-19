@@ -449,6 +449,24 @@ describe("the settings gear and its switch (#352)", () => {
 // #ececec (light); the reached stem is #4ade80 at 10.16:1 (dark) and #0a5626 at 7.49:1 (light); the rail, ice-dim #98b2be and
 // #4b4b4b at 70% over the panel, is 4.51:1 (dark) and 3.58:1 (light). The first guess for the rail, the board's 38%, is
 // 2.24:1 and 1.86:1 and fails, which is why the share is 70%.
+// #352 phase 13: the switches' focus ring, `--gmt-spring-ink` on the panel `--gmt-surface-2`. Worked from the WCAG formula outside
+// this codebase on the token values (tokens.css, tokens-light.css): #4ade80 on #0a1a24 is 10.16:1 and #0a5626 on #ececec 7.49:1.
+describe("the switches' focus ring (#352 phase 13)", () => {
+  const NAME = "settings: the switch's focus ring on the panel";
+  const pair = PAIRS.find((p) => p.name === NAME);
+  const ratio = (theme) =>
+    measure(theme, [pair], themeProperties(theme))[0].ratio;
+
+  it("is measured as a graphical object, 3:1", () => {
+    expect(pair?.kind).toBe("non-text");
+    expect(pair?.min).toBe(NON_TEXT_MIN);
+  });
+  it("measures 10.16:1 in dark and 7.49:1 in light", () => {
+    expect(ratio("dark")).toBeCloseTo(10.16, 1);
+    expect(ratio("light")).toBeCloseTo(7.49, 1);
+  });
+});
+
 describe("the volume row (#352 phase 5)", () => {
   const named = (name) => PAIRS.find((p) => p.name === name);
   const ratio = (theme, name) =>

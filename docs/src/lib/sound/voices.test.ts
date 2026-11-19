@@ -231,4 +231,36 @@ describe("the thinking loop, Sonar idle (D13)", () => {
     stop?.();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  // The literals are GMT's `thinking` F (gmt apps/dox/src/lib/sound/voices.ts at d6031ecd): peak 0.014, attack 0.01,
+  // release 0.45, a lowpass at 1200 Hz, and `fadedLoop(..., 0.3, 0.15)`. The first ping starts at 0.05 s.
+  it("pings at a peak of 0.014 and rings out over 0.45 s, through a 1,200 Hz lowpass", () => {
+    LOOPS.thinking?.(asContext(c), c.destination as unknown as AudioNode)();
+    const ping = c.nodes.find(
+      (n) =>
+        n.kind === "gain" &&
+        n.gain.of("exponentialRampToValueAtTime").length === 1,
+    );
+    expect(ping?.gain.of("linearRampToValueAtTime")[0].args[0]).toBe(0.014);
+    // 0.05 s start + 0.01 s attack + 0.45 s release
+    expect(
+      ping?.gain.of("exponentialRampToValueAtTime")[0].args[1],
+    ).toBeCloseTo(0.51, 9);
+    const filter = c.nodes.find((n) => n.kind === "biquad");
+    expect(filter?.type).toBe("lowpass");
+    expect(filter?.frequency.value).toBe(1200);
+  });
+
+  it("dims its bus over 0.15 s when stopped", () => {
+    const stop = LOOPS.thinking?.(
+      asContext(c),
+      c.destination as unknown as AudioNode,
+    );
+    c.advance(2);
+    stop?.();
+    const bus = c.nodes[0];
+    expect(bus.gain.of("linearRampToValueAtTime").at(-1)?.args).toEqual([
+      0, 2.15,
+    ]);
+  });
 });

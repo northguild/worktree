@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import answerStream from "../hooks/fixtures/chat-answer.sse?raw";
 import runErrorStream from "../hooks/fixtures/chat-run-error.sse?raw";
+import { STREAM_IDLE_TIMEOUT_MS } from "../lib/chat-constants";
 import { DoxChat } from "./DoxChat";
 
 // Expected values: plan #352 D13 and Phase 8 "Done when". `cue` and `loop` are spies, since the audio is the engine's
@@ -36,6 +37,8 @@ const QUESTION = "How do I remove a worktree?";
 const FRAMES = answerStream.split("\n\n").filter(Boolean);
 /** RUN_STARTED, then TEXT_MESSAGE_START, then the recorded answer's first two deltas. */
 const [RUN_STARTED, TEXT_START, FIRST_DELTA, SECOND_DELTA] = FRAMES;
+/** The recorded failure's RUN_ERROR frame (the second of its two). */
+const RUN_ERROR = runErrorStream.split("\n\n").filter(Boolean)[1];
 
 const cues = (name: string) =>
   sound.cue.mock.calls.filter(([n]) => n === name).length;
@@ -66,7 +69,7 @@ afterEach(async () => {
 });
 
 /** An SSE answer whose frames the test releases one at a time. */
-function openStream() {
+function openStream({ fakeTimers = false } = {}) {
   const encoder = new TextEncoder();
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   let runId = "";
@@ -82,15 +85,25 @@ function openStream() {
     );
   });
   vi.stubGlobal("fetch", fetchMock);
+  // Under fake timers `waitFor` and a real 10 ms wait cannot run, so the frames are released and the clock is moved by hand.
+  const settle = () =>
+    fakeTimers
+      ? vi.advanceTimersByTimeAsync(10)
+      : new Promise((resolve) => setTimeout(resolve, 10));
+  const fetched = async () => {
+    if (!fakeTimers) return waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    for (let i = 0; i < 20 && !fetchMock.mock.calls.length; i++)
+      await vi.advanceTimersByTimeAsync(0);
+  };
   return {
     push: (...frames: string[]) =>
       act(async () => {
-        await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+        await fetched();
         for (const frame of frames)
           controller.enqueue(
             encoder.encode(`${frame.replaceAll(RUN_ID, runId)}\n\n`),
           );
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await settle();
       }),
     end: () =>
       act(async () => {
@@ -203,6 +216,38 @@ describe("the chat's sound: a question and its answer", () => {
     expect(cues("done")).toBe(0);
   });
 
+  // Phase 13 (review nit): a failure after the first words, or a stall, ends the answer without a bell. The expected value is
+  // D13's "done on a completed answer and never on a failed one": the warning (a run error, or the stall's) is what withholds it.
+  it("rings no done when the answer fails after its first words (a run error mid-answer)", async () => {
+    const stream = openStream();
+    render(<DoxChat />);
+    ask();
+    await stream.push(RUN_STARTED, TEXT_START, FIRST_DELTA);
+    await waitFor(() => expect(cues("stream")).toBe(1));
+    await stream.push(RUN_ERROR);
+    await screen.findByText(/reached its daily limit/);
+    await waitFor(() => expect(cues("error")).toBe(1));
+    expect(cues("done")).toBe(0);
+  });
+
+  it("rings no done when the answer stalls after its first words", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const stream = openStream({ fakeTimers: true });
+      render(<DoxChat />);
+      ask();
+      await stream.push(RUN_STARTED, TEXT_START, FIRST_DELTA);
+      expect(cues("stream")).toBe(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS + 1);
+      });
+      expect(cues("error")).toBe(1);
+      expect(cues("done")).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("buzzes once on a failed answer, stops thinking and rings no done", async () => {
     whole(runErrorStream);
     render(<DoxChat />);
@@ -293,10 +338,15 @@ describe("the chat's sound: typing in the composer", () => {
   });
 
   it("stops listening when the chat unmounts", () => {
+    // The composer is typed in while it is on the page, then put back after the chat has unmounted: a listener that
+    // outlived the chat would still cue for it, because the field is the one the listener was given.
     render(<DoxChat />);
+    const composer = box();
+    fireEvent.keyDown(composer, { key: "a" });
+    expect(cues("key")).toBe(1);
     cleanup();
-    const field = document.body.appendChild(document.createElement("textarea"));
-    fireEvent.keyDown(field, { key: "a" });
-    expect(cues("key")).toBe(0);
+    document.body.appendChild(composer);
+    fireEvent.keyDown(composer, { key: "a" });
+    expect(cues("key")).toBe(1);
   });
 });

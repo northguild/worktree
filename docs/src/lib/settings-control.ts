@@ -9,7 +9,7 @@
  *
  * Every listener is on one `AbortController`; the returned function is `destroy()`.
  *
- * Ported from GMT, apps/dox/src/lib/settings-control.ts at commit d6031ecd, without its sound control.
+ * Ported from GMT, apps/dox/src/lib/settings-control.ts at commit d6031ecd; the sound control is this site's own `sound/control.ts`, mounted here.
  */
 import { mountSoundControl } from "./sound/control";
 import { mountThemeSwitch } from "./theme";

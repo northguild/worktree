@@ -417,6 +417,13 @@ export const PAIRS = [
       light: ["var(--switch-track-off)", ...RAISED],
     },
   ),
+  // The switches' focus ring (`input:focus-visible + svg .leaf-switch-track`, a thicker `--gmt-spring-ink` stroke on the Dark theme
+  // and Aura switches): a focus indicator is a graphical object, 3:1 against what it sits on (WCAG 2.2 SC 1.4.11, 2.4.11), here the panel.
+  shape(
+    "settings: the switch's focus ring on the panel",
+    "var(--gmt-spring-ink)",
+    RAISED,
+  ),
   // The volume row (#352 phase 5, D9; settings-control.css): the speaker and the stem the fader has grown are the spring tier
   // (`--stem-reached`, `--gmt-spring-ink` in light), the rail ahead of the stem is ice-dim at 70% (`--stem-rest`), each a
   // graphical object on the panel. The leaves are decoration: the stem's length says the level.

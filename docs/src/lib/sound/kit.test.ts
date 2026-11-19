@@ -126,7 +126,7 @@ describe("sharedFx", () => {
     expect(build).toHaveBeenCalledTimes(2);
   });
 
-  it("shares one noise buffer per context, wired to nothing until a voice uses it", () => {
+  it("shares one noise buffer per context", () => {
     const c = context();
     const master = c.createGain();
     setMaster(as(c), master as unknown as AudioNode);

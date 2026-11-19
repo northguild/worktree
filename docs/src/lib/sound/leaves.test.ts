@@ -223,8 +223,12 @@ describe("the pointer's rustle (Soft rustle)", () => {
       0, 1.2, 0.06,
     ]);
     expect(ctx.started("bufferSource")[0].stoppedAt).toBeCloseTo(1.7);
-    // An exponential approach, 0.06 s constant: 0.5 s after, it is exp(-0.5 / 0.06) = 0.00024 of 0.02
-    expect(0.02 * Math.exp(-0.5 / 0.06)).toBeLessThan(0.00001);
+    // The target is an exponential approach, so 0.5 s after the release the gain is its level times exp(-0.5 / constant),
+    // read from what the voice scheduled: below 0.00001, far under hearing.
+    const level = gain?.gain.of("setTargetAtTime")[0].args[0] ?? 0;
+    const constant = gain?.gain.of("setTargetAtTime").at(-1)?.args[2] ?? 0;
+    expect(level).toBeGreaterThan(0);
+    expect(level * Math.exp(-0.5 / constant)).toBeLessThan(0.00001);
   });
 
   it("with a speed of 0 aims the gain at 0", () => {

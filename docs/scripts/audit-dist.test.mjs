@@ -129,11 +129,19 @@ const AURA_MARK =
   '<script>document.documentElement.setAttribute("data-aura","");</script>';
 const AURA_CSS =
   "html:not([data-aura]) .settings-aura,.aura-track[hidden]{display:none}";
+// #352 phase 13: the inline script after the controls that makes the panel's two starting states true before the module runs
+// (SettingsControl.astro; the build keeps its text), and the unlayered rule that hides the right group's other chips below
+// 50rem (Header.astro), as the minifier writes it: the gear's wrapper is excluded.
+const START_SCRIPT =
+  '<script>(function(){var root=document.documentElement;var mute=document.getElementById("settings-sound-mute");var dark=document.getElementById("settings-theme-dark");if(mute)mute.setAttribute("aria-pressed",String(root.dataset.sound!=="on"));if(dark)dark.checked=root.dataset.theme!=="light";})();</script>';
+const HIDE_CHIPS_CSS =
+  "@media (width<=49.9375rem){.social-icons:where(.astro-abc)>:not([data-settings-control]){display:none}}";
 const SETTINGS_BUTTON =
   '<div class="settings-control"><button type="button" id="settings-button" class="header-chip settings-toggle" popovertarget="settings-pop" aria-label="Settings" title="Settings" aria-expanded="false"><svg aria-hidden="true" focusable="false"></svg></button><div id="settings-pop" class="settings-pop" popover role="group" aria-label="Settings"><label><span>Dark theme</span><input type="checkbox" role="switch" id="settings-theme-dark"></label>' +
   SOUND_ROW +
   AURA_ROW +
-  "</div></div>";
+  "</div></div>" +
+  START_SCRIPT;
 const THEME_PROVIDER =
   "<script>window.StarlightThemeProvider = (() => { localStorage.getItem('starlight-theme'); document.documentElement.dataset.theme = 'dark'; return { updatePickers() {} }; })();</script>";
 const CONTROLS = `${SEARCH_BUTTON}${MENU_BUTTON}${COPY_BUTTON}`;
@@ -396,6 +404,7 @@ beforeEach(async () => {
     `.tab>[role=tab]{display:flex;min-block-size:44px}${ENTRANCE_CSS}`,
   );
   await write(dist, "_astro/aura.abcabc.css", AURA_CSS);
+  await write(dist, "_astro/header.abcabc.css", HIDE_CHIPS_CSS);
   await write(
     dist,
     "sitemap-index.xml",
@@ -2085,6 +2094,107 @@ describe("the theme control (#352)", () => {
       `<header class="header"><div class="brand">${NORTHGUILD_LINK}${PRODUCT_LINK}</div><div class="sl-flex right-group"><div class="sl-flex social-icons">${doxLink()}${GITHUB_LINK}${DISCORD_LINK}${SETTINGS_BUTTON}</div></div></header>`,
     );
     expect(failures.filter((f) => /gear is inside/.test(f))).toEqual([]);
+  });
+
+  // #352 phase 13 (review nit): the rule that hides the other chips below 50rem must leave the gear's wrapper out. The
+  // expected result is the review's: a selector that also hid the gear would strand phones and the landing.
+  describe("the rule that hides the right group's other chips", () => {
+    const findings = async (css) => {
+      await write(dist, "_astro/header.abcabc.css", css);
+      return (await audit()).filter((f) => /chips/.test(f));
+    };
+    it("passes the build's rule", async () => {
+      expect(await findings(HIDE_CHIPS_CSS)).toEqual([]);
+    });
+    it("fails a rule that hides every child of the group, the gear included", async () => {
+      const failures = await findings(
+        "@media (width<=49.9375rem){.social-icons:where(.astro-abc)>*{display:none}}",
+      );
+      expect(failures.some((f) => /does not exclude/.test(f))).toBe(true);
+    });
+    it("fails a build with no rule hiding the chips below 50rem", async () => {
+      const failures = await findings(".social-icons{gap:1rem}");
+      expect(failures.some((f) => /no rule hides/.test(f))).toBe(true);
+    });
+    it("fails a rule that hides the gear by name", async () => {
+      const failures = await findings(
+        `${HIDE_CHIPS_CSS}@media (width<=49.9375rem){.settings-toggle{display:none}}`,
+      );
+      expect(failures.some((f) => /hides the settings gear/.test(f))).toBe(
+        true,
+      );
+    });
+  });
+
+  // #352 phase 13 (review nit): the panel's starting states are made true by an inline script after the controls.
+  describe("the panel's starting-state script", () => {
+    it("fails a page without it", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          header: header({
+            settings: SETTINGS_BUTTON.replace(START_SCRIPT, ""),
+          }),
+        }),
+      );
+      expect(
+        (await audit()).some((f) =>
+          /faq.*no inline script sets the settings panel's starting states/.test(
+            f,
+          ),
+        ),
+      ).toBe(true);
+    });
+    it("fails a script that only reads the sound, not the theme", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          header: header({
+            settings: SETTINGS_BUTTON.replace(
+              'dark.checked=root.dataset.theme!=="light";',
+              "",
+            ),
+          }),
+        }),
+      );
+      expect(
+        (await audit()).some((f) =>
+          /faq.*no inline script sets the settings panel's starting states/.test(
+            f,
+          ),
+        ),
+      ).toBe(true);
+    });
+    it("fails a script that runs before the controls it sets", async () => {
+      await write(
+        dist,
+        htmlPath("faq"),
+        page("faq", {
+          header: header({
+            settings: START_SCRIPT + SETTINGS_BUTTON.replace(START_SCRIPT, ""),
+          }),
+        }),
+      );
+      expect(
+        (await audit()).some((f) => /faq.*before the controls/.test(f)),
+      ).toBe(true);
+    });
+    it("checks the 404 too", async () => {
+      await write(
+        dist,
+        "404.html",
+        notFoundPage({
+          header: header({
+            settings: SETTINGS_BUTTON.replace(START_SCRIPT, ""),
+          }),
+        }),
+      );
+      expect(
+        (await audit()).some((f) => /404\.html.*no inline script sets/.test(f)),
+      ).toBe(true);
+    });
   });
 
   it("checks the gear on 404.html too", async () => {

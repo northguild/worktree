@@ -64,6 +64,9 @@
  *
  * Also (#352, D1): in every page's and the 404's `<header>` the right group reads Dox, GitHub, Discord, then the gear, and
  * (phase 12) the gear is in no element hidden below `md` (`sl-hidden`, `hidden`, `display: none`): it shows at every width.
+ * (Phase 13) In the built CSS, the rule that hides the right group's other chips below 50rem exists and excludes
+ * `:not([data-settings-control])`, and no rule hides the gear; and every page's inline script after the controls sets Mute's
+ * `aria-pressed` from `data-sound` and the Dark theme switch's `checked` from `data-theme`.
  *
  * Also (#266 phase 3, D6-D9, the landing header's entrance): the entrance marker (`data-landing-entrance`) is on the
  * landing's header and no other page's, and that header holds the internal-arrival script inline (no `src`); in the built
@@ -989,6 +992,32 @@ function auditThemeControl(html, where) {
     fail(
       "the theme provider script is not inline in <head> (expected the override, ThemeProvider.astro)",
     );
+  // #352 phase 13: the panel's starting states (Mute's `aria-pressed`, the Dark theme switch's `checked`) are made true from
+  // `data-sound` and `data-theme` by an inline script after the controls (SettingsControl.astro), before the module runs.
+  const controlsAt = Math.max(
+    html.indexOf('id="settings-sound-mute"'),
+    html.indexOf('id="settings-theme-dark"'),
+  );
+  const starters = [
+    ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g),
+  ].filter(
+    ([, rawAttrs, source]) =>
+      attributes(rawAttrs).src === undefined &&
+      ["settings-sound-mute", "aria-pressed", "dataset.sound"].every((t) =>
+        source.includes(t),
+      ) &&
+      ["settings-theme-dark", "checked", "dataset.theme"].every((t) =>
+        source.includes(t),
+      ),
+  );
+  if (starters.length === 0)
+    fail(
+      "no inline script sets the settings panel's starting states (Mute's aria-pressed from data-sound, the Dark theme switch's checked from data-theme)",
+    );
+  else if (controlsAt === -1 || starters.every((m) => m.index < controlsAt))
+    fail(
+      "the settings panel's starting-state script comes before the controls it sets, expected it after them",
+    );
   return failures;
 }
 
@@ -1109,6 +1138,49 @@ async function auraCssFindings(dist) {
   return [
     "aura: no stylesheet hides the aura controls under html:not([data-aura]) (settings-control.css, plan #352 phase 7)",
   ];
+}
+
+/**
+ * The rule that hides the right group's other chips below 50rem (Header.astro, unlayered), in the built CSS (#352 phase 13).
+ * Every rule that hides a `.social-icons` child must exclude the gear's wrapper, `:not([data-settings-control])`, there must
+ * be one, and no rule may hide the gear (`.settings-toggle`, `.settings-control`, `[data-settings-control]`) outside a `:not()`.
+ * A selector that also hid the gear would strand phones, and the landing, which has no mobile menu, would have no route at all.
+ */
+async function chipHidingCssFindings(dist) {
+  const findings = [];
+  let hiding = 0;
+  for (const file of await filesUnder(dist)) {
+    if (!file.endsWith(".css")) continue;
+    const css = await readFile(file, "utf8");
+    for (const [, selector] of css.matchAll(
+      /([^{}@]+)\{[^{}]*\bdisplay:\s*none\b[^{}]*\}/g,
+    )) {
+      for (const one of selector.split(",")) {
+        // A rule on the group itself (Starlight's `.social-icons:empty`) is not one that hides its children.
+        if (/\.social-icons[^>]*>/.test(one)) {
+          hiding++;
+          if (!one.includes(":not([data-settings-control])"))
+            findings.push(
+              `chips: ${one.trim()} { display: none } does not exclude :not([data-settings-control]), expected the gear to stay in the bar below 50rem`,
+            );
+        }
+        const outsideNot = one.replace(/:not\([^)]*\)/g, "");
+        if (
+          /\.settings-toggle|\.settings-control|\[data-settings-control\]/.test(
+            outsideNot,
+          )
+        )
+          findings.push(
+            `chips: ${one.trim()} { display: none } hides the settings gear`,
+          );
+      }
+    }
+  }
+  if (hiding === 0)
+    findings.push(
+      "chips: no rule hides the right group's other chips below 50rem (Header.astro), expected one that excludes :not([data-settings-control])",
+    );
+  return findings;
 }
 
 /** The attribute on the landing header's root that switches the entrance on (Header.astro). */
@@ -2118,6 +2190,7 @@ async function auditSite(dist) {
   failures.push(...(await cyanFindings(dist)));
   failures.push(...(await entranceCssFindings(dist)));
   failures.push(...(await auraCssFindings(dist)));
+  failures.push(...(await chipHidingCssFindings(dist)));
 
   const heights = [];
   for (const file of await filesUnder(dist)) {

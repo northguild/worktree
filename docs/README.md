@@ -323,8 +323,13 @@ Sound is a small feature of the header's settings panel (plan #352). The rules:
   aura and joins the opening's stage if its leaves are still in flight. A link from any page of the origin (northguild.dev's root, a GMT docs page, another worktree page)
   plays at once: the click is a gesture, `cue.ts` tells a link from the other ways in by `navigation.activation.navigationType`
   ("push" or "replace"), and it makes its context at load (Chrome does; Safari and Firefox, with no such activation, wait
-  for the first press). A refresh, back or forward, a typed address or a bookmark waits for the first click, tap or key and logs no
-  autoplay warning, since Chrome carries a click across a link navigation but not across these.
+  for the first press). A refresh, back or forward, an address typed in a tab that is not on the site, or a bookmark opened from
+  another origin waits for the first click, tap or key and logs no autoplay warning, since Chrome carries a click across a link
+  navigation but not across these. One case is not exact: `cue.ts` reads only the Navigation API's `navigationType` and the
+  `from` entry's origin, so it cannot tell a link click from another browser-initiated "push" with a same-origin `from`, such
+  as an address typed (or a bookmark opened) in a tab that is already on this site or another page of the origin. Whether
+  Chrome reports those as "push" is **unverified**; if it does, the context is made at load, the browser may refuse it (and log
+  the autoplay warning), and the first press then resumes it as on a refresh.
 
 ### The volume control
 

@@ -201,6 +201,37 @@ describe("the thinking loop across a mute", () => {
     expect(started).toBe(1);
   });
 
+  // Phase 12 review, edge 2: the wait began before the engine existed (the first unmute on the page is mid-wait).
+  it("starts a loop asked for before the engine existed, once it attaches", () => {
+    loop("thinking");
+    boot({ muted: false });
+    expect(started).toBe(1);
+  });
+
+  it("does not start it at attach if the caller stopped it before the engine existed", () => {
+    loop("thinking")();
+    boot({ muted: false });
+    expect(started).toBe(0);
+  });
+
+  // Phase 12 review, edge 1: another tab unmuted, so this page's suspended context has no activation to start the loop;
+  // when the context runs (a press, or the browser's late grant), cue.ts tells the engine and the loop starts.
+  it("starts a loop on a suspended context only once the context runs", () => {
+    boot({ muted: true });
+    ctx.become("suspended");
+    FakeAudioContext.refuse = true;
+    loop("thinking");
+    writeSound({ muted: false });
+    expect(started).toBe(0);
+    FakeAudioContext.refuse = false;
+    ctx.become("running");
+    engine?.attach(ctx as unknown as AudioContext);
+    expect(started).toBe(1);
+    // told again as the context's state changes: not started twice
+    engine?.attach(ctx as unknown as AudioContext);
+    expect(started).toBe(1);
+  });
+
   it("starts a loop asked for while muted when the reader unmutes during the wait", () => {
     boot({ muted: true });
     loop("thinking");
@@ -342,6 +373,11 @@ describe("a cue", () => {
 });
 
 describe("visibility", () => {
+  // GMT's value (apps/dox/src/lib/sound/engine.ts): a link that opens a new tab hides this one, and 1.2 s lets a cue finish.
+  it("waits 1,200 ms after the page is hidden before it suspends", () => {
+    expect(HIDE_TAIL_MS).toBe(1200);
+  });
+
   it("suspends once what is sounding has finished when hidden, and resumes when shown", () => {
     boot();
     setVisibility("hidden");

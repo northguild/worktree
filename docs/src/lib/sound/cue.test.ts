@@ -6,7 +6,17 @@ import { SOUND_KEY, writeSound } from "./settings";
 
 const engine = { attach: vi.fn(), destroy: vi.fn() };
 const createEngine = vi.fn(() => engine);
-vi.mock("./engine", () => ({ createEngine: () => createEngine() }));
+/** While set, the engine chunk fails to load, as a network error does. */
+let chunkFails = false;
+vi.mock("./engine", () => ({
+  // Reading the module's export fails while `chunkFails` is set: the import's promise rejects, as a network error does.
+  get createEngine() {
+    if (chunkFails) {
+      throw new Error("Failed to fetch dynamically imported module");
+    }
+    return () => createEngine();
+  },
+}));
 
 let teardown: (() => void) | undefined;
 
@@ -25,6 +35,7 @@ beforeEach(() => {
   engine.attach.mockClear();
   engine.destroy.mockClear();
   createEngine.mockClear();
+  chunkFails = false;
 });
 
 afterEach(() => {
@@ -206,6 +217,16 @@ describe("muted", () => {
     expect(createEngine).not.toHaveBeenCalled();
   });
 
+  // Phase 13 (the Phase 12 review): a cue while muted is dropped, and nothing has loaded the engine to hear it.
+  it("drops a cue while muted and never imports the engine", async () => {
+    saveSound({ muted: true });
+    start();
+    expect(cue("notch")).toBe(false);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.dynamicImportSettled();
+    expect(createEngine).not.toHaveBeenCalled();
+  });
+
   it("unlocks the moment the reader unmutes, which is itself a gesture", async () => {
     saveSound({ muted: true });
     start();
@@ -280,6 +301,21 @@ describe("an in-site arrival", () => {
     warn.mockRestore();
   });
 
+  // Phase 11 notes: sound off is respected by a link arrival, and a cross-origin arrival (whose `from` the browser hides as
+  // null) is not known to be this site's, so it waits for a press.
+  it("makes no context at load for a muted reader, whatever the arrival", async () => {
+    saveSound({ muted: true });
+    arrival(`${location.origin}/guides/`, "allowed", "push");
+    start();
+    expect(FakeAudioContext.instances).toHaveLength(0);
+  });
+
+  it("makes no context at load on a push whose `from` the browser hides", async () => {
+    arrival(null, "allowed", "push");
+    start();
+    expect(FakeAudioContext.instances).toHaveLength(0);
+  });
+
   it("waits for a gesture when the page came from elsewhere", async () => {
     arrival("https://example.org/", "allowed");
     start();
@@ -344,6 +380,24 @@ describe("an in-site arrival", () => {
     arrival(location.href, undefined, "push");
     start();
     expect(FakeAudioContext.instances).toHaveLength(1);
+  });
+});
+
+describe("an engine chunk that fails to load", () => {
+  // Phase 13: a failed import must not leave `loading` true for good or reject unhandled; a later press tries again.
+  it("tries again on the next press, and hands the context over once it loads", async () => {
+    chunkFails = true;
+    start();
+    press();
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.dynamicImportSettled();
+    expect(createEngine).not.toHaveBeenCalled();
+    chunkFails = false;
+    press();
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.dynamicImportSettled();
+    expect(createEngine).toHaveBeenCalledTimes(1);
+    expect(engine.attach).toHaveBeenCalled();
   });
 });
 

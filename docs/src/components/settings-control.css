@@ -236,7 +236,7 @@
   stroke-linejoin: round;
 }
 .sound-mute:focus-visible,
-.stem-fader:focus-within {
+.stem-fader:has(input:focus-visible) {
   outline: 2px solid var(--gmt-spring-ink);
   outline-offset: 2px;
 }

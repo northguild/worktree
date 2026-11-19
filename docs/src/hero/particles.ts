@@ -28,7 +28,7 @@
 
 import { Geometry, Mesh, Program, Renderer } from "ogl";
 import { cueFlight, rustle } from "../lib/sound/cue";
-import { flight as flightOf, soundFor } from "./flight";
+import { flight as flightOf, rustleStep, soundFor } from "./flight";
 import { clamp01, shapeScale } from "./geometry";
 import { fragment, vertex } from "./shaders";
 import { buildTargets, LeafKind } from "./targets";
@@ -97,10 +97,6 @@ const NEXT_STAGE: Record<Stage, Stage> = {
 const WORD = "worktree";
 /** The pointer's speed, in art-box heights per second, that sounds the rustle at its loudest. */
 const RUSTLE_FULL = 3;
-/** Below this share of that speed the rustle is let go. */
-const RUSTLE_FLOOR = 0.02;
-/** How fast the pointer's remembered speed dies away, per second, when it has stopped moving. */
-const RUSTLE_DECAY = 20;
 /** Landing grains the sound ticks for: the gust and each change (the audition board's 46 and 34). */
 const GUST_GRAINS = 46;
 const CHANGE_GRAINS = 34;
@@ -651,8 +647,8 @@ export function startParticles(host: HeroHost): HeroHandle | null {
 
   /**
    * Give the stage to the sound, once, from the numbers the leaves were just given. Not on a re-fit, and not when a
-   * picture forms: only a stage's flight has a sound, and the sound ends at its last landing, `longest * PACE`
-   * seconds on the audio clock.
+   * picture forms: only a stage's flight has a sound, and the sound ends at its last landing: the `duration`
+   * `flight()` returns, the latest `(delay + dur) * PACE` of the leaves given to it, in seconds on the audio clock.
    */
   function playStage(name: Stage, options: EnterOptions) {
     // A muted visitor hears nothing, so the stage's numbers are not made. `data-sound` is one attribute read, set before
@@ -838,15 +834,14 @@ export function startParticles(host: HeroHost): HeroHandle | null {
    * about half a second, with the voice's own 0.1 s follow.
    */
   function feedRustle(wall: number) {
-    const over = pointer.active && pointer.speed > RUSTLE_FLOOR;
-    if (over) {
-      rustle(pointer.speed, pointer.nx);
-      rustling = true;
-    } else if (rustling) {
-      rustle(0, 0);
-      rustling = false;
-    }
-    pointer.speed *= Math.exp(-RUSTLE_DECAY * wall);
+    const step = rustleStep(
+      { speed: pointer.speed, active: pointer.active, rustling },
+      wall,
+    );
+    if (step.sound) rustle(pointer.speed, pointer.nx);
+    else if (step.release) rustle(0, 0);
+    rustling = step.rustling;
+    pointer.speed = step.speed;
   }
 
   function draw() {

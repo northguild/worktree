@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flight, soundFor } from "./flight";
+import { flight, RUSTLE_FLOOR, rustleStep, soundFor } from "./flight";
 
 /**
  * A hand-built flock of four leaves. Every expected number below was worked out on paper from plan #352 D10 as amended
@@ -100,5 +100,52 @@ describe("soundFor, which stage makes which sound", () => {
   it("is nothing for a re-fit after a resize", () => {
     expect(soundFor({ quick: true }, true)).toBeNull();
     expect(soundFor({ quick: true, gustIn: true }, true)).toBeNull();
+  });
+});
+
+describe("rustleStep, the pointer's rustle dying away", () => {
+  // Source: the plan's D12 and the Phase 13 note: a pointer that stops is silent within about 0.5 s, and a release (a
+  // speed of 0) is sent so the voice lets go. Frames are 1/60 s of wall clock.
+  const FRAME = 1 / 60;
+
+  it("sounds while the pointer is over the box and moving", () => {
+    const step = rustleStep(
+      { speed: 0.8, active: true, rustling: false },
+      FRAME,
+    );
+    expect(step.sound).toBe(true);
+    expect(step.release).toBe(false);
+    expect(step.rustling).toBe(true);
+    expect(step.speed).toBeLessThan(0.8);
+  });
+
+  it("falls below the floor within 0.5 s of the pointer stopping, and sends one release", () => {
+    let state = { speed: 1, active: true, rustling: true };
+    let releases = 0;
+    let silentAt = -1;
+    for (let k = 1; k <= 30; k++) {
+      const step = rustleStep(state, FRAME);
+      if (step.release) {
+        releases++;
+        if (silentAt < 0) silentAt = k * FRAME;
+      }
+      state = { speed: step.speed, active: true, rustling: step.rustling };
+    }
+    expect(state.speed).toBeLessThan(RUSTLE_FLOOR);
+    expect(releases).toBe(1);
+    expect(silentAt).toBeGreaterThan(0);
+    expect(silentAt).toBeLessThanOrEqual(0.5);
+  });
+
+  it("releases at once when the pointer leaves, and not again", () => {
+    const left = rustleStep({ speed: 1, active: false, rustling: true }, FRAME);
+    expect(left.release).toBe(true);
+    expect(left.sound).toBe(false);
+    expect(left.rustling).toBe(false);
+    const after = rustleStep(
+      { speed: left.speed, active: false, rustling: false },
+      FRAME,
+    );
+    expect(after.release).toBe(false);
   });
 });
