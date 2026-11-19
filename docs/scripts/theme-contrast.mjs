@@ -26,6 +26,8 @@ const SOURCE_FILES = [
   "northguild/tokens-light.css",
   "theme.css",
   "globals.css",
+  // The settings switch's own tokens (#352), which exist on every page, unlike the hero's `--leaf-*` (landing only).
+  "../components/settings-control.css",
 ];
 
 export const TEXT_MIN = 4.5; // WCAG 2.2 SC 1.4.3
@@ -314,7 +316,7 @@ const shape = (name, fg, bg) => ({
   kind: "non-text",
 });
 
-/** Each pair: `fg` (one expression, or {dark, light}) on `bg` (layers, top first, the last one opaque). */
+/** Each pair: `fg` (one expression, or {dark, light}) on `bg` (layers, top first, the last one opaque; or {dark, light} of layers). */
 export const PAIRS = [
   text("body text on the page", "var(--sl-color-text)", PAGE),
   text("muted text on the page", "var(--sl-color-gray-3)", PAGE),
@@ -377,22 +379,69 @@ export const PAIRS = [
     "var(--sl-color-text-accent)",
     HEADER,
   ),
-  // The theme toggle's icon (#266) is the same chip as the two links above: `.header-chip` in custom.css.
-  shape("header: theme toggle icon", "var(--sl-color-text-accent)", HEADER),
-  // The landing entrance's colour pass (#266, D8) starts the theme toggle, GitHub and Discord in northguild.dev's resting
-  // icon colour, --gmt-ice-dim (custom.css, "The landing header's entrance"); that is what shows for the first second.
+  // The settings gear's icon (#352, D1) is the same chip as the two links above: `.header-chip` in custom.css.
+  shape("header: settings gear icon", "var(--sl-color-text-accent)", HEADER),
+  // The landing entrance's colour pass (#266, D8; #352, D16) starts every chip (Dox, GitHub, Discord, the gear) in northguild.dev's
+  // resting icon colour, --gmt-ice-dim (custom.css, "The landing header's entrance"); that is what shows for the first second.
   shape(
     "header: icons at the start of the colour pass",
     "var(--gmt-ice-dim)",
     HEADER,
   ),
   // The Dox link (#309 phase 4): the crystal in the header and the menu is the chip's icon colour, so it is measured as the
-  // theme toggle's is; the bar that marks /dox as the current page is the ink tier (a graphical object, 3:1).
+  // gear's is; the bar that marks /dox as the current page is the ink tier (a graphical object, 3:1).
   shape("header: Dox link icon", "var(--sl-color-text-accent)", HEADER),
   // The phone menu shows only below 50rem, where Starlight paints the sidebar pane `--sl-color-black` (the page void),
   // not `--sl-color-bg-sidebar`.
   shape("menu: Dox link icon", "var(--sl-color-text-accent)", PAGE),
   shape("header: Dox link, current page bar", "var(--gmt-spring-ink)", HEADER),
+  // The settings panel (#352, D2, D3; settings-control.css): the panel is `--gmt-surface-2`. The switch is a pill (the track) with
+  // a leaf for a knob. The track's edge is what tells a reader where the switch is; the leaf's edge is what shows its state (the
+  // leaf's face, pale or deep, is a second cue and is too close to the track to carry 3:1 itself, so the edge is measured).
+  // A dark theme shows the switch on (the leaf's deep face edged in the spring, over the green track) and a light theme off (the
+  // pale face edged in #166534, over the grey track), so each theme is measured in the state it shows. settings-control.css
+  // states the track as `color-mix(...)` on `:root`, which this script reads.
+  shape(
+    "settings: the switch's track edge on the panel",
+    "var(--switch-track-edge)",
+    RAISED,
+  ),
+  shape(
+    "settings: the switch's leaf edge on its track",
+    {
+      dark: "var(--switch-leaf-edge-on)",
+      light: "var(--switch-leaf-edge-off)",
+    },
+    {
+      dark: ["var(--switch-track-on)", ...RAISED],
+      light: ["var(--switch-track-off)", ...RAISED],
+    },
+  ),
+  // The switches' focus ring (`input:focus-visible + svg .leaf-switch-track`, a thicker `--gmt-spring-ink` stroke on the Dark theme
+  // and Aura switches): a focus indicator is a graphical object, 3:1 against what it sits on (WCAG 2.2 SC 1.4.11, Non-text Contrast), here the panel.
+  shape(
+    "settings: the switch's focus ring on the panel",
+    "var(--gmt-spring-ink)",
+    RAISED,
+  ),
+  // The volume row (#352 phase 5, D9; settings-control.css): the speaker and the stem the fader has grown are the spring tier
+  // (`--stem-reached`, `--gmt-spring-ink` in light), the rail ahead of the stem is ice-dim at 70% (`--stem-rest`), each a
+  // graphical object on the panel. The leaves are decoration: the stem's length says the level.
+  shape(
+    "settings: the mute speaker on the panel",
+    "var(--stem-reached)",
+    RAISED,
+  ),
+  shape(
+    "settings: the reached stem on the panel",
+    "var(--stem-reached)",
+    RAISED,
+  ),
+  shape(
+    "settings: the unreached rail on the panel",
+    "var(--stem-rest)",
+    RAISED,
+  ),
   // The landing's "Ask Dox": white text and a currentColor border (Starlight's secondary LinkButton look) on the page.
   text("hero: Ask Dox text", "var(--sl-color-white)", PAGE),
   shape("hero: Ask Dox border", "var(--sl-color-white)", PAGE),
@@ -616,7 +665,8 @@ export function measure(
 ) {
   return pairs.map((pair) => {
     const expression = typeof pair.fg === "string" ? pair.fg : pair.fg[theme];
-    const background = surface(pair.bg, properties);
+    const layers = Array.isArray(pair.bg) ? pair.bg : pair.bg[theme];
+    const background = surface(layers, properties);
     if (background.a !== 1)
       throw new Error(`${pair.name}: the background is not opaque`);
     const foreground = over(resolveColor(expression, properties), background);

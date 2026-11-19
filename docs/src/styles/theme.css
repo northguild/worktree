@@ -13,8 +13,9 @@
  * see docs/README.md (Theme).
  *
  * Every `--sl-*` below points at a `--gmt-*` token that `northguild/tokens-light.css` re-tints for
- * `[data-theme="light"]`, so the mapping re-resolves in the light theme on its own. The header's theme
- * toggle (ThemeSelect.astro and ThemeProvider.astro) sets `data-theme` on <html>, defaulting to the visitor's system preference.
+ * `[data-theme="light"]`, so the mapping re-resolves in the light theme on its own. The "Dark theme"
+ * switch in the header's settings panel (SettingsControl.astro, src/lib/theme.ts) and ThemeProvider.astro set `data-theme`
+ * on <html>, defaulting to the visitor's system preference.
  * Glass goes on chrome only (the header), never behind body text.
  */
 
@@ -173,7 +174,7 @@ header.header {
   border-block-end-color: var(--gmt-border);
 }
 
-/* The search box sits at the right, beside the theme button, on every page (the user, 2026-11-04: it "seems to dance
+/* The search box sits at the right, beside the right group, on every page (the user, 2026-11-04: it "seems to dance
    around"). Starlight's wide header starts it at the main column's left edge, which moves with the sidebar and the
    table of contents and is absent on the landing; here the middle column is all the free space and the box keeps to
    its end, at Starlight's own 22rem at most. */

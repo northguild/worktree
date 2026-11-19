@@ -1,0 +1,2715 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>worktree sound audition</title>
+    <!--
+      Issue #352 sound audition for the worktree docs (northguild.dev/worktree): the Settings panel's
+      controls in the git-tree look, the volume notch, the leaf particles' sounds, and the Dox chat
+      voices carried over from GMT. A planning tool, not site code. Open it from disk (file://), pick
+      one variant per step, and paste the picks block from the last page back into the planning session.
+
+      Every voice is synthesised with the Web Audio API: no samples, no network. The kit is GMT's
+      (gmt apps/dox/src/lib/sound/kit.ts) ported unchanged, so a picked variant ports into the site as
+      it stands. One change, here only: the shared noise buffer is 3 s rather than 1 s, because the
+      gust swells run longer than a second and a 1 s loop can be heard repeating under them.
+
+      The rule this board is built to (the owner, 2026-11-19): no sound on any button press. Sound on
+      the volume control's notches, on the leaf particles, and in the Dox chat; nothing else. Sound
+      starts muted for every visitor, and the choice is the `dox:sound` key shared with northguild.dev
+      and the GMT docs.
+
+      The scene is a 2D sketch of docs/src/hero/particles.ts (OGL, 9,200 leaves): the same stages
+      (gust in → leaf → git graph → "worktree" → leaf), the same orders (stem first; the graph from the
+      bottom; the wordmark left to right) and the same 1.25 pace, with fewer leaves. Holds are 2.5 s
+      here, 5 s on the site; the "Real 5 s holds" box restores them. Sound is scheduled from the scene's
+      own timeline on the audio clock, and the picture is drawn at the audio clock's output time, so the
+      leaves and the sound share one timeline.
+    -->
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(ellipse at 75% -10%, var(--glow), transparent 60%),
+          var(--void);
+        color: var(--ice);
+        font: 0.95rem/1.55 var(--font-mono);
+        min-block-size: 100dvh;
+      }
+      main {
+        max-inline-size: 64rem;
+        margin-inline: auto;
+        padding: var(--space-4);
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: linear-gradient(180deg, var(--surface-2), var(--surface));
+      }
+      header.top {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3) var(--space-5);
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-3) var(--space-4);
+        margin-block-end: var(--space-4);
+      }
+      h1 {
+        font: 400 0.95rem/1.2 var(--font-display);
+        letter-spacing: 0.08em;
+        margin: 0;
+      }
+      h1 span {
+        color: var(--spring-ink);
+      }
+      .progress {
+        color: var(--ice-dim);
+        font-size: 0.8rem;
+        font-variant-numeric: tabular-nums;
+      }
+      .tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+        align-items: center;
+        font-size: 0.8rem;
+      }
+      .tools label {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+      }
+      .tools output {
+        inline-size: 1.5rem;
+        text-align: end;
+        font-variant-numeric: tabular-nums;
+        color: var(--spring-ink);
+      }
+      input[type="range"].plain {
+        accent-color: var(--spring);
+        inline-size: 8rem;
+      }
+      input[type="checkbox"],
+      input[type="radio"] {
+        accent-color: var(--spring);
+      }
+      button {
+        font: 600 0.78rem var(--font-mono);
+        letter-spacing: 0.04em;
+        color: var(--ice);
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        min-block-size: 2.1rem;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--fill-strong);
+      }
+      button[aria-pressed="true"] {
+        background: var(--fill-strong);
+        border-color: var(--spring);
+        color: var(--spring-ink);
+      }
+      button:focus-visible,
+      input:focus-visible,
+      .fader:focus-within {
+        outline: 2px solid var(--spring);
+        outline-offset: 2px;
+      }
+      button[disabled] {
+        opacity: 0.45;
+        cursor: default;
+      }
+      nav.pager {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--space-4);
+        margin-block-end: var(--space-4);
+      }
+      .step {
+        padding: var(--space-4) var(--space-5) var(--space-5);
+      }
+      .step h2 {
+        font: 400 1.05rem/1.3 var(--font-display);
+        margin: 0 0 var(--space-2);
+        letter-spacing: 0.04em;
+      }
+      .where {
+        color: var(--ice-dim);
+        margin: 0 0 var(--space-4);
+        font-size: 0.85rem;
+        max-inline-size: 60rem;
+      }
+      .scene {
+        display: block;
+        inline-size: 100%;
+        aspect-ratio: 16 / 7;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: var(--void);
+        touch-action: none;
+      }
+      .caption {
+        font-size: 0.75rem;
+        color: var(--ice-dim);
+        margin: var(--space-2) 0 var(--space-4);
+        min-block-size: 1.2em;
+        font-variant-numeric: tabular-nums;
+      }
+      .variants {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+        gap: var(--space-3);
+      }
+      .variant {
+        min-inline-size: 0;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-4);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+      }
+      .variant:has(input[name="pick"]:checked) {
+        border-color: var(--spring);
+        background: var(--surface-2);
+        box-shadow: 0 0 0 3px var(--glow);
+      }
+      .variant h3 {
+        margin: 0;
+        font: 600 0.9rem var(--font-mono);
+        display: flex;
+        gap: var(--space-2);
+        align-items: baseline;
+      }
+      .letter {
+        color: var(--void);
+        background: var(--spring);
+        padding: 0 0.45rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+      }
+      .variant p {
+        margin: 0;
+        font-size: 0.8rem;
+        color: var(--ice-dim);
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        justify-content: space-between;
+      }
+      .plays {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+      }
+      .pick {
+        display: flex;
+        gap: 0.35rem;
+        align-items: center;
+        font-size: 0.78rem;
+        cursor: pointer;
+      }
+      .none {
+        margin-block-start: var(--space-3);
+      }
+      .demo {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-block-size: 4.5rem;
+        padding: var(--space-3);
+        border-radius: var(--radius-md);
+        background: var(--void);
+        border: 1px solid var(--border);
+      }
+      pre.picks {
+        font: 0.85rem/1.6 var(--font-mono);
+        background: var(--void);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: var(--space-3) var(--space-4);
+        overflow-x: auto;
+      }
+      .note {
+        font-size: 0.8rem;
+        color: var(--ice-dim);
+      }
+
+      /* ---------------- The mock header bar and panel ---------------- */
+      .bar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 1rem;
+        padding: 0.6rem 1rem;
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--void) 82%, transparent);
+        border: 1px solid var(--hairline);
+        position: relative;
+        inline-size: 100%;
+      }
+      .variants.mid {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+      }
+      .demo {
+        min-inline-size: 0;
+      }
+      .variants.wide {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+      }
+      .bar .search {
+        margin-inline-end: auto;
+        flex: 1 1 3rem;
+        min-inline-size: 0;
+        max-inline-size: 11rem;
+        overflow: hidden;
+        white-space: nowrap;
+        block-size: 1.9rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        color: var(--ice-dim);
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5em;
+        margin: -0.25em;
+        border: 1px solid transparent;
+        border-radius: var(--radius-md);
+        background: transparent;
+        color: var(--spring-ink);
+        min-block-size: 0;
+        cursor: pointer;
+      }
+      .chip:hover,
+      .chip[aria-expanded="true"] {
+        color: var(--ice);
+        background: var(--fill-strong);
+        border-color: var(--border);
+      }
+      .chip svg {
+        inline-size: 1.25em;
+        block-size: 1.25em;
+      }
+      .panel {
+        position: absolute;
+        inset-block-start: calc(100% + 0.35rem);
+        inset-inline-end: 0.5rem;
+        inline-size: min(17rem, calc(100% - 1rem));
+        padding: var(--space-4);
+        display: grid;
+        gap: var(--space-4);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: var(--surface-2);
+        box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+        z-index: 2;
+        font-size: 0.82rem;
+        animation: panel-in 240ms var(--ease-grow);
+      }
+      .panel[hidden] {
+        display: none;
+      }
+      .panel hr {
+        margin: 0;
+        border: 0;
+        border-block-start: 1px solid var(--hairline);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+      }
+      @keyframes panel-in {
+        from {
+          opacity: 0;
+          translate: 0 -6px;
+        }
+      }
+      .bar-wrap {
+        position: relative;
+        inline-size: 100%;
+        min-inline-size: 0;
+      }
+      /* Room under the bar for the panel, only while it is open. */
+      .bar-wrap:has(.panel:not([hidden])) {
+        min-block-size: 16rem;
+      }
+
+      /* ---------------- Switch looks (invented) ---------------- */
+      .switch {
+        position: relative;
+        inline-size: 2.9rem;
+        block-size: 1.6rem;
+        padding: 0;
+        border: 0;
+        background: none;
+        min-block-size: 0;
+        border-radius: 999px;
+        flex: none;
+      }
+      .switch:hover {
+        background: none;
+      }
+      .switch svg {
+        position: absolute;
+        inset: 0;
+        inline-size: 100%;
+        block-size: 100%;
+        overflow: visible;
+      }
+      .switch .knob {
+        transition: transform 260ms var(--ease-grow);
+      }
+      .switch[aria-checked="true"] .knob {
+        transform: translateX(20px);
+      }
+      .switch .leafknob {
+        transition:
+          transform 320ms var(--ease-grow),
+          fill 320ms;
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      .switch[aria-checked="true"] .leafknob {
+        transform: translateX(20px) rotate(180deg);
+      }
+      .switch .grow {
+        transition: stroke-dashoffset 320ms var(--ease-grow);
+      }
+
+      /* ---------------- Fader looks (invented) ---------------- */
+      .sound-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+      }
+      .mute {
+        flex: none;
+        inline-size: 2rem;
+        block-size: 2rem;
+        min-block-size: 0;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        color: var(--spring-ink);
+        background: transparent;
+        border: 1px solid var(--border);
+      }
+      .mute svg {
+        inline-size: 1.05rem;
+        block-size: 1.05rem;
+      }
+      .fader {
+        position: relative;
+        flex: 1;
+        min-inline-size: 0;
+        block-size: 2rem;
+        border-radius: 999px;
+      }
+      .fader svg {
+        position: absolute;
+        inset: 0;
+        inline-size: 100%;
+        block-size: 100%;
+        overflow: visible;
+        pointer-events: none;
+      }
+      .fader input {
+        position: absolute;
+        inset: 0;
+        inline-size: 100%;
+        block-size: 100%;
+        margin: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+      .fader[data-muted] svg {
+        opacity: 0.4;
+      }
+      .fader svg * {
+        transition:
+          fill 160ms,
+          stroke 160ms,
+          r 200ms var(--ease-grow),
+          cx 200ms var(--ease-grow),
+          stroke-dashoffset 220ms var(--ease-grow),
+          transform 220ms var(--ease-grow);
+      }
+
+      .dox-list {
+        display: grid;
+        gap: var(--space-2);
+      }
+      .dox-row {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: var(--space-3);
+        align-items: center;
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+      }
+      .dox-row p {
+        margin: 0;
+        font-size: 0.78rem;
+        color: var(--ice-dim);
+      }
+      .dox-row strong {
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="top card">
+        <h1><span>worktree</span> · sound audition</h1>
+        <span class="progress" id="progress"></span>
+        <div class="tools">
+          <label
+            >Volume
+            <input class="plain" id="volume" type="range" min="1" max="11" step="1" value="5" />
+            <output id="volume-out" for="volume">5</output>
+          </label>
+          <label><input type="checkbox" id="real-holds" /> Real 5 s holds</label>
+          <button type="button" id="theme">Light page</button>
+          <button type="button" id="stop-all">Stop</button>
+        </div>
+      </header>
+      <nav class="pager" aria-label="Steps">
+        <button type="button" id="back">Back</button>
+        <button type="button" id="next">Next</button>
+      </nav>
+      <section class="step card" id="step" aria-live="polite"></section>
+      <p class="note">
+        Headphones help: the leaf sounds are panned to where the leaves land. Press a Play button first,
+        since browsers start audio only after a click. The Volume above is the site's own level (1 to 11,
+        default 5, GMT's scale: gain = level / 11 × 0.6), and every fader on the board moves it, so a notch
+        is heard at the level it sets. Your picks are kept in this browser; a reload loses nothing.
+      </p>
+    </main>
+
+    <script>
+      "use strict";
+
+      /* ===================================================================
+       * The kit: gmt apps/dox/src/lib/sound/kit.ts, unchanged but for the
+       * noise buffer's length (see the head comment).
+       * =================================================================== */
+      const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
+      const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+      const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+      const clamp01 = (v) => clamp(v, 0, 1);
+
+      const shared = new Map();
+      let ctx = null;
+      let master = null; // the site's level, as the engine's master bus
+      let level = 5;
+      let muted = false;
+      const MAX_GAIN = 0.6;
+      const CEILING = 0.25;
+      const KNEE = 0.18;
+
+      function sharedFx(key, build) {
+        if (!shared.has(key)) shared.set(key, build(ctx, master));
+        return shared.get(key);
+      }
+      function ceilingCurve(points = 4097) {
+        const curve = new Float32Array(points);
+        for (let i = 0; i < points; i++) {
+          const x = (i / (points - 1)) * 2 - 1;
+          const m = Math.abs(x);
+          const y = m <= KNEE ? m : KNEE + (CEILING - KNEE) * Math.tanh((m - KNEE) / (CEILING - KNEE));
+          curve[i] = Math.sign(x) * y;
+        }
+        return curve;
+      }
+      function noiseBuffer(c) {
+        return sharedFx("noise", (cc) => {
+          const length = cc.sampleRate * 3;
+          const buffer = cc.createBuffer(1, length, cc.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+          return buffer;
+        });
+      }
+      function envelope(c, t, peak, attack, hold, release) {
+        const g = c.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(peak, t + attack);
+        g.gain.setValueAtTime(peak, t + attack + hold);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + release);
+        return g;
+      }
+      function biquad(c, type, freq, q) {
+        const f = c.createBiquadFilter();
+        f.type = type;
+        f.frequency.value = freq;
+        f.Q.value = q ?? 0.7;
+        return f;
+      }
+      function tone(c, out, t, o) {
+        const attack = o.attack ?? 0.004;
+        const hold = o.hold ?? 0;
+        const end = t + attack + hold + o.release;
+        const osc = c.createOscillator();
+        osc.type = o.type ?? "sine";
+        osc.frequency.setValueAtTime(o.freq, t);
+        if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, end);
+        if (o.detune) osc.detune.value = o.detune;
+        const g = envelope(c, t, o.peak, attack, hold, o.release);
+        if (o.filter) osc.connect(biquad(c, o.filter[0], o.filter[1], o.filter[2])).connect(g);
+        else osc.connect(g);
+        g.connect(out);
+        osc.start(t);
+        osc.stop(end + 0.03);
+        return osc;
+      }
+      function noise(c, out, t, o) {
+        const attack = o.attack ?? 0.004;
+        const hold = o.hold ?? 0;
+        const end = t + attack + hold + o.decay;
+        const src = c.createBufferSource();
+        src.buffer = noiseBuffer(c);
+        src.loop = true;
+        const f = biquad(c, o.type ?? "bandpass", o.freq, o.q ?? 1);
+        if (o.to) f.frequency.exponentialRampToValueAtTime(o.to, end);
+        const g = envelope(c, t, o.peak, attack, hold, o.decay);
+        src.connect(f).connect(g).connect(out);
+        src.start(t, Math.random() * 2.5);
+        src.stop(end + 0.03);
+      }
+      function bell(c, out, t, o) {
+        o.ratios.forEach((ratio, i) => {
+          tone(c, out, t, {
+            freq: o.freq * ratio,
+            peak: o.peak / (i + 1),
+            attack: o.attack ?? 0.002,
+            release: o.decay / Math.sqrt(i + 1),
+          });
+        });
+      }
+      function hall(c, out, seconds, wet) {
+        const impulse = sharedFx(`impulse ${seconds}`, (cc) => {
+          const length = Math.ceil(cc.sampleRate * seconds);
+          const buffer = cc.createBuffer(2, length, cc.sampleRate);
+          for (let ch = 0; ch < 2; ch++) {
+            const d = buffer.getChannelData(ch);
+            for (let i = 0; i < length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / length) ** 3;
+          }
+          return buffer;
+        });
+        const verb = c.createConvolver();
+        verb.buffer = impulse;
+        const g = c.createGain();
+        g.gain.value = wet;
+        verb.connect(biquad(c, "lowpass", 3000)).connect(g).connect(out);
+        return verb;
+      }
+      function echo(c, out, seconds, feedback, wet) {
+        const input = c.createGain();
+        const delay = c.createDelay(2);
+        delay.delayTime.value = seconds;
+        const loop = c.createGain();
+        loop.gain.value = feedback;
+        const damp = biquad(c, "lowpass", 3200);
+        const g = c.createGain();
+        g.gain.value = wet;
+        input.connect(delay).connect(damp).connect(loop).connect(delay);
+        damp.connect(g).connect(out);
+        return input;
+      }
+      const space = (c) => sharedFx("hall", (cc, out) => hall(cc, out, 2.6, 0.5));
+      /* invented: a small, soft room for the wood and the leaves; GMT's 2.6 s hall is an ice cavern */
+      const glade = (c) => sharedFx("glade", (cc, out) => hall(cc, out, 1.4, 0.35));
+      function scheduler(c, gap, fn) {
+        let next = c.currentTime + 0.05;
+        let index = 0;
+        const tick = () => {
+          while (next < c.currentTime + 0.6) {
+            fn(next, index);
+            next += gap(index);
+            index += 1;
+          }
+        };
+        tick();
+        const id = setInterval(tick, 150);
+        return () => clearInterval(id);
+      }
+      function fadedLoop(start, fadeIn, fadeOut) {
+        return (c, out) => {
+          const bus = c.createGain();
+          const now = c.currentTime;
+          bus.gain.setValueAtTime(0, now);
+          bus.gain.linearRampToValueAtTime(1, now + fadeIn);
+          bus.connect(out);
+          const stop = start(c, bus);
+          return () => {
+            const at = c.currentTime;
+            bus.gain.cancelScheduledValues(at);
+            bus.gain.setValueAtTime(bus.gain.value, at);
+            bus.gain.linearRampToValueAtTime(0, at + fadeOut);
+            stop();
+          };
+        };
+      }
+
+      /* Helpers new on this board (port them with whichever voice uses them). */
+      function panTo(c, out, p) {
+        const s = c.createStereoPanner();
+        s.pan.value = clamp(p, -1, 1);
+        s.connect(out);
+        return s;
+      }
+      /** A swell of filtered noise: silence, a rise over `attack`, a fall over `decay`; the filter can ride up and back. */
+      function swell(c, out, t, o) {
+        const end = t + o.attack + o.decay;
+        const src = c.createBufferSource();
+        src.buffer = noiseBuffer(c);
+        src.loop = true;
+        const f = biquad(c, o.type ?? "lowpass", o.freq, o.q ?? 0.7);
+        if (o.peakFreq) {
+          f.frequency.setValueAtTime(o.freq, t);
+          f.frequency.linearRampToValueAtTime(o.peakFreq, t + o.attack);
+          f.frequency.linearRampToValueAtTime(o.to ?? o.freq, end);
+        }
+        const g = c.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(o.peak, t + o.attack);
+        g.gain.linearRampToValueAtTime(0, end);
+        src.connect(f).connect(g).connect(out);
+        src.start(t, Math.random() * 2.5);
+        src.stop(end + 0.05);
+      }
+      /** One dry leaf touching another: a few milliseconds of bright noise. */
+      function leafTick(c, out, t, peak = 0.012) {
+        noise(c, out, t, {
+          type: "bandpass",
+          freq: rand(2800, 6200),
+          q: rand(1.5, 3),
+          peak,
+          attack: 0.001,
+          decay: rand(0.004, 0.009),
+        });
+      }
+      /**
+       * High air in the trees, driven by the leaves: `ev.curve` sets the loudness, so it rises as leaves take off
+       * and is silent the moment the last one lands. Two wide bandpassed bands, gently lowpassed.
+       */
+      function flightCanopy(c, out, t, ev, o) {
+        const dur = ev.curve.length * ev.step;
+        const loud = Float32Array.from(ev.curve, (v) => o.peak * Math.sqrt(v));
+        const soft = biquad(c, "lowpass", o.lowpass ?? 6000);
+        soft.connect(out);
+        [-o.width, o.width].forEach((side, k) => {
+          const src = c.createBufferSource();
+          src.buffer = noiseBuffer(c);
+          src.loop = true;
+          const f = biquad(c, "bandpass", o.band * (1 + k * 0.15), o.q);
+          f.frequency.setValueCurveAtTime(Float32Array.from(ev.curve, (v) => o.band * (1 + k * 0.15) * (0.8 + 0.4 * v)), t, dur);
+          const g = c.createGain();
+          g.gain.value = 0;
+          g.gain.setValueCurveAtTime(loud, t, dur);
+          src.connect(f).connect(g).connect(panTo(c, soft, clamp(side, -1, 1)));
+          src.start(t, Math.random() * 2.5);
+          src.stop(t + dur + 0.05);
+        });
+      }
+
+      const PENT = [67, 69, 71, 74, 76, 79, 81, 83, 86, 88, 91]; // G major pentatonic, one per notch
+
+      /**
+       * Wind driven by the leaves themselves: `ev.curve` is the share of leaves in flight (0 to 1) and
+       * `ev.panCurve` the side of the page they are on, sampled every `ev.step` seconds from the same delays
+       * and durations the animation runs on. Two bands of air, loudness and brightness following the flock.
+       */
+      function flightAir(c, out, t, ev, peak) {
+        const dur = ev.curve.length * ev.step;
+        const loud = Float32Array.from(ev.curve, (v) => peak * Math.sqrt(v));
+        const bright = Float32Array.from(ev.curve, (v) => 300 + 900 * v);
+        [-0.35, 0.35].forEach((spread, k) => {
+          const src = c.createBufferSource();
+          src.buffer = noiseBuffer(c);
+          src.loop = true;
+          const f = biquad(c, "lowpass", 300, 0.7);
+          f.frequency.setValueCurveAtTime(Float32Array.from(bright, (v) => v * (1 + k * 0.15)), t, dur);
+          const g = c.createGain();
+          g.gain.value = 0;
+          g.gain.setValueCurveAtTime(loud, t, dur);
+          const p = c.createStereoPanner();
+          p.pan.setValueCurveAtTime(Float32Array.from(ev.panCurve, (v) => clamp(v + spread, -1, 1)), t, dur);
+          src.connect(f).connect(g).connect(p).connect(out);
+          src.start(t, Math.random() * 2.5);
+          src.stop(t + dur + 0.1);
+        });
+      }
+
+      /* ===================================================================
+       * The variants.
+       *
+       *   button  icon: an SVG for the header button. Silent.
+       *   switch  svg(on): the Dark theme switch. Silent (no press makes a sound).
+       *   fader   svg(level, muted): the volume control's look.
+       *   notch   play(c, out, t, level): one notch of the fader, level 1 to 11.
+       *   gust    play(c, out, t, ev): ev = { dur, grains: [{ at, pan }] }, the leaves sweeping in.
+       *   land    play(c, out, t, ev): ev = { kind: 0 leaf | 1 graph | 2 word, pan }.
+       *   morph   play(c, out, t, ev): ev = { dur, kind, grains }, one picture becoming the next.
+       *   touch   make(c, out) -> { set(speed 0..1, pan), stop() }: the pointer parting the leaves.
+       *   bed     start(c, out) -> stop: a loop under the landing while it is open.
+       * =================================================================== */
+
+      const svgIcon = (inner) =>
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+
+      /* The header button is settled: GMT's and northguild.dev's gear, exactly (gmt
+         apps/dox/src/components/settings-control.ts, GEAR), last in the bar after Dox, GitHub and Discord. */
+      const BUTTONS = [
+        {
+          id: "A",
+          name: "Gear",
+          icon: `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor" fill-rule="evenodd" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915ZM15 12a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z"/></svg>`,
+        },
+      ];
+
+      /* Switch looks, 46 x 26 drawn in a 46 x 26 view box. */
+      const SWITCHES = [
+        {
+          id: "A",
+          name: "Checkout",
+          desc: "The track is a short branch line between two commits; HEAD (a ringed node) checks out the other one. On: the line fills green.",
+          svg: (on) => `
+            <svg viewBox="0 0 46 26" aria-hidden="true">
+              <rect x="1" y="1" width="44" height="24" rx="12" fill="${on ? "var(--switch-track-on)" : "var(--switch-track)"}" style="transition:fill 260ms"/>
+              <line x1="13" y1="13" x2="33" y2="13" stroke="${on ? "var(--branch)" : "var(--branch-rest)"}" stroke-width="2" style="transition:stroke 260ms"/>
+              <circle cx="13" cy="13" r="2.6" fill="var(--branch-rest)"/>
+              <circle cx="33" cy="13" r="2.6" fill="${on ? "var(--branch)" : "var(--branch-rest)"}"/>
+              <g class="knob">
+                <circle cx="13" cy="13" r="7.5" fill="var(--commit-hole)" stroke="var(--head-ring)" stroke-width="2"/>
+                <circle cx="13" cy="13" r="3.4" fill="${on ? "var(--branch)" : "var(--ice-dim)"}"/>
+              </g>
+            </svg>`,
+        },
+        {
+          id: "B",
+          name: "Turning leaf",
+          desc: "A plain pill whose knob is a leaf. Switching rolls it over to its other face, pale side for light, deep side for dark.",
+          svg: (on) => `
+            <svg viewBox="0 0 46 26" aria-hidden="true">
+              <rect x="1" y="1" width="44" height="24" rx="12" fill="${on ? "var(--switch-track-on)" : "var(--switch-track)"}" style="transition:fill 260ms"/>
+              <g class="leafknob">
+                <path d="M6 18 C 6 10, 11 6, 20 6 C 20 14, 15 19, 6 18 Z" fill="${on ? "var(--leaf-deep)" : "var(--leaf-vein)"}" stroke="${on ? "var(--spring)" : "var(--leaf-4)"}" stroke-width="1.2"/>
+                <path d="M7 17 L 17 9" stroke="${on ? "var(--spring)" : "var(--leaf-4)"}" stroke-width="1" fill="none"/>
+              </g>
+            </svg>`,
+        },
+        {
+          id: "C",
+          name: "Growing branch",
+          desc: "Off: a bare node. On: a branch grows from it along the track and ends in the knob. Off again, it draws back in.",
+          svg: (on) => `
+            <svg viewBox="0 0 46 26" aria-hidden="true">
+              <rect x="1" y="1" width="44" height="24" rx="12" fill="none" stroke="var(--border-strong)" stroke-width="1"/>
+              <path class="grow" d="M 11 13 C 18 13, 20 13, 33 13" stroke="var(--branch)" stroke-width="2.4" fill="none" stroke-linecap="round"
+                stroke-dasharray="24" stroke-dashoffset="${on ? 0 : 24}"/>
+              <circle cx="11" cy="13" r="3" fill="var(--branch-rest)"/>
+              <g class="knob">
+                <circle cx="13" cy="13" r="6.5" fill="${on ? "var(--branch)" : "var(--surface)"}" stroke="${on ? "var(--branch)" : "var(--ice-dim)"}" stroke-width="1.6" style="transition:fill 260ms"/>
+              </g>
+            </svg>`,
+        },
+        {
+          id: "D",
+          name: "Plain pill",
+          desc: "The control everyone knows, rounded, the knob turning green when on. No git in it; the baseline to compare the others against.",
+          svg: (on) => `
+            <svg viewBox="0 0 46 26" aria-hidden="true">
+              <rect x="1" y="1" width="44" height="24" rx="12" fill="${on ? "var(--switch-track-on)" : "var(--switch-track)"}" style="transition:fill 260ms"/>
+              <g class="knob"><circle cx="13" cy="13" r="8.5" fill="${on ? "var(--spring)" : "var(--ice-dim)"}" style="transition:fill 260ms"/></g>
+            </svg>`,
+        },
+      ];
+
+      /* Fader looks: 11 notches across a 200 x 32 view box. x of notch i (1..11). */
+      const nx = (i) => 10 + ((i - 1) / 10) * 180;
+      const FADERS = [
+        {
+          id: "A",
+          name: "Commit rail",
+          desc: "Eleven commits on one branch. Those up to the level are filled; HEAD's ring sits on the level. The line ahead of HEAD is faint.",
+          svg(lv) {
+            let s = `<line x1="${nx(1)}" y1="16" x2="${nx(11)}" y2="16" stroke="var(--branch-rest)" stroke-width="2"/>`;
+            s += `<line x1="${nx(1)}" y1="16" x2="${nx(lv)}" y2="16" stroke="var(--branch)" stroke-width="2.4" style="transition:x2 200ms"/>`;
+            for (let i = 1; i <= 11; i++) {
+              const on = i <= lv;
+              s += `<circle cx="${nx(i)}" cy="16" r="${on ? 3.6 : 3}" fill="${on ? "var(--branch)" : "var(--commit-hole)"}" stroke="${on ? "var(--branch)" : "var(--branch-rest)"}" stroke-width="1.5"/>`;
+            }
+            s += `<circle cx="${nx(lv)}" cy="16" r="8" fill="none" stroke="var(--head-ring)" stroke-width="1.8"/>`;
+            return `<svg viewBox="0 0 200 32" aria-hidden="true">${s}</svg>`;
+          },
+        },
+        {
+          id: "B",
+          name: "Growing stem",
+          desc: "A stem that grows to the level, with a leaf at every notch it has reached, alternating sides; buds ahead of it. Turning down, the leaves fold back.",
+          svg(lv) {
+            const end = nx(lv);
+            let s = `<path d="M ${nx(1)} 17 L ${nx(11)} 17" stroke="var(--branch-rest)" stroke-width="1" stroke-dasharray="2 4"/>`;
+            s += `<path d="M ${nx(1)} 17 L ${end} 17" stroke="var(--branch)" stroke-width="2.2" stroke-linecap="round"/>`;
+            for (let i = 1; i <= 11; i++) {
+              const x = nx(i);
+              const up = i % 2 === 1;
+              const on = i <= lv;
+              const scale = on ? 1 : 0.0001;
+              const leaf = up
+                ? `M ${x} 17 C ${x + 1} 11, ${x + 6} 7, ${x + 10} 7 C ${x + 9} 12, ${x + 5} 16, ${x} 17 Z`
+                : `M ${x} 17 C ${x + 1} 23, ${x + 6} 27, ${x + 10} 27 C ${x + 9} 22, ${x + 5} 18, ${x} 17 Z`;
+              s += `<path d="${leaf}" fill="var(--leaf-${(i % 6) + 1})" style="transform-origin:${x}px 17px;transform:scale(${scale})"/>`;
+              if (!on) s += `<circle cx="${x}" cy="17" r="1.8" fill="var(--branch-rest)"/>`;
+            }
+            s += `<circle cx="${end}" cy="17" r="3.4" fill="var(--leaf-vein)"/>`;
+            return `<svg viewBox="0 0 200 32" aria-hidden="true">${s}</svg>`;
+          },
+        },
+        {
+          id: "C",
+          name: "Branch lanes",
+          desc: "Main runs along the bottom; each notch is a branch forking up from it, each a little taller, ending in a commit. A volume meter drawn as a git graph.",
+          svg(lv) {
+            let s = `<line x1="${nx(1) - 6}" y1="28" x2="${nx(11) + 4}" y2="28" stroke="var(--branch-rest)" stroke-width="1.5"/>`;
+            s += `<line x1="${nx(1) - 6}" y1="28" x2="${nx(lv)}" y2="28" stroke="var(--branch)" stroke-width="2"/>`;
+            for (let i = 1; i <= 11; i++) {
+              const x = nx(i);
+              const top = 24 - i * 1.9;
+              const on = i <= lv;
+              const col = on ? "var(--branch)" : "var(--branch-rest)";
+              s += `<path d="M ${x - 6} 28 C ${x - 1} 28, ${x} 27, ${x} ${top + 3}" stroke="${col}" stroke-width="1.6" fill="none"/>`;
+              s += `<circle cx="${x}" cy="${top}" r="${i === lv ? 3.4 : 2.4}" fill="${on ? col : "var(--commit-hole)"}" stroke="${col}" stroke-width="1.3"/>`;
+            }
+            return `<svg viewBox="0 0 200 32" aria-hidden="true">${s}</svg>`;
+          },
+        },
+        {
+          id: "D",
+          name: "Growth rings",
+          desc: "Not a line at all: a compact dial of a tree's rings, one ring per notch, the reached rings green. The fader still moves left and right under it.",
+          svg(lv) {
+            let s = "";
+            for (let i = 11; i >= 1; i--) {
+              const r = 2 + i * 1.25;
+              const on = i <= lv;
+              s += `<circle cx="100" cy="16" r="${r}" fill="none" stroke="${on ? "var(--branch)" : "var(--branch-rest)"}" stroke-width="${on ? 1.1 : 0.8}" opacity="${on ? 0.55 + 0.04 * i : 0.7}"/>`;
+            }
+            s += `<circle cx="100" cy="16" r="2" fill="var(--leaf-vein)"/>`;
+            s += `<line x1="40" y1="16" x2="78" y2="16" stroke="var(--branch-rest)" stroke-width="1"/><line x1="122" y1="16" x2="160" y2="16" stroke="var(--branch-rest)" stroke-width="1"/>`;
+            s += `<text x="170" y="20" font-size="11" fill="var(--ice-dim)" font-family="ui-monospace,monospace">${lv}</text>`;
+            return `<svg viewBox="0 0 200 32" aria-hidden="true">${s}</svg>`;
+          },
+        },
+      ];
+
+      const NOTCHES = [
+        {
+          id: "A",
+          name: "Twig tick",
+          desc: "The tip of a dry twig: a dry, tiny click with a woody snap under it. The same at every level.",
+          play(c, out, t) {
+            noise(c, out, t, { type: "highpass", freq: 3800, peak: 0.045, attack: 0.001, decay: 0.008 });
+            tone(c, out, t, { freq: 1900, to: 1500, peak: 0.022, attack: 0.001, release: 0.016 });
+          },
+        },
+        {
+          id: "B",
+          name: "Seed pod",
+          desc: "A hollow pod tapped: a short, round 'tok' of resonant air that rises a little with the level.",
+          play(c, out, t, lv) {
+            const f = 950 + (lv / 11) * 550;
+            noise(c, out, t, { freq: f, q: 14, peak: 0.09, attack: 0.001, decay: 0.035 });
+            tone(c, out, t, { freq: f, peak: 0.016, attack: 0.002, release: 0.03 });
+          },
+        },
+        {
+          id: "C",
+          name: "Bamboo knock",
+          desc: "A small bamboo stem knocked: a hollow wooden tone, stepping up a pentatonic scale as the level rises.",
+          play(c, out, t, lv) {
+            const f = hz(PENT[lv - 1]);
+            tone(c, out, t, { freq: f * 1.06, to: f, peak: 0.045, attack: 0.001, release: 0.06 });
+            noise(c, out, t, { freq: 2400, q: 3, peak: 0.022, attack: 0.001, decay: 0.01 });
+          },
+        },
+        {
+          id: "D",
+          name: "Dewdrop",
+          desc: "A drop falling from a leaf: a tiny rising 'blip' of water. Higher drops as the level rises.",
+          play(c, out, t, lv) {
+            const f = 650 + (lv / 11) * 550;
+            tone(c, out, t, { freq: f, to: f * 2.1, peak: 0.032, attack: 0.002, release: 0.04 });
+          },
+        },
+        {
+          id: "E",
+          name: "Leaf brush",
+          desc: "A fingertip across a leaf: the softest, a brush of air with no pitch. Barely there.",
+          play(c, out, t) {
+            noise(c, out, t, { freq: 2600, to: 3400, q: 1.2, peak: 0.035, attack: 0.006, decay: 0.03 });
+          },
+        },
+        {
+          id: "F",
+          name: "Rosewood",
+          desc: "A soft mallet on a small rosewood bar, up the pentatonic scale with the level, in a small glade. The most musical.",
+          play(c, out, t, lv) {
+            const f = hz(PENT[lv - 1]);
+            const bus = c.createGain();
+            bus.connect(out);
+            bus.connect(glade(c));
+            bell(c, bus, t, { freq: f, ratios: [1, 4, 10], peak: 0.04, decay: 0.28, attack: 0.003 });
+          },
+        },
+        {
+          id: "G",
+          name: "Seeds",
+          desc: "Three seeds rolling in a dry pod, a few milliseconds apart. A gentle rattle, no pitch.",
+          play(c, out, t) {
+            for (let i = 0; i < 3; i++) leafTick(c, out, t + i * rand(0.008, 0.016), 0.022);
+          },
+        },
+      ];
+
+      const GUSTS = [
+        {
+          id: "A",
+          name: "Breeze",
+          desc: "A soft wind that rises as the leaves sweep in and falls as they land: two bands of air, one each side.",
+          play(c, out, t, ev) {
+            const a = ev.dur * 0.4;
+            swell(c, panTo(c, out, -0.55), t, { freq: 260, peakFreq: 820, to: 320, peak: 0.05, attack: a, decay: ev.dur * 0.6 });
+            swell(c, panTo(c, out, 0.55), t + 0.15, { freq: 300, peakFreq: 950, to: 340, peak: 0.045, attack: a, decay: ev.dur * 0.6 - 0.15 });
+          },
+        },
+        {
+          id: "B",
+          name: "Leaf flurry",
+          desc: "The breeze, softer, and the leaves themselves: a dry tick for each of a few dozen leaves as it lands, panned to where it lands.",
+          play(c, out, t, ev) {
+            const a = ev.dur * 0.4;
+            swell(c, panTo(c, out, -0.5), t, { freq: 260, peakFreq: 780, to: 320, peak: 0.03, attack: a, decay: ev.dur * 0.6 });
+            swell(c, panTo(c, out, 0.5), t + 0.15, { freq: 300, peakFreq: 900, to: 340, peak: 0.028, attack: a, decay: ev.dur * 0.6 - 0.15 });
+            for (const g of ev.grains) leafTick(c, panTo(c, out, g.pan), t + g.at, 0.011);
+          },
+        },
+        {
+          id: "C",
+          name: "High canopy",
+          desc: "Wind high in the trees, far above: airy and bright, wide in the stereo field, with no low end at all.",
+          play(c, out, t, ev) {
+            const a = ev.dur * 0.45;
+            swell(c, panTo(c, out, -0.8), t, { type: "bandpass", freq: 2200, peakFreq: 3800, to: 2600, q: 0.6, peak: 0.022, attack: a, decay: ev.dur * 0.55 });
+            swell(c, panTo(c, out, 0.8), t + 0.2, { type: "bandpass", freq: 2600, peakFreq: 4200, to: 2800, q: 0.6, peak: 0.02, attack: a, decay: ev.dur * 0.55 - 0.2 });
+          },
+        },
+        {
+          id: "D",
+          name: "One breath",
+          desc: "A single soft exhale through the centre, shorter than the gust. The least there is.",
+          play(c, out, t, ev) {
+            swell(c, out, t + 0.1, { freq: 450, peakFreq: 1150, to: 500, peak: 0.032, attack: ev.dur * 0.3, decay: ev.dur * 0.5 });
+          },
+        },
+        {
+          id: "E",
+          name: "Aeolian",
+          desc: "The breeze with a faint whistle in it, the wind finding a hollow stem: one soft note that bends with the gust.",
+          play(c, out, t, ev) {
+            const a = ev.dur * 0.4;
+            swell(c, panTo(c, out, -0.5), t, { freq: 260, peakFreq: 780, to: 320, peak: 0.035, attack: a, decay: ev.dur * 0.6 });
+            swell(c, panTo(c, out, 0.5), t + 0.15, { freq: 300, peakFreq: 900, to: 340, peak: 0.032, attack: a, decay: ev.dur * 0.6 - 0.15 });
+            const o = c.createOscillator();
+            o.frequency.setValueAtTime(hz(74), t);
+            o.frequency.linearRampToValueAtTime(hz(76), t + a);
+            o.frequency.linearRampToValueAtTime(hz(74), t + ev.dur);
+            const v = c.createOscillator();
+            v.frequency.value = 5;
+            const vg = c.createGain();
+            vg.gain.value = 4;
+            v.connect(vg).connect(o.frequency);
+            const g = c.createGain();
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.006, t + a);
+            g.gain.linearRampToValueAtTime(0, t + ev.dur);
+            o.connect(biquad(c, "bandpass", hz(74), 3)).connect(g).connect(glade(c));
+            g.connect(out);
+            o.start(t);
+            v.start(t);
+            o.stop(t + ev.dur + 0.05);
+            v.stop(t + ev.dur + 0.05);
+          },
+        },
+      ];
+
+      GUSTS.push(
+        {
+          id: "F",
+          name: "Leaves in flight",
+          desc: "Tied to the particles: the wind is exactly as loud as the number of leaves in the air, and sits on the side of the page they are on. Silent when none are moving.",
+          play(c, out, t, ev) {
+            flightAir(c, out, t, ev, 0.06);
+          },
+        },
+        {
+          id: "G",
+          name: "Leaves in flight, with leaves",
+          desc: "F, and a dry tick for a few dozen of the leaves as each one lands, where it lands.",
+          play(c, out, t, ev) {
+            flightAir(c, out, t, ev, 0.045);
+            for (const g of ev.grains) leafTick(c, panTo(c, out, g.pan), t + g.at, 0.01);
+          },
+        },
+      );
+
+      /* Softer High canopy (the owner, 2026-11-19: "a softer version of high canopy"). Same two wide bands of
+         high air as C; lower, darker, slower to rise and with gentler bands (lower Q). */
+      GUSTS.push(
+        {
+          id: "H",
+          name: "Soft canopy",
+          desc: "C at half the loudness (−6 dB), a little lower and darker. Follows the leaves: it rises as they take off and is gone the moment the last one lands.",
+          play(c, out, t, ev) {
+            flightCanopy(c, out, t, ev, { band: 2400, q: 0.45, peak: 0.0106, width: 0.75, lowpass: 6000 });
+          },
+        },
+        {
+          id: "I",
+          name: "Softest canopy",
+          desc: "Quieter again (about −10 dB from C), darker, the highest air rolled off. Follows the leaves and stops when they stop.",
+          play(c, out, t, ev) {
+            flightCanopy(c, out, t, ev, { band: 2100, q: 0.4, peak: 0.0083, width: 0.7, lowpass: 3500 });
+          },
+        },
+      );
+
+      const LANDS = [
+        {
+          id: "A",
+          name: "Settle",
+          desc: "The leaves coming to rest: a soft rustle that sinks and fades, from where the picture is.",
+          play(c, out, t, ev) {
+            noise(c, panTo(c, out, ev.pan), t, { freq: 1800, to: 900, q: 0.8, peak: 0.025, attack: 0.06, decay: 0.5 });
+          },
+        },
+        {
+          id: "B",
+          name: "Kalimba",
+          desc: "One soft thumb-piano note as each picture forms: leaf, graph and wordmark are three notes of one chord, so a full loop is a slow arpeggio.",
+          play(c, out, t, ev) {
+            const f = hz([74, 78, 81][ev.kind]);
+            const bus = panTo(c, out, ev.pan * 0.6);
+            const g = c.createGain();
+            g.connect(bus);
+            g.connect(glade(c));
+            tone(c, g, t, { freq: f, peak: 0.045, attack: 0.003, release: 1.4 });
+            tone(c, g, t, { freq: f * 5.4, peak: 0.008, attack: 0.002, release: 0.12 });
+            noise(c, g, t, { freq: 3500, q: 2, peak: 0.01, attack: 0.001, decay: 0.006 });
+          },
+        },
+        {
+          id: "C",
+          name: "Bamboo chime",
+          desc: "Three hollow bamboo tubes brushed, rolled a few tens of milliseconds apart, in a small glade.",
+          play(c, out, t, ev) {
+            const base = [62, 66, 69][ev.kind];
+            const bus = panTo(c, out, ev.pan * 0.6);
+            const g = c.createGain();
+            g.connect(bus);
+            g.connect(glade(c));
+            [0, 4, 7].forEach((step, i) =>
+              tone(c, g, t + i * rand(0.04, 0.07), { freq: hz(base + 12 + step), to: hz(base + 12 + step) * 0.985, peak: 0.022, attack: 0.002, release: 0.35 }),
+            );
+          },
+        },
+        {
+          id: "D",
+          name: "Warm bloom",
+          desc: "A breath of soft chord that swells as the leaves land and fades through the hold. No attack at all.",
+          play(c, out, t, ev) {
+            const roots = [[62, 69, 74], [66, 73, 78], [69, 76, 81]][ev.kind];
+            const g = c.createGain();
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(1, t + 0.45);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+            g.connect(biquad(c, "lowpass", 1400)).connect(out);
+            for (const m of roots) tone(c, g, t, { freq: hz(m), detune: rand(-6, 6), peak: 0.011, attack: 0.4, hold: 0.2, release: 1.6 });
+          },
+        },
+        {
+          id: "E",
+          name: "Dewdrop",
+          desc: "One drop as the picture forms, pitched for the picture, ringing faintly in the glade.",
+          play(c, out, t, ev) {
+            const f = [880, 1050, 1320][ev.kind];
+            const g = c.createGain();
+            g.connect(panTo(c, out, ev.pan * 0.6));
+            g.connect(glade(c));
+            tone(c, g, t, { freq: f, to: f * 2, peak: 0.035, attack: 0.002, release: 0.05 });
+          },
+        },
+      ];
+
+      const MORPHS = [
+        {
+          id: "S",
+          name: "Same as the gust",
+          desc: "Your step-4 gust, played again for every change: the same leaves blowing between leaf, graph and wordmark. With F or G there, it follows the leaves of each change.",
+          play(c, out, t, ev) {
+            (picked("gust") ?? GUSTS[5]).play(c, out, t, ev);
+          },
+        },
+        {
+          id: "A",
+          name: "Rustle sweep",
+          desc: "A rustle that travels with the leaves: rising as the graph grows up, left to right as the wordmark is written, rising again as the leaf rebuilds.",
+          play(c, out, t, ev) {
+            const p = c.createStereoPanner();
+            p.connect(out);
+            const end = t + ev.dur;
+            if (ev.kind === "word") {
+              p.pan.setValueAtTime(-0.7, t);
+              p.pan.linearRampToValueAtTime(0.7, end);
+            }
+            swell(c, p, t, { type: "bandpass", freq: 1100, peakFreq: ev.kind === "word" ? 1800 : 2600, to: 1500, q: 0.9, peak: 0.026, attack: ev.dur * 0.45, decay: ev.dur * 0.55 });
+          },
+        },
+        {
+          id: "B",
+          name: "Leaf grains",
+          desc: "No swell at all: just a dry tick for a few dozen of the leaves as they land, each panned to where it lands. The animation, heard leaf by leaf.",
+          play(c, out, t, ev) {
+            for (const g of ev.grains) leafTick(c, panTo(c, out, g.pan), t + g.at, 0.01);
+          },
+        },
+        {
+          id: "C",
+          name: "Soft swish",
+          desc: "One long airy swish through the centre, the same for every change.",
+          play(c, out, t, ev) {
+            swell(c, out, t, { freq: 550, peakFreq: 1500, to: 600, peak: 0.028, attack: ev.dur * 0.4, decay: ev.dur * 0.6 });
+          },
+        },
+        {
+          id: "D",
+          name: "Sweep and grains",
+          desc: "A: the travelling rustle, softer, with B's leaves landing in it.",
+          play(c, out, t, ev) {
+            MORPHS.find((m) => m.id === "A").play(c, scaled(c, out, 0.6), t, ev);
+            for (const g of ev.grains) leafTick(c, panTo(c, out, g.pan), t + g.at, 0.008);
+          },
+        },
+      ];
+
+      const TOUCHES = [
+        {
+          id: "A",
+          name: "Rustle",
+          desc: "Leaves brushing aside: a rustle that follows how fast the pointer moves through them, panned to the pointer. Still is silent.",
+          make(c, out) {
+            const src = c.createBufferSource();
+            src.buffer = noiseBuffer(c);
+            src.loop = true;
+            const f = biquad(c, "bandpass", 2200, 0.9);
+            const g = c.createGain();
+            g.gain.value = 0;
+            const p = c.createStereoPanner();
+            src.connect(f).connect(g).connect(p).connect(out);
+            src.start();
+            return {
+              set(speed, pan) {
+                g.gain.setTargetAtTime(0.04 * speed, c.currentTime, 0.06);
+                f.frequency.setTargetAtTime(1800 + 1600 * speed, c.currentTime, 0.08);
+                p.pan.setTargetAtTime(pan * 0.8, c.currentTime, 0.05);
+              },
+              stop() {
+                g.gain.setTargetAtTime(0, c.currentTime, 0.05);
+                src.stop(c.currentTime + 0.4);
+              },
+            };
+          },
+        },
+        {
+          id: "B",
+          name: "Ticks",
+          desc: "Only the leaves the pointer touches: a scatter of dry ticks, more the faster it moves.",
+          make(c, out) {
+            return {
+              set(speed, pan) {
+                if (Math.random() < speed * 0.45) leafTick(c, panTo(c, out, pan * 0.8 + rand(-0.1, 0.1)), c.currentTime + 0.01, 0.011);
+              },
+              stop() {},
+            };
+          },
+        },
+        {
+          id: "C",
+          name: "Hush",
+          desc: "Air moving, low and soft, rising a little with speed. No leaves in it.",
+          make(c, out) {
+            const src = c.createBufferSource();
+            src.buffer = noiseBuffer(c);
+            src.loop = true;
+            const f = biquad(c, "lowpass", 600, 0.7);
+            const g = c.createGain();
+            g.gain.value = 0;
+            src.connect(f).connect(g).connect(out);
+            src.start();
+            return {
+              set(speed) {
+                g.gain.setTargetAtTime(0.035 * speed, c.currentTime, 0.1);
+                f.frequency.setTargetAtTime(500 + 700 * speed, c.currentTime, 0.1);
+              },
+              stop() {
+                g.gain.setTargetAtTime(0, c.currentTime, 0.05);
+                src.stop(c.currentTime + 0.4);
+              },
+            };
+          },
+        },
+      ];
+
+      /* Softer Rustle (the owner, 2026-11-19). The same continuous voice as A, one for the whole drag:
+         quieter, lower and darker, and slower to follow the pointer so a quick flick swells rather than spits. */
+      function softRustle(o) {
+        return (c, out) => {
+          const src = c.createBufferSource();
+          src.buffer = noiseBuffer(c);
+          src.loop = true;
+          const f = biquad(c, "bandpass", o.band, o.q);
+          const dark = biquad(c, "lowpass", o.lowpass);
+          const g = c.createGain();
+          g.gain.value = 0;
+          const p = c.createStereoPanner();
+          src.connect(f).connect(dark).connect(g).connect(p).connect(out);
+          src.start();
+          return {
+            set(speed, pan) {
+              g.gain.setTargetAtTime(o.peak * speed, c.currentTime, o.follow);
+              f.frequency.setTargetAtTime(o.band + o.lift * speed, c.currentTime, o.follow * 1.3);
+              p.pan.setTargetAtTime(pan * 0.7, c.currentTime, 0.06);
+            },
+            stop() {
+              g.gain.setTargetAtTime(0, c.currentTime, 0.06);
+              src.stop(c.currentTime + 0.5);
+            },
+          };
+        };
+      }
+      TOUCHES.push(
+        {
+          id: "D",
+          name: "Soft rustle",
+          desc: "A at half the loudness (−6 dB), lower and darker, easing in and out with the pointer. Still one rustle for the whole drag.",
+          make: softRustle({ band: 1500, lift: 900, q: 0.7, lowpass: 4500, peak: 0.02, follow: 0.1 }),
+        },
+        {
+          id: "E",
+          name: "Softest rustle",
+          desc: "About −10 dB from A, darker still and slower to follow: a hush of leaves under the pointer, only there while you move.",
+          make: softRustle({ band: 1300, lift: 600, q: 0.6, lowpass: 3200, peak: 0.0125, follow: 0.14 }),
+        },
+      );
+
+      const BEDS = [
+        {
+          id: "A",
+          name: "Forest air",
+          desc: "Very quiet air under the landing, breathing slowly. Fades in over 2 s; you notice it mostly when it stops.",
+          start(c, out) {
+            const g = c.createGain();
+            g.gain.setValueAtTime(0, c.currentTime);
+            g.gain.linearRampToValueAtTime(1, c.currentTime + 2);
+            g.connect(out);
+            const stops = [-0.6, 0.6].map((pan, k) => {
+              const src = c.createBufferSource();
+              src.buffer = noiseBuffer(c);
+              src.loop = true;
+              const f = biquad(c, "lowpass", 500 + k * 120, 0.6);
+              const lv = c.createGain();
+              lv.gain.value = 0.009;
+              const lfo = c.createOscillator();
+              lfo.frequency.value = 0.07 + k * 0.03;
+              const depth = c.createGain();
+              depth.gain.value = 0.006;
+              lfo.connect(depth).connect(lv.gain);
+              src.connect(f).connect(lv).connect(panTo(c, g, pan));
+              src.start(c.currentTime, Math.random() * 2.5);
+              lfo.start();
+              return () => {
+                src.stop(c.currentTime + 1);
+                lfo.stop(c.currentTime + 1);
+              };
+            });
+            return () => {
+              g.gain.cancelScheduledValues(c.currentTime);
+              g.gain.setValueAtTime(g.gain.value, c.currentTime);
+              g.gain.linearRampToValueAtTime(0, c.currentTime + 0.8);
+              stops.forEach((s) => s());
+            };
+          },
+        },
+        {
+          id: "B",
+          name: "Leaves overhead",
+          desc: "Forest air, and now and then a leaf high above turning in it: one faint tick every few seconds.",
+          start(c, out) {
+            const stopAir = BEDS[0].start(c, out);
+            const stopTicks = scheduler(c, () => rand(1.5, 4.5), (t) => leafTick(c, panTo(c, out, rand(-0.8, 0.8)), t, 0.006));
+            return () => {
+              stopAir();
+              stopTicks();
+            };
+          },
+        },
+      ];
+
+      /* The Dox chat voices, gmt apps/dox/src/lib/sound/voices.ts, unchanged. Not auditioned: they are
+         carried over so Dox sounds the same on all three sites. */
+      const DOX = [
+        {
+          id: "key",
+          name: "Typing — Data blip (key C)",
+          desc: "Every printable key and Backspace in the composer. Never a password field.",
+          on: true,
+          play(c, out, t) {
+            const notes = [93, 95, 98, 100, 102];
+            tone(c, out, t, { freq: hz(notes[Math.floor(Math.random() * notes.length)]), peak: 0.03, attack: 0.002, release: 0.03 });
+          },
+          demo: (c, out, t) => {
+            for (let i = 0; i < 9; i++) DOX[0].play(c, out, t + i * rand(0.09, 0.16));
+          },
+        },
+        {
+          id: "send",
+          name: "Send — Sonar launch (send C)",
+          desc: "The question sent. It is a press (Enter or the send button), so the no-press rule may say no.",
+          on: false,
+          play(c, out, t) {
+            const far = sharedFx("launch", (cc, o) => echo(cc, o, 0.12, 0.5, 0.5));
+            tone(c, out, t, { freq: 1180, peak: 0.1, attack: 0.003, release: 0.15 });
+            tone(c, far, t, { freq: 1180, peak: 0.08, attack: 0.003, release: 0.12 });
+          },
+        },
+        {
+          id: "thinking",
+          name: "Thinking — Sonar idle (thinking F)",
+          desc: "A very soft low ping every 1.6 s while Dox waits for the first words. Demo: 5 s.",
+          on: true,
+          loop: fadedLoop(
+            (c, bus) => scheduler(c, () => 1.6, (t) => tone(c, bus, t, { freq: 587, peak: 0.014, attack: 0.01, release: 0.45, filter: ["lowpass", 1200] })),
+            0.3,
+            0.15,
+          ),
+        },
+        {
+          id: "loading",
+          name: "Loading — Servo spin-up (loading E)",
+          desc: "Three soft rising notches: something winding up. GMT plays it when the /dox rail takes over 150 ms to load.",
+          on: true,
+          play(c, out, t) {
+            for (let i = 0; i < 3; i++) {
+              const f = 650 * (1500 / 650) ** (i / 2);
+              noise(c, out, t + i * 0.09, { freq: f, to: f * 1.3, q: 4, peak: 0.028, attack: 0.006, decay: 0.04 });
+            }
+          },
+        },
+        {
+          id: "stream",
+          name: "Answer arriving — Morse (stream C)",
+          desc: "A short soft beep per streamed chunk while Dox writes.",
+          on: true,
+          play(c, out, t) {
+            tone(c, out, t, { freq: 700, peak: 0.035, attack: 0.003, hold: 0.02, release: 0.01 });
+          },
+          demo: (c, out, t) => {
+            let at = t;
+            for (let i = 0; i < 12; i++) {
+              DOX[4].play(c, out, at);
+              at += rand(0.07, 0.2);
+            }
+          },
+        },
+        {
+          id: "done",
+          name: "Complete — Ice bell (done C)",
+          desc: "One high bell ringing out when the answer is complete. An aborted answer never rings it.",
+          on: true,
+          play(c, out, t) {
+            bell(c, out, t, { freq: 2093, ratios: [1, 2.76, 5.4], peak: 0.05, decay: 1.2 });
+            bell(c, space(c), t, { freq: 2093, ratios: [1, 2.76], peak: 0.04, decay: 1.2 });
+          },
+        },
+        {
+          id: "error",
+          name: "Error — Low double buzz (error B)",
+          desc: "A failed answer or a lost connection. Carried over for uniformity, or left out for Baldur?",
+          on: false,
+          play(c, out, t) {
+            for (const at of [0, 0.11])
+              tone(c, out, t + at, { type: "square", freq: 110, peak: 0.07, attack: 0.004, hold: 0.05, release: 0.03, filter: ["lowpass", 600] });
+          },
+        },
+      ];
+
+      function scaled(c, out, k) {
+        const g = c.createGain();
+        g.gain.value = k;
+        g.connect(out);
+        return g;
+      }
+
+      /* ===================================================================
+       * The steps.
+       * =================================================================== */
+      const STEPS = [
+        {
+          id: "switch",
+          title: "1 · The Dark theme switch",
+          where:
+            "The panel's first row. Pressing a switch flips this page's theme for real, so each is seen in both. Silent. GMT's is an ice switch with bevelled corners; every look here is round.",
+          kind: "switch",
+          variants: SWITCHES,
+        },
+        {
+          id: "fader",
+          title: "2 · The volume control",
+          where:
+            "A mute button beside an 11-notch fader (GMT's scale, 1 to 11). Drag it or use the arrow keys: each notch plays your notch pick from step 3 (Twig tick until you pick one), heard at the level it sets. The mute button is silent; moving the fader unmutes.",
+          kind: "fader",
+          variants: FADERS,
+        },
+        {
+          id: "notch",
+          title: "3 · The notch",
+          where:
+            "The only sound a control on this site makes. Each card's fader uses your step-2 look. Sweep plays all eleven notches up and back. Tree and plant, and as small as it can be and still tell you a notch passed.",
+          kind: "notch",
+          variants: NOTCHES,
+        },
+        {
+          id: "gust",
+          title: "4 · The leaves gust in",
+          where:
+            "Once, on load: small leaves sweep in from every edge of the page (and from under the header) and gather into the big leaf, about 3.5 s. On the site this plays only for a reader with sound on, and only once a gesture has unlocked audio, so in practice it is heard on a reload or an arrival from northguild.dev.",
+          kind: "scene",
+          layer: "gust",
+          variants: GUSTS,
+          plays: ["opening"],
+        },
+        {
+          id: "land",
+          title: "5 · A picture forms",
+          where:
+            "The moment the last leaves land: the leaf, the git graph, the wordmark, the leaf again. Three moments a loop, every 7 to 12 s for as long as the landing is open, so it must be something you would not tire of. Plays with your gust.",
+          kind: "scene",
+          layer: "land",
+          variants: LANDS,
+          plays: ["opening", "loop"],
+        },
+        {
+          id: "morph",
+          title: "6 · One picture becomes the next",
+          where:
+            "The 2 to 3 s while the leaves travel: the leaf's midrib straightening into main, the graph writing itself into 'worktree' left to right, the wordmark flowing back into the leaf stem first. S plays your gust again for every change, so the same leaves blow between each picture; pick F or G at step 4 and it follows exactly how many leaves are moving, and where. Plays with your gust and landing.",
+          kind: "scene",
+          layer: "morph",
+          variants: MORPHS,
+          plays: ["loop"],
+        },
+        {
+          id: "touch",
+          title: "7 · The pointer parts the leaves",
+          where:
+            "Move or drag the pointer through the leaves (press Use on a card first, which also starts audio). The leaves part and spring back, and the sound must carry through the whole drag: one continuous voice that follows the pointer's speed and side, never a run of separate sounds that stop and start. On a phone it is a finger dragging. Play the loop too, to hear it under everything else, including mid-morph.",
+          kind: "scene",
+          layer: "touch",
+          variants: TOUCHES,
+          plays: ["loop"],
+          interactive: true,
+        },
+        {
+          id: "bed",
+          title: "8 · Under the landing (optional)",
+          where:
+            "A loop that plays quietly under the landing while it is open. GMT's landing has its aura; this would be ours. None is a fine answer, and maybe the right one for Baldur.",
+          kind: "scene",
+          layer: "bed",
+          variants: BEDS,
+          plays: ["loop"],
+        },
+        {
+          id: "dox",
+          title: "9 · Dox chat, carried over from GMT",
+          where:
+            "Not an audition: GMT's Dox voices, unchanged, so Dox sounds the same on all three sites. Untick what should stay out. Typing, thinking, loading and complete are in as you asked; send and error are left out pending your word, since send is a press. 'Chat' plays the whole sequence.",
+          kind: "dox",
+          variants: [],
+        },
+      ];
+
+      /* ===================================================================
+       * State.
+       * =================================================================== */
+      const STORE = "worktree-352-audition";
+      let picks = {};
+      let doxOn = Object.fromEntries(DOX.map((d) => [d.id, d.on]));
+      let index = 0;
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORE) ?? "{}");
+        picks = saved.picks ?? {};
+        doxOn = { ...doxOn, ...(saved.doxOn ?? {}) };
+        index = clamp(saved.index ?? 0, 0, STEPS.length);
+        level = clamp(saved.level ?? 5, 1, 11);
+      } catch {
+        picks = {};
+      }
+      const hashStep = STEPS.findIndex((s) => `#${s.id}` === location.hash);
+      if (hashStep !== -1) index = hashStep;
+      function save() {
+        try {
+          localStorage.setItem(STORE, JSON.stringify({ picks, index, doxOn, level }));
+        } catch {
+          /* Private window: picks live for this visit only. */
+        }
+      }
+      function picked(stepId, fallback = null) {
+        const step = STEPS.find((s) => s.id === stepId);
+        const pick = picks[stepId];
+        if (pick === "none") return null;
+        return step.variants.find((v) => v.id === pick) ?? fallback;
+      }
+
+      /* ===================================================================
+       * Audio.
+       * =================================================================== */
+      const levelGain = () => (muted ? 0 : (level / 11) * MAX_GAIN);
+      function audio() {
+        if (!ctx) {
+          ctx = new AudioContext();
+          const ceil = ctx.createWaveShaper();
+          ceil.curve = ceilingCurve();
+          master = ctx.createGain();
+          master.gain.value = levelGain();
+          master.connect(ceil).connect(ctx.destination);
+        }
+        if (ctx.state === "suspended") ctx.resume();
+        return ctx;
+      }
+      function setLevel(next, { unmute = true } = {}) {
+        level = clamp(next, 1, 11);
+        if (unmute) muted = false;
+        if (ctx) {
+          master.gain.cancelScheduledValues(ctx.currentTime);
+          master.gain.setValueAtTime(levelGain(), ctx.currentTime);
+        }
+        volume.value = String(level);
+        volumeOut.value = String(level);
+        for (const f of document.querySelectorAll(".fader")) f.refresh?.();
+        for (const m of document.querySelectorAll(".mute")) m.refresh?.();
+        save();
+      }
+      function setMuted(next) {
+        muted = next;
+        if (ctx) master.gain.setTargetAtTime(levelGain(), ctx.currentTime, 0.015);
+        for (const f of document.querySelectorAll(".fader")) f.refresh?.();
+        for (const m of document.querySelectorAll(".mute")) m.refresh?.();
+      }
+      /** Seconds of the audio clock now leaving the speakers. */
+      function heardTime(c) {
+        try {
+          const ts = c.getOutputTimestamp?.();
+          if (ts && ts.contextTime > 0) return ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+        } catch {
+          /* Fall through. */
+        }
+        return c.currentTime - (c.outputLatency || c.baseLatency || 0);
+      }
+
+      let stopCurrent = null;
+      function stopAll() {
+        stopCurrent?.();
+        stopCurrent = null;
+        scene?.stop();
+        for (const b of document.querySelectorAll("[data-play][aria-pressed='true']")) b.setAttribute("aria-pressed", "false");
+      }
+
+      /* ===================================================================
+       * The scene: a 2D sketch of docs/src/hero/particles.ts.
+       * =================================================================== */
+      const PACE = 1.25;
+      const N_SHAPE = 760;
+      const N_AMB = 300;
+      const N = N_SHAPE + N_AMB;
+      const ASPECT = 16 / 7;
+      // Normalised space: the art box's centre is the origin, its half-height is 1, y up.
+      const CX = 0.62; // the art box's centre, as a fraction of the width
+      const S_OF_H = 0.42; // the shape's half-height, as a fraction of the height
+      const LEFT = -(CX * ASPECT) / S_OF_H;
+      const RIGHT = ((1 - CX) * ASPECT) / S_OF_H;
+      const TOP = 0.5 / S_OF_H;
+
+      function easeInOutCubic(p) {
+        return p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
+      }
+      function easeOutBack(p) {
+        const c1 = 0.8;
+        const c3 = c1 + 1;
+        return 1 + c3 * (p - 1) ** 3 + c1 * (p - 1) ** 2;
+      }
+
+      const KIND = { amb: 0, vein: 1, blade: 2, margin: 3 };
+      function buildLeaf() {
+        const x = new Float32Array(N);
+        const y = new Float32Array(N);
+        const kind = new Uint8Array(N);
+        const along = new Float32Array(N);
+        const tilt = -0.6;
+        const cs = Math.cos(tilt);
+        const sn = Math.sin(tilt);
+        const half = (u) => 0.5 * Math.sin(Math.PI * clamp01((u + 1) / 2) ** 0.85) ** 0.9;
+        const put = (i, u, s) => {
+          const lx = s * half(u);
+          const ly = u * 1.05;
+          x[i] = lx * cs - ly * sn;
+          y[i] = lx * sn + ly * cs;
+          along[i] = (u + 1) / 2;
+        };
+        for (let i = 0; i < N_SHAPE; i++) {
+          const r = Math.random();
+          if (r < 0.14) {
+            kind[i] = KIND.vein;
+            const u = rand(-1.25, 0.97);
+            const lx = 0;
+            const ly = u * 1.05;
+            x[i] = lx * cs - ly * sn;
+            y[i] = lx * sn + ly * cs;
+            along[i] = clamp01((u + 1) / 2);
+          } else if (r < 0.3) {
+            kind[i] = KIND.vein;
+            const k = 1 + Math.floor(Math.random() * 7);
+            const side = k % 2 ? 1 : -1;
+            const u0 = -0.75 + k * 0.2;
+            const f = Math.random();
+            put(i, u0 + f * 0.32, side * f * 0.85);
+          } else if (r < 0.42) {
+            kind[i] = KIND.margin;
+            put(i, rand(-0.98, 0.98), Math.random() < 0.5 ? -1 : 1);
+          } else {
+            kind[i] = KIND.blade;
+            put(i, rand(-0.96, 0.96), rand(-0.92, 0.92));
+          }
+        }
+        return { x, y, kind, along };
+      }
+      function sampleCurve(pts, t) {
+        // A polyline of [x, y] points, t in 0..1 by index.
+        const f = t * (pts.length - 1);
+        const i = Math.min(pts.length - 2, Math.floor(f));
+        const k = f - i;
+        return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * k, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * k];
+      }
+      function bez(a, b, c2, d, n = 24) {
+        const out = [];
+        for (let i = 0; i <= n; i++) {
+          const t = i / n;
+          const u = 1 - t;
+          out.push([
+            u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c2[0] + t * t * t * d[0],
+            u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c2[1] + t * t * t * d[1],
+          ]);
+        }
+        return out;
+      }
+      function buildGraph() {
+        const x = new Float32Array(N);
+        const y = new Float32Array(N);
+        const main = [
+          [-0.15, -1.05],
+          [-0.15, 1.05],
+        ];
+        const b1 = [...bez([-0.15, -0.55], [0.25, -0.5], [0.4, -0.35], [0.4, -0.05]), ...bez([0.4, -0.05], [0.4, 0.3], [0.4, 0.45], [0.4, 0.5]).slice(1), ...bez([0.4, 0.5], [0.4, 0.7], [0.0, 0.7], [-0.15, 0.8]).slice(1)];
+        const b2 = [...bez([-0.15, -0.05], [-0.5, 0], [-0.62, 0.1], [-0.62, 0.35]), ...bez([-0.62, 0.35], [-0.62, 0.5], [-0.62, 0.6], [-0.62, 0.7]).slice(1)];
+        const lines = [
+          [main, 0.45],
+          [b1, 0.33],
+          [b2, 0.22],
+        ];
+        const commits = [
+          [-0.15, -0.85],
+          [-0.15, -0.3],
+          [-0.15, 0.3],
+          [-0.15, 0.95],
+          [0.4, -0.1],
+          [0.4, 0.35],
+          [-0.62, 0.3],
+          [-0.62, 0.7],
+        ];
+        for (let i = 0; i < N_SHAPE; i++) {
+          if (Math.random() < 0.55) {
+            let r = Math.random();
+            let line = lines[0][0];
+            for (const [pts, w] of lines) {
+              r -= w;
+              line = pts;
+              if (r <= 0) break;
+            }
+            const [px, py] = sampleCurve(line, Math.random());
+            x[i] = px + rand(-0.012, 0.012);
+            y[i] = py + rand(-0.012, 0.012);
+          } else {
+            const c = commits[Math.floor(Math.random() * commits.length)];
+            const a = Math.random() * Math.PI * 2;
+            const rr = Math.random() < 0.7 ? rand(0.07, 0.09) : rand(0, 0.06);
+            x[i] = c[0] + Math.cos(a) * rr;
+            y[i] = c[1] + Math.sin(a) * rr;
+          }
+        }
+        return { x, y };
+      }
+      function buildWord() {
+        const cv = document.createElement("canvas");
+        cv.width = 640;
+        cv.height = 150;
+        const g = cv.getContext("2d");
+        g.fillStyle = "#fff";
+        g.font = '400 112px "Michroma", ui-sans-serif, system-ui, sans-serif';
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText("worktree", 320, 78, 620);
+        const data = g.getImageData(0, 0, 640, 150).data;
+        const pts = [];
+        for (let yy = 0; yy < 150; yy += 2)
+          for (let xx = 0; xx < 640; xx += 2) if (data[(yy * 640 + xx) * 4 + 3] > 128) pts.push([(xx - 320) / 200, -(yy - 75) / 200]);
+        const x = new Float32Array(N);
+        const y = new Float32Array(N);
+        for (let i = 0; i < N_SHAPE; i++) {
+          const p = pts[Math.floor(Math.random() * pts.length)] ?? [0, 0];
+          x[i] = p[0] * 1.0 + 0.1;
+          y[i] = p[1];
+        }
+        return { x, y };
+      }
+
+      function makeScene(canvas) {
+        const g = canvas.getContext("2d");
+        const leaf = buildLeaf();
+        const graph = buildGraph();
+        const word = buildWord();
+        // The wordmark is written left to right: pair leaves and letters in order of x, as particles.ts does.
+        {
+          const bySource = Array.from({ length: N_SHAPE }, (_, i) => i).sort((a, b) => graph.x[a] - graph.x[b]);
+          const byTarget = Array.from({ length: N_SHAPE }, (_, i) => i).sort((a, b) => word.x[a] - word.x[b]);
+          const wx = Float32Array.from(word.x);
+          const wy = Float32Array.from(word.y);
+          for (let k = 0; k < N_SHAPE; k++) {
+            word.x[bySource[k]] = wx[byTarget[k]];
+            word.y[bySource[k]] = wy[byTarget[k]];
+          }
+        }
+        // Per-leaf look.
+        const tone = new Uint8Array(N);
+        const size = new Float32Array(N);
+        const spin = new Float32Array(N);
+        const ang = new Float32Array(N);
+        const bx = new Float32Array(N); // ambient drift home
+        const by = new Float32Array(N);
+        const ph = new Float32Array(N);
+        const weights = [0.3, 0.22, 0.16, 0.14, 0.12, 0.06];
+        for (let i = 0; i < N; i++) {
+          let r = Math.random();
+          let k = 0;
+          for (; k < 5; k++) {
+            r -= weights[k];
+            if (r <= 0) break;
+          }
+          tone[i] = k;
+          size[i] = i < N_SHAPE ? rand(1.6, 2.6) : rand(1.0, 2.0);
+          spin[i] = rand(-1.6, 1.6);
+          ang[i] = rand(0, Math.PI * 2);
+          const a = Math.random() * Math.PI * 2;
+          const rr = Math.sqrt(Math.random());
+          bx[i] = Math.cos(a) * rr * 1.9 - 0.25;
+          by[i] = Math.sin(a) * rr * 1.05;
+          ph[i] = rand(0, 100);
+        }
+        const driftX = (i, t) => bx[i] + Math.sin(t * 0.21 + ph[i]) * 0.07;
+        const driftY = (i, t) => by[i] + Math.cos(t * 0.17 + ph[i] * 1.3) * 0.05;
+
+        // The stages: from, control point, to, delay, duration per leaf; times are wall seconds.
+        let stages = [];
+        function plan(hold) {
+          stages = [];
+          const mk = (name, start) => ({
+            name,
+            start,
+            fx: new Float32Array(N),
+            fy: new Float32Array(N),
+            cx: new Float32Array(N),
+            cy: new Float32Array(N),
+            tx: new Float32Array(N),
+            ty: new Float32Array(N),
+            delay: new Float32Array(N),
+            dur: new Float32Array(N),
+            formed: 0,
+          });
+          // 1. The gust into the leaf.
+          const gusts = Array.from({ length: 10 }, (_, k) => {
+            const per = 2 * (RIGHT - LEFT) + 4 * TOP;
+            let d = ((k + Math.random() * 0.8) / 10) * per;
+            const w = RIGHT - LEFT;
+            let p;
+            if (d < w) p = [LEFT + d, TOP + 0.15, 1, 0];
+            else if ((d -= w) < w) p = [LEFT + d, -TOP - 0.15, 1, 0];
+            else if ((d -= w) < 2 * TOP) p = [LEFT - 0.15, -TOP + d, 0, 1];
+            else p = [RIGHT + 0.15, -TOP + (d - 2 * TOP), 0, 1];
+            return { x: p[0], y: p[1], ex: p[2], ey: p[3], spread: rand(0.25, 0.6), offset: Math.random() * 0.35, curl: (k % 3 === 2 ? -1 : 1) * rand(0.2, 0.5) };
+          });
+          let s = mk("leaf", 0);
+          for (let i = 0; i < N; i++) {
+            const gg = gusts[Math.floor(Math.random() * gusts.length)];
+            const sp = (Math.random() + Math.random() - 1) * gg.spread;
+            const x0 = gg.x + gg.ex * sp;
+            const y0 = gg.y + gg.ey * sp;
+            const shape = i < N_SHAPE;
+            const tx = shape ? leaf.x[i] : driftX(i, 0);
+            const ty = shape ? leaf.y[i] : driftY(i, 0);
+            s.fx[i] = x0;
+            s.fy[i] = y0;
+            s.tx[i] = tx;
+            s.ty[i] = ty;
+            const dx = tx - x0;
+            const dy = ty - y0;
+            const curl = gg.curl + rand(-0.06, 0.06);
+            s.cx[i] = x0 + dx * 0.5 - dy * curl;
+            s.cy[i] = y0 + dy * 0.5 + dx * curl;
+            const k = shape ? leaf.kind[i] : 0;
+            const a = shape ? leaf.along[i] : 0;
+            const order = k === KIND.vein ? a * 0.5 + Math.random() * 0.2 : k === KIND.blade ? 0.5 + a * 0.35 + Math.random() * 0.35 : k === KIND.margin ? 0.8 + Math.random() * 0.3 : Math.random() * 1.2;
+            const wave = gg.offset * 0.6 + 0.12 * clamp01(((x0 - LEFT) / (RIGHT - LEFT)) * 0.5 + (0.5 - y0 / (2 * TOP)) * 0.5);
+            s.delay[i] = (wave + order) * PACE;
+            s.dur[i] = ((k === KIND.vein ? 1.2 : k ? 1.0 : 1.5) + Math.random() * 0.3) * PACE;
+          }
+          s.gust = true;
+          finish(s);
+          stages.push(s);
+          // 2. Leaf → graph → word → leaf.
+          const targets = [
+            ["graph", graph],
+            ["word", word],
+            ["leaf", leaf],
+          ];
+          for (const [name, tgt] of targets) {
+            const prev = stages[stages.length - 1];
+            s = mk(name, prev.formed + hold);
+            for (let i = 0; i < N; i++) {
+              const shape = i < N_SHAPE;
+              s.fx[i] = prev.tx[i];
+              s.fy[i] = prev.ty[i];
+              if (!shape) {
+                s.tx[i] = prev.tx[i];
+                s.ty[i] = prev.ty[i];
+                s.cx[i] = prev.tx[i];
+                s.cy[i] = prev.ty[i];
+                s.delay[i] = 0;
+                s.dur[i] = 0.01;
+                continue;
+              }
+              s.tx[i] = tgt.x[i];
+              s.ty[i] = tgt.y[i];
+              const sw = name === "graph" ? rand(-0.15, 0.15) : rand(-0.3, 0.3);
+              const dx = s.tx[i] - s.fx[i];
+              const dy = s.ty[i] - s.fy[i];
+              s.cx[i] = s.fx[i] + dx * 0.5 - dy * sw;
+              s.cy[i] = s.fy[i] + dy * 0.5 + dx * sw;
+              let d;
+              let du;
+              if (name === "graph") {
+                d = ((s.ty[i] + 1.05) / 2.1) * 0.8 + Math.random() * 0.2;
+                du = 1.0 + Math.random() * 0.5;
+              } else if (name === "word") {
+                d = ((s.tx[i] + 1.6) / 3.2) * 1.0 + Math.random() * 0.3;
+                du = 1.2 + Math.random() * 0.7;
+              } else {
+                const k = leaf.kind[i];
+                const a = leaf.along[i];
+                d = k === KIND.vein ? a * 0.5 + Math.random() * 0.2 : k === KIND.blade ? 0.5 + a * 0.35 + Math.random() * 0.35 : 0.8 + Math.random() * 0.3;
+                du = 1.2 + Math.random() * 0.6;
+              }
+              s.delay[i] = d * PACE;
+              s.dur[i] = du * PACE;
+            }
+            finish(s);
+            stages.push(s);
+          }
+        }
+        function finish(s) {
+          let longest = 0;
+          for (let i = 0; i < N; i++) longest = Math.max(longest, s.delay[i] + s.dur[i]);
+          s.length = longest;
+          s.formed = s.start + longest;
+        }
+
+        /** Sound events from the timeline: what the leaves are doing, and when. */
+        function events() {
+          const panOf = (x) => clamp(((CX * ASPECT + x * S_OF_H) / ASPECT) * 2 - 1, -1, 1) * 0.85;
+          const grains = (s, count) => {
+            const out = [];
+            for (let k = 0; k < count; k++) {
+              const i = Math.floor(Math.random() * N_SHAPE);
+              out.push({ at: s.delay[i] + s.dur[i] * 0.92, pan: panOf(s.tx[i]) });
+            }
+            return out.sort((a, b) => a.at - b.at);
+          };
+          /* How many leaves are in the air, and where, every STEP seconds: read from each leaf's own delay
+             and duration, the numbers the picture is drawn from. On the site, the same loop over enter()'s
+             delay[] and dur[] arrays. */
+          const STEP = 0.05;
+          const flight = (s) => {
+            const n = Math.max(2, Math.ceil(s.length / STEP) + 1);
+            const curve = new Float32Array(n);
+            const panCurve = new Float32Array(n);
+            const count = s.gust ? N : N_SHAPE;
+            let most = 1;
+            for (let k = 0; k < n; k++) {
+              const tau = k * STEP;
+              let inAir = 0;
+              let sumX = 0;
+              for (let i = 0; i < count; i++) {
+                const p = (tau - s.delay[i]) / s.dur[i];
+                if (p <= 0 || p >= 1) continue;
+                const w = Math.sin(Math.PI * p); // fastest mid-flight
+                inAir += w;
+                sumX += w * (s.fx[i] + (s.tx[i] - s.fx[i]) * p);
+              }
+              curve[k] = inAir;
+              panCurve[k] = inAir ? panOf(sumX / inAir) : 0;
+              most = Math.max(most, inAir);
+            }
+            for (let k = 0; k < n; k++) curve[k] /= most;
+            return { curve, panCurve, step: STEP };
+          };
+          return stages.map((s, k) => ({
+            ...flight(s),
+            start: s.start,
+            formed: s.formed,
+            dur: s.length,
+            kind: s.name,
+            landKind: { leaf: 0, graph: 1, word: 2 }[s.name],
+            pan: panOf(0),
+            grains: grains(s, k === 0 ? 46 : 34),
+            gust: !!s.gust,
+          }));
+        }
+
+        // Pointer.
+        const ox = new Float32Array(N);
+        const oy = new Float32Array(N);
+        const vx = new Float32Array(N);
+        const vy = new Float32Array(N);
+        const pointer = { x: 0, y: 0, active: false, speed: 0, lastX: 0, lastY: 0, lastT: 0 };
+        canvas.addEventListener("pointermove", (e) => {
+          const r = canvas.getBoundingClientRect();
+          const H = r.height;
+          const px = (e.clientX - r.left - CX * r.width) / (S_OF_H * H);
+          const py = (H / 2 - (e.clientY - r.top)) / (S_OF_H * H);
+          const now = performance.now();
+          const dt = Math.max(1, now - pointer.lastT) / 1000;
+          const d = Math.hypot(px - pointer.lastX, py - pointer.lastY);
+          if (pointer.lastT) pointer.speed = Math.max(pointer.speed, clamp01(d / dt / 6));
+          pointer.lastX = pointer.x = px;
+          pointer.lastY = pointer.y = py;
+          pointer.lastT = now;
+          pointer.active = Math.abs(px) < 1.9 && Math.abs(py) < 1.2;
+        });
+        canvas.addEventListener("pointerleave", () => {
+          pointer.active = false;
+        });
+
+        let playing = null; // { t0, c }
+        let idleT = 0;
+        let touch = null; // { voice, live }
+        let last = performance.now();
+        let raf = 0;
+        let colours = [];
+        function readColours() {
+          const css = getComputedStyle(document.documentElement);
+          colours = [1, 2, 3, 4, 5, 6].map((k) => css.getPropertyValue(`--leaf-${k}`).trim());
+          colours.push(css.getPropertyValue("--leaf-vein").trim());
+        }
+        readColours();
+        new MutationObserver(readColours).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+        function position(i, t, out) {
+          let s = stages[0];
+          for (const st of stages) if (st.start <= t) s = st;
+          const shape = i < N_SHAPE;
+          if (!shape && !s.gust) {
+            out[0] = driftX(i, t);
+            out[1] = driftY(i, t);
+            out[2] = 0;
+            return;
+          }
+          const p = clamp01((t - s.start - s.delay[i]) / s.dur[i]);
+          const e = s.gust ? easeOutBack(p) : easeInOutCubic(p);
+          const u = 1 - e;
+          let tx = s.tx[i];
+          let ty = s.ty[i];
+          if (!shape) {
+            tx = driftX(i, t);
+            ty = driftY(i, t);
+          }
+          out[0] = u * u * s.fx[i] + 2 * u * e * s.cx[i] + e * e * tx;
+          out[1] = u * u * s.fy[i] + 2 * u * e * s.cy[i] + e * e * ty;
+          out[2] = p > 0 && p < 1 ? Math.sin(p * Math.PI) : 0; // in flight
+          if (s.gust && t - s.start < s.delay[i]) out[2] = -1; // not yet in
+        }
+
+        const tmp = [0, 0, 0];
+        function frame(now) {
+          raf = requestAnimationFrame(frame);
+          const dt = Math.min(0.05, (now - last) / 1000);
+          last = now;
+          const r = canvas.getBoundingClientRect();
+          const dpr = Math.min(2, devicePixelRatio || 1);
+          if (canvas.width !== Math.round(r.width * dpr)) {
+            canvas.width = Math.round(r.width * dpr);
+            canvas.height = Math.round(r.height * dpr);
+          }
+          const W = r.width;
+          const H = r.height;
+          const S = S_OF_H * H;
+          const cx = CX * W;
+          g.setTransform(dpr, 0, 0, dpr, 0, 0);
+          g.clearRect(0, 0, W, H);
+
+          let t;
+          if (playing) {
+            t = heardTime(playing.c) - playing.t0;
+            if (t < 0) t = -1;
+            if (t > playing.end) {
+              playing.done?.();
+              idleT = stages[stages.length - 1].formed;
+              playing = null;
+              t = idleT;
+            }
+          } else t = idleT;
+          const clock = now / 1000;
+
+          // Pointer spring (particles.ts POINTER, scaled to normalised units).
+          pointer.speed *= 0.9;
+          const live = playing || pointer.active;
+          for (let i = 0; i < N; i++) {
+            let fx = -30 * ox[i] - 7.5 * vx[i];
+            let fy = -30 * oy[i] - 7.5 * vy[i];
+            if (pointer.active) {
+              position(i, t < 0 ? 0 : t, tmp);
+              const dx = tmp[0] + ox[i] - pointer.x;
+              const dy = tmp[1] + oy[i] - pointer.y;
+              const d2 = dx * dx + dy * dy;
+              const f = Math.exp(-d2 / (2 * 0.12 * 0.12)) * 9;
+              const d = Math.sqrt(d2) || 1;
+              fx += (dx / d) * f - (dy / d) * f * 0.45;
+              fy += (dy / d) * f + (dx / d) * f * 0.45;
+            }
+            vx[i] += fx * dt;
+            vy[i] += fy * dt;
+            ox[i] += vx[i] * dt;
+            oy[i] += vy[i] * dt;
+          }
+          if (touch?.live) touch.live.set(pointer.active ? clamp01(pointer.speed * 1.4) : 0, clamp((pointer.x * S + cx) / W * 2 - 1, -1, 1));
+
+          // Draw, one path per tone.
+          for (let k = 0; k < 7; k++) {
+            g.beginPath();
+            g.fillStyle = colours[k] || "#4ade80";
+            for (let i = 0; i < N; i++) {
+              const shape = i < N_SHAPE;
+              if (t < 0) break;
+              position(i, t, tmp);
+              if (tmp[2] < 0) continue;
+              const vein = shape && leaf.kind[i] === KIND.vein && stages.findLast((s) => s.start <= t)?.name === "leaf";
+              const tk = vein && tmp[2] === 0 ? 6 : tone[i];
+              if (tk !== k) continue;
+              const x = cx + (tmp[0] + ox[i]) * S;
+              const y = H / 2 - (tmp[1] + oy[i]) * S;
+              const sz = size[i] * (shape ? 1 : 0.8);
+              const a = ang[i] + clock * spin[i] * (0.3 + tmp[2] * 2);
+              const flat = 0.35 + 0.65 * Math.abs(Math.cos(clock * 0.7 + ph[i] + tmp[2] * 4));
+              g.moveTo(x + Math.cos(a) * sz * 1.4, y + Math.sin(a) * sz * 1.4);
+              g.ellipse(x, y, sz * 1.4, sz * 0.6 * flat + 0.3, a, 0, Math.PI * 2);
+            }
+            g.globalAlpha = 0.92;
+            g.fill();
+          }
+          g.globalAlpha = 1;
+          if (playing && caption) caption.textContent = `${clamp(t, 0, 99).toFixed(1)} s · ${(stages.findLast((s) => s.start <= Math.max(0, t)) ?? stages[0]).name}${live ? "" : ""}`;
+        }
+        let caption = null;
+
+        plan(2.5);
+        idleT = stages[0].formed;
+        raf = requestAnimationFrame(frame);
+
+        /** A bus that is silent once the last leaf has landed: the wind is the leaves, so it never outlasts them. */
+        function untilLanded(c, out, at, dur) {
+          const g = c.createGain();
+          g.gain.setValueAtTime(1, at);
+          g.gain.setValueAtTime(1, at + Math.max(0, dur - 0.25));
+          g.gain.linearRampToValueAtTime(0, at + dur);
+          g.connect(out);
+          return g;
+        }
+
+        return {
+          setCaption(el) {
+            caption = el;
+          },
+          /** Plays `which` ("opening" or "loop") with `voices`; returns its stop. */
+          play(which, voices, onDone) {
+            const hold = realHolds.checked ? 5 : 2.5;
+            plan(hold);
+            const c = audio();
+            const t0 = c.currentTime + 0.15;
+            const bus = c.createGain();
+            bus.connect(master);
+            const ev = events();
+            const end = which === "opening" ? ev[1].formed + 1.2 : ev[3].formed + 1.5;
+            for (const e of ev) {
+              if (e.start > end) break;
+              if (e.gust) voices.gust?.play(c, untilLanded(c, bus, t0, e.dur), t0, e);
+              else voices.morph?.play(c, untilLanded(c, bus, t0 + e.start, e.dur), t0 + e.start, e);
+              if (e.formed <= end) voices.land?.play(c, bus, t0 + e.formed, { kind: e.landKind, pan: e.pan });
+            }
+            const stopBed = voices.bed?.start(c, bus);
+            if (voices.touch) this.useTouch(voices.touch, true);
+            playing = { c, t0, end, done: () => onDone?.() };
+            const kill = () => {
+              stopBed?.();
+              bus.gain.setTargetAtTime(0, c.currentTime, 0.05);
+              setTimeout(() => bus.disconnect(), 600);
+            };
+            playing.done = () => {
+              kill();
+              onDone?.();
+            };
+            return () => {
+              if (playing) {
+                playing = null;
+                idleT = stages[0].formed;
+              }
+              kill();
+            };
+          },
+          useTouch(voice, keep) {
+            if (touch?.voice === voice) return;
+            touch?.live?.stop();
+            touch = null;
+            if (!voice) return;
+            touch = { voice, live: voice.make(audio(), master), keep };
+          },
+          /** Stops a touch voice a playback started; one chosen with Use stays until `all`. */
+          stop(all = false) {
+            if (!touch || (touch.keep && !all)) return;
+            touch.live?.stop();
+            touch = null;
+            for (const b of document.querySelectorAll("[data-use]")) b.setAttribute("aria-pressed", "false");
+          },
+          destroy() {
+            cancelAnimationFrame(raf);
+            touch?.live?.stop();
+            touch = null;
+          },
+        };
+      }
+      let scene = null;
+
+      /* ===================================================================
+       * Controls: switch, mute and fader, in a given look.
+       * =================================================================== */
+      function makeSwitch(look, label = "Dark theme") {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "switch";
+        b.setAttribute("role", "switch");
+        b.setAttribute("aria-label", label);
+        const draw = () => {
+          const on = document.documentElement.dataset.theme !== "light";
+          b.setAttribute("aria-checked", String(on));
+          b.innerHTML = look.svg(false);
+          // Redraw on the next frame with the real state, so the knob's transition runs.
+          requestAnimationFrame(() => {
+            b.innerHTML = look.svg(on);
+            b.setAttribute("aria-checked", String(on));
+          });
+        };
+        b.addEventListener("click", () => {
+          setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+        });
+        b.refresh = () => {
+          const on = document.documentElement.dataset.theme !== "light";
+          // The knob travels on the live node (CSS keyed on aria-checked); the colours are redrawn after it lands.
+          b.setAttribute("aria-checked", String(on));
+          clearTimeout(b._redraw);
+          b._redraw = setTimeout(() => {
+            b.innerHTML = look.svg(on);
+          }, 330);
+        };
+        b.innerHTML = look.svg(document.documentElement.dataset.theme !== "light");
+        b.setAttribute("aria-checked", String(document.documentElement.dataset.theme !== "light"));
+        void draw;
+        return b;
+      }
+      const SPEAKER_ON = svgIcon('<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 6a8.5 8.5 0 0 1 0 12"/>');
+      const SPEAKER_OFF = svgIcon('<path d="M11 5 6 9H3v6h3l5 4z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>');
+      function makeSoundRow(look, notchVoice) {
+        const row = document.createElement("div");
+        row.className = "sound-row";
+        const mute = document.createElement("button");
+        mute.type = "button";
+        mute.className = "mute";
+        mute.refresh = () => {
+          mute.setAttribute("aria-pressed", String(muted));
+          mute.setAttribute("aria-label", "Mute");
+          mute.innerHTML = muted ? SPEAKER_OFF : SPEAKER_ON;
+        };
+        mute.refresh();
+        mute.addEventListener("click", () => setMuted(!muted)); // silent, by rule
+        const fader = document.createElement("div");
+        fader.className = "fader";
+        const input = document.createElement("input");
+        input.type = "range";
+        input.min = "1";
+        input.max = "11";
+        input.step = "1";
+        input.setAttribute("aria-label", "Volume");
+        fader.refresh = () => {
+          input.value = String(level);
+          input.setAttribute("aria-valuetext", muted ? `${level} of 11, muted` : `${level} of 11`);
+          if (muted) fader.setAttribute("data-muted", "");
+          else fader.removeAttribute("data-muted");
+          const old = fader.querySelector("svg");
+          const holder = document.createElement("div");
+          holder.innerHTML = (typeof look === "function" ? look() : look).svg(level, muted);
+          const fresh = holder.firstElementChild;
+          if (old) old.replaceWith(fresh);
+          else fader.prepend(fresh);
+        };
+        input.addEventListener("input", () => {
+          const next = Number(input.value);
+          if (next === level && !muted) return;
+          const c = audio();
+          setLevel(next);
+          const voice = typeof notchVoice === "function" ? notchVoice() : notchVoice;
+          voice?.play(c, master, c.currentTime + 0.005, level);
+        });
+        fader.append(input);
+        fader.refresh();
+        row.append(mute, fader);
+        return row;
+      }
+      function makePanel(opts) {
+        const panel = document.createElement("div");
+        panel.className = "panel";
+        const r1 = document.createElement("div");
+        r1.className = "row";
+        r1.innerHTML = "<span>Dark theme</span>";
+        r1.append(makeSwitch(opts.switch));
+        const hr = document.createElement("hr");
+        const r2 = document.createElement("div");
+        r2.style.display = "grid";
+        r2.style.gap = "0.5rem";
+        r2.innerHTML = '<span style="color:var(--ice-dim)">Sound</span>';
+        r2.append(makeSoundRow(opts.fader, opts.notch));
+        panel.append(r1, hr, r2);
+        return panel;
+      }
+      function makeBar(button, opts, open) {
+        const wrap = document.createElement("div");
+        wrap.className = "bar-wrap";
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        bar.innerHTML = `
+          <span class="search">Search</span>
+          <span class="chip" title="Chat with Dox (placeholder)">${svgIcon('<path d="M12 2 20 9 12 22 4 9z"/><path d="M4 9h16M12 2v20"/>')}</span>
+          <span class="chip" title="GitHub (placeholder)">${svgIcon('<circle cx="12" cy="12" r="9"/><path d="M9 19v-3a3 3 0 0 1 1-2.5c-3-.5-5-2-5-5a4 4 0 0 1 1-3c0-1 0-2 .5-2.5 1 0 2 .5 3 1.3a10 10 0 0 1 5 0c1-.8 2-1.3 3-1.3.5.5.5 1.5.5 2.5a4 4 0 0 1 1 3c0 3-2 4.5-5 5a3 3 0 0 1 1 2.5v3"/>')}</span>
+          <span class="chip" title="Discord (placeholder)">${svgIcon('<rect x="3" y="5" width="18" height="14" rx="5"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/>')}</span>
+          <button type="button" class="chip settings" aria-label="Settings" aria-expanded="${open}">${button.icon}</button>`;
+        const panel = makePanel(opts);
+        panel.hidden = !open;
+        const btn = bar.querySelector(".settings");
+        btn.addEventListener("click", () => {
+          panel.hidden = !panel.hidden;
+          btn.setAttribute("aria-expanded", String(!panel.hidden));
+          if (!panel.hidden) panel.querySelector(".switch")?.focus();
+        });
+        panel.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") {
+            panel.hidden = true;
+            btn.setAttribute("aria-expanded", "false");
+            btn.focus();
+          }
+        });
+        wrap.append(bar);
+        bar.append(panel);
+        return wrap;
+      }
+
+      function setTheme(next) {
+        document.documentElement.dataset.theme = next;
+        themeButton.textContent = next === "light" ? "Dark page" : "Light page";
+        for (const s of document.querySelectorAll(".switch")) {
+          const look = s._look;
+          s.refresh?.();
+        }
+        // Rebuild the switches so their knobs travel: re-render their SVG after a frame.
+        for (const s of document.querySelectorAll(".switch")) {
+          const on = next !== "light";
+          s.setAttribute("aria-checked", String(on));
+        }
+      }
+
+      /* ===================================================================
+       * Rendering a step.
+       * =================================================================== */
+      const stepEl = document.getElementById("step");
+      const progress = document.getElementById("progress");
+      const back = document.getElementById("back");
+      const nextButton = document.getElementById("next");
+      const volume = document.getElementById("volume");
+      const volumeOut = document.getElementById("volume-out");
+      const realHolds = document.getElementById("real-holds");
+      const themeButton = document.getElementById("theme");
+
+      const el = (tag, attrs = {}, text) => {
+        const e = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+        if (text != null) e.textContent = text;
+        return e;
+      };
+
+      function pickRadio(step, id, label) {
+        const l = el("label", { class: "pick" });
+        const r = el("input", { type: "radio", name: "pick", value: id });
+        r.checked = picks[step.id] === id;
+        r.addEventListener("change", () => {
+          picks[step.id] = id;
+          save();
+          render();
+        });
+        l.append(r, document.createTextNode(label));
+        return l;
+      }
+
+      function voicesFor(layer, variant) {
+        const v = {
+          gust: picked("gust"),
+          land: picked("land"),
+          morph: picked("morph"),
+          touch: picked("touch"),
+          bed: picked("bed"),
+        };
+        if (layer) v[layer] = variant;
+        return v;
+      }
+
+      function render() {
+        stopAll();
+        scene?.destroy();
+        scene = null;
+        stepEl.replaceChildren();
+        const total = STEPS.length;
+        progress.textContent = index < total ? `Step ${index + 1} of ${total}` : "Your picks";
+        back.disabled = index === 0;
+        nextButton.disabled = index >= total;
+        nextButton.textContent = index === total - 1 ? "Your picks" : "Next";
+        history.replaceState(null, "", index < total ? `#${STEPS[index].id}` : "#picks");
+        if (index >= total) return renderPicks();
+
+        const step = STEPS[index];
+        stepEl.append(el("h2", {}, step.title), el("p", { class: "where" }, step.where));
+
+        if (step.kind === "scene") {
+          const canvas = el("canvas", { class: "scene", "aria-label": "The landing's leaves" });
+          const caption = el("p", { class: "caption" }, "The leaf, at rest. Press a Play button.");
+          stepEl.append(canvas, caption);
+          scene = makeScene(canvas);
+          scene.setCaption(caption);
+          if (step.layer !== "touch" && picked("touch")) {
+            /* Your touch pick answers the pointer on every scene step once audio has started. */
+            canvas.addEventListener("pointerenter", () => ctx && scene?.useTouch(picked("touch"), true), { once: true });
+          }
+        }
+        if (step.kind === "dox") return renderDox(step);
+
+        const grid = el("div", { class: step.kind === "button" ? "variants wide" : step.kind === "fader" || step.kind === "notch" ? "variants mid" : "variants" });
+        for (const v of step.variants) {
+          const card = el("article", { class: "variant" });
+          const h = el("h3");
+          h.append(el("span", { class: "letter" }, v.id), document.createTextNode(v.name));
+          card.append(h, el("p", {}, v.desc));
+          const actions = el("div", { class: "actions" });
+          const plays = el("div", { class: "plays" });
+
+          if (step.kind === "button") {
+            card.append(
+              makeBar(v, { switch: picked("switch", SWITCHES[0]), fader: () => picked("fader", FADERS[0]), notch: () => picked("notch", NOTCHES[0]) }, false),
+            );
+            card.style.gridTemplateRows = "auto auto auto 1fr";
+          } else if (step.kind === "switch") {
+            const demo = el("div", { class: "demo" });
+            const row = el("div", { class: "row" });
+            row.style.inlineSize = "100%";
+            row.append(el("span", {}, "Dark theme"), makeSwitch(v));
+            demo.append(row);
+            card.append(demo);
+          } else if (step.kind === "fader") {
+            const demo = el("div", { class: "demo" });
+            demo.append(makeSoundRow(v, () => picked("notch", NOTCHES[0])));
+            demo.firstChild.style.inlineSize = "100%";
+            card.append(demo);
+          } else if (step.kind === "notch") {
+            const demo = el("div", { class: "demo" });
+            demo.append(makeSoundRow(() => picked("fader", FADERS[0]), v));
+            demo.firstChild.style.inlineSize = "100%";
+            card.append(demo);
+            const sweep = el("button", { type: "button", "data-play": "" }, "Sweep");
+            sweep.addEventListener("click", () => {
+              const c = audio();
+              if (muted) setMuted(false);
+              const was = level;
+              const seq = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+              const t0 = c.currentTime + 0.05;
+              seq.forEach((lv, k) => {
+                const g = c.createGain();
+                g.gain.value = (lv / 11) * MAX_GAIN / Math.max(0.0001, levelGain());
+                g.connect(master);
+                v.play(c, g, t0 + k * 0.11, lv);
+              });
+              void was;
+            });
+            plays.append(sweep);
+          } else if (step.kind === "scene") {
+            if (step.interactive) {
+              const use = el("button", { type: "button", "data-play": "", "aria-pressed": "false" }, "Use");
+              use.addEventListener("click", () => {
+                for (const b of grid.querySelectorAll("[data-use]")) b.setAttribute("aria-pressed", "false");
+                use.setAttribute("aria-pressed", "true");
+                scene.useTouch(v, true);
+              });
+              use.dataset.use = "";
+              plays.append(use);
+            }
+            for (const which of step.plays) {
+              const b = el("button", { type: "button", "data-play": "", "aria-pressed": "false" }, which === "opening" ? "Play opening" : "Play loop");
+              b.addEventListener("click", () => {
+                const was = b.getAttribute("aria-pressed") === "true";
+                stopAll();
+                if (was) return;
+                b.setAttribute("aria-pressed", "true");
+                stopCurrent = scene.play(which, voicesFor(step.layer, v), () => {
+                  b.setAttribute("aria-pressed", "false");
+                  stopCurrent = null;
+                });
+              });
+              plays.append(b);
+            }
+          }
+          actions.append(plays, pickRadio(step, v.id, "Pick"));
+          card.append(actions);
+          grid.append(card);
+        }
+        stepEl.append(grid);
+        if (step.kind === "scene" || step.kind === "notch") {
+          const none = el("div", { class: "none" });
+          none.append(pickRadio(step, "none", step.kind === "notch" ? "None: the fader is silent" : "None: silence here"));
+          if (step.kind === "scene" && step.layer !== "gust" && step.layer !== "touch") {
+            const b = el("button", { type: "button", "data-play": "", "aria-pressed": "false" }, "Play loop without this layer");
+            b.style.marginInlineStart = "1rem";
+            b.addEventListener("click", () => {
+              const was = b.getAttribute("aria-pressed") === "true";
+              stopAll();
+              if (was) return;
+              b.setAttribute("aria-pressed", "true");
+              stopCurrent = scene.play("loop", voicesFor(step.layer, null), () => b.setAttribute("aria-pressed", "false"));
+            });
+            none.append(b);
+          }
+          stepEl.append(none);
+        }
+      }
+
+      function renderDox(step) {
+        const list = el("div", { class: "dox-list" });
+        for (const d of DOX) {
+          const row = el("div", { class: "dox-row" });
+          const text = el("div");
+          text.append(el("strong", {}, d.name), el("p", {}, d.desc));
+          const play = el("button", { type: "button", "data-play": "", "aria-pressed": "false" }, "Play");
+          play.addEventListener("click", () => {
+            stopAll();
+            const c = audio();
+            const t = c.currentTime + 0.05;
+            if (d.loop) {
+              const stop = d.loop(c, master);
+              play.setAttribute("aria-pressed", "true");
+              const timer = setTimeout(() => {
+                stop();
+                play.setAttribute("aria-pressed", "false");
+              }, 5000);
+              stopCurrent = () => {
+                clearTimeout(timer);
+                stop();
+              };
+            } else (d.demo ?? d.play)(c, master, t);
+          });
+          const on = el("label", { class: "pick" });
+          const box = el("input", { type: "checkbox" });
+          box.checked = doxOn[d.id];
+          box.addEventListener("change", () => {
+            doxOn[d.id] = box.checked;
+            save();
+          });
+          on.append(box, document.createTextNode("Carry over"));
+          row.append(text, play, on);
+          list.append(row);
+        }
+        const chat = el("button", { type: "button", "data-play": "", "aria-pressed": "false" }, "Chat: type, send, think, answer, done");
+        chat.style.marginBlockEnd = "1rem";
+        chat.addEventListener("click", () => {
+          stopAll();
+          const c = audio();
+          const by = Object.fromEntries(DOX.map((d) => [d.id, doxOn[d.id] ? d : null]));
+          let t = c.currentTime + 0.05;
+          for (let i = 0; i < 14; i++) {
+            by.key?.play(c, master, t);
+            t += rand(0.08, 0.17);
+          }
+          t += 0.25;
+          by.send?.play(c, master, t);
+          const thinkAt = t + 0.1;
+          const answerAt = thinkAt + 3.4;
+          let stopThink = null;
+          const timers = [];
+          if (by.thinking)
+            timers.push(
+              setTimeout(() => {
+                stopThink = by.thinking.loop(c, master);
+              }, (thinkAt - c.currentTime) * 1000),
+              setTimeout(() => stopThink?.(), (answerAt - c.currentTime) * 1000),
+            );
+          let at = answerAt;
+          for (let i = 0; i < 16; i++) {
+            by.stream?.play(c, master, at);
+            at += rand(0.07, 0.2);
+          }
+          by.done?.play(c, master, at + 0.15);
+          chat.setAttribute("aria-pressed", "true");
+          timers.push(setTimeout(() => chat.setAttribute("aria-pressed", "false"), (at + 1.5 - c.currentTime) * 1000));
+          stopCurrent = () => {
+            timers.forEach(clearTimeout);
+            stopThink?.();
+          };
+        });
+        stepEl.append(chat, list);
+      }
+
+      function renderPicks() {
+        stepEl.append(el("h2", {}, "Your picks"));
+        const name = (step) => {
+          const p = picks[step.id];
+          if (!p) return "(not picked)";
+          if (p === "none") return "none";
+          const v = step.variants.find((x) => x.id === p);
+          return `${p} · ${v?.name ?? "?"}`;
+        };
+        const lines = ["worktree #352 sound audition picks"];
+        for (const s of STEPS) if (s.kind !== "dox") lines.push(`${s.id}: ${name(s)}`);
+        lines.push(`dox carried over: ${DOX.filter((d) => doxOn[d.id]).map((d) => d.id).join(", ") || "none"}`);
+        lines.push(`dox left out: ${DOX.filter((d) => !doxOn[d.id]).map((d) => d.id).join(", ") || "none"}`);
+        const pre = el("pre", { class: "picks" }, lines.join("\n"));
+        const copy = el("button", { type: "button" }, "Copy picks");
+        copy.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(lines.join("\n"));
+            copy.textContent = "Copied";
+          } catch {
+            copy.textContent = "Select the block and copy it";
+          }
+        });
+        const preview = el("p", { class: "where" }, "The panel with your picks (open it, try the switch and the fader):");
+        const bar = makeBar(BUTTONS[0], { switch: picked("switch", SWITCHES[0]), fader: () => picked("fader", FADERS[0]), notch: () => picked("notch", NOTCHES[0]) }, true);
+        const canvas = el("canvas", { class: "scene", "aria-label": "The landing's leaves" });
+        const caption = el("p", { class: "caption" });
+        const all = el("button", { type: "button", "data-play": "", "aria-pressed": "false" }, "Play the landing with every pick");
+        stepEl.append(pre, copy, el("p", {}, ""), preview, bar, canvas, caption, all);
+        scene = makeScene(canvas);
+        scene.setCaption(caption);
+        all.addEventListener("click", () => {
+          const was = all.getAttribute("aria-pressed") === "true";
+          stopAll();
+          if (was) return;
+          all.setAttribute("aria-pressed", "true");
+          stopCurrent = scene.play("loop", voicesFor(null, null), () => all.setAttribute("aria-pressed", "false"));
+        });
+        const reset = el("button", { type: "button" }, "Clear all picks");
+        reset.style.marginInlineStart = "0.5rem";
+        reset.addEventListener("click", () => {
+          picks = {};
+          save();
+          render();
+        });
+        stepEl.append(reset);
+      }
+
+      back.addEventListener("click", () => {
+        index = Math.max(0, index - 1);
+        save();
+        render();
+      });
+      nextButton.addEventListener("click", () => {
+        index = Math.min(STEPS.length, index + 1);
+        save();
+        render();
+      });
+      document.getElementById("stop-all").addEventListener("click", () => {
+        stopAll();
+        scene?.stop(true);
+      });
+      volume.addEventListener("input", () => {
+        const c = audio();
+        setLevel(Number(volume.value));
+        picked("notch", NOTCHES[0])?.play(c, master, c.currentTime + 0.005, level);
+      });
+      themeButton.addEventListener("click", () => setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light"));
+
+      volume.value = String(level);
+      volumeOut.value = String(level);
+      render();
+    </script>
+  </body>
+</html>

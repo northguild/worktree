@@ -38,6 +38,9 @@
  * together, at most 32 KB gzipped; and on the landing the still SVG and the canvas are `aria-hidden`, while no other page
  * carries the hero's markup.
  *
+ * Also (#352 phase 4, D7, the sound engine): no page, the 404 included, loads the engine up front (a script, a
+ * modulepreload, or a static import); `cue.ts`'s dynamic `import()` is the only way to it.
+ *
  * Also (plan §9 Q3, the share preview and the favicon): every page has an `og:image` that is an absolute URL under the
  * site and names a file in the build, a `twitter:image` that is the same URL, and alt text for both; and every page and
  * the 404 link an icon (`rel="icon"`), with every icon link (`icon`, `shortcut icon`, `apple-touch-icon`) naming a file
@@ -46,12 +49,24 @@
  * the file is. Every page's and the 404's `<title>` is its `og:title` and `og:site_name` joined by GMT's ` · ` (the user,
  * 2026-11-04, replacing Starlight's default ` | `), or its `og:title` alone where that already names the site.
  *
- * Also (#266, the two-state theme toggle): every page and the 404 has `starlight-theme-select` (Header.astro renders it in the
- * header and Starlight in the mobile menu), each holding exactly one named `<button>` and no `<select>`, and the theme provider's script (the override, not Starlight's) is inline in `<head>`,
- * so the theme is set before first paint and the button's icon is kept current.
+ * Also (#352, the settings gear replaces the theme toggle): no page has a `starlight-theme-select`, the theme provider's
+ * script (the override, not Starlight's) is inline in `<head>` so the theme is set before first paint, and each page's
+ * `<header>` holds exactly one `<button>` named "Settings" with a `popovertarget` that names a `[popover]` on the page; the
+ * page holds no second one (the mobile menu has no copy).
  *
- * Also (#266 phase 2, D5): in every page's and the 404's `<header>` the theme toggle (the header's own) comes before the
- * GitHub link, which comes before the Discord link.
+ * Also (#352 phase 5, D9): the settings panel's volume row is named for assistive technology: one native range named
+ * "Volume", 1 to 11, and one toggle button named "Mute" (`aria-pressed`), on every page and the 404.
+ *
+ * Also (#352 phase 7, D14): the aura's two controls, a switch named "Aura" and a radio group named "Aura track" holding
+ * the tracks "forest" and "overhead", are in the built HTML of every page and the 404 (the same markup everywhere), and a
+ * stylesheet hides them under `html:not([data-aura])`; the one inline script that sets `data-aura` is on the landing and on no
+ * other page, so the controls show on the landing alone.
+ *
+ * Also (#352, D1): in every page's and the 404's `<header>` the right group reads Dox, GitHub, Discord, then the gear, and
+ * (phase 12) the gear is in no element hidden below `md` (`sl-hidden`, `hidden`, `display: none`): it shows at every width.
+ * (Phase 13) In the built CSS, the rule that hides the right group's other chips below 50rem exists and excludes
+ * `:not([data-settings-control])`, and no rule hides the gear; and every page's inline script after the controls sets Mute's
+ * `aria-pressed` from `data-sound` and the Dark theme switch's `checked` from `data-theme`.
  *
  * Also (#266 phase 3, D6-D9, the landing header's entrance): the entrance marker (`data-landing-entrance`) is on the
  * landing's header and no other page's, and that header holds the internal-arrival script inline (no `src`); in the built
@@ -60,7 +75,10 @@
  * gives a header item `opacity: 0`, so nothing waits hidden on a script. Every rule that animates an entrance keyframe is
  * scoped to `[data-landing-entrance]` and gated by `:not([data-entrance-off])`, with no `forwards` or `both` fill; the
  * keyframes animate only opacity, transform and color; and the fade never targets `.wordmark`, `.title-wrapper` or
- * `header-chip`, and on search only `site-search > button[data-open-modal]`.
+ * `header-chip`, and on search only `site-search > button[data-open-modal]`. (#352, D16) The Dox link has a fade and a
+ * colour pass, the settings gear a colour pass and no fade, GitHub and Discord a colour pass, the colour pass starts
+ * after the Dox fade has ended, every chip starts from northguild.dev's grey (`--gmt-ice-dim`), and the passes' delays
+ * rise in the order Dox < GitHub < Discord < gear.
  *
  * Also (plan 287, D5): every file under `_astro/` has a hash of five or more characters in its name, because
  * `docs/deploy/_headers` serves that folder `immutable` for a year.
@@ -72,8 +90,7 @@
  * 404 loads Dox code: the island's chunk, or the stylesheet that carries the hive.
  *
  * Also (#309 phase 4, D2, the links to /dox/): the chat is a page, and its entry points are plain links. On every page and
- * the 404 the `<header>` has one link to /worktree/dox/ named "Chat with Dox", before the theme toggle (so first in the
- * right group); it carries `aria-current="page"` on /dox/ and nowhere else; every page with a sidebar (the 28 but the
+ * the 404 the `<header>` has one link to /worktree/dox/ named "Chat with Dox", first in the right group; it carries `aria-current="page"` on /dox/ and nowhere else; every page with a sidebar (the 28 but the
  * landing) has a mobile menu (`mobile-preferences`), and the menu has the same link before the social icons; and the landing
  * has one "Ask Dox" link to /worktree/dox/ and no "Ask Dox" button. The launcher, the bubble and the shortcut are gone,
  * so their rules are too; "Dox code on /dox/ alone" (`auditDox`) is what keeps the chat from loading elsewhere.
@@ -372,6 +389,14 @@ const ORG_AVATAR = /^https:\/\/github\.com\/northguild\.png(\?|$)/;
 // #309 D2: the chat is a page, reached by plain links named alike in the header and the mobile menu.
 const DOX_HREF = "/worktree/dox/";
 const DOX_LINK_NAME = "Chat with Dox";
+// #352 D1: the settings gear, a native button that opens a native popover.
+const SETTINGS_NAME = "Settings";
+// #352 phase 5 (D9): the volume row's two controls.
+const VOLUME_NAME = "Volume";
+const MUTE_NAME = "Mute";
+// #352 phase 7 (D14): the aura's switch and its track pair.
+const AURA_NAME = "Aura";
+const AURA_TRACK_NAME = "Aura track";
 
 /** The page's `<header>` element, from its opening tag to its closing tag; "" when it has none. */
 function headerOf(html) {
@@ -382,6 +407,48 @@ function headerOf(html) {
 
 /** What the sighted see of a link: its text without icons or screen-reader-only text. */
 const linkVisibleText = (inner) => visibleLabel(inner);
+
+const VOID_TAGS = new Set([
+  "br",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "path",
+  "rect",
+  "circle",
+  "source",
+  "wbr",
+]);
+
+/**
+ * Whether an element enclosing the character at `at` of `fragment` is hidden: the class token `sl-hidden`, a `hidden`
+ * attribute, or an inline `display: none`. A stack of the open tags before `at`, which is enough for the built header.
+ */
+function hiddenAncestor(fragment, at) {
+  const stack = [];
+  for (const m of fragment
+    .slice(0, at)
+    .matchAll(/<(\/?)([a-zA-Z][\w-]*)\b([^>]*)>/g)) {
+    const [whole, closing, tag, rawAttrs] = m;
+    const name = tag.toLowerCase();
+    if (closing) {
+      const k = stack.findLastIndex((e) => e.name === name);
+      if (k !== -1) stack.length = k;
+    } else if (!VOID_TAGS.has(name) && !whole.endsWith("/>")) {
+      stack.push({ name, attrs: attributes(rawAttrs) });
+    }
+  }
+  return stack.some(({ attrs }) => {
+    const classes = (attrs.class ?? "").split(/\s+/);
+    return (
+      classes.includes("sl-hidden") ||
+      Object.hasOwn(attrs, "hidden") ||
+      /display\s*:\s*none/.test(attrs.style ?? "")
+    );
+  });
+}
 
 /**
  * The header's links (WCAG 4.1.2 name, 2.5.3 label in name): the two NorthGuild links exist, resolve where D17 says and
@@ -447,18 +514,55 @@ function auditHeader(html, where, { onDox = false } = {}) {
       fail(`the ${names} link has no rel="noopener"`);
   }
 
-  // #266 phase 2, D5: the reading and keyboard order is the theme toggle, then GitHub, then Discord. The toggle must be
-  // the header's own (the mobile menu's is outside `<header>`), which the page-wide theme rule does not require.
-  const toggleAt = header.search(
-    /<starlight-theme-select\b[^>]*>[\s\S]*?<button\b[^>]*\btheme-toggle\b/,
-  );
+  // #352, D1: the reading and keyboard order is Dox, GitHub, Discord, then the settings gear, last in the right group.
+  // The gear is the header's one `<button>` named "Settings"; it opens a native popover, so it needs a `popovertarget`,
+  // and that must name a `[popover]` that is on the page.
   const githubAt = links.find(
     (l) => l.attrs.href === COMMUNITY_LINKS[0].href,
   )?.at;
   const discordAt = links.find(
     (l) => l.attrs.href === COMMUNITY_LINKS[1].href,
   )?.at;
-  // #309 phase 4, D2: Dox first in the right group, so ahead of the theme toggle (and so of GitHub and Discord).
+  const gears = [...header.matchAll(/<button\b([^>]*)>/g)]
+    .map((m) => ({ at: m.index, attrs: attributes(m[1]) }))
+    .filter((b) => (b.attrs["aria-label"] ?? "").trim() === SETTINGS_NAME);
+  if (/<starlight-theme-select\b/.test(header))
+    fail(
+      "the header holds a starlight-theme-select, expected the settings gear",
+    );
+  if (gears.length !== 1)
+    fail(
+      `${gears.length} buttons named "${SETTINGS_NAME}", expected exactly 1 (the gear)`,
+    );
+  else {
+    const [gear] = gears;
+    const target = gear.attrs.popovertarget;
+    if (!target) fail(`the "${SETTINGS_NAME}" button has no popovertarget`);
+    else if (
+      !["div", "section", "aside", "dialog"].some((tag) =>
+        tagsOf(html, tag).some(
+          (t) => t.id === target && Object.hasOwn(t, "popover"),
+        ),
+      )
+    )
+      fail(
+        `the "${SETTINGS_NAME}" button's popovertarget "${target}" names no [popover] on the page`,
+      );
+    if (
+      (githubAt !== undefined && gear.at < githubAt) ||
+      (discordAt !== undefined && gear.at < discordAt)
+    )
+      fail(
+        `the "${SETTINGS_NAME}" gear comes before GitHub or Discord, expected it last in the right group`,
+      );
+  }
+  // #352 phase 12: the gear is the only control that shows below md, so none of its ancestors may be the element Starlight
+  // hides there (`sl-hidden`, brought back by `md:sl-flex`), nor hidden by `hidden` or an inline `display: none`.
+  if (gears.length === 1 && hiddenAncestor(header, gears[0].at))
+    fail(
+      `the "${SETTINGS_NAME}" gear is inside an element hidden below md, expected it in the bar at every width`,
+    );
+  // #309 phase 4, D2: Dox first in the right group, so ahead of GitHub, Discord and the gear.
   const doxLinks = links.filter((l) => l.attrs.href === DOX_HREF);
   if (doxLinks.length !== 1)
     fail(`${doxLinks.length} links to ${DOX_HREF}, expected exactly 1`);
@@ -470,11 +574,11 @@ function auditHeader(html, where, { onDox = false } = {}) {
         `the link to ${DOX_HREF} is named "${name}", expected "${DOX_LINK_NAME}"`,
       );
     if (
-      (toggleAt !== -1 && dox.at > toggleAt) ||
-      (githubAt !== undefined && dox.at > githubAt)
+      (githubAt !== undefined && dox.at > githubAt) ||
+      (gears.length === 1 && dox.at > gears[0].at)
     )
       fail(
-        "the Dox link comes after the theme toggle or GitHub, expected it first in the right group",
+        "the Dox link comes after GitHub or the gear, expected it first in the right group",
       );
     const current = dox.attrs["aria-current"];
     if (onDox && current !== "page")
@@ -482,9 +586,6 @@ function auditHeader(html, where, { onDox = false } = {}) {
     if (!onDox && current !== undefined)
       fail(`the Dox link carries aria-current="${current}" off /dox/`);
   }
-  if (toggleAt === -1) fail("no theme toggle in the header");
-  else if (githubAt !== undefined && toggleAt > githubAt)
-    fail("the theme toggle comes after the GitHub link, expected it before");
   if (githubAt !== undefined && discordAt !== undefined && githubAt > discordAt)
     fail("the GitHub link comes after the Discord link, expected it before");
   return failures;
@@ -492,7 +593,7 @@ function auditHeader(html, where, { onDox = false } = {}) {
 
 /**
  * The mobile menu (Starlight's `mobile-preferences`, on the pages with a sidebar) repeats the Dox link before the social
- * icons, because the header's right group is hidden below the `md` breakpoint (gmt's MobileMenuFooter.astro). Every one of
+ * icons, because below 50rem the header shows only the gear and Dox, GitHub and Discord are left to the menu (gmt's MobileMenuFooter.astro). Every one of
  * the 28 pages but the landing has a sidebar, so the caller says where a menu must be (`required`) and a page there with
  * none fails: a probe that stopped matching the build would otherwise skip the rule on every page and pass. The class is
  * matched as a token, not as the start of the attribute. The landing, the 404 and /dox/ have no menu to check.
@@ -853,35 +954,29 @@ function visibleLabel(inner) {
 }
 
 /**
- * The theme control (#266, D1/D3): at least one `starlight-theme-select` (Header.astro renders it in the header and Starlight in the
- * mobile menu), each holding exactly one `<button>` and no `<select>`
- * (the button's name is checked with every other button by `auditControls`), and the theme provider's script inline in
- * `<head>`, so `data-theme` is set before first paint. The provider is recognised by the two things Starlight's own does
- * not have: it defines `StarlightThemeProvider`, draws into `button.theme-toggle` and reads the `'starlight-theme'` key (D2), so a build that lost the
- * override (and so has a button nothing updates) fails here.
+ * The theme control (#352, D1/D4): no `starlight-theme-select` anywhere (the toggle and its Starlight override are gone, and
+ * the mobile menu has no copy of the gear), the settings gear (the header's, checked by `auditHeader`) is the only button
+ * named "Settings" on the page, and the theme provider's script is inline in `<head>`, so `data-theme` is set before first
+ * paint. The provider is recognised by what Starlight's own does not have: it defines `StarlightThemeProvider` (with an
+ * `updatePickers` that Starlight's page may call, now a no-op), reads the `'starlight-theme'` key (D2), and does not look for
+ * a `starlight-theme-select`, so a build that lost the override fails here.
  */
 function auditThemeControl(html, where) {
   const failures = [];
   const fail = (rule) => failures.push(`${where}: ${rule}`);
-  const selects = [
-    ...html.matchAll(
-      /<starlight-theme-select\b[^>]*>([\s\S]*?)<\/starlight-theme-select>/g,
-    ),
-  ];
-  // Starlight renders the select twice, in the header and in the mobile menu, so "one" means one button per select.
-  if (selects.length === 0)
+  const selects = html.match(/<starlight-theme-select\b/g) ?? [];
+  if (selects.length > 0)
     fail(
-      "0 starlight-theme-select elements, expected the header's and the mobile menu's",
+      `${selects.length} starlight-theme-select elements, expected none (the theme control is the settings gear's switch)`,
     );
-  for (const [, inner] of selects) {
-    const buttons = inner.match(/<button\b/g) ?? [];
-    if (buttons.length !== 1)
-      fail(
-        `the theme select holds ${buttons.length} <button> elements, expected exactly 1`,
-      );
-    if (/<select\b/.test(inner))
-      fail("the theme select holds a <select>, expected the two-state button");
-  }
+  const settingsButtons = [...html.matchAll(/<button\b([^>]*)>/g)].filter(
+    ([, rawAttrs]) =>
+      (attributes(rawAttrs)["aria-label"] ?? "").trim() === SETTINGS_NAME,
+  );
+  if (settingsButtons.length > 1)
+    fail(
+      `${settingsButtons.length} buttons named "${SETTINGS_NAME}" on the page, expected only the header's`,
+    );
   const head = html.slice(0, Math.max(html.indexOf("</head>"), 0));
   const inlineProvider = [
     ...head.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g),
@@ -889,14 +984,211 @@ function auditThemeControl(html, where) {
     ([, rawAttrs, source]) =>
       attributes(rawAttrs).src === undefined &&
       source.includes("StarlightThemeProvider") &&
-      source.includes("button.theme-toggle") &&
-      source.includes("'starlight-theme'"),
+      source.includes("updatePickers") &&
+      source.includes("'starlight-theme'") &&
+      !source.includes("starlight-theme-select"),
   );
   if (!inlineProvider)
     fail(
       "the theme provider script is not inline in <head> (expected the override, ThemeProvider.astro)",
     );
+  // #352 phase 13: the panel's starting states (Mute's `aria-pressed`, the Dark theme switch's `checked`) are made true from
+  // `data-sound` and `data-theme` by an inline script after the controls (SettingsControl.astro), before the module runs.
+  const controlsAt = Math.max(
+    html.indexOf('id="settings-sound-mute"'),
+    html.indexOf('id="settings-theme-dark"'),
+  );
+  const starters = [
+    ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g),
+  ].filter(
+    ([, rawAttrs, source]) =>
+      attributes(rawAttrs).src === undefined &&
+      ["settings-sound-mute", "aria-pressed", "dataset.sound"].every((t) =>
+        source.includes(t),
+      ) &&
+      ["settings-theme-dark", "checked", "dataset.theme"].every((t) =>
+        source.includes(t),
+      ),
+  );
+  if (starters.length === 0)
+    fail(
+      "no inline script sets the settings panel's starting states (Mute's aria-pressed from data-sound, the Dark theme switch's checked from data-theme)",
+    );
+  else if (controlsAt === -1 || starters.every((m) => m.index < controlsAt))
+    fail(
+      "the settings panel's starting-state script comes before the controls it sets, expected it after them",
+    );
   return failures;
+}
+
+/**
+ * The volume row in the settings panel (#352 phase 5, D9): exactly one native `<input type="range">` named "Volume" (its
+ * `aria-label`), running 1 to 11, and exactly one `<button>` named "Mute", a toggle (`aria-pressed`). Both are named only
+ * for assistive technology: the mute button is an icon and the stem is drawn behind the range, so a build that lost either
+ * name would still look right.
+ */
+function auditSoundControl(html, where) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: ${rule}`);
+  const ranges = [...html.matchAll(/<input\b([^>]*)>/g)]
+    .map(([, rawAttrs]) => attributes(rawAttrs))
+    .filter((attrs) => attrs.type === "range");
+  const volumes = ranges.filter(
+    (attrs) => (attrs["aria-label"] ?? "").trim() === VOLUME_NAME,
+  );
+  if (volumes.length !== 1)
+    fail(
+      `${volumes.length} range inputs named "${VOLUME_NAME}", expected exactly 1 (the volume fader)`,
+    );
+  else if (volumes[0].min !== "1" || volumes[0].max !== "11")
+    fail(
+      `the "${VOLUME_NAME}" range runs ${volumes[0].min} to ${volumes[0].max}, expected 1 to 11`,
+    );
+  const mutes = [...html.matchAll(/<button\b([^>]*)>/g)]
+    .map(([, rawAttrs]) => attributes(rawAttrs))
+    .filter((attrs) => (attrs["aria-label"] ?? "").trim() === MUTE_NAME);
+  if (mutes.length !== 1)
+    fail(
+      `${mutes.length} buttons named "${MUTE_NAME}", expected exactly 1 (the mute button)`,
+    );
+  else if (!("aria-pressed" in mutes[0]))
+    fail(
+      `button "${MUTE_NAME}" has no aria-pressed, expected a toggle that says whether sound is muted`,
+    );
+  return failures;
+}
+
+/**
+ * The aura's controls (#352 phase 7, D14). The markup is the same on every page; what differs is `data-aura`, which an
+ * inline script sets on the landing alone (HeroLeaves.astro) and which a stylesheet's `html:not([data-aura])` rule needs
+ * before it shows them (`auraCssFindings`). So: exactly one switch named "Aura" (the text of the `<label>` around the
+ * `settings-aura` checkbox), exactly one radio group named "Aura track" holding a "forest" and an "overhead" radio, and an
+ * inline script that mentions `data-aura` on the landing and on no other page.
+ */
+function auditAura(html, where, landing) {
+  const failures = [];
+  const fail = (rule) => failures.push(`${where}: ${rule}`);
+  const switches = [
+    ...html.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/g),
+  ].filter(([, inner]) => {
+    const input = inner.match(/<input\b([^>]*)>/)?.[1];
+    if (input === undefined) return false;
+    const attrs = attributes(input);
+    return (
+      attrs.type === "checkbox" &&
+      attrs.role === "switch" &&
+      attrs.id === "settings-aura" &&
+      inner.replace(/<[^>]*>/g, "").trim() === AURA_NAME
+    );
+  });
+  if (switches.length !== 1)
+    fail(
+      `${switches.length} switches named "${AURA_NAME}", expected exactly 1 (the aura switch)`,
+    );
+  const groups = [
+    ...html.matchAll(/<div\b([^>]*)>((?:(?!<div\b)[\s\S])*?)<\/div>/g),
+  ].filter(
+    ([, rawAttrs]) =>
+      attributes(rawAttrs).role === "radiogroup" &&
+      (attributes(rawAttrs)["aria-label"] ?? "").trim() === AURA_TRACK_NAME,
+  );
+  if (groups.length !== 1)
+    fail(
+      `${groups.length} radio groups named "${AURA_TRACK_NAME}", expected exactly 1 (the aura track pair)`,
+    );
+  else {
+    const values = [...groups[0][2].matchAll(/<input\b([^>]*)>/g)]
+      .map(([, rawAttrs]) => attributes(rawAttrs))
+      .filter((attrs) => attrs.type === "radio")
+      .map((attrs) => attrs.value)
+      .sort();
+    if (values.join() !== "forest,overhead")
+      fail(
+        `the "${AURA_TRACK_NAME}" radios are [${values}], expected forest and overhead`,
+      );
+  }
+  const marks = [
+    ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g),
+  ].filter(
+    ([, rawAttrs, body]) =>
+      !("src" in attributes(rawAttrs)) && body.includes("data-aura"),
+  );
+  if (landing && marks.length === 0)
+    fail(
+      "the landing has no inline script that sets data-aura, expected one (the aura is the landing's alone)",
+    );
+  if (!landing && marks.length > 0)
+    fail(
+      "sets data-aura, which only the landing may (the aura is the landing's alone)",
+    );
+  return failures;
+}
+
+/** A stylesheet that hides the aura's controls where `<html>` has no `data-aura`. Returns failures. */
+async function auraCssFindings(dist) {
+  for (const file of await filesUnder(dist)) {
+    if (!file.endsWith(".css")) continue;
+    if (
+      /html:not\(\[data-aura\]\)[^{}]*\.settings-aura[^{}]*\{[^}]*display:\s*none/.test(
+        await readFile(file, "utf8"),
+      )
+    )
+      return [];
+  }
+  return [
+    "aura: no stylesheet hides the aura controls under html:not([data-aura]) (settings-control.css, plan #352 phase 7)",
+  ];
+}
+
+/**
+ * The rule that hides the right group's other chips below 50rem (Header.astro, unlayered), in the built CSS (#352 phase 13).
+ * Every rule that hides a `.social-icons` child must exclude the gear's wrapper, `:not([data-settings-control])`, there must
+ * be one, and no rule may hide the gear (`.settings-toggle`, `.settings-control`, `[data-settings-control]`) outside a `:not()`.
+ * A selector that also hid the gear would strand phones, and the landing, which has no mobile menu, would have no route at all.
+ */
+async function chipHidingCssFindings(dist) {
+  const findings = [];
+  let hiding = 0;
+  for (const file of await filesUnder(dist)) {
+    if (!file.endsWith(".css")) continue;
+    const css = await readFile(file, "utf8");
+    for (const [, selector] of css.matchAll(
+      /([^{}@]+)\{[^{}]*\bdisplay:\s*none\b[^{}]*\}/g,
+    )) {
+      for (const one of selector.split(",")) {
+        // The rule's subject is the rightmost compound selector. A rule hides the group's chips only when that subject is a
+        // direct child of `.social-icons` (`>` right after it, its scope suffix `:where(...)` allowed, nothing after the child
+        // compound); Starlight's own `.social-icons:empty` and a descendant like `.social-icons a>svg` are about other things.
+        const flat = one.replace(/:where\([^)]*\)/g, "").trim();
+        if (/\.social-icons\s*>\s*[^\s>+~]+$/.test(flat)) {
+          hiding++;
+          if (!one.includes(":not([data-settings-control])"))
+            findings.push(
+              `chips: ${one.trim()} { display: none } does not exclude :not([data-settings-control]), expected the gear to stay in the bar below 50rem`,
+            );
+        }
+        // The gear is hidden only when it, or its wrapper, is the subject: `.settings-control .x` hides something inside it.
+        const subject = flat
+          .replace(/:not\([^)]*\)/g, "")
+          .split(/[\s>+~]+/)
+          .filter(Boolean)
+          .at(-1);
+        if (
+          /\.settings-toggle|\.settings-control|\[data-settings-control\]/.test(
+            subject ?? "",
+          )
+        )
+          findings.push(
+            `chips: ${one.trim()} { display: none } hides the settings gear`,
+          );
+      }
+    }
+  }
+  if (hiding === 0)
+    findings.push(
+      "chips: no rule hides the right group's other chips below 50rem (Header.astro), expected one that excludes :not([data-settings-control])",
+    );
+  return findings;
 }
 
 /** The attribute on the landing header's root that switches the entrance on (Header.astro). */
@@ -905,9 +1197,9 @@ const ENTRANCE_KEYFRAMES = /^header-entrance-/;
 const NO_PREFERENCE = "@media(prefers-reduced-motion:no-preference)";
 const underNoPreference = (chain) =>
   chain.length === 1 && chain[0].replace(/\s+/g, "") === NO_PREFERENCE;
-/** A selector that names something in the header: its root, title, search, theme button, chips or right group. */
+/** A selector that names something in the header: its root, title, search, the gear, chips or right group. */
 const HEADER_ITEM =
-  /\.(?:header|title-wrapper|theme-toggle|social-icons|right-group)(?![\w-])|\.header-chip(?![\w-])|(?:^|[\s>+~,(])header(?![\w-])|\[data-landing-entrance/;
+  /\.(?:header|title-wrapper|settings-toggle|dox-link|social-icons|right-group)(?![\w-])|\.header-chip(?![\w-])|(?:^|[\s>+~,(])header(?![\w-])|\[data-landing-entrance/;
 
 /**
  * The entrance's markup (#266 phase 3): the marker is on the landing's header and nowhere else, the landing's header
@@ -944,6 +1236,147 @@ function auditEntranceMarkup(html, where, landing) {
   return failures;
 }
 
+/** Splits at `separator` outside parentheses. */
+function splitOutsideParens(text, separator) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of text) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === separator && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+    } else current += ch;
+  }
+  parts.push(current.trim());
+  return parts.filter((part) => part !== "");
+}
+
+/** The whitespace-separated tokens of one animation, parentheses kept whole. */
+function animationTokens(animation) {
+  const tokens = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of animation) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (/\s/.test(ch) && depth === 0) {
+      if (current !== "") tokens.push(current);
+      current = "";
+    } else current += ch;
+  }
+  if (current !== "") tokens.push(current);
+  return tokens;
+}
+
+/**
+ * A time expression in seconds: `.6s`, `600ms`, `var(--entrance-x)`, or a `calc()` of those with `+` and `*`; NaN when it is
+ * anything else. `properties` maps a custom property to its value.
+ */
+export function seconds(expression, properties) {
+  let text = expression.trim();
+  for (let guard = 0; guard < 8 && /var\(/.test(text); guard++)
+    text = text.replace(/var\((--[\w-]+)\)/g, (_, name) =>
+      properties.has(name) ? `(${properties.get(name)})` : "NaN",
+    );
+  text = text
+    .replace(/\bcalc\(/g, "(")
+    .replace(/(\d*\.?\d+)(ms|s)\b/g, (_, n, unit) =>
+      String(unit === "ms" ? Number(n) / 1000 : Number(n)),
+    );
+  if (!/^[\d.+*\s()-]+$/.test(text)) return Number.NaN;
+  try {
+    return Number(new Function(`return (${text});`)());
+  } catch {
+    return Number.NaN;
+  }
+}
+
+/**
+ * Which chip of the right group a rule's selector names, in the built CSS: the Dox link (`.dox-link`), the gear
+ * (`.settings-toggle`), Discord (the chip after GitHub, `...:not(.dox-link)+a.header-chip`) or GitHub (the other chips
+ * that are not Dox). Undefined for anything else.
+ */
+function chipRole(selector) {
+  const sel = selector.replace(/\s+/g, "");
+  if (sel.includes(".settings-toggle")) return "the settings gear";
+  if (sel.includes(".dox-link") && !sel.includes(":not(.dox-link)"))
+    return "the Dox link";
+  if (sel.includes("header-chip") && sel.includes(":not(.dox-link)"))
+    return /\)[+~]/.test(sel) ? "Discord" : "GitHub";
+  return undefined;
+}
+
+/** The colour pass's order (#352, D16): the order the chips stand in. */
+const CHIP_ORDER = ["the Dox link", "GitHub", "Discord", "the settings gear"];
+
+/**
+ * An entrance animation's parts: each `header-entrance-*` animation in the shorthand, with its duration and delay
+ * expressions (the first and second time in it).
+ */
+function entranceAnimations(value) {
+  return splitOutsideParens(value, ",")
+    .map((animation) => {
+      const tokens = animationTokens(animation);
+      const name = tokens.find((t) => ENTRANCE_KEYFRAMES.test(t));
+      const times = tokens.filter(
+        (t) => /^[\d.]+m?s$/.test(t) || /^(calc|var)\(/.test(t),
+      );
+      return name === undefined
+        ? undefined
+        : { name, duration: times[0], delay: times[1] ?? "0s", tokens };
+    })
+    .filter((a) => a !== undefined);
+}
+
+/**
+ * The landing header's chips (#352, D16): the Dox link fades and takes the colour pass; GitHub, Discord and the gear take the
+ * colour pass and do not fade (they are northguild.dev's); the pass starts once the Dox fade has ended; every chip starts
+ * from northguild.dev's resting grey (the `header-entrance-ink` keyframe's first frame, `--gmt-ice-dim`, held by the
+ * `backwards` fill); and the pass's delays rise Dox < GitHub < Discord < gear, the order the chips stand in.
+ */
+function chipFindings(chips, properties, inkKeyframe) {
+  const findings = [];
+  if (!/--gmt-ice-dim/.test(inkKeyframe))
+    findings.push(
+      "@keyframes header-entrance-ink does not start from var(--gmt-ice-dim), expected every chip to start grey",
+    );
+  for (const role of CHIP_ORDER)
+    if (chips.get(role)?.ink === undefined)
+      findings.push(`${role} has no colour pass (header-entrance-ink)`);
+  if (chips.get("the Dox link")?.fade === undefined)
+    findings.push("the Dox link has no fade (header-entrance-fade)");
+  if (chips.get("the settings gear")?.fade !== undefined)
+    findings.push(
+      "the settings gear has a fade, expected none (it is northguild.dev's, there from the first paint)",
+    );
+  const delays = CHIP_ORDER.map((role) => {
+    const delay = chips.get(role)?.ink?.delay;
+    return delay === undefined ? undefined : seconds(delay, properties);
+  });
+  if (delays.every((d) => d !== undefined)) {
+    const ordered = delays.every(
+      (d, k) => Number.isFinite(d) && (k === 0 || d > delays[k - 1]),
+    );
+    if (!ordered)
+      findings.push(
+        `the colour pass's delays are not in the order Dox < GitHub < Discord < gear (${CHIP_ORDER.map((role, k) => `${role} ${delays[k]}s`).join(", ")})`,
+      );
+  }
+  const dox = chips.get("the Dox link");
+  if (dox?.fade !== undefined && delays[0] !== undefined) {
+    const fadeEnd =
+      seconds(dox.fade.delay, properties) +
+      seconds(dox.fade.duration ?? "0s", properties);
+    if (!(delays[0] >= fadeEnd))
+      findings.push(
+        `the colour pass starts at ${delays[0]}s, before the Dox fade ends at ${fadeEnd}s`,
+      );
+  }
+  return findings;
+}
+
 /**
  * The entrance's built CSS (#266 phase 3), over every stylesheet and `<style>`: the `header-entrance-*` keyframes exist,
  * each sits under the no-preference query alone, so does every rule that names one in an animation, and no rule gives a
@@ -963,9 +1396,13 @@ export async function entranceCssFindings(dist) {
         sheets.push({ origin: `${origin} <style>`, css });
   }
   let keyframes = 0;
+  const properties = new Map();
+  const chips = new Map();
+  let inkFrom = "";
   for (const { origin, css } of sheets) {
     const parsed = parseStylesheet(css);
     for (const k of parsed.keyframes) {
+      if (k.name === "header-entrance-ink") inkFrom += k.body;
       if (!ENTRANCE_KEYFRAMES.test(k.name)) continue;
       keyframes++;
       if (!underNoPreference(k.chain))
@@ -981,11 +1418,25 @@ export async function entranceCssFindings(dist) {
     }
     for (const { chain, selector, declarations } of parsed.rules) {
       for (const [property, value] of declarations) {
+        if (property.startsWith("--entrance-")) properties.set(property, value);
         if (
           /^animation(-name)?$/.test(property) &&
           /(^|[\s,])header-entrance-/.test(value)
         ) {
           const where = `${origin}: ${selector} { ${property}: ${value} }`;
+          const role = chipRole(selector);
+          if (role !== undefined) {
+            const entry = chips.get(role) ?? {};
+            for (const a of entranceAnimations(value)) {
+              if (a.name === "header-entrance-fade") entry.fade = a;
+              if (a.name === "header-entrance-ink") entry.ink = a;
+            }
+            if (!/\bbackwards\b/.test(value))
+              findings.push(
+                `${where} has no backwards fill, so ${role} is not grey from the first paint`,
+              );
+            chips.set(role, entry);
+          }
           if (!selector.includes("[data-landing-entrance]"))
             findings.push(`${where} is not scoped to [data-landing-entrance]`);
           if (
@@ -1033,6 +1484,7 @@ export async function entranceCssFindings(dist) {
   }
   if (keyframes === 0)
     findings.push("no header-entrance-* keyframes in the build's CSS");
+  else findings.push(...chipFindings(chips, properties, inkFrom));
   return findings;
 }
 
@@ -1146,6 +1598,17 @@ async function loadedUpFront(html, dist, isChunk) {
     if (staticImportsOf(source).some(isChunk)) return true;
   }
   return false;
+}
+
+// The sound engine (#352 phase 4, D7) is src/lib/sound/engine.ts, a chunk of its own that only cue.ts's dynamic import
+// reaches, so no page's first paint carries audio code.
+const isEngineChunk = (reference) => /(^|\/)engine\.[^/]*$/.test(reference);
+
+/** The engine rule: no page loads the engine up front (a script, a modulepreload or a static import). Returns failures. */
+async function auditEngine(html, dist) {
+  return (await loadedUpFront(html, dist, isEngineChunk))
+    ? ["loads the sound engine up front; only cue.ts's import() may reach it"]
+    : [];
 }
 
 // D18's budget: the loader at most 2 KB gzipped, everything it imports, together, at most 32 KB gzipped.
@@ -1354,9 +1817,12 @@ async function auditPage(path, dist, descriptions, options) {
   }
 
   for (const rule of await auditHero(html, dist, path === "")) fail(rule);
+  for (const rule of await auditEngine(html, dist)) fail(rule);
 
   failures.push(...auditControls(html, label(path)));
   failures.push(...auditThemeControl(html, label(path)));
+  failures.push(...auditSoundControl(html, label(path)));
+  failures.push(...auditAura(html, label(path), path === ""));
   failures.push(...auditHeader(html, label(path)));
   failures.push(
     ...auditMobileMenu(html, label(path), { required: path !== "" }),
@@ -1558,6 +2024,8 @@ function auditNotFound(html) {
   const failures = [
     ...auditControls(html, "404.html"),
     ...auditThemeControl(html, "404.html"),
+    ...auditSoundControl(html, "404.html"),
+    ...auditAura(html, "404.html", false),
     ...auditHeader(html, "404.html"),
     ...auditSvgs(html, "404.html"),
   ];
@@ -1718,6 +2186,8 @@ async function auditSite(dist) {
       failures.push(`404.html: ${rule}`);
     for (const rule of await auditHero(notFound, dist, false))
       failures.push(`404.html: ${rule}`);
+    for (const rule of await auditEngine(notFound, dist))
+      failures.push(`404.html: ${rule}`);
     for (const rule of auditEntranceMarkup(notFound, "404.html", false))
       failures.push(rule);
   } catch {
@@ -1727,6 +2197,8 @@ async function auditSite(dist) {
   failures.push(...(await auditDox(dist)));
   failures.push(...(await cyanFindings(dist)));
   failures.push(...(await entranceCssFindings(dist)));
+  failures.push(...(await auraCssFindings(dist)));
+  failures.push(...(await chipHidingCssFindings(dist)));
 
   const heights = [];
   for (const file of await filesUnder(dist)) {

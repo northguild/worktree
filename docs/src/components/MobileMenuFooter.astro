@@ -1,14 +1,14 @@
 ---
 /**
  * Starlight's mobile menu footer, with the "Chat with Dox" link before the social icons (plan #309 D2; ported from gmt's
- * MobileMenuFooter.astro). Below `md` the header's right group is hidden, so the link would be unreachable there. Same
+ * MobileMenuFooter.astro). Below `md` the header's right group shows only the settings gear, so the link would be unreachable there. Same
  * link, label and current-page state as the header's (Header.astro). Structure copied from @astrojs/starlight 0.42.8,
- * dist/components/MobileMenuFooter.astro. The chip look is the shared `.header-chip` in custom.css; the menu is on the
+ * dist/components/MobileMenuFooter.astro, without its theme select: the settings gear is in the header alone and has no
+ * copy here (plan #352, D1). The chip look is the shared `.header-chip` in custom.css; the menu is on the
  * pages with a sidebar (not the landing, the 404 or /dox).
  */
 import LanguageSelect from "virtual:starlight/components/LanguageSelect";
 import SocialIcons from "virtual:starlight/components/SocialIcons";
-import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 import DoxMark from "./DoxMark.astro";
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -28,7 +28,6 @@ const onDox = Astro.url.pathname.replace(/\/$/, "") === `${base}/dox`;
     </a>
     <SocialIcons />
   </div>
-  <ThemeSelect />
   <LanguageSelect />
 </div>
 

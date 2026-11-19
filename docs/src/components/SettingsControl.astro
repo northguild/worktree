@@ -1,0 +1,148 @@
+---
+/**
+ * The header's settings control (plan #352, D1-D3): one gear button, last in the right group after Dox, GitHub and
+ * Discord, that opens a popover holding the reader's settings. That is the "Dark theme" switch and, below a hairline, the
+ * mute button and the volume fader (D9; `lib/sound/control.ts` wires them) and, last, the landing's aura (D14): an "Aura"
+ * switch (the same Turning leaf, silent) and, while it is on, an "Aura track" radio pair. The aura block is on every page
+ * but hidden by CSS wherever `<html>` has no `data-aura`, which only the landing sets (`HeroLeaves.astro`). One copy, in the header, and it shows at every width: Header.astro hides the other chips of the right group below
+ * `md` and leaves the gear, so the phone and the landing (which has no menu) reach the theme and the sound; the mobile menu
+ * has no copy.
+ *
+ * The gear is GMT's exactly: the `GEAR` SVG below is copied from gmt apps/dox/src/components/settings-control.ts at
+ * commit d6031ecd (Lucide `settings`, ISC, filled so it reads as solid as GitHub's and Discord's marks beside it, at the
+ * icon buttons' 20 px; the view box is cropped to the gear so it stands as tall as GitHub's mark; the hub is a second
+ * subpath, so the even-odd rule cuts it out of the fill). The button is a native `<button popovertarget>` named
+ * "Settings" and the panel a native `[popover]`: Escape, an outside press and the return of focus to the gear are the
+ * browser's. The panel is in the top layer, anchored under the gear, so opening it moves nothing in the bar.
+ *
+ * The switch is a native `<input type="checkbox" role="switch">` (the APG Switch pattern) named by its label,
+ * "Dark theme"; the pill and its leaf are the sibling SVG, drawn by settings-control.css, and the input sits over it,
+ * invisible, so the control is the browser's own. The volume fader is built the same way: a native range over the SVG of
+ * a stem, drawn by settings-control.css from the `--level` property the wiring sets, and the mute button's speaker is
+ * drawn from `html[data-sound]`, which `ThemeProvider.astro` sets before first paint. `src/lib/settings-control.ts` wires it; the theme rule is
+ * `src/lib/theme.ts`.
+ */
+import "./settings-control.css";
+
+const GEAR = `<svg viewBox="1 1 22 22" width="20" height="20" fill="currentColor" fill-rule="evenodd" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915ZM15 12a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z"/></svg>`;
+---
+
+<div class="settings-control print:hidden" data-settings-control>
+  <button
+    type="button"
+    id="settings-button"
+    class="header-chip settings-toggle"
+    popovertarget="settings-pop"
+    aria-label="Settings"
+    title="Settings"
+    aria-expanded="false"
+  >
+    <Fragment set:html={GEAR} />
+  </button>
+  <div id="settings-pop" class="settings-pop" popover role="group" aria-label="Settings">
+    <label class="settings-row">
+      <span class="settings-row-label">Dark theme</span>
+      <span class="leaf-switch">
+        <input type="checkbox" role="switch" id="settings-theme-dark" checked />
+        <svg viewBox="0 0 46 26" aria-hidden="true" focusable="false">
+          <rect class="leaf-switch-track" x="1" y="1" width="44" height="24" rx="12"></rect>
+          <g class="leaf-switch-leaf">
+            <path class="leaf-switch-blade" d="M6 18 C 6 10, 11 6, 20 6 C 20 14, 15 19, 6 18 Z"></path>
+            <path class="leaf-switch-midrib" d="M7 17 L 17 9"></path>
+          </g>
+        </svg>
+      </span>
+    </label>
+    <div class="settings-sound">
+      <button
+        type="button"
+        id="settings-sound-mute"
+        class="sound-mute"
+        aria-label="Mute"
+        aria-pressed="true"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path class="speaker-body" d="M11 5 6 9H3v6h3l5 4z"></path>
+          <path class="speaker-wave" d="M15.5 8.5a5 5 0 0 1 0 7"></path>
+          <path class="speaker-wave" d="M18.5 6a8.5 8.5 0 0 1 0 12"></path>
+          <path class="speaker-cross" d="M22 9 16 15M16 9l6 6"></path>
+        </svg>
+      </button>
+      <div class="stem-fader" style="--level: 5">
+        <input type="range" id="settings-sound-volume" min="1" max="11" step="1" value="5" aria-label="Volume" />
+        <svg viewBox="0 0 200 32" aria-hidden="true" focusable="false">
+          <path class="stem-rail" d="M 10 17 L 190 17"></path>
+          <path class="stem-grown" pathLength="10" d="M 10 17 L 190 17"></path>
+          <path class="stem-leaf" style="--i:1; transform-origin:10px 17px" d="M 10 17 C 11 11, 16 7, 20 7 C 19 12, 15 16, 10 17 Z"></path>
+          <path class="stem-leaf" style="--i:2; transform-origin:28px 17px" d="M 28 17 C 29 23, 34 27, 38 27 C 37 22, 33 18, 28 17 Z"></path>
+          <path class="stem-leaf" style="--i:3; transform-origin:46px 17px" d="M 46 17 C 47 11, 52 7, 56 7 C 55 12, 51 16, 46 17 Z"></path>
+          <path class="stem-leaf" style="--i:4; transform-origin:64px 17px" d="M 64 17 C 65 23, 70 27, 74 27 C 73 22, 69 18, 64 17 Z"></path>
+          <path class="stem-leaf" style="--i:5; transform-origin:82px 17px" d="M 82 17 C 83 11, 88 7, 92 7 C 91 12, 87 16, 82 17 Z"></path>
+          <path class="stem-leaf" style="--i:6; transform-origin:100px 17px" d="M 100 17 C 101 23, 106 27, 110 27 C 109 22, 105 18, 100 17 Z"></path>
+          <path class="stem-leaf" style="--i:7; transform-origin:118px 17px" d="M 118 17 C 119 11, 124 7, 128 7 C 127 12, 123 16, 118 17 Z"></path>
+          <path class="stem-leaf" style="--i:8; transform-origin:136px 17px" d="M 136 17 C 137 23, 142 27, 146 27 C 145 22, 141 18, 136 17 Z"></path>
+          <path class="stem-leaf" style="--i:9; transform-origin:154px 17px" d="M 154 17 C 155 11, 160 7, 164 7 C 163 12, 159 16, 154 17 Z"></path>
+          <path class="stem-leaf" style="--i:10; transform-origin:172px 17px" d="M 172 17 C 173 23, 178 27, 182 27 C 181 22, 177 18, 172 17 Z"></path>
+          <path class="stem-leaf" style="--i:11; transform-origin:190px 17px" d="M 190 17 C 191 11, 196 7, 200 7 C 199 12, 195 16, 190 17 Z"></path>
+          <circle class="stem-bud" style="--i:1" cx="10" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:2" cx="28" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:3" cx="46" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:4" cx="64" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:5" cx="82" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:6" cx="100" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:7" cx="118" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:8" cx="136" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:9" cx="154" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:10" cx="172" cy="17" r="1.8"></circle>
+          <circle class="stem-bud" style="--i:11" cx="190" cy="17" r="1.8"></circle>
+          <circle class="stem-head" cx="10" cy="17" r="3.4"></circle>
+        </svg>
+      </div>
+    </div>
+    <div class="settings-aura">
+      <label class="settings-row">
+        <span class="settings-row-label">Aura</span>
+        <span class="leaf-switch">
+          <input type="checkbox" role="switch" id="settings-aura" />
+          <svg viewBox="0 0 46 26" aria-hidden="true" focusable="false">
+            <rect class="leaf-switch-track" x="1" y="1" width="44" height="24" rx="12"></rect>
+            <g class="leaf-switch-leaf">
+              <path class="leaf-switch-blade" d="M6 18 C 6 10, 11 6, 20 6 C 20 14, 15 19, 6 18 Z"></path>
+              <path class="leaf-switch-midrib" d="M7 17 L 17 9"></path>
+            </g>
+          </svg>
+        </span>
+      </label>
+      <div class="aura-track" role="radiogroup" aria-label="Aura track" hidden>
+        <label class="aura-track-row">
+          <input type="radio" name="settings-aura-track" value="forest" checked />
+          <span>Forest air</span>
+        </label>
+        <label class="aura-track-row">
+          <input type="radio" name="settings-aura-track" value="overhead" />
+          <span>Leaves overhead</span>
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+{/* The panel's two starting states, true before the module runs and before the reader can open the panel: Mute is pressed unless
+    `html[data-sound]` is "on" (fail-closed, as the speaker is drawn), and the "Dark theme" switch is on unless `html[data-theme]`
+    is "light" (both are set by ThemeProvider.astro before first paint). The markup's defaults are the no-script ones: muted, and
+    dark, because with script blocked ThemeProvider sets no data-theme and the page renders from the dark tokens on :root (light
+    needs [data-theme="light"]). `lib/settings-control.test.ts` runs this script as written. */}
+<script is:inline>
+  (function () {
+    var root = document.documentElement;
+    var mute = document.getElementById("settings-sound-mute");
+    var dark = document.getElementById("settings-theme-dark");
+    if (mute) mute.setAttribute("aria-pressed", String(root.dataset.sound !== "on"));
+    if (dark) dark.checked = root.dataset.theme !== "light";
+  })();
+</script>
+
+<script>
+  import { mountSettingsControl } from "../lib/settings-control";
+  mountSettingsControl();
+</script>

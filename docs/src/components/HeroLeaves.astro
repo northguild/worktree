@@ -11,6 +11,9 @@
  *  - The still is the formed graph, drawn from the geometry the particles sample (src/hero/geometry.ts). It shows under
  *    `prefers-reduced-motion: reduce`, without WebGL (the loader sets `data-hero="still"`) and without script
  *    (`scripting: none`); in all three the effect is never requested.
+ *  - It also marks the page for the aura: an inline script sets `data-aura` on `<html>` (lib/sound/engine.ts and the
+ *    settings panel read it), so the landing, which renders this component and no other page does, is the one page with
+ *    an aura.
  *  - The leaf palette is invented (the prototype's proposal, approved with it); the first leaf is the site's spring.
  */
 import {
@@ -56,6 +59,12 @@ const strands = [TRUNK, ...BRANCHES].map(strand);
   </svg>
   <canvas class="hero-canvas" data-hero-canvas aria-hidden="true"></canvas>
 </div>
+
+<!-- The landing's mark for the aura (#352 phase 7, D14): the engine plays the aura only where <html> has `data-aura`, and
+     settings-control.css shows the aura's switch only there. Inline, so it is set before the engine can attach. -->
+<script is:inline>
+  document.documentElement.setAttribute("data-aura", "");
+</script>
 
 <script>
   import { afterFirstPaint, mountHero, webGLAvailable } from "../hero/loader";

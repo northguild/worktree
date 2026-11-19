@@ -1,0 +1,81 @@
+/*
+ * Every value the audition board and its control mockups use.
+ *
+ * Borrowed (the site's real tokens, docs/src/styles/northguild/tokens.css and tokens-light.css, and the
+ * leaf palette from docs/src/components/HeroLeaves.astro):
+ *   --void, --surface, --surface-2, --ice, --ice-dim, --spring, --spring-ink, --leaf-*, --font-mono,
+ *   --font-display, --radius-md.
+ * Invented (marked "invented" below): everything to do with the git-tree control looks, which have no
+ * counterpart on the site yet.
+ */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --void: #03080c;
+  --surface: #061018;
+  --surface-2: #0a1a24;
+  --ice: #cfeaf2;
+  --ice-dim: #98b2be;
+  --spring: #4ade80;
+  --spring-ink: #4ade80;
+  --hairline: color-mix(in srgb, var(--spring) 18%, transparent);
+  --border: color-mix(in srgb, var(--spring) 18%, transparent);
+  --border-strong: color-mix(in srgb, var(--spring) 35%, transparent);
+  --fill-strong: color-mix(in srgb, #4ade80 12%, transparent);
+  --glow: color-mix(in srgb, var(--spring) 15%, transparent);
+
+  --leaf-1: #4ade80;
+  --leaf-2: #22c55e;
+  --leaf-3: #86efac;
+  --leaf-4: #16a34a;
+  --leaf-5: #34d399;
+  --leaf-6: #bef264;
+  --leaf-vein: #bbf7d0;
+  --leaf-deep: #166534;
+
+  /* invented: the git-tree controls */
+  --branch: var(--spring); /* a reached commit, a grown stem */
+  --branch-rest: color-mix(in srgb, var(--ice-dim) 38%, transparent); /* the rail ahead of HEAD */
+  --commit-hole: var(--surface); /* an unreached commit's centre */
+  --head-ring: var(--leaf-vein); /* HEAD's ring */
+  --switch-track: color-mix(in srgb, var(--ice-dim) 22%, transparent);
+  --switch-track-on: color-mix(in srgb, var(--spring) 30%, transparent);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --void: #ffffff;
+  --surface: #f5f5f5;
+  --surface-2: #ececec;
+  --ice: #1a1a1a;
+  --ice-dim: #4b4b4b;
+  --spring: #16a34a;
+  --spring-ink: #0a5626;
+  --fill-strong: color-mix(in srgb, #15803d 12%, transparent);
+
+  --leaf-1: #16a34a;
+  --leaf-2: #15803d;
+  --leaf-3: #4ade80;
+  --leaf-4: #166534;
+  --leaf-5: #059669;
+  --leaf-6: #65a30d;
+  --leaf-vein: #86efac;
+  --leaf-deep: #14532d;
+
+  --head-ring: var(--spring-ink);
+  --branch-rest: color-mix(in srgb, var(--ice-dim) 30%, transparent);
+}
+
+:root {
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --font-display: "Michroma", var(--font-mono);
+  --radius-md: 8px;
+  --radius-lg: 14px; /* invented: the board's cards, rounder than GMT's bevels on purpose */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --ease-grow: cubic-bezier(0.22, 1, 0.36, 1); /* invented: a stem growing, decelerating into place */
+}

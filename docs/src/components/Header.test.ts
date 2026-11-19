@@ -80,20 +80,20 @@ describe("Header.astro's inline internal-arrival script", () => {
 
 // #309 phase 4 (D2). Header.astro imports Starlight's virtual modules and cannot be rendered here; the built page is held
 // to these rules by `docs/scripts/audit-dist.mjs`, and this pins the source that produces them: the right group lists the
-// Dox link, named "Chat with Dox", ahead of the theme toggle, current on /dox alone (gmt's Header.astro).
+// Dox link, named "Chat with Dox", current on /dox alone (gmt's Header.astro), and ends with the settings gear (#352, D1:
+// Dox, language select, GitHub and Discord, then the gear; the owner wants the three bars identical to GMT's).
 describe("Header.astro's Dox link", () => {
   const right = source.slice(
     source.indexOf('<div class="sl-flex social-icons">'),
   );
 
-  it("is the first of the right group, ahead of the theme toggle", () => {
-    expect(right.indexOf('class="header-chip dox-link"')).toBeGreaterThan(-1);
-    expect(right.indexOf("dox-link")).toBeLessThan(
-      right.indexOf("<ThemeSelect"),
-    );
-    expect(right.indexOf("<ThemeSelect")).toBeLessThan(
-      right.indexOf("<SocialIcons"),
-    );
+  it("is the first of the right group, and the gear is the last: Dox, language select, GitHub and Discord, gear", () => {
+    const at = (needle: string) => right.indexOf(needle);
+    expect(at('class="header-chip dox-link"')).toBeGreaterThan(-1);
+    expect(at("dox-link")).toBeLessThan(at("<LanguageSelect"));
+    expect(at("<LanguageSelect")).toBeLessThan(at("<SocialIcons"));
+    expect(at("<SocialIcons")).toBeLessThan(at("<SettingsControl"));
+    expect(right).not.toMatch(/Theme\w*Select/);
   });
 
   it("is named Chat with Dox and goes to /dox/ under the site base", () => {
@@ -103,5 +103,47 @@ describe("Header.astro's Dox link", () => {
 
   it("is the current page only on /dox", () => {
     expect(right).toContain('aria-current={onDox ? "page" : undefined}');
+  });
+});
+
+// Phase 12 (Baldur, PR #354, Header.astro:84): the gear shows at every width, as GMT's does. The component cannot be
+// rendered here, so the source is read: the expected structure is the review's, and the rendered result is checked by
+// the audit (the gear is in no element hidden below md) and by the browser pass at 375px.
+describe("Header.astro's right group", () => {
+  const markup = source.slice(
+    source.indexOf('<div class="header"'),
+    source.indexOf("<style>"),
+  );
+
+  it("is not hidden below md, and holds Dox, the social icons and the gear in that order", () => {
+    expect(markup).not.toMatch(/sl-hidden/);
+    const order = [
+      'class="header-chip dox-link"',
+      "<SocialIcons />",
+      "<SettingsControl />",
+    ].map((part) => markup.indexOf(part));
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  // A source-text check of intent only. The real check is the audit's, over the built CSS (`chipHidingCssFindings` in
+  // scripts/audit-dist.mjs: every rule hiding a `.social-icons` child excludes the gear's wrapper), which a selector that
+  // also hid the gear would fail.
+  it("hides every chip but the gear below 50rem, by a rule that is not in a layer", () => {
+    const rule = source.match(
+      /<style>\s*(?:\/\*[\s\S]*?\*\/\s*)?@media \(max-width: 49\.9375rem\) \{\s*\.social-icons > :global\(:not\(\[data-settings-control\]\)\) \{\s*display: none;/,
+    );
+    expect(rule).not.toBeNull();
+  });
+
+  it("keeps three direct children of .header: title, search, right group", () => {
+    const direct = [...markup.matchAll(/^ {2}<div class="([^"]*)"/gm)].map(
+      (m) => m[1],
+    );
+    expect(direct).toEqual([
+      "title-wrapper sl-flex",
+      "sl-flex print:hidden",
+      "sl-flex print:hidden right-group",
+    ]);
   });
 });

@@ -24,6 +24,8 @@ import {
   useState,
   ViewTransition,
 } from "react";
+import { cue, loop } from "../../lib/sound/cue";
+import { watchTyping } from "../../lib/sound/typing";
 import { CORPUS_COUNTS } from "../docs-routes.generated";
 import { type ScrollTarget, useBottomScroll } from "../hooks/useBottomScroll";
 import { type RetrievalTraces, useDocsChat } from "../hooks/useDocsChat";
@@ -249,6 +251,8 @@ export function DoxChat({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const submitRef = useRef<HTMLButtonElement | null>(null);
   const focusStopWhenAnswering = useRef(false);
+  // Set when the reader stops an answer, cleared when the next one is asked for: a stopped answer does not ring.
+  const stoppedRef = useRef(false);
 
   const [value, setValue] = useState("");
   const empty = value.trim() === "";
@@ -284,6 +288,8 @@ export function DoxChat({
       if (isStreaming || outOfBudget || text.trim() === "") return false;
       // A refused message is not sent and the reason is shown as a warning by `useDocsChat`.
       if (!submit(text)) return false;
+      stoppedRef.current = false;
+      cue("send");
       inputRef.current?.focus();
       return true;
     },
@@ -303,6 +309,50 @@ export function DoxChat({
     }),
     [clear, sendText],
   );
+
+  /* Sound (plan #352 D13). Every cue goes to the engine, which drops it while the reader is muted. */
+  const lastMessage = messages.at(-1);
+  const answerLength =
+    lastMessage?.role === "assistant" ? messageText(lastMessage).length : 0;
+  // Dox is waiting for its first words: the thinking pings run, and the cleanup ends them, so an unmount, a stop, an
+  // error and the first text all end them. A restored conversation is not streaming, so it is silent.
+  const isWaiting = isStreaming && answerLength === 0;
+  useEffect(() => {
+    if (isWaiting) return loop("thinking");
+  }, [isWaiting]);
+
+  // One Morse beep each time the streamed answer grows; the engine's gap thins a fast stream.
+  const heardLengthRef = useRef(answerLength);
+  useEffect(() => {
+    if (isStreaming && answerLength > heardLengthRef.current) cue("stream");
+    heardLengthRef.current = answerLength;
+  }, [answerLength, isStreaming]);
+
+  // The Low double buzz: a failure or a refusal has put a warning under the transcript.
+  useEffect(() => {
+    if (warning) cue("error");
+  }, [warning]);
+
+  // The Ice bell: an answer that ran to its end. A stop sets `stoppedRef` and a failure or a stall sets the warning, so
+  // neither rings.
+  const wasStreamingRef = useRef(isStreaming);
+  useEffect(() => {
+    const was = wasStreamingRef.current;
+    wasStreamingRef.current = isStreaming;
+    if (
+      was &&
+      !isStreaming &&
+      !warning &&
+      answerLength > 0 &&
+      !stoppedRef.current
+    )
+      cue("done");
+  }, [isStreaming, warning, answerLength]);
+
+  // The Data blip under the reader's typing in the composer, for as long as the chat is on the page.
+  useEffect(() => {
+    if (inputRef.current) return watchTyping(inputRef.current);
+  }, []);
 
   // "Try again" clears the warning, which unmounts the button the keyboard user is on, and focus would fall to the page.
   // It goes to the submit button instead, which is "Stop answer" for as long as the retry is answering. The button only
@@ -324,6 +374,8 @@ export function DoxChat({
   }, [isStreaming]);
 
   async function handleRetry() {
+    cue("loading");
+    stoppedRef.current = false;
     focusStopWhenAnswering.current = true;
     await retry();
     // The retry ended without ever showing Stop, or ended and left Send disabled for an empty box (a disabled Send is
@@ -337,6 +389,11 @@ export function DoxChat({
     ) {
       inputRef.current?.focus();
     }
+  }
+
+  function handleStop() {
+    stoppedRef.current = true;
+    stop();
   }
 
   function send() {
@@ -457,7 +514,7 @@ export function DoxChat({
                 ref={submitRef}
                 answering={isStreaming}
                 empty={empty || outOfBudget}
-                onStop={stop}
+                onStop={handleStop}
                 className="gmt-hive-submit"
               />
             </div>
