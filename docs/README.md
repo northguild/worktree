@@ -233,9 +233,10 @@ The site wears the NorthGuild theme. `src/styles/northguild/{tokens,tokens-light
 that commit's bytes, so **never edit them in place**. `src/styles/theme.css` is this site's own: it maps the
 `--gmt-*` tokens onto Starlight's `--sl-*` variables, repoints the `@font-face` at `/worktree/fonts/`
 (the vendored one looks for `./fonts/`) and sets the few rules Starlight has no variable for. Light or dark
-follows the visitor's system until they press the header's theme button, a two-state toggle (system, or the opposite theme set
-explicitly; pressing it again returns to the system) that sets `data-theme` on `<html>` and stores only `light` or `dark` under
-Starlight's `starlight-theme` key (`src/components/ThemeSelect.astro`, `ThemeProvider.astro`, the logic in `src/lib/theme-toggle.ts`).
+follows the visitor's system until they press the header's theme button. Every press shows the opposite of the theme on screen
+and sets `data-theme` on `<html>`; Starlight's `starlight-theme` key holds `light` or `dark` only while that differs from the
+system's, and is removed when it matches, so a reader back on the system's theme follows the system live again (GMT's rule;
+`src/components/ThemeSelect.astro`, `ThemeProvider.astro`, the logic in `src/lib/theme.ts`).
 The header's NorthGuild mark is `src/components/SiteTitle.astro`, copied the same way.
 
 ### The accent, and how a product picks its colour

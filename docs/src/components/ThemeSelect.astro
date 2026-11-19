@@ -1,11 +1,12 @@
 ---
 /**
  * Starlight's ThemeSelect, replaced by a two-state toggle (plan #266, D1): one button showing the current theme's icon.
- * While following the system a click sets the opposite theme; while a theme is set a click returns to the system.
+ * A click always shows the opposite of the theme on screen, and saves it only while it differs from the system's
+ * (plan #352, D4).
  * Starlight renders this component in the header and again in the mobile menu, so the button is in both.
  *
- * Ported from GMT, apps/dox/src/components/ThemeSelect.astro at commit b15b3899. The decisions (what a click stores,
- * which theme applies) are in src/lib/theme-toggle.ts, where they are tested; the icon is drawn by
+ * Ported from GMT, apps/dox/src/components/ThemeSelect.astro at commit b15b3899. The rule (what a click shows and
+ * saves) is in src/lib/theme.ts, where it is tested; the icon is drawn by
  * ThemeProvider.astro's `updatePickers()`. The chip look is the shared `.header-chip` in custom.css.
  */
 ---
@@ -32,28 +33,16 @@
 </script>
 
 <script>
-  import { nextStored, resolve, STORAGE_KEY, type Theme } from "../lib/theme-toggle";
+  import { readTheme, type Theme, writeTheme } from "../lib/theme";
 
   declare const StarlightThemeProvider: {
     updatePickers(): void;
   };
 
-  const systemQuery = "(prefers-color-scheme: light)";
-
-  function loadStored(): string | null {
-    try {
-      return localStorage.getItem(STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  }
-
-  function getSystemPref(): Theme {
-    return window.matchMedia(systemQuery).matches ? "light" : "dark";
-  }
+  const opposite = (theme: Theme): Theme => (theme === "light" ? "dark" : "light");
 
   function applyTheme() {
-    document.documentElement.dataset.theme = resolve(loadStored(), getSystemPref());
+    document.documentElement.dataset.theme = readTheme();
     StarlightThemeProvider.updatePickers();
   }
 
@@ -61,21 +50,14 @@
     constructor() {
       super();
       this.querySelector("button.theme-toggle")?.addEventListener("click", () => {
-        const next = nextStored(loadStored(), getSystemPref());
-        try {
-          if (next === "") localStorage.removeItem(STORAGE_KEY);
-          else localStorage.setItem(STORAGE_KEY, next);
-        } catch {
-          /* Storage is unavailable: the click still changes this page's theme, it just is not remembered. */
-        }
-        // With storage unavailable nothing can be read back, so apply the value just decided.
-        document.documentElement.dataset.theme = resolve(next, getSystemPref());
+        // The opposite of the theme on screen, not of storage: another tab may have saved one, or storage may throw.
+        writeTheme(opposite(document.documentElement.dataset.theme === "dark" ? "dark" : "light"));
         StarlightThemeProvider.updatePickers();
       });
 
-      // A change of the system preference re-applies the theme; `resolve` keeps a stored theme, so it moves the page
-      // only while nothing is stored.
-      window.matchMedia(systemQuery).addEventListener("change", applyTheme);
+      // A change of the system preference re-applies the theme; `readTheme` keeps a saved theme, so it moves the page
+      // only while nothing is saved.
+      window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", applyTheme);
 
       applyTheme();
     }

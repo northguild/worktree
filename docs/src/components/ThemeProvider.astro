@@ -6,7 +6,7 @@
  *
  * Ported from GMT, apps/dox/src/components/ThemeProvider.astro at commit b15b3899 (its Earth-look lines are left out).
  * The script is inline on purpose: it sets `data-theme` before first paint, so there is no flash of the wrong theme,
- * and it cannot import. Its storage rule is the one in src/lib/theme-toggle.ts (`resolve`): key `starlight-theme`, only
+ * and it cannot import. Its storage rule is the one in src/lib/theme.ts (`readTheme`): key `starlight-theme`, only
  * "light" or "dark" is a stored theme, anything else follows the system. Change both together.
  */
 ---
