@@ -44,3 +44,9 @@ const structuredData = JSON.stringify(
 {tags.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
 {!isNotFound && <link rel="describedby" type="text/plain" href={LLMS_TXT_URL} />}
 {!isNotFound && <script type="application/ld+json" set:html={structuredData} />}
+<script>
+  // The one sound module on every page's critical path (plan #352, D7): it makes no audio context while muted or before
+  // a gesture, and reaches the engine only through a dynamic import() on idle once the reader has unmuted.
+  import { startCue } from "../lib/sound/cue";
+  startCue();
+</script>

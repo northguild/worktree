@@ -2401,6 +2401,42 @@ describe("no cyan accent left", () => {
   });
 });
 
+// #352 phase 4 (D7). Expected value: no page, the 404 included, loads the sound engine up front, because the plan's
+// Done-when says the engine is reached only by cue.ts's dynamic import().
+describe("the sound engine", () => {
+  const engineFailures = async () =>
+    (await audit()).filter((f) => /sound engine/.test(f));
+
+  it("passes the fixture, which names no engine chunk", async () => {
+    expect(await engineFailures()).toEqual([]);
+  });
+
+  it("fails a page that loads the engine with a script tag", async () => {
+    await rewrite("faq", (html) =>
+      html.replace(
+        "</head>",
+        '<script type="module" src="/worktree/_astro/engine.jkljkl.js"></script></head>',
+      ),
+    );
+    expect((await engineFailures()).some((f) => f.includes("/faq/"))).toBe(
+      true,
+    );
+  });
+
+  it("fails the 404 preloading the engine", async () => {
+    await write(
+      dist,
+      "404.html",
+      notFoundPage({
+        head: '<link rel="modulepreload" href="/worktree/_astro/engine.jkljkl.js">',
+      }),
+    );
+    expect((await engineFailures()).some((f) => f.startsWith("404.html"))).toBe(
+      true,
+    );
+  });
+});
+
 // Phase 16 (D18). Expected values: the root alone loads the hero loader, no page (the 404 included) loads the effect up
 // front, the loader is at most 2 KB gzipped and the loader's whole import tree at most 32 KB gzipped, and on the landing
 // the still SVG and the canvas are hidden from assistive technology.

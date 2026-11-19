@@ -38,6 +38,9 @@
  * together, at most 32 KB gzipped; and on the landing the still SVG and the canvas are `aria-hidden`, while no other page
  * carries the hero's markup.
  *
+ * Also (#352 phase 4, D7, the sound engine): no page, the 404 included, loads the engine up front (a script, a
+ * modulepreload, or a static import); `cue.ts`'s dynamic `import()` is the only way to it.
+ *
  * Also (plan §9 Q3, the share preview and the favicon): every page has an `og:image` that is an absolute URL under the
  * site and names a file in the build, a `twitter:image` that is the same URL, and alt text for both; and every page and
  * the 404 link an icon (`rel="icon"`), with every icon link (`icon`, `shortcut icon`, `apple-touch-icon`) naming a file
@@ -1335,6 +1338,17 @@ async function loadedUpFront(html, dist, isChunk) {
   return false;
 }
 
+// The sound engine (#352 phase 4, D7) is src/lib/sound/engine.ts, a chunk of its own that only cue.ts's dynamic import
+// reaches, so no page's first paint carries audio code.
+const isEngineChunk = (reference) => /(^|\/)engine\.[^/]*$/.test(reference);
+
+/** The engine rule: no page loads the engine up front (a script, a modulepreload or a static import). Returns failures. */
+async function auditEngine(html, dist) {
+  return (await loadedUpFront(html, dist, isEngineChunk))
+    ? ["loads the sound engine up front; only cue.ts's import() may reach it"]
+    : [];
+}
+
 // D18's budget: the loader at most 2 KB gzipped, everything it imports, together, at most 32 KB gzipped.
 export const HERO_LOADER_BUDGET = 2 * 1024;
 export const HERO_EFFECT_BUDGET = 32 * 1024;
@@ -1541,6 +1555,7 @@ async function auditPage(path, dist, descriptions, options) {
   }
 
   for (const rule of await auditHero(html, dist, path === "")) fail(rule);
+  for (const rule of await auditEngine(html, dist)) fail(rule);
 
   failures.push(...auditControls(html, label(path)));
   failures.push(...auditThemeControl(html, label(path)));
@@ -1904,6 +1919,8 @@ async function auditSite(dist) {
     ])
       failures.push(`404.html: ${rule}`);
     for (const rule of await auditHero(notFound, dist, false))
+      failures.push(`404.html: ${rule}`);
+    for (const rule of await auditEngine(notFound, dist))
       failures.push(`404.html: ${rule}`);
     for (const rule of auditEntranceMarkup(notFound, "404.html", false))
       failures.push(rule);
