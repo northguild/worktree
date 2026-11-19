@@ -358,6 +358,17 @@ the leaves themselves, not to a clock or a timer, and all are quiet; none plays 
 - **Safari and Firefox.** `setValueCurveAtTime` must not overlap another automation on the same parameter, so every
   parameter with a curve has that one curve and nothing else.
 
+### The Dox chat's sounds
+
+The Dox chat has its own sounds, ported from GMT's `voices.ts` at `d6031ecd` (plan #352, D13), and they play only for a
+reader who has turned sound on. A soft Data blip sounds under typing in the composer (printable keys and Backspace, never
+Enter, a password field, a Ctrl or Meta chord, a held key or an input-method composition). Sending a question plays the
+Sonar launch, and a quiet Sonar idle ping repeats while Dox waits for its first words. Each streamed chunk gets a Morse
+beep, a completed answer rings the Ice bell (never after Stop, a stall or an error), and a failure plays the Low double
+buzz. "Try again" plays the Servo spin-up. Send and "Try again" are the only presses on the site that make a sound. The
+voices live in `docs/src/lib/sound/voices.ts`, typing in `docs/src/lib/sound/typing.ts`, and the wiring in
+`docs/src/chat/components/DoxChat.tsx`.
+
 ## Footer
 
 `src/components/Footer.astro` overrides Starlight's `Footer`: it renders Starlight's own footer (last updated,
