@@ -16,13 +16,20 @@ label was created that day.
 **Re-run by `/onboard` on 2026-10-18 under 0.26.0**, which split the plan budget out into *How much a plan
 may hold*. The answer did not change; both labels were confirmed present, and no phase was `in progress`.
 
+**Re-run by `/onboard` on 2026-11-19 under 0.29.1**, which names the answer's section *Where tracking
+lives* and reads the answer from its opening phrase. The answer did not change; the heading and that phrase
+were brought into line with the stub.
+
 **This file holds an answer, not a procedure.** How a phase is claimed, when a heartbeat is written, and in
 what order a plan and its phases are created live in the skills, so a defect in one can be fixed by an
 update. What each section takes is in [`tracking.notes.md`](tracking.notes.md).
 
-## The answer
+## Where tracking lives
 
-**In an issue tracker: GitHub issues in `northguild/worktree`.**
+**In an issue tracker.** A feature is an issue, its plan is that issue's body, and the phase ledger is a
+table inside that body. The tracker is the shared home every working tree can reach — the answer for
+several agents working several features at once, since it is the only thing outside every worktree that
+all of them can write to. **Here that tracker is GitHub issues in `northguild/worktree`.**
 
 Confirmed against the remote on 2026-09-09 — `origin` is `git@github.com:northguild/worktree.git`.
 
