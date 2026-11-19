@@ -188,6 +188,10 @@ was nothing else. Name the version in its subject.
   [`context/release.md`](../../../context/release.md);
 - which features' notes are in it.
 
+**It carries the label *What a pull request carries* names**, in that same file — the answer is about the
+artifact, not about who may open one, so it is read here too. Where it names none, or names one this
+repository does not have, say so and leave the pull request as it is.
+
 **The push is a plain push of this branch.** If it will not fast-forward, or there is no remote, **stop and
 say so** — and say it precisely, because the state is unusual: the branch exists, the notes are consumed,
 and the commit is sitting there for the user to push. Force-pushing and pushing to the default branch are

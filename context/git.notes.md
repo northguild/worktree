@@ -61,6 +61,26 @@ branch carries the whole feature: every phase's code, the documentation each one
 finished ledger, the `archive/` move and the `history.md` row. The pull request's body is the plan's
 summary and the phases it landed.
 
+## What a pull request carries
+
+One answer ships and the alternative is a name this project supplies. Ask it only where *Push and pull
+request* came back as a pull request — a project that pushes nothing has no artifact to label.
+
+**Shipped as:** no label. A tool installed into someone else's repository does not know what their labels
+mean, and a label that does not exist there is an error on an otherwise finished run.
+
+### The two answers, copy-ready
+
+**No label.** A pull request this workflow opens carries whatever the forge gives it and nothing added.
+
+**`<LABEL>`.** Every pull request this workflow opens carries it. Written out, this is one line — replace
+`<LABEL>` with the name, e.g. an `ai-review` that an automated reviewer watches for, and say in a clause
+what the label is *for*, since the next reader of this file will want to know who answers it.
+
+Collect the literal name from the user and **check it exists in the repository before writing it down.** A
+guessed label is the one answer in this file that fails at the moment it is used rather than when it is
+written.
+
 ## Granularity
 
 One answer ships and it is the only one this workflow knows: one commit per phase. Confirm it where the
@@ -73,7 +93,7 @@ Nothing to fill in. Live prose in the stub.
 ## What no answer here authorises
 
 Nothing to fill in, and nothing to negotiate. `/onboard` writes this section out as shipped whatever the
-four answers above were, and says in one line that it did and what it means — a user who just chose *the
+answers above were, and says in one line that it did and what it means — a user who just chose *the
 agent commits* has every reason to think they authorised more than they did.
 
 ## The rules that hold either way

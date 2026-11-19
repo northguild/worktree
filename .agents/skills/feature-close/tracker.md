@@ -48,7 +48,7 @@ answer rather than requiring it.
 **A filed owner check is an issue here like anywhere else, and it stays outside the one bit.** No backlog
 label, no planned label, and **no `blocked by` relationship** — that primitive is between features, and an
 owner check is not one. It carries this project's own labels and whatever assignee the person who will do
-the check has, and nothing in the workflow reads it again.
+the check has, and nothing in the workflow acts on it again.
 
 **The release note is unchanged.** It is an artifact of the change rather than workflow state, so it is a
 file in this repository under both of [`context/tracking.md`](../../../context/tracking.md)'s answers —

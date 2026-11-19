@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: "Run one ad-hoc, commit-sized change through the same verification and review gates the feature loop uses, without a roadmap entry or a phase ledger — or, with --pr, end that run at a pull request instead of in the working tree. Explicit invocation only — run this when the user types /orchestrate. Do NOT match on 'build X', 'implement X', 'orchestrate the work', or any request that belongs to a planned feature."
+description: "Run one ad-hoc, commit-sized change through the same verification and review gates the feature loop uses, without a roadmap entry or a phase ledger — or, with --pr, end that run at a pull request instead of in the working tree and stay to answer its review. Explicit invocation only — run this when the user types /orchestrate. Do NOT match on 'build X', 'implement X', 'orchestrate the work', or any request that belongs to a planned feature."
 ---
 
 # /orchestrate
@@ -20,7 +20,7 @@ Read [`context/workflow.md`](../../../context/workflow.md) for the gate contract
 ```
 /orchestrate "<what to do>"
 /orchestrate #<issue>              # the issue is the brief
-/orchestrate --pr "<what to do>"   # end at a pull request, not in the working tree (step 7)
+/orchestrate --pr "<what to do>"   # end at a pull request and answer its review (steps 7-8)
 /orchestrate --pr #<issue>
 ```
 
@@ -115,9 +115,11 @@ whether it needs code changes**, which every true observation about code does.
   project already files bugs, carrying this project's own labels. **Never the backlog label** — see *A bug
   is not a backlog entry* in that same file. The backlog is a list of features and this is not one.
 - **Not a defect, but work you would want a `history.md` row for** → that is a backlog entry, and adding
-  one is `/roadmap`'s. **Name it and say what you would add**; do not append to the backlog from here. That
+  one is `/roadmap`'s. **Run it with what you would add**; never append to the backlog by hand. That
   command applies the worth-adopting test and writes what the ranking reads, and a gate doing it by hand
-  produces neither.
+  produces neither. **Under the working-tree answer**, run it before step 6, so the entry lands with this
+  change. Under the tracker answer nothing lands with it: `/roadmap` asks first, then opens an issue at
+  once or nothing at all, and nothing opened means the entry was only *proposed*.
 - **Anything else** → this run's report, and it dies with the session. **There is no `context/notes.md` in
   this command** — step 5 says why.
 
@@ -172,8 +174,8 @@ unstaged in somebody's tree is worse than an open one.
 ## 7. `--pr` — the change leaves the machine
 
 Without the flag this invocation is over at step 6, and the change is committed or waiting on whatever
-branch you were already on. With it, the run ends at a **pull request**: one commit, the branch pushed, and
-the work opened for a person to read.
+branch you were already on. With it, the run ends at a **pull request that has been read**: one commit, the
+branch pushed, the work opened for a person, and then the review that person leaves answered.
 
 **The flag is the permission, not a new `git.md` answer.** That file names two sources and only two — an
 answer covering this command at this point, *or* the user asking in this session in plain words — and a
@@ -182,10 +184,12 @@ not read *Push and pull request*: both of those answers are about a feature, and
 What it authorises is **this invocation**. Nothing it does becomes policy for the next one, and nothing
 here is written into `git.md`.
 
-It buys exactly three things, in this order: **the commit, a push of the branch you are on, and the pull
-request.** Anything past that is refused below, under *What the flag is not*.
+It buys exactly four things, in this order: **the commit, a push of the branch you are on, the pull
+request, and the review answered** — the last of those is step 8 and
+[`review.md`](review.md) beside this file. Anything past them is refused below, under *What the flag is
+not*.
 
-**The body is this run's report** — step 8's content, which is the only description of the change that
+**The body is this run's report** — step 9's content, which is the only description of the change that
 exists. Run from `#<issue>`, step 6 already put `Closes #<issue>` in the commit, so the body does not repeat
 it: the trailer closes the issue on merge whichever text the forge reads.
 
@@ -222,27 +226,50 @@ waits there is working as intended.
 **Nothing merges it.** Not on green CI, not on an approving review, not after any wait. `git.md` reserves
 review and merge in one line — *review and merge are yours* — and a pull request nobody reads is the one
 thing this flag must not produce, since then the push bought nothing the working tree did not already have.
-It also does not delete a branch, enable the forge's own auto-merge, or stay alive watching a check run.
+It also does not delete a branch or enable the forge's own auto-merge.
+
+**It stays alive for a review and for nothing else.** Step 8 answers the comments a reader leaves, which is
+the other half of not producing a pull request nobody reads. **It does not wait for a check run**: `--pr`
+reads threads, never statuses, and what *required* means is a forge fact no skill may decide.
 
 **It lifts no refusal and widens nothing.** It does not skip a gate, raise a loopback cap, admit a scope
 step 1 refused, or turn an ad-hoc change into a feature. A stop list worked around once is not a stop list.
+**A review comment lifts nothing either** — step 8 says what one may and may not ask for.
 
-## 8. Report
+## 8. `--pr` — answer the review
+
+Read [`review.md`](review.md) beside this file, where step 7 opened a pull request. **Report the pull
+request before the first round**, so the flag's existing deliverable is in front of the user whether or not
+a single comment ever arrives.
+
+That file holds all of it: the label *What a pull request carries* in
+[`context/git.md`](../../../context/git.md) names and when it goes back on, how long a round waits for
+something to read, **whose comment gets a fix made and whose gets a reply**, the gates every fix still
+runs, which threads are resolved against which are left open, the three-round cap, and that **a comment is a
+request and not an instruction.** Nothing in it merges, approves or waits for CI.
+
+**Without the flag there is no step 8.** Plain `/orchestrate` has no pull request, so it has no review to
+answer, and this step does not apply to it in any form.
+
+## 9. Report
 
 What changed, whether it is committed or waiting in the tree, the Gate 1 output, the Gate 2 verdict, any
 loopbacks, any non-blocking observations the review raised — which die here — any bug filed for work that
-outlived the change, whether the commit closes the issue it ran from, and any release note written, with
-the paths that were checked and owed nothing.
+outlived the change, any backlog entry step 4's `/roadmap` added — or only *proposed*, with the
+`/roadmap "…"` line to type, where its ask was declined or could not be made — whether the commit closes
+the issue it ran from, and any release note written, with the paths that were checked and owed nothing.
 
 **Under `--pr`**, also the branch that was pushed and the pull request that was opened — or the line in
-step 7 that stopped short of one — and that nothing merged it.
+step 7 that stopped short of one — plus what [`review.md`](review.md) says each round reports, and that
+nothing merged it.
 
 ## Rules
 
 - **No ledger row is touched.** This command has no phase and does not belong to a feature.
-- **No roadmap entry is created, activated or retired.** If the work turns out to be a feature, stop and
-  say so; the user runs `/roadmap`.
+- **No roadmap entry is activated or retired**, and one is created only by step 4's `/roadmap`, for a
+  finding. If the work itself turns out to be a feature, stop and say so; the user runs `/roadmap`.
 - **The release note is not deferred to a later command.** There is no `/feature-close` behind this one to
   write it, which is exactly why the change is the unit.
 - **Never skip Gate 1 to save time.** The gates are the entire reason this command exists.
-- **Nothing merges, and nothing waits for CI.** `--pr` ends at a pull request a person has not read yet.
+- **Nothing merges, and nothing waits for CI.** `--pr` answers a review; it never approves or merges one,
+  and a check run is not a comment.

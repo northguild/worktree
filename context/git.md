@@ -9,7 +9,9 @@ habits everywhere.
 
 Configured by `/onboard` on 2026-09-06 (`@baldurpan/create-ai-workflow` 0.6.0, which introduced this file)
 and re-answered on 2026-09-09 under 0.8.0, which added the three questions below the first. Re-run on
-2026-09-30 under 0.22.0, which added *What no answer here authorises*; no answer changed.
+2026-09-30 under 0.22.0, which added *What no answer here authorises*; no answer changed. Re-run on
+2026-11-19 under 0.29.1, which added a fifth answer, *What a pull request carries*; no other answer
+changed.
 
 What each section takes, and the alternative answers written out, are in [`git.notes.md`](git.notes.md).
 
@@ -40,6 +42,22 @@ reviewer's invocation lives there.
 
 **The agent pushes and opens a pull request**, once per feature, at `/feature-close` — never at the end of
 a phase. A phase ends with a local commit and nothing more.
+
+## What a pull request carries
+
+**No label.** A pull request this workflow opens carries whatever the forge gives it and nothing added.
+
+Chosen on 2026-11-19 under 0.29.1. This repository has two labels that ask for a review, `ai-review`
+(code-reviewer) and `craig-review` (craigs-reviewer), and neither is applied: `baldurs-reviewer` already
+reviews every pull request here unasked, and asking for either of the others stays a person's call, made
+per pull request.
+
+**This answer is not a permission**, which is why it reads differently from the four around it. It is the
+shape of the artifact, and it is read wherever one of those commands is *already* allowed to open a pull
+request — never as a reason to open one.
+
+**A label this repository does not have is not created.** Say it is missing and leave the pull request as
+it is. A finished run does not fail on a label, and nothing here writes this repository's label set.
 
 ## Granularity
 
@@ -88,7 +106,7 @@ a branch, or removes a worktree, under any answer above. The pull request is ope
 
 ## What no answer here authorises
 
-The four answers above say what the **workflow's own commands** do, at the point each one names. They are
+The five answers above say what the **workflow's own commands** do, at the point each one names. They are
 not standing leave to use git.
 
 **Never stage, commit, branch, create a worktree, push or open a pull request on your own initiative.**
