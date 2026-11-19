@@ -382,10 +382,10 @@ repaints the controls; the wiring is `lib/sound/control.ts`.
 
 `lib/sound/aura.ts` is a chunk the engine imports only when the page has `data-aura`, the reader is unmuted and the aura
 is on. Everything sits on one bus 12 dB under the cues (0.25 of the master), each track in its own gain: it fades in over
-2 s, a change of track crossfades over 1.5 s, and it stops (0.6 s out) when switched off, when the reader mutes or the tab
-is hidden, and at once on `pagehide`. "Forest air" is two bands of looped noise, panned either side, low-passed, each
+2 s, a change of track crossfades over 1.5 s, and it stops over 0.6 s when switched off or the tab
+is hidden, and at once when the reader mutes and on `pagehide`. "Forest air" is two bands of looped noise, panned either side, low-passed, each
 breathing through a slow LFO; "Leaves overhead" is the same with a faint leaf tick every 1.5 to 4.5 s. Both are ported
-from the audition board unchanged (`prototypes/settings-gear/sound-audition.html`, `BEDS`); the structure is GMT's
+from the audition board with their numbers unchanged (`prototypes/settings-gear/sound-audition.html`, `BEDS`); the structure is GMT's
 `aura.ts`. The audit checks the two names ("Aura", "Aura track"), that `data-aura` is set on the landing only, and that a
 stylesheet hides the controls without it.
 
