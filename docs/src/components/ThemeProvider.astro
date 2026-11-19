@@ -10,12 +10,23 @@
  * and it cannot import. Its storage rule is the one in src/lib/theme.ts (`readTheme`): key `starlight-theme`, only
  * "light" or "dark" is a stored theme, anything else follows the system. Change both together.
  * `updatePickers` stays as a no-op because Starlight's Page.astro may call it.
+ *
+ * It also sets `data-sound` ("on" or "off") before first paint, as GMT's provider does (#352, D5): "on" only for a
+ * saved `dox:sound` record of version 1 whose `muted` is `false`; anything else, a read that throws included, is "off".
+ * That is `readSound().muted` in src/lib/sound/settings.ts, held equal by its test. Change both together.
  */
 ---
 
 {/* This is intentionally inlined to avoid FOUC. */}
 <script is:inline>
   window.StarlightThemeProvider = (() => {
+    // First, so a throwing `localStorage` (the theme read below is unguarded, as in Starlight) still leaves it set.
+    let sound = 'off';
+    try {
+      const saved = JSON.parse(localStorage.getItem('dox:sound') || 'null');
+      if (saved && saved.v === 1 && saved.muted === false) sound = 'on';
+    } catch {}
+    document.documentElement.dataset.sound = sound;
     const storageKey = 'starlight-theme';
     const stored =
       typeof localStorage !== 'undefined' && localStorage.getItem(storageKey);
