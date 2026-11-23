@@ -146,7 +146,12 @@ function markBareLinear(argv: string[], booleanChars: string[]): string[] {
 
 export default class Branch extends BaseCommand {
   static override args = {
-    branchName: Args.string({ description: "Name of the branch to create" }),
+    // oclif fills a positional that was not given from piped stdin, which would
+    // drain the pipe `--agent-stdin` reads the brief from (#359).
+    branchName: Args.string({
+      description: "Name of the branch to create",
+      ignoreStdin: true,
+    }),
   };
   // The first line is the summary oclif lists in `worktree --help`; the rest is
   // the `--json` shape and exit codes, kept to key names and nullability.
