@@ -742,13 +742,18 @@ const LINEAR_STATE_TYPES: ReadonlySet<string> = new Set([
   "duplicate",
 ]);
 
+// Each `or` element is an `and` of two single-field filters. Linear does not
+// apply an `or` whose elements carry two fields at once: it answers with
+// issues from across the workspace and no error (#358).
 function issueStatesFilter(identifiers: string[]) {
   return {
     or: identifiers.map((identifier) => {
       const dash = identifier.lastIndexOf("-");
       return {
-        team: { key: { eq: identifier.slice(0, dash) } },
-        number: { eq: Number(identifier.slice(dash + 1)) },
+        and: [
+          { team: { key: { eq: identifier.slice(0, dash) } } },
+          { number: { eq: Number(identifier.slice(dash + 1)) } },
+        ],
       };
     }),
   };
