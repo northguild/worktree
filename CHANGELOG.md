@@ -1,5 +1,35 @@
 # @northguild/worktree
 
+## 3.1.0
+
+### Minor Changes
+
+- 8300699: `worktree cleanup` now formats the counts in its headings for your system locale, so 12345 prints as 12,345 or 12.345.
+- 63946fd: `worktree branch` and `worktree config` now remove, without asking, the local git config keys that the `.worktree.yml` on your default branch already sets to the same value. A key stays where removing it would change what `worktree` does: one another git config scope also sets, a `postCreate` whose step you have not approved, and a `defaultSourceBranch` when there is no `origin/HEAD`.
+- aba61a2: Personal defaults such as `codeEditor`, `opener` and `agent.command` can now live once in `~/.config/worktree/config.yml`, written with `worktree config --user <key> <value>`; `worktree config --list` shows which source each value comes from.
+
+### Patch Changes
+
+- 705093f: `worktree branch`, `worktree rename` and `worktree config --user defaultSourceBranch` now accept a branch name containing `@`, such as `user@fix`. Only the sequence `@{`, which git forbids, and the name `@` on its own, which git reads as HEAD, are refused.
+- ba39368: `worktree branch`, `worktree rename` and `worktree config --user defaultSourceBranch` now accept a branch name containing `{`, such as `a{b`. Only the sequence `@{`, which git forbids, is refused.
+- 89f6025: `worktree config --user <key> <value>` now works from a directory that is not a git repository, such as your home directory, instead of failing with `fatal: not in a git directory`.
+- 56fe5e8: `worktree config` now tells you to find your ClickUp personal API token under Settings -> ClickUp API -> API Token. It pointed at Settings -> Apps, which ClickUp's settings no longer has.
+- 2e2ce2c: A `defaultSourceBranch` that starts with `-`, for example from a `.worktree.yml` committed to a repository, is now passed to `git worktree add` as a branch name rather than read by git as an option.
+- 97a2986: `worktree branch --jira KEY --assign` no longer replaces a colleague's assignment when the issue's project leaves Assignee out of its field scheme. Jira then hides the assignee from the read, so `worktree` cannot tell a free issue from a held one: it warns, leaves the issue alone and still creates the worktree, and `assigned` is `false`.
+- 6bc8cec: A failed Jira request answered with an HTML error page, such as a proxy's 502 or 503 page, no longer pastes the whole page into the error. `worktree` now gives the status and names the host that answered. A JSON or plain-text error from Jira is still shown.
+- 29bd470: `worktree list --issues` and `worktree cleanup` now read the state of every Linear issue instead of showing most as `state unknown`. Linear ignored the filter `worktree` sent for the batch, so a canceled issue's worktree was rarely offered for removal.
+- f39cc8a: A `.worktree.yml` in your worktree is no longer ignored without a word when your default branch has none. `worktree` now warns that the file is not in use and names `WORKTREE_PROJECT_CONFIG` for trying it.
+- e64f632: `worktree branch` and `worktree config` no longer offer to write a `.worktree.yml` when your worktree already has one. The offer used to say the repository had no file, fail to write over yours, and still count as accepted so it was never made again.
+- 231b242: `worktree config --user defaultSourceBranch <branch>` now works from a directory that is not a git repository, and accepts a branch that exists in other repositories but not the current one. It checks the branch name's syntax only, since the user file is a fallback for every repository.
+- adf0e22: A spinner's ✔, ✖ and ⚠ are now plain text when stderr is redirected to a file or a pipe; they used to leave colour escape codes in it.
+- 8c7cf24: `worktree` now prints no colour or bold when `NO_COLOR` is set: check marks, headings, warnings and the spinner used to ignore it, while setting `FORCE_COLOR` still turns colour on.
+- 282c0f6: `worktree branch --dry-run` no longer warns "Check the spelling, or use the field's id" when a shared `branchType` rule names the portable `Type` or `Labels` and the provider does not offer it, such as `Type` on ClickUp and Linear. A misspelt field in the shared list still warns on a dry run.
+- 0834ca6: On Jira Data Center, `worktree branch --jira` no longer offers the `Environment` field or the bundled `Development` field as rule values. Both used to print into the dry run, `Development` as a 3 KB Java string that could never match a rule, and `Environment` as text that matches on Data Center but never on Cloud. A rule you already wrote on `environment` now matches nothing on Data Center.
+- d359982: `worktree branch --agent-stdin` now reads the piped brief when the branch comes from an issue flag (`--linear`, `--github`, `--jira`, `--clickup`) instead of failing with "The agent brief from --agent-stdin is empty", so `worktree linear-listen` delegations start their agent.
+- 1aca6a1: A ClickUp task that does not exist, or that your token cannot see, is no longer reported as an authentication failure. `worktree` now says it could not find the task, or that the token cannot see it, and quotes ClickUp's own explanation. A rejected token still reports `Authentication failed`.
+- 689d11a: `--start` (and `jira.autoStart`) now moves an issue in a default Jira Cloud Scrum project, which offers both In Progress and In Review from To Do. When Jira offers more than one in-progress status, `worktree` takes the one named "In Progress"; with several and none so named it still writes nothing and tells you to move the issue in Jira. A non-interactive `--jira` run with `jira.autoStart` unset now moves these issues too; pass `--no-start` or set `jira.autoStart false` to keep them where they are.
+- b2af49a: A Jira site behind an SSO gateway no longer fails with a raw JSON parse error. When the gateway answers an API call with its sign-in page, `worktree` now says that Jira's host answered with a web page, not the API, and names the host it was redirected to.
+
 ## 3.0.0
 
 ### Major Changes
