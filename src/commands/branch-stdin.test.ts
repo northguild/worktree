@@ -51,12 +51,13 @@ describe("branch parse with a piped brief", () => {
     expect(remaining).toBe("Work on ABC-1.");
   });
 
-  it("does not turn the brief into the branch name", async () => {
-    const { parsed } = await parseWithPipedStdin(
-      ["--linear", "ABC-1", "--agent-stdin"],
+  it("leaves the brief on stdin with no issue flag and no branch name", async () => {
+    const { parsed, remaining } = await parseWithPipedStdin(
+      ["--agent-stdin"],
       "Work on ABC-1.",
     );
 
-    expect(parsed.args.branchName).not.toBe("Work on ABC-1.");
+    expect(parsed.args.branchName).toBeUndefined();
+    expect(remaining).toBe("Work on ABC-1.");
   });
 });
