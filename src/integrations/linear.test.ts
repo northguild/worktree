@@ -1644,12 +1644,14 @@ describe("fetchLinearIssueStates", () => {
       "query IssueStates($filter: IssueFilter!, $first: Int!) { issues(filter: $filter, first: $first, includeArchived: true) { nodes { identifier state { type } } } }",
     );
     expect(body.query).not.toMatch(/ENG|OPS|123/i);
-    // Expected variables are D6's filter shape, split at the last "-".
+    // Expected variables are #358's measured filter shape (each `or` element
+    // an `and` of team key and number; D6's two-field element is ignored by
+    // Linear), split at the last "-".
     expect(body.variables).toEqual({
       filter: {
         or: [
-          { team: { key: { eq: "ENG" } }, number: { eq: 123 } },
-          { team: { key: { eq: "OPS" } }, number: { eq: 7 } },
+          { and: [{ team: { key: { eq: "ENG" } } }, { number: { eq: 123 } }] },
+          { and: [{ team: { key: { eq: "OPS" } } }, { number: { eq: 7 } }] },
         ],
       },
       first: 2,
@@ -1666,7 +1668,11 @@ describe("fetchLinearIssueStates", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.variables).toEqual({
-      filter: { or: [{ team: { key: { eq: "ENG" } }, number: { eq: 1 } }] },
+      filter: {
+        or: [
+          { and: [{ team: { key: { eq: "ENG" } } }, { number: { eq: 1 } }] },
+        ],
+      },
       first: 1,
     });
     expect(states).toEqual(new Map([["ENG-1", "canceled"]]));
@@ -1694,7 +1700,7 @@ describe("fetchLinearIssueStates", () => {
     expect(first.filter.or).toHaveLength(50);
     expect(second.first).toBe(1);
     expect(second.filter.or).toEqual([
-      { team: { key: { eq: "ENG" } }, number: { eq: 51 } },
+      { and: [{ team: { key: { eq: "ENG" } } }, { number: { eq: 51 } }] },
     ]);
     expect(states.size).toBe(51);
     expect(states.get("ENG-1")).toBe("canceled");
