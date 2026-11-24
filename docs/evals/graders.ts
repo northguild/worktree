@@ -113,12 +113,25 @@ interface Code {
   all: string[];
 }
 
-/** D7: only code spans and fenced blocks are checked. */
+/** Languages whose `#` starts a comment; an unlabelled block is read as one too, since answers fence commands bare. */
+const SHELL_LANGS = new Set(["", "bash", "sh", "shell", "zsh", "console"]);
+
+/** A `#` at the start of a line or after whitespace runs to the end of the line. A `#` inside a word (`/faq/#x`) stays. */
+const SHELL_COMMENT = /(^|[ \t])#.*$/gm;
+
+/**
+ * D7: only code spans and fenced blocks are checked. A shell comment is prose, so it is dropped first: the first live run
+ * failed a correct answer on `# Rename a specific worktree directory`, read as a command named `directory`.
+ */
 function codeOf(text: string): Code {
-  const blocks = [...text.matchAll(FENCE)].map((m) => ({
-    lang: (m[1] ?? "").trim().toLowerCase(),
-    body: m[2] ?? "",
-  }));
+  const blocks = [...text.matchAll(FENCE)].map((m) => {
+    const lang = (m[1] ?? "").trim().toLowerCase();
+    const body = m[2] ?? "";
+    return {
+      lang,
+      body: SHELL_LANGS.has(lang) ? body.replace(SHELL_COMMENT, "$1") : body,
+    };
+  });
   const rest = text.replace(FENCE, "");
   const spans = [...rest.matchAll(INLINE_CODE)].map((m) => m[1] ?? "");
   return { blocks, all: [...blocks.map((b) => b.body), ...spans] };

@@ -169,6 +169,17 @@ describe("known (D7)", () => {
     expect(checks(withText(text)).known?.pass).toBe(false);
   });
 
+  it("skips a comment in a shell block but still reads the command beside it", () => {
+    const comment =
+      "```bash\n# Rename a specific worktree directory\nworktree rename /abs/repo.worktrees/feature/x bugfix/y\n```";
+    const trailing = "```sh\nworktree remove --no-such-flag # remove it\n```";
+
+    expect(checks(withText(comment)).known?.pass).toBe(true);
+    expect(checks(withText(trailing)).known?.detail).toContain(
+      "--no-such-flag",
+    );
+  });
+
   it("reads code only: prose and git's own commands are not checked", () => {
     const text =
       "People write --no-such-flag in prose. Use `git worktree add ../x`.";
