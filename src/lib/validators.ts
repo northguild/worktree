@@ -50,10 +50,14 @@ export async function isValidCommandLine(
 // reported in `--json`, so it is a short lowercase word and nothing else.
 export const ISSUE_PROVIDER_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
+/** What `ISSUE_PROVIDER_NAME_PATTERN` asks, in words, for every refusal of a name. */
+export const ISSUE_PROVIDER_NAME_RULE =
+  "must start with a lowercase letter and hold only lowercase letters, digits and hyphens, at most 32 characters";
+
 export function isValidIssueProviderName(value: string): true | string {
   return (
     ISSUE_PROVIDER_NAME_PATTERN.test(value) ||
-    "Name must start with a lowercase letter and hold only lowercase letters, digits and hyphens, at most 32 characters"
+    `Name ${ISSUE_PROVIDER_NAME_RULE}`
   );
 }
 

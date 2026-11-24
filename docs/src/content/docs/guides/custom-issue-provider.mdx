@@ -56,10 +56,11 @@ worktree branch --issue VERK-42 --dry-run
   added. That is how the command finds its credentials.
 - **Standard input** carries one JSON object, then is closed.
 - **Standard output** must be one JSON object and nothing else, at most 1 MiB. A provider that prints more is
-  stopped.
+  stopped, and the message says `on standard output`.
 - **Each call has 15 seconds.** `worktree` makes one call per operation, and stops a command that has not answered.
   The message reads `<name>: the issue provider did not answer within 15s.`
-- **Standard error is yours.** It is shown only when the call fails, and then only its last non-empty line, with
+- **Standard error is yours**, up to 1 MiB of it: past that the provider is stopped as for standard output, and the
+  message says `on standard error`. It is shown only when the call fails, and then only its last non-empty line, with
   secrets redacted, control characters written out and cut to 200 characters.
 
 Every request and every answer has `"version": 1`. It is required in both directions. An answer with another
@@ -237,7 +238,9 @@ message that starts with the provider's name, without an error answer:
 - it prints no valid JSON, or JSON with a missing or unsupported `version`;
 - it prints JSON that does not match the schema above, naming the first offending field;
 - it does not answer in 15 seconds (the run's `--json` error is `timeout`);
-- it prints more than 1 MiB.
+- it prints more than 1 MiB on standard output or on standard error, and the message names which;
+- it is stopped by a signal from outside `worktree` (a crash, or the system ending it), and the message names the
+  signal.
 
 An error answer for `assign` or `start` is a warning, as above, not a failure of the run.
 

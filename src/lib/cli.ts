@@ -152,7 +152,14 @@ export function runCapturing(
     const child = execFile(
       file,
       args,
-      { cwd, timeout, env: mergeEnv(env), maxBuffer },
+      // An explicit `maxBuffer: undefined` replaces Node's 1 MiB default with no
+      // limit at all, so the key is passed only when the caller set it.
+      {
+        cwd,
+        timeout,
+        env: mergeEnv(env),
+        ...(maxBuffer === undefined ? {} : { maxBuffer }),
+      },
       (error, stdout, stderr) => {
         disarm();
         const output = {

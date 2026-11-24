@@ -7,7 +7,7 @@ import {
   matchOfResult,
 } from "../lib/branch-type.js";
 import { runCapturing } from "../lib/cli.js";
-import { showVisibly } from "../lib/config-keys.js";
+import { CONTROL_OR_FORMAT, showVisibly } from "../lib/config-keys.js";
 import {
   type BranchKind,
   getBranchPrefix,
@@ -30,8 +30,11 @@ import { slugifyBranchTitle } from "../lib/utils.js";
 /** Per call (D6). A provider that has not answered by then is killed. */
 export const PROVIDER_TIMEOUT_MS = 15_000;
 
-/** Stdout cap, in bytes (D6); `maxBuffer` ends the child that passes it. */
-const MAX_STDOUT_BYTES = 1024 * 1024;
+/**
+ * Output cap, in bytes (D6); `maxBuffer` ends the child that passes it. Node
+ * applies it to stdout and to stderr, each on its own, so it bounds both.
+ */
+const MAX_OUTPUT_BYTES = 1024 * 1024;
 
 /** The longest stretch of the provider's own words shown to a person. */
 const MAX_SHOWN_CHARS = 200;
@@ -45,10 +48,6 @@ const PROTOCOL_VERSION = 1;
 // a leading, trailing or doubled separator.
 const KEY_PATTERN = /^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*$/;
 const MAX_KEY_LENGTH = 64;
-
-// The same rule as the approval prompt's `step` (config-keys.ts): a control or
-// formatting character could redraw the terminal or reorder what is printed.
-const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
 
 const plainText = z.string().refine((value) => !CONTROL_OR_FORMAT.test(value), {
   message: "must not contain control or formatting characters",
@@ -171,10 +170,20 @@ function lastLine(stderr: string): string {
   return lines.at(-1) ?? "";
 }
 
+/**
+ * An exit-1 failure whose `--json` code is set here. `toErrorCode`
+ * (base-command.ts) takes an explicit `code` before it reads the message, and
+ * these messages carry text the provider wrote, so a provider that says "did
+ * not answer within 30s" must not make the run report a `timeout`.
+ */
+function providerError(message: string, code: "failed" | "timeout" = "failed") {
+  return Object.assign(new Error(message), { code });
+}
+
 /** A failure that is the provider's, with the tail of its stderr when it has one. */
 function failure(name: string, what: string, stderr = ""): Error {
   const tail = lastLine(stderr);
-  return new Error(
+  return providerError(
     tail
       ? `${name}: ${what} Its stderr ended: ${shown(tail)}`
       : `${name}: ${what}`,
@@ -207,8 +216,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
  *
  * Throws `InvalidValueError` (exit 2) for the provider's `invalid_reference`,
  * and a plain `Error` (exit 1) for everything else: `not_found`, `failed`, a
- * non-zero exit, a program that cannot be run, a timeout, and an answer that
- * breaks the contract. Every message starts with the provider's name.
+ * non-zero exit, a program that cannot be run or was stopped by a signal, a
+ * timeout, and an answer that breaks the contract. Each carries its `--json`
+ * code, `timeout` for the timeout and `failed` for the rest, so the message is
+ * never what decides it. Every message starts with the provider's name.
  */
 async function callProvider<T>(
   argv: string[],
@@ -218,7 +229,7 @@ async function callProvider<T>(
 ): Promise<T> {
   const [file, ...args] = argv;
   if (file === undefined) {
-    throw new Error(`${name}: issueProvider.command is empty.`);
+    throw providerError(`${name}: issueProvider.command is empty.`);
   }
 
   let result: Awaited<ReturnType<typeof runCapturing>>;
@@ -227,7 +238,7 @@ async function callProvider<T>(
       cwd,
       timeout: timeoutMs,
       input: JSON.stringify({ version: PROTOCOL_VERSION, ...request }),
-      maxBuffer: MAX_STDOUT_BYTES,
+      maxBuffer: MAX_OUTPUT_BYTES,
     });
   } catch (error) {
     throw describeRunFailure(name, error, timeoutMs);
@@ -243,7 +254,7 @@ async function callProvider<T>(
       const text = `${name}: ${shown(message)}`;
       throw code === "invalid_reference"
         ? new InvalidValueError(text)
-        : new Error(text);
+        : providerError(text);
     }
   }
 
@@ -328,25 +339,45 @@ export async function startCustomIssue(
   return outcome;
 }
 
-/** `runCapturing` rejects when no exit code exists: overrun, kill, or no program. */
+/**
+ * `runCapturing` rejects when no exit code exists: an overrun, the timeout, a
+ * signal from elsewhere, or a program that never ran. Only the last is "could
+ * not be run"; Node's message for a signal is `Command failed: <argv>`, which
+ * would send a person looking for a PATH problem, so it is not shown.
+ */
 function describeRunFailure(
   name: string,
   error: unknown,
   timeoutMs: number,
 ): Error {
-  const { code, killed } = error as { code?: unknown; killed?: unknown };
+  const { code, killed, signal, message } = error as {
+    code?: unknown;
+    killed?: unknown;
+    signal?: unknown;
+    message?: unknown;
+  };
   if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-    return new Error(
-      `${name}: the issue provider printed more than ${MAX_STDOUT_BYTES / 1024 / 1024} MiB.`,
+    // Node names the stream that overran: "stderr maxBuffer length exceeded".
+    const stream = /^stderr\b/.test(String(message))
+      ? "standard error"
+      : "standard output";
+    return providerError(
+      `${name}: the issue provider printed more than ${MAX_OUTPUT_BYTES / 1024 / 1024} MiB on ${stream}.`,
     );
   }
   if (killed === true) {
-    return new Error(
+    return providerError(
       `${name}: the issue provider did not answer within ${Math.round(timeoutMs / 1000)}s.`,
+      "timeout",
+    );
+  }
+  if (typeof signal === "string") {
+    return providerError(
+      `${name}: the issue provider was stopped by ${signal} before it answered.`,
     );
   }
   const reason = error instanceof Error ? error.message : String(error);
-  return new Error(
+  return providerError(
     `${name}: issueProvider.command could not be run (${shown(reason)}).`,
   );
 }

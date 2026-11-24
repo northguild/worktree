@@ -34,6 +34,7 @@ import {
   GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
   ISSUE_PROVIDER_NAME_PATTERN,
+  ISSUE_PROVIDER_NAME_RULE,
   isValidGitHubHost,
   isValidGitHubRepository,
 } from "./validators.js";
@@ -198,8 +199,7 @@ export const projectConfigSchema = z
         name: z
           .string()
           .regex(ISSUE_PROVIDER_NAME_PATTERN, {
-            message:
-              "name must start with a lowercase letter and hold only lowercase letters, digits and hyphens, at most 32 characters",
+            message: `name ${ISSUE_PROVIDER_NAME_RULE}`,
           })
           .meta({
             description:
@@ -495,28 +495,29 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
 /**
  * A team key by D2 (#281): git config (any scope) first, then the project
  * file, then the user file, then `""` with source `default` for the caller's
- * built-in. A file is not read when a layer above it answers. A file that
- * cannot be used throws `ProjectConfigError` or `UserConfigError`, as
- * `loadProjectConfig` and `loadUserConfig` do.
+ * built-in. A file is not read when a layer above it answers. A value of only
+ * whitespace is no answer: it would otherwise hide a lower layer's real one and
+ * then trim to nothing. A file that cannot be used throws `ProjectConfigError`
+ * or `UserConfigError`, as `loadProjectConfig` and `loadUserConfig` do.
  */
 export async function resolveTeamConfig(name: TeamConfigKey): Promise<{
   value: string;
   source: ConfigValueSource;
 }> {
   const personal = await gitGetConfigValue(name);
-  if (personal) {
+  if (personal?.trim()) {
     return { value: personal, source: "git-config" };
   }
   const result = await loadProjectConfig();
   const fromFile =
     result.status === "loaded" ? projectValue(result.config, name) : undefined;
-  if (fromFile) {
+  if (fromFile?.trim()) {
     return { value: fromFile, source: "project" };
   }
   const user = await loadUserConfig();
   const fromUser =
     user.status === "loaded" ? fileSettingValue(user.config, name) : undefined;
-  return fromUser
+  return fromUser?.trim()
     ? { value: fromUser, source: "user" }
     : { value: "", source: "default" };
 }
@@ -525,49 +526,78 @@ export async function getTeamConfigValue(name: TeamConfigKey) {
   return (await resolveTeamConfig(name)).value;
 }
 
+/** Where an issue provider can be set, highest first (#281 D2). */
+export const ISSUE_PROVIDER_SOURCES = [
+  "git-config",
+  "project",
+  "user",
+] as const;
+export type IssueProviderSource = (typeof ISSUE_PROVIDER_SOURCES)[number];
+
+export interface ResolvedIssueProvider {
+  name: string | null;
+  command: string;
+  source: IssueProviderSource;
+}
+
 /**
- * The team's own issue provider (#357 D4): the command, trimmed, and the name
- * from the same layer that set it, or `undefined` when no layer sets a command.
- * A name never comes from another layer than its command, so a file's name
- * cannot label a person's own command. A name that does not match the pattern
- * (git config takes anything) is dropped, not reported: it is only a label.
+ * The pairing rule for `issueProvider.name` and `.command` (#357 D4), on its
+ * own so `branch` and `config` cannot read the pair two ways. The command is
+ * the first layer's that is more than whitespace, trimmed, and the name is
+ * that same layer's, so a file's name cannot label a person's own command. A
+ * name that does not match the pattern (git config takes anything) is dropped,
+ * not reported: it is only a label. `read` is asked for one layer at a time,
+ * in order, so a layer below the answer is never read.
  */
-export async function resolveIssueProvider(): Promise<
-  | {
-      name: string | null;
-      command: string;
-      source: Exclude<ConfigValueSource, "default">;
+export async function pairIssueProvider(
+  read: (
+    source: IssueProviderSource,
+  ) => Promise<{ name?: string; command?: string }>,
+): Promise<ResolvedIssueProvider | undefined> {
+  for (const source of ISSUE_PROVIDER_SOURCES) {
+    const layer = await read(source);
+    const command = layer.command?.trim();
+    if (!command) {
+      continue;
     }
-  | undefined
-> {
-  const { value, source } = await resolveTeamConfig("issueProvider.command");
-  const command = value.trim();
-  if (source === "default" || command === "") {
-    return undefined;
+    const name = layer.name?.trim();
+    return {
+      name: name && ISSUE_PROVIDER_NAME_PATTERN.test(name) ? name : null,
+      command,
+      source,
+    };
   }
-  let name: string | undefined;
-  if (source === "git-config") {
-    // Git config is the first layer, so a name it answers with is its own.
-    const own = await resolveTeamConfig("issueProvider.name");
-    name = own.source === "git-config" ? own.value.trim() : undefined;
-  } else if (source === "project") {
-    const project = await loadProjectConfig();
-    name =
-      project.status === "loaded"
-        ? project.config.issueProvider?.name
-        : undefined;
-  } else {
+  return undefined;
+}
+
+/**
+ * The team's own issue provider (#357 D4), by `pairIssueProvider`'s rule from
+ * git config, the project file and the user file, or `undefined` when no layer
+ * sets a command. A file that cannot be used throws, as `resolveTeamConfig`
+ * does.
+ */
+export function resolveIssueProvider() {
+  return pairIssueProvider(async (source) => {
+    if (source === "git-config") {
+      return {
+        command: await gitGetConfigValue("issueProvider.command"),
+        name: await gitGetConfigValue("issueProvider.name"),
+      };
+    }
+    if (source === "project") {
+      const project = await loadProjectConfig();
+      return project.status === "loaded"
+        ? (project.config.issueProvider ?? {})
+        : {};
+    }
     const user = await loadUserConfig();
-    name =
-      user.status === "loaded"
-        ? fileSettingValue(user.config, "issueProvider.name")
-        : undefined;
-  }
-  return {
-    name: name && ISSUE_PROVIDER_NAME_PATTERN.test(name) ? name : null,
-    command,
-    source,
-  };
+    return user.status === "loaded"
+      ? {
+          command: fileSettingValue(user.config, "issueProvider.command"),
+          name: fileSettingValue(user.config, "issueProvider.name"),
+        }
+      : {};
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -969,8 +999,9 @@ export async function ensurePostCreateApproved(options: { install?: boolean }) {
 }
 
 /**
- * `worktree config --approve`: shows the current steps and asks. A refusal to
- * run unattended, since an approval nobody saw is no approval.
+ * `worktree config --approve`: shows the current steps and asks, or, when
+ * they are already approved, shows them and says so. A refusal to run
+ * unattended, since an approval nobody saw is no approval.
  */
 export async function approvePostCreate() {
   if (isNonInteractive()) {
@@ -982,7 +1013,10 @@ export async function approvePostCreate() {
     return false;
   }
   if ((await readApproval()) === postCreateApprovalHash(steps)) {
-    console.error("This project's postCreate steps are already approved.");
+    // Not asked again, but still listed: this is how a person reviews what
+    // they approved without reading .worktree.yml by hand.
+    showSteps(steps);
+    console.error("These steps are already approved.");
     return false;
   }
   return askToApprove(steps);
@@ -1048,10 +1082,14 @@ function providerApprovalRequired() {
   );
 }
 
-async function askToApproveProvider(command: string) {
+function showProviderCommand(command: string) {
   console.error(
     `This project's .worktree.yml runs this command to read issues from its own tracker:\n  ${showVisibly(command)}`,
   );
+}
+
+async function askToApproveProvider(command: string) {
+  showProviderCommand(command);
   const approved = await askConfirm(
     { message: "Run this command on this machine?" },
     providerApprovalRequired(),
@@ -1076,9 +1114,10 @@ async function askToApproveProvider(command: string) {
  * starts.
  */
 export async function ensureIssueProviderApproved(
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; provider?: ResolvedIssueProvider } = {},
 ) {
-  const provider = await resolveIssueProvider();
+  // A caller that already resolved the pair passes it, so it is read once.
+  const provider = options.provider ?? (await resolveIssueProvider());
   if (provider?.source !== "project") {
     return;
   }
@@ -1094,9 +1133,9 @@ export async function ensureIssueProviderApproved(
 }
 
 /**
- * `worktree config --approve`, for the provider command: shown and asked only
- * when the file sets one this person has not approved. Refuses to run
- * unattended, like `approvePostCreate`.
+ * `worktree config --approve`, for the provider command: shown when the file
+ * sets one, and asked only when this person has not approved it. Refuses to
+ * run unattended, like `approvePostCreate`.
  */
 export async function approveIssueProvider() {
   if (isNonInteractive()) {
@@ -1107,7 +1146,8 @@ export async function approveIssueProvider() {
     return false;
   }
   if (await issueProviderApproved(command)) {
-    console.error("This project's issue provider command is already approved.");
+    showProviderCommand(command);
+    console.error("This command is already approved.");
     return false;
   }
   return askToApproveProvider(command);
@@ -1435,7 +1475,8 @@ async function unsetLocal(key: string) {
  * would change what `worktree` does: a key another scope also sets, a
  * `postCreate` whose step is not approved, an `issueProvider.command` (and
  * with it the `issueProvider.name`) while the file's command is not
- * approved, and with no origin/HEAD a `defaultSourceBranch`, which is what
+ * approved or while git config names the provider otherwise than the file,
+ * and with no origin/HEAD a `defaultSourceBranch`, which is what
  * finds the file. A failed unset throws,
  * unless the key is already gone.
  */
@@ -1461,6 +1502,16 @@ async function removeCoveredLocalConfig(config: ProjectConfig) {
       !(await issueProviderApproved(config.issueProvider?.command ?? ""))
     ) {
       continue;
+    }
+    // Removing the command moves it to the file's layer, and the name in
+    // effect moves with it (D4): a git-config name other than the file's would
+    // silently give way to the file's, so the command copy stays while git
+    // config names the provider differently.
+    if (key === "issueProvider.command") {
+      const ownName = (await gitGetConfigValue("issueProvider.name"))?.trim();
+      if (ownName && ownName !== config.issueProvider?.name) {
+        continue;
+      }
     }
     if (key === "defaultSourceBranch" && !hasOriginHead) {
       continue;

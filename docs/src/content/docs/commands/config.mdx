@@ -344,8 +344,8 @@ the first `--issue` run with neither the flag nor the key set asks, if the provi
 ## Approving Post-create Steps and the Provider Command
 
 `worktree config --approve` shows the `postCreate` steps and the `issueProvider.command` in the repository's
-`.worktree.yml`, each only when the file sets it and you have not approved it, and asks whether to run it on
-this machine. Yes records the approval for those exact steps, or that exact command line, in this clone's
+`.worktree.yml`, each when the file sets it, and asks whether to run it on this machine only when you have not
+approved it; one already approved is shown and said to be approved. Yes records the approval for those exact steps, or that exact command line, in this clone's
 local git config, so `worktree branch` does not ask. It needs a terminal: when nothing can be asked it
 refuses with exit `2`. The approvals are not configuration keys, so they are not listed by `--list` and
 cannot be set by name. See [Approving the steps](/worktree/project-configuration/#approving-the-steps) and

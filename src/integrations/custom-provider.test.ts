@@ -283,7 +283,19 @@ describe("what is refused at the boundary (D6)", () => {
 
     const error = await refusal(argv);
 
-    expect(error.message).toMatch(/^verk: .*1 MiB/);
+    expect(error.message).toMatch(/^verk: .*1 MiB on standard output\.$/);
+  });
+
+  it("stderr over 1 MiB, ending the provider and naming standard error", async () => {
+    // Node's maxBuffer bounds each stream on its own, so the cap holds for
+    // stderr too; the message names the stream so its author looks there.
+    const argv = provider(
+      `process.stderr.write("e".repeat(2 * 1024 * 1024)); setTimeout(() => {}, 600_000);`,
+    );
+
+    const error = await refusal(argv);
+
+    expect(error.message).toMatch(/^verk: .*1 MiB on standard error\.$/);
   });
 
   it("does not show the provider's own bytes in the refusal of a bad key", async () => {
@@ -328,6 +340,19 @@ describe("an error the provider reports (D6)", () => {
     );
 
     await expect(fetching(argv)).rejects.toThrow("verk: gone");
+  });
+
+  it("reports failed, never timeout, for a provider message that reads like a timeout", async () => {
+    // base-command.ts maps a message matching "did not answer within <n>s" to
+    // `timeout` unless the error names its own code.
+    const error = await fetching(
+      failing("failed", "Verk API did not answer within 30s"),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: "verk: Verk API did not answer within 30s",
+      code: "failed",
+    });
   });
 
   it("refuses an error code the contract does not name", async () => {
@@ -432,6 +457,32 @@ describe("a provider that fails without a valid document", () => {
     await expect(fetching(argv)).rejects.toThrow(/deprecated flag/);
   });
 
+  it("reports failed for stderr that ends with a timeout-shaped line", async () => {
+    const argv = provider(
+      `process.stderr.write("upstream did not answer within 30s\\n"); process.exit(1);`,
+    );
+
+    const error = await fetching(argv).catch((caught: unknown) => caught);
+
+    expect((error as Error).message).toContain("did not answer within 30s");
+    expect(error).toMatchObject({ code: "failed" });
+  });
+
+  it("says a provider killed by a signal was stopped, not that it could not be run", async () => {
+    const argv = provider(`process.kill(process.pid, "SIGKILL");`);
+
+    const error = (await fetching(argv).catch(
+      (caught: unknown) => caught,
+    )) as Error;
+
+    expect(error.message).toBe(
+      "verk: the issue provider was stopped by SIGKILL before it answered.",
+    );
+    expect(error).toMatchObject({ code: "failed" });
+    // Node's "Command failed: <argv>" would print the command line.
+    expect(error.message).not.toContain(argv[1] as string);
+  });
+
   it("does not show stderr when the answer is good", async () => {
     const argv = provider(
       `process.stderr.write("just a warning\\n"); process.stdout.write(${JSON.stringify(JSON.stringify(answer()))});`,
@@ -466,19 +517,19 @@ describe("the time bound (D6)", () => {
      process.on("SIGTERM", () => {});
      setTimeout(() => {}, 600_000);`;
 
-  it("rejects a provider that sleeps past the bound with the message base-command.ts maps to a timeout", async () => {
+  it("rejects a provider that sleeps past the bound as a timeout, by its code", async () => {
     const argv = provider(`setTimeout(() => {}, 600_000);`);
 
     const error = (await fetching(argv, "K-1", 1_000).catch(
       (caught: unknown) => caught,
     )) as Error;
 
-    // The pattern base-command.ts's TIMEOUT_MESSAGE uses, and the exact
-    // sentence D6 writes (here for a 1s bound, so `1s`, not `15s`).
+    // The exact sentence D6 writes (here for a 1s bound, so `1s`, not `15s`),
+    // and the code base-command.ts reports before it reads any message.
     expect(error.message).toBe(
       "verk: the issue provider did not answer within 1s.",
     );
-    expect(error.message).toMatch(/did not (?:answer|finish) within \d+s/);
+    expect(error).toMatchObject({ code: "timeout" });
   });
 
   it("bounds every call at 15 s and 1 MiB when the caller names no timeout", async () => {

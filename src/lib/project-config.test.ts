@@ -1373,6 +1373,18 @@ describe("post-create approval", () => {
     expect(stored).toBe(STEPS_HASH);
   });
 
+  it("approvePostCreate lists steps already approved, and asks nothing", async () => {
+    stored = STEPS_HASH;
+
+    expect(await approvePostCreate()).toBe(false);
+
+    const shown = log.mock.calls.flat().join("\n");
+    expect(shown).toContain("1. pnpm install");
+    expect(shown).toContain("2. pnpm prisma generate");
+    expect(shown).toContain("already approved");
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("approvePostCreate says so when the file has no steps", async () => {
     fromOriginMain("copy: []\n");
 
@@ -2597,6 +2609,17 @@ describe("resolveIssueProvider: the pair comes from one layer (#357 D4)", () => 
     expect(await resolveIssueProvider()).toBeUndefined();
   });
 
+  it("skips a git-config command of only whitespace, for the file's", async () => {
+    personal({ "issueProvider.command": "   " });
+    fromOriginMain(PROJECT);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "filename",
+      command: "file-provider",
+      source: "project",
+    });
+  });
+
   it("is none for a name with no command", async () => {
     personal({ "issueProvider.name": "orphan" });
 
@@ -2736,6 +2759,23 @@ describe("offerProjectConfig: the issueProvider pair when removing covered keys 
 
     expect(local.has("northguild.worktree.issueProvider.command")).toBe(false);
     expect(local.has("northguild.worktree.issueProvider.name")).toBe(false);
+  });
+
+  // Removing the command would hand the file's name to the provider in its
+  // place: a different git-config name is in effect today, so the pair stays.
+  it("keeps an approved local command equal to the file's while the local name differs", async () => {
+    const { local } = fakeGitConfig({
+      "issueProvider.name": "mine",
+      "issueProvider.command": "verk-provider",
+      issueProviderApproval: issueProviderApprovalHash(["verk-provider"]),
+    });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.issueProvider.command")).toBe(
+      "verk-provider",
+    );
+    expect(local.get("northguild.worktree.issueProvider.name")).toBe("mine");
   });
 
   // The name is half of a pair: with the command kept, removing a name equal to
@@ -2922,10 +2962,16 @@ describe("issue provider approval (#357 D5)", () => {
     fromOriginMain("copy: []\n");
     expect(await approveIssueProvider()).toBe(false);
 
+    // The first read is cached; without the reset the file below is never read.
+    resetProjectConfigCache();
     fromOriginMain(FILE);
     local.set(APPROVAL, HASH);
     expect(await approveIssueProvider()).toBe(false);
     expect(confirm).not.toHaveBeenCalled();
+    // Still listed, so `--approve` is where a person can read it again.
+    const lines = shown.mock.calls.flat().join("\n");
+    expect(lines).toContain("verk-provider --json");
+    expect(lines).toContain("already approved");
   });
 
   it("keeps a local command equal to the file's until the file's is approved", async () => {

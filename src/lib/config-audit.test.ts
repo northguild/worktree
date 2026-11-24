@@ -132,6 +132,18 @@ const SITES: Record<string, Site[]> = {
       reason: "resolveTeamConfig's own first layer",
     },
     {
+      key: '"issueProvider.command"',
+      kind: "git-only",
+      reason:
+        "resolveIssueProvider's first layer: the pair is read layer by layer, so git config's own command is asked for (#357 D4)",
+    },
+    {
+      key: '"issueProvider.name"',
+      kind: "git-only",
+      reason:
+        "resolveIssueProvider's first layer: the name comes from the same layer as the command (#357 D4)",
+    },
+    {
       key: '"postCreate"',
       kind: "git-only",
       reason: "a personal postCreate skips the approval; it is the first layer",
@@ -145,6 +157,12 @@ const SITES: Record<string, Site[]> = {
       key: "key",
       kind: "git-only",
       reason: "the offer asks whether git config holds a team key",
+    },
+    {
+      key: '"issueProvider.name"',
+      kind: "git-only",
+      reason:
+        "a local command copy stays while git config names the provider otherwise than the file, or removing it would change the name in effect (#357 D4)",
     },
   ],
 };

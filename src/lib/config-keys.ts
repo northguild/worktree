@@ -60,11 +60,18 @@ export function showVisibly(text: string) {
 
 // The approval prompt prints a step as text, so one that redraws the terminal
 // (\r, ESC) or reorders it (bidi overrides) would hide what runs (D16).
+/**
+ * A control (`\p{Cc}`) or formatting (`\p{Cf}`) character: one that can redraw
+ * the terminal or reorder what is printed. Every value shown to a person as
+ * text, and so allowed none of them, tests against this one rule.
+ */
+export const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
+
 export const step = z
   .string()
   .refine((value) => value.trim() !== "", {
     message: "a step cannot be empty",
   })
-  .refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), {
+  .refine((value) => !CONTROL_OR_FORMAT.test(value), {
     message: "a step cannot hold control or formatting characters",
   });

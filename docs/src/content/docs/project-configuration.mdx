@@ -56,7 +56,8 @@ Every run that uses it says so on stderr.
 
 ## Precedence
 
-For each key, the first of these that has a value wins:
+For each key, the first of these that has a value wins. A value of only spaces is no value, and the next source
+is read:
 
 | Order | Source |
 |---|---|
@@ -367,7 +368,8 @@ Steps from a file run commands on your machine that someone else wrote, so each 
   in `worktree config --list` and `worktree config <key> <value>` cannot set it.
 - **On a terminal**, `worktree branch` lists every step before anything is created and asks. Yes remembers
   the approval; no exits `1` with nothing created. `worktree config --approve` shows the current steps and
-  asks ahead of time, and does the same for the file's provider command (see below). It needs a terminal.
+  asks ahead of time, or, when they are already approved, shows them and says so, which is how to read again
+  what you approved. It does the same for the file's provider command (see below). It needs a terminal.
 - **When nothing can be asked** (a script, CI, `--json`, `--yes` or `--non-interactive`), an unapproved or
   changed list stops the run before anything is created, with exit `2` and `missing_value` under `--json`.
   The message names the two ways out: approve once in a terminal with `worktree config --approve`, or skip
@@ -388,8 +390,8 @@ or your [user config file](/worktree/configuration/#user-config-file) is yours a
   not in `worktree config --list` and cannot be set by `worktree config <key> <value>`.
 - **On a terminal**, the command is shown, with any control character written out, and asked about before
   the first call to the provider. Yes remembers the approval; no exits `1` and the provider is not run.
-  `worktree config --approve` shows and asks for the provider command and for the steps, each only when the
-  file sets one you have not approved.
+  `worktree config --approve` shows the provider command and the steps, each when the file sets it, and asks
+  only about one you have not approved; one already approved is shown and said to be approved.
 - **When nothing can be asked** (a script, CI, `--json`, `--yes` or `--non-interactive`), and under
   `--dry-run`, which never asks, an unapproved or changed command stops the run before the provider starts,
   with exit `2` and `missing_value` under `--json`. The message names `worktree config --approve`. It never
@@ -427,7 +429,9 @@ Two steps move your settings to the file. Only the first is an offer.
   - a local `postCreate`, until you have [approved](#approving-the-steps) the file's step, because your own
     `postCreate` is what lets `branch` run without that approval;
   - a local `issueProvider.command`, until you have [approved](#approving-the-provider-command) the file's,
-    for the same reason, and with it the local `issueProvider.name`;
+    for the same reason, and with it the local `issueProvider.name`; and while your git config sets an
+    `issueProvider.name` other than the file's, because the name is read from the command's layer and would
+    become the file's;
   - with no `origin/HEAD`, a local `defaultSourceBranch`, because it is what finds the file.
 
   If a key cannot be removed, `branch` and `worktree config` warn and still succeed.

@@ -26,6 +26,7 @@ import { isNonInteractive } from "../lib/interaction.js";
 import {
   approveIssueProvider,
   approvePostCreate,
+  type IssueProviderSource,
   isProjectFileKey,
   loadProjectConfig,
   markProjectConfigUnusable,
@@ -33,6 +34,7 @@ import {
   PROJECT_CONFIG_FILE,
   type ProjectConfig,
   ProjectConfigError,
+  pairIssueProvider,
   projectFileKeys,
   projectFileValue,
   resetProjectConfigCache,
@@ -54,7 +56,6 @@ import {
 } from "../lib/user-config.js";
 import { conjoin } from "../lib/utils.js";
 import {
-  ISSUE_PROVIDER_NAME_PATTERN,
   validateConfigValue,
   validateUserConfigValue,
 } from "../lib/validators.js";
@@ -69,6 +70,13 @@ const PAIR_LAYERS = [
   USER_CONFIG_ORIGIN,
 ] as const;
 type PairLayer = (typeof PAIR_LAYERS)[number];
+
+/** Each layer `pairIssueProvider` names, as `config` writes it. */
+const PAIR_LAYER_OF_SOURCE = {
+  "git-config": "git config",
+  project: PROJECT_CONFIG_FILE,
+  user: USER_CONFIG_ORIGIN,
+} as const satisfies Record<IssueProviderSource, PairLayer>;
 
 /** Whether the current directory is inside a git work tree. */
 async function isInsideRepository() {
@@ -88,7 +96,7 @@ export default class Config extends BaseCommand {
   static override flags = {
     approve: Flags.boolean({
       description:
-        "Review and approve the postCreate steps and the issue provider command in the project's .worktree.yml, each only when set and not yet approved (terminal only)",
+        "Review and approve the postCreate steps and the issue provider command in the project's .worktree.yml: each is shown when set, and asked about when not yet approved (terminal only)",
     }),
     list: Flags.boolean({
       char: "l",
@@ -237,11 +245,12 @@ export default class Config extends BaseCommand {
   }
 
   /**
-   * `issueProvider.name` and `.command` are read as a pair (#357 D4, as
-   * `resolveIssueProvider` does): the command comes from the first layer that
-   * sets one, and the name from that same layer, so a name in any other layer
-   * is not in effect. `commandFrom` is that layer, or undefined when no layer
-   * sets a command.
+   * `issueProvider.name` and `.command` are read as a pair (#357 D4), by the
+   * rule `resolveIssueProvider` uses (`pairIssueProvider`), so `config` shows
+   * the very name `branch --issue` uses. The layers are read here the
+   * forgiving way, a file that cannot be used counting as absent. `names` is
+   * every layer's name as written, for the lines that say which are not in
+   * effect; `commandFrom` is undefined when no layer sets a command.
    */
   private async issueProviderPair() {
     const file = await this.loadFile();
@@ -265,17 +274,16 @@ export default class Config extends BaseCommand {
       return values;
     };
     const commands = await read("issueProvider.command");
-    const first = PAIR_LAYERS.find((layer) => commands[layer] !== undefined);
-    // A command of only whitespace is no command, as the resolver sees it.
-    const commandFrom = first && commands[first]?.trim() ? first : undefined;
     const names = await read("issueProvider.name");
-    // The name in effect: the command's layer's, if it fits the pattern. The
-    // resolver drops one that does not (it is only a label), and git config is
-    // the one layer that can hold one.
-    const own = commandFrom && names[commandFrom]?.trim();
-    const inEffect =
-      own && ISSUE_PROVIDER_NAME_PATTERN.test(own) ? own : undefined;
-    return { commandFrom, names, inEffect };
+    const pair = await pairIssueProvider(async (source) => {
+      const layer = PAIR_LAYER_OF_SOURCE[source];
+      return { command: commands[layer], name: names[layer] };
+    });
+    return {
+      commandFrom: pair && PAIR_LAYER_OF_SOURCE[pair.source],
+      names,
+      inEffect: pair?.name ?? undefined,
+    };
   }
 
   /**

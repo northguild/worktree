@@ -72,6 +72,7 @@ import {
   getTeamConfigValue,
   loadProjectConfig,
   offerProjectConfig,
+  type ResolvedIssueProvider,
   resolveIssueProvider,
   showLinesVisibly,
   showVisibly,
@@ -759,9 +760,9 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     reference: string,
     dryRun: boolean,
   ): Promise<DerivedName> {
-    const provider = await resolveIssueProvider();
+    const provider = this.issueProvider;
     if (!provider) {
-      // `run` checked before it got here; this keeps the type honest.
+      // `run` resolved it before it got here; this keeps the type honest.
       throw new Error("--issue reached the fetch without a provider.");
     }
     const spinner = createSpinner(
@@ -1261,6 +1262,12 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
   /** The workspace a pasted Linear URL named, kept beside its identifier (D5). */
   private pastedLinearWorkspace: string | undefined;
 
+  /**
+   * The `--issue` provider, resolved once in `run` and read from here, so a
+   * run spawns `git config` for the pair once and every step sees one answer.
+   */
+  private issueProvider: ResolvedIssueProvider | undefined;
+
   private async normalizeIssueUrls(flags: {
     github?: string;
     jira?: string;
@@ -1507,14 +1514,16 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // `--issue ""` and `--issue=` parse to an empty string, which is falsy: the
     // flag was given, so it counts as given here and is refused below as empty.
     const issueGiven = flags.issue !== undefined;
+    // Counted by whether each flag was given, not by its value, so an empty
+    // `--github ""` beside `--issue X` is two issue flags, not one.
     if (
       [
         flags.github,
         flags.jira,
         flags.linear,
         flags.clickup,
-        issueGiven,
-      ].filter(Boolean).length > 1
+        flags.issue,
+      ].filter((value) => value !== undefined).length > 1
     ) {
       // The wording without --issue is the one every earlier run printed.
       this.error(
@@ -1636,13 +1645,17 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         );
       }
       flags.issue = reference;
-      if (!(await resolveIssueProvider())) {
+      this.issueProvider = await resolveIssueProvider();
+      if (!this.issueProvider) {
         throw new MissingValueError(
           "the issue provider command",
           "`worktree config issueProvider.command <command>`, or issueProvider.command in .worktree.yml",
         );
       }
-      await ensureIssueProviderApproved({ dryRun });
+      await ensureIssueProviderApproved({
+        dryRun,
+        provider: this.issueProvider,
+      });
     }
 
     const configNames: ConfigName[] = !flags.source

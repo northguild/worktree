@@ -17,6 +17,7 @@ import {
   GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
   ISSUE_PROVIDER_NAME_PATTERN,
+  ISSUE_PROVIDER_NAME_RULE,
   isValidGitHubHost,
   isValidGitHubRepository,
 } from "./validators.js";
@@ -103,8 +104,7 @@ const VALUE_SCHEMAS: Record<string, z.ZodType> = {
       message: GITHUB_HOST_MESSAGE,
     }),
   "issueProvider.name": z.string().regex(ISSUE_PROVIDER_NAME_PATTERN, {
-    message:
-      "name must start with a lowercase letter and hold only lowercase letters, digits and hyphens, at most 32 characters",
+    message: `name ${ISSUE_PROVIDER_NAME_RULE}`,
   }),
   "issueProvider.command": step,
   postCreate: z.array(step),

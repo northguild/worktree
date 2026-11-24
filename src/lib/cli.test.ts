@@ -335,6 +335,16 @@ describe("runCapturing", () => {
     ).rejects.toMatchObject({ code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" });
   });
 
+  it("keeps Node's 1 MiB default when maxBuffer is not set", async () => {
+    // An explicit `maxBuffer: undefined` would lift the limit altogether.
+    await expect(
+      runCapturing(node, [
+        "-e",
+        `process.stdout.write("a".repeat(2 * 1024 * 1024)); ${sleepForever}`,
+      ]),
+    ).rejects.toMatchObject({ code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" });
+  });
+
   it("resolves output that fits within maxBuffer", async () => {
     const result = await runCapturing(
       node,

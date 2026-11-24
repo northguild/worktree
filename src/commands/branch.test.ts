@@ -8368,6 +8368,29 @@ describe("branch command — --issue (a custom issue provider)", () => {
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ["--github", { github: "" }],
+      ["--jira", { jira: "" }],
+      ["--linear", { linear: "" }],
+      ["--clickup", { clickup: "" }],
+    ])("counts an empty %s as given, so it beside --issue is refused as several", async (_label, other) => {
+      await expect(runPlain({ issue: "VERK-42", ...other })).rejects.toThrow(
+        "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("reads the provider pair from git config once per run", async () => {
+      await runJson({ issue: "VERK-42" });
+
+      expect(process.exitCode).toBeUndefined();
+      const reads = vi
+        .mocked(gitConfig.gitGetConfigValue)
+        .mock.calls.filter(([key]) => key === "issueProvider.command");
+      expect(reads).toHaveLength(1);
+    });
+
     it("exits 2 for --issue with --github through the command's own exit code", async () => {
       await runJson({ issue: "VERK-42", github: "42" });
 
