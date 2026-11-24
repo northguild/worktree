@@ -24,6 +24,7 @@ import {
 import { gitGetTopLevelPath } from "../lib/git.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import {
+  approveIssueProvider,
   approvePostCreate,
   isProjectFileKey,
   loadProjectConfig,
@@ -78,7 +79,7 @@ export default class Config extends BaseCommand {
   static override flags = {
     approve: Flags.boolean({
       description:
-        "Review and approve the postCreate steps in the project's .worktree.yml (terminal only)",
+        "Review and approve the postCreate steps and the issue provider command in the project's .worktree.yml, each only when set and not yet approved (terminal only)",
     }),
     list: Flags.boolean({
       char: "l",
@@ -525,6 +526,7 @@ export default class Config extends BaseCommand {
         );
       }
       await approvePostCreate();
+      await approveIssueProvider();
       return;
     }
 

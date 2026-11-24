@@ -351,6 +351,13 @@ Defaults when non-interactive:
   to approve for the person: run `branch --no-install`, or tell them to run
   `worktree config --approve` in a terminal. A personal `postCreate` and
   `--dry-run` need no approval.
+- **Approval of the file's issue provider command:** an `issueProvider.command`
+  from `.worktree.yml` runs only once this person approved that exact command
+  line. A non-interactive run, and `--dry-run`, with it unapproved exit `2` with
+  `missing_value` before the provider starts, naming `worktree config --approve`;
+  the message never contains a value to approve with. Do not try to approve for
+  the person: tell them to run `worktree config --approve` in a terminal. A
+  command from git config or the user file needs no approval.
 - **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`, else your user config file), else `origin/main` with a warning.
 - **A branch name that is already taken** (a re-run of `branch`) is refused: exit
   `2`, `invalid_value`, naming the existing worktree's path and
@@ -654,7 +661,8 @@ overwrite an existing one. Local git config keys that hold the same value as a
 (after the worktree is open, not `--dry-run`) and a bare `worktree config`,
 `--json`, `--yes` and CI included. A matching key stays when another git config
 scope also sets it (that value would win over the file), a local `postCreate`
-stays until the file's step is approved (it is what skips the approval), and
+stays until the file's step is approved (it is what skips the approval), a local
+`issueProvider.command` stays until the file's command is approved, and
 with no `origin/HEAD` a local `defaultSourceBranch` stays, since it finds the
 file. A failed removal is a warning, never a failed run. Only one step is an offer, on a terminal
 only (never `--json`, `--yes`, `--non-interactive`, CI, no TTY or
@@ -918,6 +926,32 @@ created, a `No agent configured` warning is printed, and the exit code is `1`
 because the brief was not delivered.
 
 Source: `src/lib/base-command.ts` — `dispatchAgent()`
+
+---
+
+### HIGH An unapproved issue provider command run non-interactively
+
+Wrong:
+
+```bash
+# .worktree.yml sets issueProvider.command; nobody has approved it on this machine
+worktree branch --issue ABC-12 --json
+```
+
+Correct:
+
+```bash
+# Once, in a terminal, by the person who owns this machine
+worktree config --approve
+```
+
+A command from `.worktree.yml` runs only after the person approved that exact
+command line. A non-interactive run, and `--dry-run`, exit `2` with
+`missing_value` before the provider starts, naming `worktree config --approve`;
+nothing can be passed to approve it from a script, so ask the person to run it
+in a terminal. A command from git config or the user file needs no approval.
+
+Source: `src/lib/project-config.ts` — `ensureIssueProviderApproved()`
 
 ---
 

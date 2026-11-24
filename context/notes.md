@@ -34,3 +34,24 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
 - **Smaller:** the git-config path's name lookup still reads (and can throw on) lower layers; an invalid
   git-config name is dropped silently (documented); the test at `project-config.test.ts:2461` does not assert
   `token` is absent; the name's error text is written three times.
+
+## Phase 3
+
+- **User-visible doc/wording slips, one line each:** `README.md:96` lists `issueProvider.command` under "The
+  setup flow can configure:" though the wizard never asks for it; `commands/config.mdx:122-124`'s list of local
+  keys that stay omits the kept local `issueProvider.command`; `project-configuration.mdx:365` still says
+  `--approve` "asks the same question ahead of time" (the paragraph below it is right); the unapproved-command
+  error reads "…; pass approving it once in a terminal with `worktree config --approve`" because of
+  `MissingValueError`'s fixed `no default for X; pass Y` shape.
+- **`approvePostCreate`'s new "already approved" skip** (`project-config.ts:984-987`) has no test.
+- **Phase 4:** "exits 2 before the provider is spawned" must check `mockRunCapturing`, not `mockRun` — the
+  Phase 3 "nothing spawned" test checks only `mockRun`.
+- **The provider-approval text is a bold-led paragraph under *Approving the steps*, not its own heading**, so it
+  is missing from the page's table of contents, and `config.mdx:312`'s "Approving the provider command" link
+  points at `#approving-the-steps`. Cause: `docs/scripts/audit-dist.mjs:934`'s `withoutElements` stops after 20
+  removals (also on main), so a page with more aria-hidden heading-anchor icons than that fails the audit
+  falsely. Any later heading added to `project-configuration.mdx` hits it; making the loop run until nothing
+  matches would lift it (Phase 6 has `audit-dist.mjs` on its Files line).
+- **Smaller:** `const readApproval = () => …` at `project-config.ts:885` breaks `typescript/rules.md:27`
+  (function declarations for named functions); the "escaped" test names exercise no escape; `--approve` with
+  only a provider command first prints "…has no postCreate steps."

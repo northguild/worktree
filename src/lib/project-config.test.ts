@@ -10,13 +10,17 @@ import { CONFIG_NAMES, SECRET_CONFIG_NAMES } from "./constants.js";
 import * as git from "./git.js";
 import { setNonInteractive } from "./interaction.js";
 import {
+  approveIssueProvider,
   approvePostCreate,
+  ensureIssueProviderApproved,
   ensurePostCreateApproved,
   getBranchPrefix,
   getBranchTypeRules,
   getProjectPostCreateSteps,
   getUserPostCreateSteps,
+  ISSUE_PROVIDER_APPROVAL_KEY,
   isProjectFileKey,
+  issueProviderApprovalHash,
   isTeamConfigKey,
   loadProjectConfig,
   markProjectConfigUnusable,
@@ -2679,10 +2683,13 @@ describe("offerProjectConfig: the issueProvider pair when removing covered keys 
     fromOriginMain(FILE);
   });
 
-  it("removes a local pair that repeats the file's", async () => {
+  // D5: the file's command must be approved first, or an unattended `branch`
+  // would stop on the approval once the copy is gone.
+  it("removes a local pair that repeats the file's, once the file's command is approved", async () => {
     const { local } = fakeGitConfig({
       "issueProvider.name": "verk",
       "issueProvider.command": "verk-provider",
+      issueProviderApproval: issueProviderApprovalHash(["verk-provider"]),
     });
 
     await offerProjectConfig();
@@ -2705,5 +2712,196 @@ describe("offerProjectConfig: the issueProvider pair when removing covered keys 
       "my-own-provider",
     );
     expect(local.get("northguild.worktree.issueProvider.name")).toBe("verk");
+  });
+});
+
+// #357 D5: the file's provider command runs code on every teammate's machine,
+// so it runs only once this person approved it, as `postCreate` does (D16).
+// The hash is SHA-256 over the UTF-8 JSON of the split argv tokens; the values
+// below are from `printf '%s' '<json>' | shasum -a 256`, not from the code.
+describe("issue provider approval (#357 D5)", () => {
+  const FILE =
+    "issueProvider:\n  name: verk\n  command: verk-provider --json\n";
+  const HASH =
+    "13a679888611928150423b6dad0e23f5602a7abb239781db705afb03bc738923";
+  const CHANGED_HASH =
+    "2786f8e50ee93c5e161eb155b0d8de47569e4834f716c1badbeba0ee706af510";
+  const APPROVAL = "northguild.worktree.issueProviderApproval";
+  let local: Map<string, string>;
+  let shown: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.mocked(confirm).mockReset();
+    shown = vi.spyOn(console, "error").mockImplementation(() => {});
+    setNonInteractive(false);
+    fromOriginMain(FILE);
+    ({ local } = fakeGitConfig());
+  });
+
+  afterEach(() => {
+    shown.mockRestore();
+    setNonInteractive(false);
+  });
+
+  const stored = () => local.get(APPROVAL) ?? "";
+  const outcome = (call: Promise<unknown>) =>
+    call.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+  it("hashes the JSON array of the split argv tokens (value from shasum)", () => {
+    expect(issueProviderApprovalHash(["verk-provider", "--json"])).toBe(HASH);
+    expect(issueProviderApprovalHash(["verk-provider", "--yaml"])).toBe(
+      CHANGED_HASH,
+    );
+  });
+
+  it("keeps the approval key out of CONFIG_NAMES, under the internal namespace", () => {
+    expect(ISSUE_PROVIDER_APPROVAL_KEY).toBe(APPROVAL);
+    expect(CONFIG_NAMES as readonly string[]).not.toContain(
+      ISSUE_PROVIDER_APPROVAL_KEY.replace("northguild.worktree.", ""),
+    );
+  });
+
+  it("fails closed non-interactively: exit 2, missing_value, naming --approve, never the hash, nothing spawned", async () => {
+    setNonInteractive(true);
+
+    const error = await outcome(ensureIssueProviderApproved());
+
+    expect(error).toBeInstanceOf(MissingValueError);
+    const { message, value, flag, oclif } = error as MissingValueError & {
+      oclif: { exit: number };
+    };
+    expect(oclif.exit).toBe(2);
+    expect(message).toContain("worktree config --approve");
+    for (const text of [message, value, flag]) {
+      expect(text).not.toMatch(/[0-9a-f]{64}/);
+    }
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stored()).toBe("");
+    expect(mockRun.mock.calls.map(([file]) => file)).not.toContain(
+      "verk-provider",
+    );
+  });
+
+  it("fails closed on a dry run even in a terminal, asking nothing", async () => {
+    const error = await outcome(ensureIssueProviderApproved({ dryRun: true }));
+
+    expect(error).toBeInstanceOf(MissingValueError);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stored()).toBe("");
+  });
+
+  it("passes an approved command with no prompt", async () => {
+    local.set(APPROVAL, HASH);
+    setNonInteractive(true);
+
+    await expect(ensureIssueProviderApproved()).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("asks again when one token changed", async () => {
+    local.set(APPROVAL, HASH);
+    fromOriginMain("issueProvider:\n  command: verk-provider --yaml\n");
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await ensureIssueProviderApproved();
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(stored()).toBe(CHANGED_HASH);
+  });
+
+  it("asks in a terminal, shows the command escaped, and stores the hash only on yes", async () => {
+    fromOriginMain('issueProvider:\n  command: "verk-provider --json"\n');
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    const declined = await outcome(ensureIssueProviderApproved());
+
+    expect((declined as { oclif?: { exit: number } }).oclif?.exit).toBe(1);
+    expect(stored()).toBe("");
+    expect(shown.mock.calls.flat().join("\n")).toContain(
+      "verk-provider --json",
+    );
+
+    vi.mocked(confirm).mockResolvedValue(true);
+    await ensureIssueProviderApproved();
+    expect(stored()).toBe(HASH);
+  });
+
+  it("never asks for a command from git config", async () => {
+    ({ local } = fakeGitConfig({ "issueProvider.command": "own-provider" }));
+    setNonInteractive(true);
+
+    await expect(ensureIssueProviderApproved()).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("never asks for a command from the user file", async () => {
+    fromOriginMain("copy: []\n");
+    userFile("issueProvider:\n  command: user-provider\n");
+    setNonInteractive(true);
+
+    await expect(ensureIssueProviderApproved()).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("needs nothing when no layer sets a command", async () => {
+    fromOriginMain("copy: []\n");
+    setNonInteractive(true);
+
+    await expect(ensureIssueProviderApproved()).resolves.toBeUndefined();
+  });
+
+  it("approveIssueProvider refuses non-interactively and stores nothing", async () => {
+    setNonInteractive(true);
+
+    await expect(approveIssueProvider()).rejects.toThrow(MissingValueError);
+    expect(stored()).toBe("");
+  });
+
+  it("approveIssueProvider lists the command escaped and stores the hash only on yes", async () => {
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    expect(await approveIssueProvider()).toBe(false);
+    expect(stored()).toBe("");
+    expect(shown.mock.calls.flat().join("\n")).toContain(
+      "verk-provider --json",
+    );
+
+    vi.mocked(confirm).mockResolvedValue(true);
+    expect(await approveIssueProvider()).toBe(true);
+    expect(stored()).toBe(HASH);
+  });
+
+  it("approveIssueProvider asks nothing when the file has no command or it is approved", async () => {
+    fromOriginMain("copy: []\n");
+    expect(await approveIssueProvider()).toBe(false);
+
+    fromOriginMain(FILE);
+    local.set(APPROVAL, HASH);
+    expect(await approveIssueProvider()).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("keeps a local command equal to the file's until the file's is approved", async () => {
+    ({ local } = fakeGitConfig({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "verk-provider --json",
+    }));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.issueProvider.command")).toBe(
+      "verk-provider --json",
+    );
+    expect(local.has("northguild.worktree.issueProvider.name")).toBe(true);
+
+    local.set(APPROVAL, HASH);
+    await offerProjectConfig();
+
+    expect(local.has("northguild.worktree.issueProvider.command")).toBe(false);
+    expect(local.has("northguild.worktree.issueProvider.name")).toBe(false);
   });
 });

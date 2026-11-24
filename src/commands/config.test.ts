@@ -111,6 +111,54 @@ describe("config command", () => {
       );
     });
 
+    // #357 D5: one --approve covers both the steps and the provider command.
+    it("hands --approve to the provider command's approval too", async () => {
+      const steps = vi
+        .spyOn(projectConfig, "approvePostCreate")
+        .mockResolvedValue(false);
+      const provider = vi
+        .spyOn(projectConfig, "approveIssueProvider")
+        .mockResolvedValue(true);
+      parsed({}, { approve: true });
+
+      await config.run();
+
+      expect(steps).toHaveBeenCalledTimes(1);
+      expect(provider).toHaveBeenCalledTimes(1);
+      steps.mockRestore();
+      provider.mockRestore();
+    });
+
+    it("keeps the provider approval key out of CONFIG_NAMES, --list and `config <key> <value>`", async () => {
+      const provider = projectConfig.ISSUE_PROVIDER_APPROVAL_KEY.replace(
+        "northguild.worktree.",
+        "",
+      );
+      expect(CONFIG_NAMES as readonly string[]).not.toContain(provider);
+      parsed({}, { list: true, missing: false });
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        async (key: string) => (key === provider ? "a-stored-hash" : ""),
+      );
+
+      await config.run();
+
+      const printed = mockConsoleLog.mock.calls.flat().join("\n");
+      expect(printed).not.toContain(provider);
+      expect(printed).not.toContain("a-stored-hash");
+
+      parsed({ name: provider, value: "deadbeef" }, {});
+      vi.spyOn(config, "error").mockImplementation(((message: string) => {
+        throw new Error(message);
+      }) as any);
+      await expect(config.run()).rejects.toThrow(
+        `Unknown config name: ${provider}`,
+      );
+    });
+
+    it("says in the flag description that the provider command is covered", () => {
+      expect(Config.flags.approve.description).toContain("issue provider");
+    });
+
     it("refuses --approve non-interactively and stores nothing", async () => {
       setNonInteractive(true);
       parsed({}, { approve: true });

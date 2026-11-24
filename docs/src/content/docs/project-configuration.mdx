@@ -372,6 +372,27 @@ Steps from a file run commands on your machine that someone else wrote, so each 
   pass `--no-install`.
 - **`--no-install` needs no approval**, and neither does `branch --dry-run`, which runs nothing.
 
+**Approving the provider command.** An `issueProvider.command` from the file runs a program of someone else's choosing on every run that reads
+an issue, so each person approves it once, the way they approve the steps. A command from your own git config
+or your [user config file](/worktree/configuration/#user-config-file) is yours and needs no approval.
+
+- **The approval covers exactly this command line.** It is kept for the command split into its arguments, so
+  changing, adding or removing an argument asks again, and so does a different program name. It is kept in
+  your clone's local git config under an internal key, separate from the steps' approval, and, like it, is
+  not in `worktree config --list` and cannot be set by `worktree config <key> <value>`.
+- **On a terminal**, the command is shown, with any control character written out, and asked about before
+  the first call to the provider. Yes remembers the approval; no exits `1` and the provider is not run.
+  `worktree config --approve` shows and asks for the provider command and for the steps, each only when the
+  file sets one you have not approved.
+- **When nothing can be asked** (a script, CI, `--json`, `--yes` or `--non-interactive`), and under
+  `--dry-run`, which never asks, an unapproved or changed command stops the run before the provider starts,
+  with exit `2` and `missing_value` under `--json`. The message names `worktree config --approve`. It never
+  prints a value you could paste to approve it.
+- **A relative program path** such as `./scripts/provider` is approved as written, and the approval does not
+  cover the file it points to, which can differ from one branch to the next. Prefer a program on your `PATH`.
+- **Keep credentials out of the command line.** A token in the command shows in the file, in git history and
+  in the process list. The provider should find its own credentials.
+
 ## Starting a file from your git config
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree
@@ -399,6 +420,8 @@ Two steps move your settings to the file. Only the first is an offer.
     over the file;
   - a local `postCreate`, until you have [approved](#approving-the-steps) the file's step, because your own
     `postCreate` is what lets `branch` run without that approval;
+  - a local `issueProvider.command`, until you have [approved](#approving-the-steps) the file's,
+    for the same reason, and with it the local `issueProvider.name`;
   - with no `origin/HEAD`, a local `defaultSourceBranch`, because it is what finds the file.
 
   If a key cannot be removed, `branch` and `worktree config` warn and still succeed.

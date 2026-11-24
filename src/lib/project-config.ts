@@ -29,6 +29,7 @@ import { isNonInteractive } from "./interaction.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
 import { loadUserConfig } from "./user-config.js";
+import { splitCommandValue } from "./utils.js";
 import {
   GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
@@ -873,15 +874,15 @@ export async function getUserPostCreateSteps() {
     : [];
 }
 
-async function readApproval() {
+async function readApprovalAt(key: string) {
   try {
-    return (
-      await run("git", ["config", "--local", POST_CREATE_APPROVAL_KEY])
-    ).trim();
+    return (await run("git", ["config", "--local", key])).trim();
   } catch {
     return "";
   }
 }
+
+const readApproval = () => readApprovalAt(POST_CREATE_APPROVAL_KEY);
 
 async function storeApproval(steps: readonly string[]) {
   await run("git", [
@@ -980,7 +981,136 @@ export async function approvePostCreate() {
     console.error("This project's .worktree.yml has no postCreate steps.");
     return false;
   }
+  if ((await readApproval()) === postCreateApprovalHash(steps)) {
+    console.error("This project's postCreate steps are already approved.");
+    return false;
+  }
   return askToApprove(steps);
+}
+
+// ---------------------------------------------------------------------------
+// Approval of the file's issue provider command (#357 D5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a person's approval of the file's provider command is kept, beside
+ * `POST_CREATE_APPROVAL_KEY` and for the same reason: outside `CONFIG_NAMES`,
+ * so `--list` never shows it and `worktree config <key> <value>` cannot set it.
+ */
+export const ISSUE_PROVIDER_APPROVAL_KEY =
+  "northguild.worktree.issueProviderApproval";
+
+/**
+ * SHA-256 over the UTF-8 bytes of the JSON array of the argv tokens the command
+ * splits into (D5), so spacing between tokens does not matter and any change to
+ * a token does. A relative program path is hashed as written: the file it names
+ * in the working copy is not covered (plan #357 §5).
+ */
+export function issueProviderApprovalHash(argv: readonly string[]) {
+  return createHash("sha256")
+    .update(JSON.stringify(argv), "utf8")
+    .digest("hex");
+}
+
+/** The project file's provider command, trimmed; `""` when it sets none. */
+async function getProjectIssueProviderCommand() {
+  const project = await loadProjectConfig();
+  return project.status === "loaded"
+    ? (project.config.issueProvider?.command ?? "").trim()
+    : "";
+}
+
+async function issueProviderApproved(command: string) {
+  return (
+    (await readApprovalAt(ISSUE_PROVIDER_APPROVAL_KEY)) ===
+    issueProviderApprovalHash(splitCommandValue(command))
+  );
+}
+
+/** A person said no to running the file's provider command: exit 1. */
+export class IssueProviderDeclinedError extends Error {
+  /** Read by `BaseCommand.catch` for the exit code. */
+  readonly oclif = { exit: 1 };
+
+  constructor() {
+    super(
+      "The project's issue provider command was not approved, so it was not run.",
+    );
+    this.name = "IssueProviderDeclinedError";
+  }
+}
+
+// The hash is kept out of messages, for the reason `approvalRequired` gives.
+function providerApprovalRequired() {
+  return new MissingValueError(
+    "approval of this project's issue provider command from .worktree.yml",
+    "approving it once in a terminal with `worktree config --approve`",
+  );
+}
+
+async function askToApproveProvider(command: string) {
+  console.error(
+    `This project's .worktree.yml runs this command to read issues from its own tracker:\n  ${showVisibly(command)}`,
+  );
+  const approved = await askConfirm(
+    { message: "Run this command on this machine?" },
+    providerApprovalRequired(),
+  );
+  if (approved) {
+    await run("git", [
+      "config",
+      "--local",
+      ISSUE_PROVIDER_APPROVAL_KEY,
+      issueProviderApprovalHash(splitCommandValue(command)),
+    ]);
+  }
+  return approved;
+}
+
+/**
+ * The check `branch` makes before the first provider call (D5). Only a command
+ * that came from the project file needs it: one from git config or the user
+ * file is the person's own (#281 D10). An approved command passes; otherwise a
+ * terminal run shows it and asks, and a non-interactive run or a `--dry-run`,
+ * which asks nothing, fails closed with a missing value before any process
+ * starts.
+ */
+export async function ensureIssueProviderApproved(
+  options: { dryRun?: boolean } = {},
+) {
+  const provider = await resolveIssueProvider();
+  if (provider?.source !== "project") {
+    return;
+  }
+  if (await issueProviderApproved(provider.command)) {
+    return;
+  }
+  if (options.dryRun || isNonInteractive()) {
+    throw providerApprovalRequired();
+  }
+  if (!(await askToApproveProvider(provider.command))) {
+    throw new IssueProviderDeclinedError();
+  }
+}
+
+/**
+ * `worktree config --approve`, for the provider command: shown and asked only
+ * when the file sets one this person has not approved. Refuses to run
+ * unattended, like `approvePostCreate`.
+ */
+export async function approveIssueProvider() {
+  if (isNonInteractive()) {
+    throw providerApprovalRequired();
+  }
+  const command = await getProjectIssueProviderCommand();
+  if (command === "") {
+    return false;
+  }
+  if (await issueProviderApproved(command)) {
+    console.error("This project's issue provider command is already approved.");
+    return false;
+  }
+  return askToApproveProvider(command);
 }
 
 // ---------------------------------------------------------------------------
@@ -1314,6 +1444,14 @@ async function removeCoveredLocalConfig(config: ProjectConfig) {
     // discouraged override, and a global one is not this repository's to remove.
     // A list of steps is not one string, so only a single step can match.
     if (key === "postCreate" && !(await fileStepApproved(config))) {
+      continue;
+    }
+    // The same for the provider command (#357 D5): the copy is what lets an
+    // unattended `branch` pass until the file's command is approved.
+    if (
+      key === "issueProvider.command" &&
+      !(await issueProviderApproved(config.issueProvider?.command ?? ""))
+    ) {
       continue;
     }
     if (key === "defaultSourceBranch" && !hasOriginHead) {

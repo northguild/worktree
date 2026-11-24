@@ -93,6 +93,7 @@ The setup flow can configure:
 - `opener` for where a worktree opens — `editor` (default), `herdr`, `rex`, `auto` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, then the steps in your user config file, else inferred from the lockfile)
+- `issueProvider.command` for the command that reads issues from your own tracker (from a `.worktree.yml` it needs your approval first, with `worktree config --approve`; from your git config or user config file it needs none)
 - `linear.agentToken`, `linear.webhookSecret`, `linear.agentAllow` and `linear.agentContext` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`), the Linear user ids allowed to delegate an issue to it, and `true` to also hand the issue's text to the agent (off by default). `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
@@ -347,6 +348,7 @@ line, `worktree: no default for <value>; pass <flag>`.
   file need your approval first; unapproved, a non-interactive run exits `2` (`missing_value`) before anything is
   created, naming `worktree config --approve` (in a terminal) and `--no-install`. It never prints a value to approve with. With nothing to run it says so and carries on. A failure keeps
   the worktree, starts nothing and exits `1`.
+- **Issue provider command:** a command from `.worktree.yml` runs only once you have approved that exact command line, with `worktree config --approve` in a terminal. Unapproved, a non-interactive run and `--dry-run` exit `2` (`missing_value`) before the provider starts, naming `worktree config --approve` and printing no value to approve with. A command from your git config or user config file needs no approval.
 - **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`, else your user config file), else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
 - **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, `git fetch` 60 s, `gh auth token` and the session listing
