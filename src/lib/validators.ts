@@ -252,6 +252,8 @@ export async function isValidConfigValue(
     case "linear.agentContext":
     case "clickup.autoAssign":
     case "clickup.autoStart":
+    case "issueProvider.autoAssign":
+    case "issueProvider.autoStart":
       return isValidBoolean(value);
     case "herdr.focus":
     case "rex.focus":

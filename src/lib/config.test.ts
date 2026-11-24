@@ -116,6 +116,8 @@ describe("getConfigValue (#281 D9)", () => {
     "linear.agentContext",
     "clickup.autoAssign",
     "clickup.autoStart",
+    "issueProvider.autoAssign",
+    "issueProvider.autoStart",
   ]);
   function userValue(key: string) {
     if (key === "opener") {

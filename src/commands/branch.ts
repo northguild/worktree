@@ -6,9 +6,11 @@ import {
   startClickUpTask,
 } from "../integrations/clickup.js";
 import {
+  assignCustomIssue,
   type CustomIssue,
   fetchCustomIssue,
   getCustomBranchNaming,
+  startCustomIssue,
 } from "../integrations/custom-provider.js";
 import {
   assignGitHubIssue,
@@ -96,11 +98,25 @@ import { isValidBranchName } from "../lib/validators.js";
 /** What messages call a provider that has no `issueProvider.name`. */
 const ISSUE_PROVIDER_FALLBACK_NAME = "Issue provider";
 
+/**
+ * What assigning and starting through the team's own provider need, from the
+ * one fetch (D8): how to call it, who it is, which issue, and which of the two
+ * optional operations its answer's `can` lists.
+ */
+interface CustomProviderContext {
+  argv: string[];
+  cwd: string;
+  name: string;
+  key: string;
+  can: CustomIssue["can"];
+}
+
 /** A name derived from an issue; `naming` is set only on a dry run. */
 interface DerivedName {
   branchName: string;
   issue: BranchIssue;
   naming?: BranchNaming;
+  custom?: CustomProviderContext;
 }
 
 /**
@@ -197,8 +213,10 @@ terminal refuse with exit 2 before any request, and so does --dry-run.
 set as issueProvider.command, which gets the reference on stdin and prints the
 issue as JSON (the guide on the docs site is the contract). A command from
 .worktree.yml runs only once you have approved it (worktree config --approve);
-a non-interactive run and --dry-run refuse with exit 2 until then. --assign and
---start are not supported with --issue yet.
+a non-interactive run and --dry-run refuse with exit 2 until then. --assign (or
+issueProvider.autoAssign) and --start (or issueProvider.autoStart) call the
+provider's own assign and start operations, when its answer says it has them;
+one it lacks warns on an explicit flag and is never called.
 
 --dry-run (with --github, --jira, --linear, --clickup or --issue) fetches the issue and
 prints the branch name, the rule that chose its prefix and every field the issue
@@ -216,7 +234,7 @@ configured issueProvider.name) or null
 assigned: true if the issue is yours after the run (assigned or already yours),
 false if it is not (held by someone else, a Jira assignee Jira hides, or the
 attempt failed), null if none was attempted
-started: true if the Linear issue, ClickUp task or Jira issue is in a started
+started: true if the Linear issue, ClickUp task, Jira issue or --issue issue is in a started
 state after the run (moved or already there), false if it is not (left alone,
 no started state to move to, or the attempt failed), null if none was attempted
 installed: {ran:true, command, steps[], from, inferred, ok, reason?} or
@@ -327,14 +345,14 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     assign: Flags.boolean({
       allowNo: true,
       description:
-        "Assign the issue to you when creating a branch from --github, --jira or --clickup (not supported for --linear or --issue yet)",
+        "Assign the issue to you when creating a branch from --github, --jira or --clickup (not supported for --linear yet); with --issue, assigns through the provider when it supports it",
     }),
     // Source-agnostic like `--assign` (D4), so #125 and #131 add no flag. Unset
     // is meaningful (the key, then the mode), so there is no `default`.
     start: Flags.boolean({
       allowNo: true,
       description:
-        "Move the issue to its first started state once the worktree exists, when it is in a backlog or unstarted state: a --linear issue to its team's, a --clickup task in an open status to its List's first in-progress status, a --jira issue in the To Do category to the in-progress status its workflow offers (not supported for --github or --issue yet)",
+        "Move the issue to its first started state once the worktree exists, when it is in a backlog or unstarted state: a --linear issue to its team's, a --clickup task in an open status to its List's first in-progress status, a --jira issue in the To Do category to the in-progress status its workflow offers (not supported for --github); with --issue, starts through the provider when it supports it",
     }),
     // D13: the way to write branchType rules against a real issue. It is a
     // `branch` flag rather than a command so that the name it prints is the one
@@ -749,14 +767,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       `Fetching issue ${showVisibly(reference)} from ${provider.name ?? "the issue provider"}`,
     ).start();
     try {
-      const issue: CustomIssue = await fetchCustomIssue(
-        splitCommandValue(provider.command),
-        reference,
-        {
-          name: provider.name ?? ISSUE_PROVIDER_FALLBACK_NAME,
-          cwd: await gitGetTopLevelPath(),
-        },
-      );
+      const argv = splitCommandValue(provider.command);
+      const name = provider.name ?? ISSUE_PROVIDER_FALLBACK_NAME;
+      const cwd = await gitGetTopLevelPath();
+      const issue: CustomIssue = await fetchCustomIssue(argv, reference, {
+        name,
+        cwd,
+      });
       const naming = await getCustomBranchNaming(
         issue,
         (warning) => this.warn(warning),
@@ -772,6 +789,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
           key: issue.key,
           url: issue.url,
         },
+        custom: { argv, cwd, name, key: issue.key, can: issue.can },
       };
     } catch (error) {
       spinner.fail();
@@ -919,6 +937,87 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       return true;
     } catch (error) {
       const message = `Could not assign ${taskKey}. ${showVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`;
+      spinner.warn(message);
+      this.recordWarning(message);
+      return false;
+    }
+  }
+
+  /**
+   * The team's own provider (#357 D8): nothing here aborts `branch`, as for the
+   * built-ins. Everything the provider wrote is shown through `showVisibly`
+   * (`heldBy` is the one string that reaches a warning unchanged), and every
+   * failure, a timeout included, is a warning and `false`.
+   */
+  private async assignCustomIssue(
+    custom: CustomProviderContext,
+  ): Promise<boolean> {
+    const key = showVisibly(custom.key);
+    const spinner = createSpinner(
+      `Assigning ${key} through ${custom.name}`,
+    ).start();
+
+    try {
+      const result = await assignCustomIssue(custom.argv, custom.key, {
+        name: custom.name,
+        cwd: custom.cwd,
+      });
+      if (result.outcome !== "held-by-other") {
+        spinner.succeed(
+          result.outcome === "assigned"
+            ? `Assigned ${key} to you`
+            : `${key} is already assigned to you`,
+        );
+        return true;
+      }
+      const holder = result.heldBy
+        ? showVisibly(result.heldBy).slice(0, 200)
+        : "someone else";
+      const message = `${key} is already assigned to ${holder}, so it was left alone.`;
+      spinner.warn(message);
+      this.recordWarning(message);
+    } catch (error) {
+      const message = `Could not assign ${key}. ${showVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`;
+      spinner.warn(message);
+      this.recordWarning(message);
+    }
+    return false;
+  }
+
+  /** Same contract as `assignCustomIssue`, for the provider's `start`. */
+  private async startCustomIssue(
+    custom: CustomProviderContext,
+  ): Promise<boolean> {
+    const key = showVisibly(custom.key);
+    const spinner = createSpinner(
+      `Moving ${key} to started through ${custom.name}`,
+    ).start();
+
+    try {
+      const result = await startCustomIssue(custom.argv, custom.key, {
+        name: custom.name,
+        cwd: custom.cwd,
+      });
+      switch (result.outcome) {
+        case "started":
+          spinner.succeed(
+            `Moved ${key} from ${showVisibly(result.from)} to ${showVisibly(result.to)}`,
+          );
+          return true;
+        case "already-started":
+          spinner.succeed(
+            `${key} is already started (${showVisibly(result.state)})`,
+          );
+          return true;
+        case "left-alone": {
+          const message = `${key} is in ${showVisibly(result.state)}, so it was not moved to started.`;
+          spinner.warn(message);
+          this.recordWarning(message);
+          return false;
+        }
+      }
+    } catch (error) {
+      const message = `Could not move ${key} to started. ${showVisibly(redactSecrets(error instanceof Error ? error.message : String(error)))}`;
       spinner.warn(message);
       this.recordWarning(message);
       return false;
@@ -1356,7 +1455,11 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       clickup?: string;
       issue?: string;
     },
-  ): Promise<{ branchName: string; issue: BranchIssue | null }> {
+  ): Promise<{
+    branchName: string;
+    issue: BranchIssue | null;
+    custom?: CustomProviderContext;
+  }> {
     if (
       !flags?.github &&
       !flags?.jira &&
@@ -1387,7 +1490,11 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       },
     );
 
-    return { branchName, issue: derived?.issue ?? null };
+    return {
+      branchName,
+      issue: derived?.issue ?? null,
+      custom: derived?.custom,
+    };
   }
 
   // `undefined` is the interactive reopen of a worktree that already exists: it
@@ -1596,7 +1703,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       return undefined;
     }
 
-    const { branchName, issue } = await this.getBranchName(
+    const { branchName, issue, custom } = await this.getBranchName(
       args.branchName,
       flags,
     );
@@ -1623,13 +1730,20 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     let assigned: boolean | null = null;
     if (flags.linear && flags.assign) {
       this.warn("Assignment is not supported for Linear issues yet.");
-    } else if (flags.issue) {
-      // Phase 5 replaces this with the provider's own operation. Only an
-      // explicit --assign warns: --no-assign asks for nothing.
-      if (flags.assign) {
-        this.warn(
-          "--assign is not supported with --issue yet, so the issue was not assigned.",
-        );
+    } else if (custom) {
+      // Only what the provider's answer lists is ever asked of it (D8). An
+      // explicit --assign for one it does not list warns; --no-assign and an
+      // unset key ask for nothing, so they do not.
+      if (!custom.can.includes("assign")) {
+        if (flags.assign) {
+          this.warn(
+            `${custom.name} does not support assigning, so the issue was not assigned.`,
+          );
+        }
+      } else if (
+        await this.shouldAssignIssue("issueProvider.autoAssign", flags.assign)
+      ) {
+        assigned = await this.assignCustomIssue(custom);
       }
     } else if (flags.clickup) {
       if (await this.shouldAssignIssue("clickup.autoAssign", flags.assign)) {
@@ -1651,14 +1765,22 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     let startLinear = false;
     let startClickUp = false;
     let startJira = false;
+    let startCustom = false;
     if (flags.start && flags.github) {
       this.warn(
         "Moving an issue to started is not supported for GitHub issues.",
       );
-    } else if (flags.issue) {
-      if (flags.start) {
-        this.warn(
-          "--start is not supported with --issue yet, so the issue was not moved.",
+    } else if (custom) {
+      if (!custom.can.includes("start")) {
+        if (flags.start) {
+          this.warn(
+            `${custom.name} does not support moving an issue to started, so the issue was not moved.`,
+          );
+        }
+      } else {
+        startCustom = await this.shouldStartIssue(
+          "issueProvider.autoStart",
+          flags.start,
         );
       }
     } else if (flags.jira) {
@@ -1701,6 +1823,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       started = await this.startClickUpTask(flags.clickup);
     } else if (startJira && flags.jira) {
       started = await this.startJiraIssue(flags.jira);
+    } else if (startCustom && custom) {
+      started = await this.startCustomIssue(custom);
     }
     // Env files first: the agent starts working immediately, so it has to find a
     // worktree that is already complete. The editor stays last so its "Worktree

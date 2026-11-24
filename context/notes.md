@@ -73,3 +73,18 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   `as any`; a repository whose file sets `issueProvider` still reads those keys during the removal step on
   runs without `--issue` (required by D4/D5, so Done-when's "reads no `issueProvider` key" holds only for
   repositories not using the feature).
+
+## Phase 5
+
+- **`heldBy` is optional** in the assign answer (D8 writes "`held-by-other` (+ `heldBy`)" without settling it); the
+  warning says "someone else" when it is absent. Phase 6's guide must document it as optional; the maintainer may
+  want D8 to record it.
+- **`from`, `to` and `state` in start answers are not cut** (`branch.ts:678` cuts only `heldBy` to 200), so a
+  provider can put up to ~1 MiB of `state` into a warning and `--json`'s `warnings`. Minor, user-visible.
+- **Tests:** the `heldBy` control-character test never reaches the escaping (the schema refuses first); no test
+  pins `--issue --dry-run --assign --start` asking only `fetch`; `invalid_reference` from assign/start and a
+  start timeout are tested only at the runner, not through `branch`.
+- **Smaller:** `AssignOutcome`/`StartOutcome` are written by hand rather than inferred from the zod schemas; with
+  no `issueProvider.name` the wording reads "…through Issue provider".
+- **Outside the Files line:** `src/lib/validators.test.ts` (the validator's colocated test) and
+  `src/lib/config.test.ts` (its `BOOLEAN_KEYS` fixture must list every boolean personal key).

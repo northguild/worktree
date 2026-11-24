@@ -74,6 +74,8 @@ const VALUE_SCHEMAS: Record<string, z.ZodType> = {
   "linear.agentContext": z.boolean(),
   "clickup.autoAssign": z.boolean(),
   "clickup.autoStart": z.boolean(),
+  "issueProvider.autoAssign": z.boolean(),
+  "issueProvider.autoStart": z.boolean(),
   defaultSourceBranch: text,
   "branchPrefix.feature": z.string(),
   "branchPrefix.bugfix": z.string(),

@@ -100,7 +100,41 @@ const errorAnswer = z.strictObject({
   error: z.strictObject({ code: z.enum(ERROR_CODES), message: z.string() }),
 });
 
+// The two optional operations (D8). One strict object per outcome, so a field a
+// different outcome owns is refused rather than ignored.
+const assignAnswer = z.union([
+  z.strictObject({
+    version: z.literal(PROTOCOL_VERSION),
+    outcome: z.enum(["assigned", "already-yours"]),
+  }),
+  z.strictObject({
+    version: z.literal(PROTOCOL_VERSION),
+    outcome: z.literal("held-by-other"),
+    heldBy: plainText.optional(),
+  }),
+]);
+
+const startAnswer = z.union([
+  z.strictObject({
+    version: z.literal(PROTOCOL_VERSION),
+    outcome: z.literal("started"),
+    from: plainText,
+    to: plainText,
+  }),
+  z.strictObject({
+    version: z.literal(PROTOCOL_VERSION),
+    outcome: z.enum(["already-started", "left-alone"]),
+    state: plainText,
+  }),
+]);
+
 export type CustomIssue = z.output<typeof issueSchema>;
+export type AssignOutcome =
+  | { outcome: "assigned" | "already-yours" }
+  | { outcome: "held-by-other"; heldBy?: string };
+export type StartOutcome =
+  | { outcome: "started"; from: string; to: string }
+  | { outcome: "already-started" | "left-alone"; state: string };
 
 export interface FetchCustomIssueOptions {
   /** The provider's display name; every message names it. */
@@ -150,36 +184,33 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Runs `argv` (the configured command line, unchanged) with a `fetch` request
- * for `reference` on its stdin (D2) and returns the validated answer.
+ * Runs `argv` (the configured command line, unchanged) with `request` on its
+ * stdin (D2) and returns the answer `schema` accepts. Every operation goes
+ * through here, so the bound, the error mapping and what is shown of the
+ * provider's own words are one rule (D6).
  *
  * Throws `InvalidValueError` (exit 2) for the provider's `invalid_reference`,
  * and a plain `Error` (exit 1) for everything else: `not_found`, `failed`, a
  * non-zero exit, a program that cannot be run, a timeout, and an answer that
  * breaks the contract. Every message starts with the provider's name.
  */
-export async function fetchCustomIssue(
+async function callProvider<T>(
   argv: string[],
-  reference: string,
+  request: Record<string, string>,
+  schema: z.ZodType<T>,
   { name, cwd, timeoutMs = PROVIDER_TIMEOUT_MS }: FetchCustomIssueOptions,
-): Promise<CustomIssue> {
+): Promise<T> {
   const [file, ...args] = argv;
   if (file === undefined) {
     throw new Error(`${name}: issueProvider.command is empty.`);
   }
-
-  const request = JSON.stringify({
-    version: PROTOCOL_VERSION,
-    operation: "fetch",
-    reference,
-  });
 
   let result: Awaited<ReturnType<typeof runCapturing>>;
   try {
     result = await runCapturing(file, args, {
       cwd,
       timeout: timeoutMs,
-      input: request,
+      input: JSON.stringify({ version: PROTOCOL_VERSION, ...request }),
       maxBuffer: MAX_STDOUT_BYTES,
     });
   } catch (error) {
@@ -225,7 +256,7 @@ export async function fetchCustomIssue(
     );
   }
 
-  const parsed = fetchAnswer.safeParse(document);
+  const parsed = schema.safeParse(document);
   if (!parsed.success) {
     throw failure(
       name,
@@ -233,7 +264,52 @@ export async function fetchCustomIssue(
       result.stderr,
     );
   }
-  return parsed.data.issue;
+  return parsed.data;
+}
+
+/** The `fetch` operation: the issue `reference` names, validated. */
+export async function fetchCustomIssue(
+  argv: string[],
+  reference: string,
+  options: FetchCustomIssueOptions,
+): Promise<CustomIssue> {
+  const answer = await callProvider(
+    argv,
+    { operation: "fetch", reference },
+    fetchAnswer,
+    options,
+  );
+  return answer.issue;
+}
+
+/** The `assign` operation (D8): makes the issue `key` the person's. */
+export async function assignCustomIssue(
+  argv: string[],
+  key: string,
+  options: FetchCustomIssueOptions,
+): Promise<AssignOutcome> {
+  const { version: _version, ...outcome } = await callProvider(
+    argv,
+    { operation: "assign", key },
+    assignAnswer,
+    options,
+  );
+  return outcome;
+}
+
+/** The `start` operation (D8): moves the issue `key` to started. */
+export async function startCustomIssue(
+  argv: string[],
+  key: string,
+  options: FetchCustomIssueOptions,
+): Promise<StartOutcome> {
+  const { version: _version, ...outcome } = await callProvider(
+    argv,
+    { operation: "start", key },
+    startAnswer,
+    options,
+  );
+  return outcome;
 }
 
 /** `runCapturing` rejects when no exit code exists: overrun, kill, or no program. */

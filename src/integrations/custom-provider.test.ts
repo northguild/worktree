@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isProcessRunning, KILL_GRACE_MS } from "../lib/cli.js";
 import { InvalidValueError } from "../lib/prompt.js";
-import { fetchCustomIssue } from "./custom-provider.js";
+import {
+  assignCustomIssue,
+  fetchCustomIssue,
+  startCustomIssue,
+} from "./custom-provider.js";
 
 // src/test-setup.ts mocks ../lib/cli.js for every suite so command tests never
 // execute anything. The runner is the subject here, so it opts back out and
@@ -543,4 +547,186 @@ describe("the time bound (D6)", () => {
     },
     1_000 + KILL_GRACE_MS + 5_000,
   );
+});
+
+// #357 Phase 5: the two optional operations (D8). The expected answers are the
+// contract's own (plan §4.2: `{"version":1,"outcome":"held-by-other",
+// "heldBy":"Ada"}`) and D8's outcome sets, not read back from the parser. Both
+// go through the runner `fetchCustomIssue` uses, so the bound, the error
+// mapping and the stderr rules are asserted once for the runner (above) and the
+// paths below only show that the new operations reach them.
+function operating(
+  call: typeof assignCustomIssue | typeof startCustomIssue,
+  argv: string[],
+  timeoutMs?: number,
+) {
+  return call(argv, "VERK-42", {
+    name: NAME,
+    cwd: dir,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  });
+}
+
+const operations = [
+  ["assign", assignCustomIssue],
+  ["start", startCustomIssue],
+] as const;
+
+describe.each(operations)("the %s operation", (operation, call) => {
+  it("reaches the provider as one JSON document with the key, argv untouched", async () => {
+    // The provider echoes its stdin on stderr and fails, which is the one
+    // channel the failure message shows; the expected document is the
+    // contract's (plan §4.2), field for field.
+    const echo = provider(`
+      let stdin = "";
+      process.stdin.on("data", (chunk) => (stdin += chunk)).on("end", () => {
+        process.stderr.write(stdin + JSON.stringify(process.argv.slice(2)));
+        process.exit(3);
+      });
+    `);
+
+    const error = (await operating(call, echo).catch(
+      (caught: unknown) => caught,
+    )) as Error;
+
+    expect(error.message).toContain(
+      `{"version":1,"operation":"${operation}","key":"VERK-42"}[]`,
+    );
+  });
+
+  it("is refused when the answer is a fetch answer, not an outcome", async () => {
+    const error = (await operating(call, printing(answer())).catch(
+      (caught: unknown) => caught,
+    )) as Error;
+
+    expect(error.message).toContain(
+      "verk: the issue provider's answer is not valid",
+    );
+  });
+
+  it("maps the provider's invalid_reference to an invalid value, exit 2", async () => {
+    const argv = printing({
+      version: 1,
+      error: { code: "invalid_reference", message: "Not a key." },
+    });
+
+    await expect(operating(call, argv)).rejects.toBeInstanceOf(
+      InvalidValueError,
+    );
+  });
+
+  it("is a failure naming issueProvider.command when the provider exits non-zero", async () => {
+    const argv = provider(`process.exit(4);`);
+
+    await expect(operating(call, argv)).rejects.toThrow(
+      "verk: issueProvider.command exited with code 4.",
+    );
+  });
+
+  it("times out with the sentence base-command.ts maps to a timeout", async () => {
+    const argv = provider(`setTimeout(() => {}, 600_000);`);
+
+    await expect(operating(call, argv, 1_000)).rejects.toThrow(
+      "verk: the issue provider did not answer within 1s.",
+    );
+  });
+
+  it("refuses an outcome the contract does not name", async () => {
+    const argv = printing({ version: 1, outcome: "done" });
+
+    await expect(operating(call, argv)).rejects.toThrow(
+      "verk: the issue provider's answer is not valid",
+    );
+  });
+});
+
+describe("the assign outcomes (D8)", () => {
+  it.each(["assigned", "already-yours"])("returns %s", async (outcome) => {
+    await expect(
+      operating(assignCustomIssue, printing({ version: 1, outcome })),
+    ).resolves.toEqual({ outcome });
+  });
+
+  it("returns held-by-other with who holds it", async () => {
+    await expect(
+      operating(
+        assignCustomIssue,
+        printing({ version: 1, outcome: "held-by-other", heldBy: "Ada" }),
+      ),
+    ).resolves.toEqual({ outcome: "held-by-other", heldBy: "Ada" });
+  });
+
+  it("returns held-by-other without a name when the provider gave none", async () => {
+    await expect(
+      operating(
+        assignCustomIssue,
+        printing({ version: 1, outcome: "held-by-other" }),
+      ),
+    ).resolves.toEqual({ outcome: "held-by-other" });
+  });
+
+  it("refuses a start outcome", async () => {
+    await expect(
+      operating(
+        assignCustomIssue,
+        printing({ version: 1, outcome: "already-started", state: "Doing" }),
+      ),
+    ).rejects.toThrow("answer is not valid");
+  });
+
+  it("refuses a heldBy with a control character, because every string but title does (D6)", async () => {
+    await expect(
+      operating(
+        assignCustomIssue,
+        printing({
+          version: 1,
+          outcome: "held-by-other",
+          heldBy: "Ada\u001b[2J",
+        }),
+      ),
+    ).rejects.toThrow("answer is not valid");
+  });
+
+  it("refuses a field the contract does not name, because the schema is strict", async () => {
+    await expect(
+      operating(
+        assignCustomIssue,
+        printing({ version: 1, outcome: "assigned", extra: 1 }),
+      ),
+    ).rejects.toThrow("answer is not valid");
+  });
+});
+
+describe("the start outcomes (D8)", () => {
+  it("returns started with where it moved from and to", async () => {
+    await expect(
+      operating(
+        startCustomIssue,
+        printing({ version: 1, outcome: "started", from: "Todo", to: "Doing" }),
+      ),
+    ).resolves.toEqual({ outcome: "started", from: "Todo", to: "Doing" });
+  });
+
+  it.each([
+    "already-started",
+    "left-alone",
+  ])("returns %s with the state it is in", async (outcome) => {
+    await expect(
+      operating(
+        startCustomIssue,
+        printing({ version: 1, outcome, state: "Review" }),
+      ),
+    ).resolves.toEqual({ outcome, state: "Review" });
+  });
+
+  it.each([
+    ["started with no from or to", { outcome: "started" }],
+    ["already-started with no state", { outcome: "already-started" }],
+    ["left-alone with no state", { outcome: "left-alone" }],
+    ["an assign outcome", { outcome: "assigned" }],
+  ])("refuses %s", async (_label, body) => {
+    await expect(
+      operating(startCustomIssue, printing({ version: 1, ...body })),
+    ).rejects.toThrow("answer is not valid");
+  });
 });

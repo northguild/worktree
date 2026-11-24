@@ -159,8 +159,15 @@ worktree branch --issue VERK-42 --dry-run
 (`name` is `issueProvider.name`, `null` when none is set; `provider` is always `custom`).
 The prefix comes from `issueProvider.branchType`, else the shared `branchType`, else the `kind`
 the command gave, else none; `Type` and `Labels` (and any `fields` the command gave) are what
-the rules match. `--assign` and `--start` with `--issue` warn that they are not supported yet and
-the run carries on. With no `issueProvider.command` anywhere `--issue` exits `2` with
+the rules match. `--assign` and `--start` with `--issue` call the provider's own `assign` and
+`start` operations (separate calls, each bounded like the fetch, assign before the worktree exists
+and start after it), but only the ones its fetch answer lists in `can`: an explicit flag for one it
+does not list warns and runs nothing, and `--no-assign`/`--no-start` never warn. The keys are
+`issueProvider.autoAssign` and `issueProvider.autoStart` (personal; ignored with a warning in
+`.worktree.yml`), decided in the same order as the other providers'. `assigned` and `started` are
+`true` for assigned/already-yours and started/already-started, `false` with a warning for an issue
+someone else holds, one left alone, a failure or a timeout, which never changes the exit code, and
+`null` when nothing was attempted. With no `issueProvider.command` anywhere `--issue` exits `2` with
 `missing_value`, naming `issueProvider.command`. The command is run without a shell, is stopped
 after 15 s, and its answer is validated before any of it is used.
 
@@ -340,7 +347,7 @@ Flags for agent mode:
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--issue <reference>` (`-i`) | `branch` | name the branch from an issue in your own tracker, read by the command in `issueProvider.command` (reference on stdin); not with another issue flag |
-| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not (`--assign` with `--issue` warns: not supported yet) |
+| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not; with `--issue`, through the provider's `assign` operation when its answer lists it (otherwise `--assign` warns) |
 | `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its workflow's in-progress transition (the one to the status named In Progress where there are several), once the worktree exists, or not; only a backlog or unstarted issue (Linear), an open-status task (ClickUp) or a To Do-category issue (Jira) moves, and a `--start` with no issue flag exits `2` |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
@@ -350,9 +357,9 @@ Defaults when non-interactive:
 - **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to
   48 characters at the last dash. With no issue, the branch name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`,
-  `jira.autoAssign` or `clickup.autoAssign`, then assign. The default is never saved.
-- **Start (Linear, ClickUp, Jira):** `--start`/`--no-start`, then `linear.autoStart`,
-  `clickup.autoStart` or `jira.autoStart`, then start: a non-interactive `--linear` run moves a
+  `jira.autoAssign`, `clickup.autoAssign` or `issueProvider.autoAssign`, then assign. The default is never saved.
+- **Start (Linear, ClickUp, Jira, your provider):** `--start`/`--no-start`, then `linear.autoStart`,
+  `clickup.autoStart`, `jira.autoStart` or `issueProvider.autoStart`, then start: a non-interactive `--linear` run moves a
   backlog or unstarted issue to started, a non-interactive `--clickup` run moves an open-status task
   to the List's first in-progress status, and a non-interactive `--jira` run moves a To Do issue to
   its in-progress status, unless `--no-start` or the key is `false`. The default is never saved, and a failed
@@ -653,7 +660,8 @@ file is read from `origin/HEAD` (`git show`), never the working copy, and
 `branch` fetches once before reading it; `WORKTREE_PROJECT_CONFIG=<path>` reads
 that file instead and says so on stderr. A personal key (`opener`, `codeEditor`,
 `herdr.*`, `rex.focus`, `agent.command`, `jira.email`, `*.autoAssign`,
-`linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoStart`, `jira.autoStart`) in the file is ignored
+`linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoStart`, `jira.autoStart`,
+`issueProvider.autoAssign`, `issueProvider.autoStart`) in the file is ignored
 with a warning; a secret key (`jira.apiToken`, `linear.apiKey`,
 `linear.agentToken`, `linear.webhookSecret`, `clickup.apiToken`, `github.token`) or an invalid file stops `branch` with exit
 `2` (`invalid_value`) before anything is created. An unknown key only warns. A
@@ -728,6 +736,8 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `github.repository` | `acme/widgets` | which repository `--github` and `--assign` use: this key (team key, also under `github:` in `.worktree.yml`), else `upstream` if it is on `github.host` (`github.com` unless set), else `origin`; optional, and `worktree config` never asks for it |
 | `github.host` | `ghe.example.com` | the GitHub host `--github` and `--assign` use, a bare hostname; default `github.com`; team key (also under `github:` in `.worktree.yml`); the clone also needs a remote on that host (`origin` when `github.repository` is set), or the run fails before any request; `worktree config` never asks for it |
 | `issueProvider.name` | `verk` | a short label for the team's own issue provider: a lowercase letter, then up to 31 lowercase letters, digits or hyphens; team key (also under `issueProvider:` in `.worktree.yml`), read from the same place as `issueProvider.command`; `worktree config` never asks for it |
+| `issueProvider.autoAssign` | `true` or `false` | whether `--issue` assigns the issue to you, when the provider can assign; unset means ask (assign when non-interactive); a personal key |
+| `issueProvider.autoStart` | `true` or `false` | whether `--issue` moves the issue to started once the worktree exists, when the provider can start it; unset means ask (start when non-interactive); a personal key |
 | `issueProvider.command` | `verk-provider --json` | the command line that runs the team's own issue provider, split into arguments and never run through a shell; its head must be a program that exists; the command finds its own credentials, so no key holds one; team key (also under `issueProvider:` in `.worktree.yml`); `worktree config` never asks for it |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.deployment` | `cloud` or `datacenter` | which Jira `jira.host` is: Jira Cloud or Jira Data Center (Server); unset means `cloud`; team key (also under `jira:` in `.worktree.yml`); `worktree config` never asks for it |

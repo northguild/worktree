@@ -822,3 +822,17 @@ describe("validateConfigValue", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe("isValidConfigValue — issueProvider.autoAssign and .autoStart", () => {
+  // #357 D8: the same boolean contract as every provider's switches.
+  it.each([
+    "issueProvider.autoAssign",
+    "issueProvider.autoStart",
+  ])("accepts true and false for %s and refuses anything else", async (key) => {
+    expect(await isValidConfigValue(key, "true")).toBe(true);
+    expect(await isValidConfigValue(key, "false")).toBe(true);
+    expect(await isValidConfigValue(key, "maybe")).toBe(
+      "Value must be true or false",
+    );
+  });
+});

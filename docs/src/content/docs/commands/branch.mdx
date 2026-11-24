@@ -126,11 +126,11 @@ worktree: no default for a GitHub token; pass `worktree config github.token <tok
 
 `--assign` assigns the issue to the authenticated user as part of creating the branch, and `--no-assign`
 skips it for that one run. It works with `--github`, `--jira` and `--clickup`; `--linear` does not assign
-yet. The decision is made in this order:
+yet. With `--issue` it asks your own provider, when that provider supports assigning. The decision is made in this order:
 
 1. `--assign` or `--no-assign`.
 2. The provider's key: [`github.autoAssign`](/worktree/configuration/#github-integration-notes) for `--github`,
-   `jira.autoAssign` for `--jira`, `clickup.autoAssign` for `--clickup`. `true` assigns, `false` never does. The
+   `jira.autoAssign` for `--jira`, `clickup.autoAssign` for `--clickup`, `issueProvider.autoAssign` for `--issue`. `true` assigns, `false` never does. The
    keys are independent.
 3. A non-interactive run assigns. The default is not saved, so one unattended run does not settle the key.
 4. Otherwise you are asked once, and your answer is saved to the provider's key so the question is not repeated.
@@ -207,8 +207,16 @@ worktree branch --issue VERK-42
 - The command runs without a shell, in the repository's top-level directory, and is stopped if it has not answered
   within 15 seconds or prints more than 1 MiB. What it prints is checked before any of it is used: an answer that
   does not match the contract fails the run, exit `1`, naming the provider.
-- `--assign` and `--start` are not supported with `--issue` yet: each warns and the run carries on. `--no-assign` and
-  `--no-start` are accepted and do nothing.
+- `--assign` and `--start` work with `--issue` when your provider supports them. The provider's answer says which of the
+  two it can do; `--assign` or `--start` for one it does not list warns and runs nothing, and `--no-assign` and
+  `--no-start` warn nothing. For each it does support, the decision is the one in
+  [Assigning the issue to yourself](#assigning-the-issue-to-yourself) and
+  [Moving the issue to started](#moving-the-issue-to-started), with `issueProvider.autoAssign` and
+  `issueProvider.autoStart` as the keys. The provider decides what assigning and starting mean in your tracker. The
+  assignment is made before the worktree exists and the start after it, each is a separate call bounded like the
+  first, and a failure, a timeout or an issue someone else holds warns, leaves `assigned` or `started` `false` and
+  does not change the exit code. A name the provider reports for the person who holds an issue is shown with its
+  control characters escaped.
 
 ## Previewing a branch name
 
@@ -423,12 +431,13 @@ skips it for that one run. It works with `--linear`, with `--clickup` (see
 [Moving the ClickUp task to in progress](#moving-the-clickup-task-to-in-progress)) and with `--jira` (see
 [Moving the Jira issue to in progress](#moving-the-jira-issue-to-in-progress)); `--start` with `--github` warns that
 it is not supported and carries on, and `--no-start` there warns nothing. On its own either flag exits `2`, as
-`--assign` does, because there is no issue to act on. The decision is made in this order:
+`--assign` does, because there is no issue to act on. With `--issue` it asks your own provider, when that provider
+supports starting; one that does not is never asked. The decision is made in this order:
 
 1. `--start` or `--no-start`.
-2. [`linear.autoStart`](/worktree/configuration/#linear-integration-notes) (or `clickup.autoStart` for `--clickup`, `jira.autoStart` for `--jira`): `true` starts, `false` never does.
+2. [`linear.autoStart`](/worktree/configuration/#linear-integration-notes) (or `clickup.autoStart` for `--clickup`, `jira.autoStart` for `--jira`, `issueProvider.autoStart` for `--issue`): `true` starts, `false` never does.
 3. A non-interactive run starts. The default is not saved, so one unattended run does not settle the key.
-4. Otherwise you are asked "Move this issue to started?" once, and your answer is saved to `linear.autoStart` (`clickup.autoStart` for `--clickup`, `jira.autoStart` for `--jira`) so the question is not repeated.
+4. Otherwise you are asked "Move this issue to started?" once, and your answer is saved to `linear.autoStart` (`clickup.autoStart` for `--clickup`, `jira.autoStart` for `--jira`, `issueProvider.autoStart` for `--issue`) so the question is not repeated.
 
 A configured `false` is respected in every mode; pass `--start` to override it for one run.
 
@@ -586,7 +595,8 @@ animates; progress goes to stderr as plain lines.
 - A prompt with a default takes it: the issue-derived branch name. An unset `github.autoAssign`, `jira.autoAssign` or `clickup.autoAssign` assigns
   the issue (without saving the key); `false` or `--no-assign` still skips it. An unset `linear.autoStart` moves a
   `--linear` issue to started the same way, an unset `clickup.autoStart` moves a `--clickup` task to in progress, and an unset
-  `jira.autoStart` moves a `--jira` issue to in progress; `false` or `--no-start` still skips it.
+  `jira.autoStart` moves a `--jira` issue to in progress; `false` or `--no-start` still skips it. An unset
+  `issueProvider.autoAssign` or `issueProvider.autoStart` does the same for a `--issue` provider that supports it.
 - A prompt with none fails at once, exit `2`, with one line on stderr:
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`), and a `--linear` with no identifier
@@ -664,8 +674,8 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | --- | --- |
 | `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
 | `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}`, `{provider:"clickup", key, url}` or `{provider:"custom", name, key, url}` for `--issue`; `null` when no issue was used. `url` is `null` when it is not known. `name` is `issueProvider.name`, `null` when none is set, and `provider` is always the word `custom`, never the name |
-| `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, a Jira issue is held by someone else, or Jira does not show a Jira issue's assignee); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
-| `started` | `true` once the Linear issue, ClickUp task or Jira issue is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (none of `--linear`, `--clickup` or `--jira`, `--no-start`, a configured `false`, or a declined prompt) |
+| `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, an issue is held by someone else, or Jira does not show a Jira issue's assignee); `null` when none was (no issue, `--no-assign`, a configured `false`, or a `--issue` provider that does not assign) |
+| `started` | `true` once the Linear issue, ClickUp task or Jira issue is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (none of `--linear`, `--clickup`, `--jira` or `--issue`, `--no-start`, a configured `false`, a `--issue` provider that does not start, or a declined prompt) |
 | `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
 | `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`), `"user"` (the steps in your user config file) or `"lockfile"` |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |

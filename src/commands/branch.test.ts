@@ -8402,22 +8402,340 @@ describe("branch command — --issue (a custom issue provider)", () => {
     });
   });
 
-  describe("--assign, --start and --dry-run", () => {
-    it("warns that --assign and --start are not supported yet, and asks nothing", async () => {
+  // #357 Phase 5 (D8): assign and start are the provider's own operations, tried
+  // only when its fetch answer's `can` lists them. The expected `assigned` and
+  // `started` values are D8's and the Done-when's: true for assigned,
+  // already-yours, started and already-started, false for held-by-other and
+  // left-alone and for any failure, null when nothing was attempted. "Was it
+  // called" is asserted against `runCapturing`, the helper the runner uses.
+  describe("assign and start through the provider (D8)", () => {
+    type Operation = "fetch" | "assign" | "start";
+    const operationsAsked = () =>
+      mockRunCapturing.mock.calls.map(
+        (call) =>
+          (
+            JSON.parse((call[2] as { input: string }).input) as {
+              operation: Operation;
+            }
+          ).operation,
+      );
+
+    type Raw = { stdout: string; stderr: string; exitCode: number };
+    /**
+     * The provider: a fetch answer carrying `can`, and one reply per operation,
+     * given as the answer document or, to model a failure, as the raw process
+     * result or an error the runner rejects with.
+     */
+    function provide({
+      can = ["assign", "start"],
+      assign = { outcome: "assigned" },
+      start = { outcome: "started", from: "Todo", to: "Doing" },
+      assignRaw,
+      startRaw,
+    }: {
+      can?: string[];
+      assign?: Record<string, unknown>;
+      start?: Record<string, unknown>;
+      assignRaw?: Raw | Error;
+      startRaw?: Raw | Error;
+    } = {}) {
+      mockRunCapturing.mockImplementation(async (_file, _args, options) => {
+        const { operation } = JSON.parse(
+          (options as { input: string }).input,
+        ) as { operation: Operation };
+        const raw = operation === "assign" ? assignRaw : startRaw;
+        if (operation !== "fetch" && raw instanceof Error) {
+          throw raw;
+        }
+        if (operation !== "fetch" && raw) {
+          return raw;
+        }
+        const document =
+          operation === "fetch"
+            ? { version: 1, issue: { ...verkIssue, can } }
+            : { version: 1, ...(operation === "assign" ? assign : start) };
+        return { stdout: JSON.stringify(document), stderr: "", exitCode: 0 };
+      });
+    }
+
+    it("sends the issue's key, assigns before the worktree exists and starts after it", async () => {
+      provide();
+      // Calls made before the worktree exists are the fetch and the assign;
+      // `create` clears the log, so what is left afterwards is the start alone.
+      let before: string[] = [];
+      vi.mocked(git.gitCreateWorktree).mockImplementation(async () => {
+        before = operationsAsked();
+        mockRunCapturing.mockClear();
+        return "/path/to/worktree";
+      });
+
       await runJson({ issue: "VERK-42", assign: true, start: true });
 
-      const document = output.document() as any;
-      expect(document.assigned).toBeNull();
-      expect(document.started).toBeNull();
-      expect(document.warnings).toEqual([
-        expect.stringContaining("--assign"),
-        expect.stringContaining("--start"),
-      ]);
-      expect(mockConfirm).not.toHaveBeenCalled();
-      // One call: the fetch. Assign and start are not asked of the provider.
-      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+      expect(before).toEqual(["fetch", "assign"]);
+      expect(operationsAsked()).toEqual(["start"]);
     });
 
+    it("sends the issue's key and runs in the top level for assign", async () => {
+      provide();
+
+      await runJson({ issue: "VERK-42", assign: true, start: false });
+
+      const assignCall = mockRunCapturing.mock.calls[1]?.[2] as {
+        input: string;
+        cwd: string;
+      };
+      expect(JSON.parse(assignCall.input)).toEqual({
+        version: 1,
+        operation: "assign",
+        key: "VERK-42",
+      });
+      expect(assignCall.cwd).toBe("/repo/top");
+    });
+
+    it.each([
+      ["assigned", { outcome: "assigned" }],
+      ["already-yours", { outcome: "already-yours" }],
+    ])("reports assigned true for %s", async (_label, assign) => {
+      provide({ assign });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      expect(output.document()).toMatchObject({
+        assigned: true,
+        warnings: [],
+      });
+    });
+
+    it("reports assigned false with a warning naming who holds it for held-by-other", async () => {
+      provide({ assign: { outcome: "held-by-other", heldBy: "Ada" } });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(document.warnings).toEqual([expect.stringContaining("Ada")]);
+      expect(document.warnings[0]).toContain("VERK-42");
+      expect(process.exitCode).toBeUndefined();
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("warns without a name when the provider gave none for held-by-other", async () => {
+      provide({ assign: { outcome: "held-by-other" } });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(document.warnings).toHaveLength(1);
+      expect(document.warnings[0]).toContain("someone else");
+    });
+
+    it("never prints a control character the provider put in heldBy", async () => {
+      provide({
+        assign: { outcome: "held-by-other", heldBy: "Ada\u001b[2J\u202e" },
+      });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(JSON.stringify(document.warnings)).not.toMatch(/\\u001b|\\u202e/);
+      expect(output.stderr()).not.toContain("\u001b");
+      expect(document.warnings[0]).toContain("verk");
+    });
+
+    it.each([
+      ["a non-zero exit", { stdout: "", stderr: "boom", exitCode: 1 }],
+      [
+        "an answer that breaks the contract",
+        { stdout: '{"version":1,"outcome":"?"}', stderr: "", exitCode: 0 },
+      ],
+    ])("warns and carries on, assigned false, for %s", async (_label, assignRaw) => {
+      provide({ assignRaw });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(document.warnings).toEqual([
+        expect.stringContaining("Could not assign VERK-42"),
+      ]);
+      expect(process.exitCode).toBeUndefined();
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("warns and carries on, assigned false, when the provider times out", async () => {
+      // `runCapturing` rejects a killed child; the runner words it (D6).
+      provide({
+        assignRaw: Object.assign(new Error("timed out"), { killed: true }),
+      });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(document.warnings[0]).toContain("did not answer within 15s");
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it.each([
+      ["started", { outcome: "started", from: "Todo", to: "Doing" }],
+      ["already-started", { outcome: "already-started", state: "Doing" }],
+    ])("reports started true for %s", async (_label, start) => {
+      provide({ start });
+
+      await runJson({ issue: "VERK-42", start: true, assign: false });
+
+      expect(output.document()).toMatchObject({ started: true, warnings: [] });
+    });
+
+    it("reports started false with a warning for left-alone", async () => {
+      provide({ start: { outcome: "left-alone", state: "Blocked" } });
+
+      await runJson({ issue: "VERK-42", start: true, assign: false });
+
+      const document = output.document() as any;
+      expect(document.started).toBe(false);
+      expect(document.warnings).toEqual([expect.stringContaining("Blocked")]);
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("reports started false and exit 0 when the start call fails", async () => {
+      provide({ startRaw: { stdout: "", stderr: "no", exitCode: 2 } });
+
+      await runJson({ issue: "VERK-42", start: true, assign: false });
+
+      const document = output.document() as any;
+      expect(document.started).toBe(false);
+      expect(document.warnings).toEqual([
+        expect.stringContaining("Could not move VERK-42"),
+      ]);
+      expect(process.exitCode).toBeUndefined();
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("attempts nothing and reports null when issueProvider.autoAssign is false", async () => {
+      provide();
+      gitConfigValues["issueProvider.autoAssign"] = "false";
+
+      await runJson({ issue: "VERK-42", start: false });
+
+      expect(operationsAsked()).toEqual(["fetch"]);
+      expect(output.document()).toMatchObject({
+        assigned: null,
+        started: null,
+      });
+    });
+
+    it("attempts no start and reports null when issueProvider.autoStart is false", async () => {
+      provide();
+      gitConfigValues["issueProvider.autoStart"] = "false";
+
+      await runJson({ issue: "VERK-42", assign: false });
+
+      expect(operationsAsked()).toEqual(["fetch"]);
+      expect(output.document()).toMatchObject({ started: null });
+    });
+
+    it("lets --assign beat issueProvider.autoAssign false", async () => {
+      provide();
+      gitConfigValues["issueProvider.autoAssign"] = "false";
+
+      await runJson({ issue: "VERK-42", assign: true, start: false });
+
+      expect(operationsAsked()).toEqual(["fetch", "assign"]);
+    });
+
+    it("tries both when non-interactive and nothing is configured, saving nothing", async () => {
+      provide();
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(operationsAsked()).toEqual(["fetch", "assign", "start"]);
+      expect(output.document()).toMatchObject({
+        assigned: true,
+        started: true,
+      });
+      expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalled();
+    });
+
+    it("asks once in a terminal and saves the answer under issueProvider.autoAssign", async () => {
+      provide({ can: ["assign"] });
+      mockConfirm.mockResolvedValue(false);
+
+      await runPlain({ issue: "VERK-42" });
+
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
+        "issueProvider.autoAssign",
+        "false",
+      );
+      expect(operationsAsked()).toEqual(["fetch"]);
+    });
+
+    it("never calls start for a provider whose can lacks it, and warns on an explicit --start", async () => {
+      provide({ can: ["assign"] });
+      gitConfigValues["issueProvider.autoStart"] = "true";
+
+      await runJson({ issue: "VERK-42", start: true, assign: false });
+
+      expect(operationsAsked()).toEqual(["fetch"]);
+      const document = output.document() as any;
+      expect(document.started).toBeNull();
+      expect(document.warnings).toEqual([
+        expect.stringContaining("does not support moving"),
+      ]);
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("never calls assign for a provider whose can lacks it, and warns on an explicit --assign", async () => {
+      provide({ can: ["start"] });
+
+      await runJson({ issue: "VERK-42", assign: true, start: false });
+
+      expect(operationsAsked()).toEqual(["fetch"]);
+      const document = output.document() as any;
+      expect(document.assigned).toBeNull();
+      expect(document.warnings).toEqual([
+        expect.stringContaining("does not support assigning"),
+      ]);
+    });
+
+    it("neither asks nor warns about an operation the provider lacks when no flag asks for it", async () => {
+      provide({ can: [] });
+
+      await runPlain({ issue: "VERK-42" });
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(operationsAsked()).toEqual(["fetch"]);
+    });
+
+    it("does not warn about --no-assign and --no-start for a provider without them", async () => {
+      provide({ can: [] });
+
+      await runJson({ issue: "VERK-42", assign: false, start: false });
+
+      expect(output.document()).toMatchObject({ warnings: [] });
+    });
+
+    it("ignores issueProvider.autoStart in .worktree.yml with a warning naming where to set it", async () => {
+      provide();
+      projectFile("issueProvider:\n  autoStart: false\n");
+
+      await runJson({ issue: "VERK-42", assign: false });
+
+      // The file's `false` is not obeyed: the unset key means non-interactive
+      // start, and the person is told where the key belongs.
+      expect(operationsAsked()).toEqual(["fetch", "start"]);
+      expect(output.document()).toMatchObject({
+        warnings: [
+          expect.stringContaining("worktree config issueProvider.autoStart"),
+        ],
+      });
+    });
+  });
+
+  describe("--assign, --start and --dry-run", () => {
     it("does not warn or ask when neither flag is given", async () => {
       await runJson({ issue: "VERK-42" });
 

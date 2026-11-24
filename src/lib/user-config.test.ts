@@ -136,6 +136,21 @@ describe("readUserConfig", () => {
     });
   });
 
+  // #357 D8: the provider's assign/start switches are personal keys, so the
+  // user file accepts them, as it does every other provider's.
+  it("accepts issueProvider.autoAssign and issueProvider.autoStart", async () => {
+    write(
+      defaultFile(),
+      "issueProvider:\n  autoAssign: false\n  autoStart: true\n",
+    );
+    const result = await readUserConfig({}, home);
+    expect(result).toMatchObject({
+      status: "loaded",
+      config: { issueProvider: { autoAssign: false, autoStart: true } },
+      warnings: [],
+    });
+  });
+
   it("reads the file at an absolute XDG_CONFIG_HOME", async () => {
     const xdg = path.join(dir, "xdg");
     write(path.join(xdg, "worktree", "config.yml"), "opener: none\n");

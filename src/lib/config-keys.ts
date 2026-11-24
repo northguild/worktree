@@ -37,6 +37,8 @@ export const PERSONAL_KEYS = new Set([
   "linear.agentContext",
   "clickup.autoAssign",
   "clickup.autoStart",
+  "issueProvider.autoAssign",
+  "issueProvider.autoStart",
 ]);
 export const PERSONAL_SECTIONS = new Set(["herdr", "rex", "agent"]);
 export const SECRET_KEYS = new Set<string>(SECRET_CONFIG_NAMES);
