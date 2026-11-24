@@ -348,13 +348,13 @@ Flags for agent mode:
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
 | `--issue <reference>` (`-i`) | `branch` | name the branch from an issue in your own tracker, read by the command in `issueProvider.command` (reference on stdin); not with another issue flag |
 | `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not; with `--issue`, through the provider's `assign` operation when its answer lists it (otherwise `--assign` warns) |
-| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its workflow's in-progress transition (the one to the status named In Progress where there are several), once the worktree exists, or not; only a backlog or unstarted issue (Linear), an open-status task (ClickUp) or a To Do-category issue (Jira) moves, and a `--start` with no issue flag exits `2` |
+| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its workflow's in-progress transition (the one to the status named In Progress where there are several), once the worktree exists, or not; only a backlog or unstarted issue (Linear), an open-status task (ClickUp) or a To Do-category issue (Jira) moves, and a `--start` with no issue flag exits `2`; with `--issue`, through the provider's `start` operation when its answer lists it (otherwise `--start` warns) |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 Defaults when non-interactive:
 
-- **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to
+- **Branch name** from `--github` (or `--issue`, whose provider supplies the key and title): by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to
   48 characters at the last dash. With no issue, the branch name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`,
   `jira.autoAssign`, `clickup.autoAssign` or `issueProvider.autoAssign`, then assign. The default is never saved.
@@ -413,8 +413,8 @@ document:
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`,
   `{provider:"clickup",key,url}`, `{provider:"custom",name,key,url}` (`--issue`), or `null`; `url` can itself be `null`.
-- `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, a Jira issue is held by someone else, or Jira does not show a Jira issue's assignee), `null` when no assignment was attempted.
-- `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), `null` when none was attempted.
+- `assigned` is `true` when the issue is yours after the run (assigned, or already yours), `false` when it is not (the attempt failed, an issue is held by someone else, or Jira does not show a Jira issue's assignee), `null` when no assignment was attempted (no issue, `--no-assign`, a configured `false`, or a `--issue` provider that does not assign).
+- `started` is `true` when the `--linear` issue, `--clickup` task, `--jira` issue or `--issue` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), `null` when none was attempted (no issue flag that starts, `--no-start`, a configured `false`, a `--issue` provider that does not start, or a declined prompt).
 - `herdr`, `rex` and `agent` are `null` when skipped. `rex` is `{session,block}`
   for the Rex session that was opened, `block` `null` when the session was
   found rather than reported by `rex new` (already open, or a timed-out `new`

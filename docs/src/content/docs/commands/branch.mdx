@@ -177,8 +177,9 @@ worktree config clickup.autoAssign true
   output or a launched editor. Assigning is idempotent — GitHub does not replace existing assignees, a
   Jira issue that is already yours is not written again, and a ClickUp assignment only adds you and skips a task
   that already lists you — so retrying after a failed creation is harmless.
-- `--assign` and `--no-assign` both require one of `--github`, `--jira`, `--linear` or `--clickup`; on their own there is no issue to act
-  on. `--assign --linear` warns that assignment is not supported for Linear yet and carries on.
+- `--assign` and `--no-assign` both require one of `--github`, `--jira`, `--linear`, `--clickup` or `--issue`; on their own there is no issue to act
+  on. With `--issue` they reach your provider only when its answer lists `assign`, as *Branching from your own
+  tracker* below says. `--assign --linear` warns that assignment is not supported for Linear yet and carries on.
 
 **Branching from your own tracker.** Use the `--issue` flag (short: `-i`) to create a branch name from an issue in a tracker that is none of the four
 above. The team writes a small program that reads its tracker and prints the issue as JSON, and
@@ -676,7 +677,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
 | `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}`, `{provider:"clickup", key, url}` or `{provider:"custom", name, key, url}` for `--issue`; `null` when no issue was used. `url` is `null` when it is not known. `name` is `issueProvider.name`, `null` when none is set, and `provider` is always the word `custom`, never the name |
 | `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, an issue is held by someone else, or Jira does not show a Jira issue's assignee); `null` when none was (no issue, `--no-assign`, a configured `false`, or a `--issue` provider that does not assign) |
-| `started` | `true` once the Linear issue, ClickUp task or Jira issue is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (none of `--linear`, `--clickup`, `--jira` or `--issue`, `--no-start`, a configured `false`, a `--issue` provider that does not start, or a declined prompt) |
+| `started` | `true` once the Linear issue, ClickUp task, Jira issue or `--issue` issue is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (none of `--linear`, `--clickup`, `--jira` or `--issue`, `--no-start`, a configured `false`, a `--issue` provider that does not start, or a declined prompt) |
 | `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
 | `installed` | `{ran:true, command, steps, from, inferred, ok}`, plus `reason` when `ok` is `false`; `{ran:false, reason}` when the step was skipped. `steps` are the commands that ran, in order, and `command` is the one that failed, else the last that ran. `from` is `"git-config"` (your `postCreate`), `"project"` (the steps in `.worktree.yml`), `"user"` (the steps in your user config file) or `"lockfile"` |
 | `herdr` | `{space, pane, agent}` for the Herdr space that was opened; `null` when Herdr was not opened. `agent` is Herdr's handle, `null` when no agent was started in the pane |
