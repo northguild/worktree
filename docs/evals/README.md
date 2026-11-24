@@ -199,14 +199,23 @@ failing check is a fault to fix or file, never a report to commit, and a grader 
 
 Rates (Cloudflare's Workers AI pricing page, read 2026-11-24, Neurons per million tokens, input / output): Gemma 4 26B 9,091 /
 27,273; GLM 4.7 Flash 5,500 / 36,400. gmt measured a 29,238-token prompt answered in 33 tokens at 267 Neurons on Gemma 4 26B. The
-worst-case reservation of 350 is gmt's, kept until a first live run here measures this Worker's own maximum.
+worst-case reservation of 350 is gmt's. The first live run here measured a maximum of 109, so 350 is about three times this
+Worker's largest answer; lowering it is a judgement left open (plan #355 §9 Q4).
 
 | Run | Cases | Estimate |
 |---|---|---|
-| default (`BRAINS[0]`, live subset) | up to 12 | up to 4,200 Neurons at the worst case, stopped at the 2,500 budget |
+| default (`BRAINS[0]`, live subset) | up to 12 | about 940 Neurons, reserved from `live-cf-gemma-4-26b.json`'s figures |
+| a brain with no committed report | up to 12 | up to 4,200 Neurons at the worst case, stopped at the 2,500 budget |
 | `--brains all` | up to 12 per brain | each Workers AI brain as above, each Gemini model up to 3 requests |
 
-The measured total, the per-question range and the duration of the first live run are added here when it is made.
+The first live run, on 2026-11-24 against `worker:dev:evals` (`--budget 4200 --write-baseline`, all 12 cases `pass`):
+
+| Brain | Cases | Measured total | Per question | Duration |
+|---|---|---|---|---|
+| `cf-gemma-4-26b` | 12 | 937 Neurons | 5 to 109 (5 is the one-line "does not cover" answer) | 91 s, with the 3.5 s pauses; answers took 0.6 to 11 s |
+
+Every figure came from `RUN_FINISHED` usage, none from the worst case. At that rate the default 2,500 budget runs the whole live
+subset, and a run is about a tenth of the account's 10,000 a day.
 
 ### When a live run is required
 

@@ -229,6 +229,10 @@ visitor cap. A dry run (`wrangler deploy --dry-run --env evals`) is safe, needs 
 (Cloudflare's local-development documentation). That is why `worker:dev:evals` blanks the key with `--var GEMINI_API_KEY:` and
 `worker:dev:evals:gemini` leaves it. The runbook, `docs/evals/README.md`, has the whole procedure.
 
+Both evals scripts run `wrangler dev` **without** `--local`. That flag turns remote bindings off, and Workers AI has no local
+simulator, so under it the start-up table shows `env.AI` as `not supported` and every answer fails with `upstream_unavailable`.
+Without the flag `wrangler dev` still runs the Worker locally and sends only the `AI` binding to Cloudflare.
+
 ### Testing
 
 | Command | What it does | When to run |

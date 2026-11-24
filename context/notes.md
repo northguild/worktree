@@ -47,3 +47,11 @@ Branch-local observations from the gates of #355 (dox-chat-evals). Read by nothi
 - The top-level `wrangler deploy` (bundle-check, `worker-deploy.yml`) now warns that several environments exist; `--env=""` would silence it.
 - `report.ts:69`, `:73` and `report.test.ts:253` use type assertions against `typescript/rules.md`.
 - GLM's output rate is 36,400 here (D10, Cloudflare's page as read 2026-11-24) and 36,364 in gmt.
+
+## Phase 6 (Gate 2, non-blocking)
+
+- `graders.ts` drops whole shell comments, so an invented command or flag written inside a comment (`# or: worktree rename --forse a b`) goes unchecked. The corpus writes commands that way (`skills/worktree/SKILL.md:94`, `:145`). A tighter rule would skip only the `worktree <word>` match in comment text and keep reading flags.
+- In a `console` block a leading `# ` is a root prompt, not a comment. A quoted `' #'` also hides the rest of its line.
+- Three of the comment rule's behaviours are unpinned: an unlabelled block is stripped, a `#` inside a word (`/faq/#x`) is kept, and a non-shell block is left alone.
+- `docs/package.json` is a `worker-deploy.yml` path, so merging redeploys a Worker that behaves the same.
+- The `--local` defect behind the evals scripts is also on main in `worker:dev`, and docs there contradict the new `docs/worker/README.md` paragraph. Filed as #367.
