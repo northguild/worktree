@@ -1534,7 +1534,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.issue
     ) {
       this.error(
-        "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+        "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
       );
     }
 
@@ -1548,7 +1548,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.issue
     ) {
       this.error(
-        "--start/--no-start requires one of --github, --jira, --linear or --clickup.",
+        "--start/--no-start requires one of --github, --jira, --linear, --clickup or --issue.",
       );
     }
 
@@ -1564,7 +1564,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.issue
     ) {
       this.error(
-        "--dry-run requires one of --github, --jira, --linear or --clickup.",
+        "--dry-run requires one of --github, --jira, --linear, --clickup or --issue.",
       );
     }
 

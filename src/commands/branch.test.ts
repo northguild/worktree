@@ -2506,7 +2506,7 @@ jira:
         });
 
         await expect(branch.run()).rejects.toThrow(
-          "--start/--no-start requires one of --github, --jira, --linear or --clickup.",
+          "--start/--no-start requires one of --github, --jira, --linear, --clickup or --issue.",
         );
         await expect(branch.run()).rejects.toMatchObject({
           oclif: { exit: 2 },
@@ -4699,7 +4699,7 @@ jira:
       it.each([
         [true],
         [false],
-      ])("errors when the assign flag is %s with none of --github, --jira, --linear or --clickup", async (assign) => {
+      ])("errors when the assign flag is %s with none of --github, --jira, --linear, --clickup or --issue", async (assign) => {
         vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
           (key: string) => {
             if (key === "has-called-config") return Promise.resolve("true");
@@ -4708,7 +4708,7 @@ jira:
         );
         const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
           throw new Error(
-            "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+            "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
           );
         });
 
@@ -4720,10 +4720,10 @@ jira:
         // Both spellings are one flag under `allowNo`, and neither has an
         // issue to act on here.
         await expect(branch.run()).rejects.toThrow(
-          "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+          "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
         );
         expect(mockError).toHaveBeenCalledWith(
-          "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+          "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
         );
       });
 
@@ -6181,7 +6181,7 @@ github:
     const dry = runDry({}, [], { branchName: "my/own-name" });
 
     await expect(dry).rejects.toThrow(
-      "--dry-run requires one of --github, --jira, --linear or --clickup.",
+      "--dry-run requires one of --github, --jira, --linear, --clickup or --issue.",
     );
     expect(git.gitCreateWorktree).not.toHaveBeenCalled();
   });
@@ -8820,9 +8820,12 @@ describe("branch command — --issue (a custom issue provider)", () => {
       });
     });
 
-    it("accepts --assign and --start only with an issue flag, naming the old four", async () => {
+    it("accepts --assign and --start only with an issue flag, naming all five", async () => {
       await expect(runPlain({ assign: true })).rejects.toThrow(
-        "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+        "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
+      );
+      await expect(runPlain({ start: true })).rejects.toThrow(
+        "--start/--no-start requires one of --github, --jira, --linear, --clickup or --issue.",
       );
     });
   });
