@@ -126,8 +126,9 @@ review, and the command refuses to overwrite an existing `.worktree.yml`. It tak
   including `--json`, `--yes`, `--non-interactive` and `CI` (not on `branch --dry-run`). A file read through
   `WORKTREE_PROJECT_CONFIG` removes nothing. A key with a different value stays, as the override it is. A
   matching key stays too when another scope (your global git config, say) also sets it, a local `postCreate`
-  stays until you approve the file's step, and with no `origin/HEAD` a local `defaultSourceBranch` stays,
-  because it is what finds the file. See
+  stays until you approve the file's step, a local `issueProvider.command` stays until you approve the file's
+  command (and with it the local `issueProvider.name`), and with no `origin/HEAD` a local `defaultSourceBranch`
+  stays, because it is what finds the file. See
   [Moving to the file](/worktree/project-configuration/#moving-to-the-file). If a key cannot be removed, the
   command warns and still succeeds.
 - Only this one is an offer: on a terminal, with no `.worktree.yml` on the default branch or in your worktree and a team key in
@@ -314,7 +315,7 @@ by the wizard (a bare run and `--missing` skip them), and none can be set from `
   `.worktree.yml` under `issueProvider:`, or in your [user config file](#user-config-file). **The wizard never asks for
   it**, and `--missing` never lists it. Set it by name, for example `worktree config issueProvider.command "verk-provider --json"`.
   A command from `.worktree.yml` needs your approval before it runs; one from your git config or user config file needs
-  none. See [Approving the provider command](/worktree/project-configuration/#approving-the-steps) and
+  none. See [Approving the provider command](/worktree/project-configuration/#approving-the-provider-command) and
   [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
 - `issueProvider.name` an optional short label for the provider: one lowercase letter followed by up to 31 lowercase
   letters, digits or hyphens (anything else is refused with exit `2`). A team key that can also be set in `.worktree.yml`
@@ -326,6 +327,19 @@ by the wizard (a bare run and `--missing` skip them), and none can be set from `
   `.worktree.yml` or your user config file, or because no command is set anywhere yet. `--list` shows the same: the name
   in effect, then any other as `not in effect`, with the reason. See
   [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
+- `issueProvider.autoAssign` whether `--issue` also assigns the issue to you, when the provider can assign it: `true`
+  always, `false` never, unset means you are asked once and your answer is saved (a non-interactive run assigns, and
+  saves nothing). A provider that cannot assign is never asked to. A personal key: a `.worktree.yml` that sets it is
+  ignored with a warning. See [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
+- `issueProvider.autoStart` whether `--issue` also moves the issue to started once the worktree exists, when the
+  provider can start it: `true` always, `false` never, unset means you are asked once and your answer is saved (a
+  non-interactive run starts it, and saves nothing). A provider that cannot start an issue is never asked to. A
+  personal key, ignored with a warning in `.worktree.yml`. See
+  [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
+
+**The wizard never asks for `issueProvider.autoAssign` or `issueProvider.autoStart`**, and `--missing` never lists them:
+the first `--issue` run with neither the flag nor the key set asks, if the provider can do it, and saves the answer. A direct
+`worktree config issueProvider.autoAssign` or `worktree config issueProvider.autoStart` accepts only `true` or `false`.
 
 ## Approving Post-create Steps and the Provider Command
 
@@ -335,4 +349,4 @@ this machine. Yes records the approval for those exact steps, or that exact comm
 local git config, so `worktree branch` does not ask. It needs a terminal: when nothing can be asked it
 refuses with exit `2`. The approvals are not configuration keys, so they are not listed by `--list` and
 cannot be set by name. See [Approving the steps](/worktree/project-configuration/#approving-the-steps) and
-[Approving the provider command](/worktree/project-configuration/#approving-the-steps).
+[Approving the provider command](/worktree/project-configuration/#approving-the-provider-command).

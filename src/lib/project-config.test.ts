@@ -2814,7 +2814,11 @@ describe("issue provider approval (#357 D5)", () => {
       oclif: { exit: number };
     };
     expect(oclif.exit).toBe(2);
-    expect(message).toContain("worktree config --approve");
+    // The sentence a person reads: MissingValueError's `no default for <value>;
+    // pass <flag>` shape, with a flag that is a noun phrase, so it parses.
+    expect(message).toBe(
+      "no default for approval of this project's issue provider command from .worktree.yml; pass your approval (run `worktree config --approve` once in a terminal)",
+    );
     for (const text of [message, value, flag]) {
       expect(text).not.toMatch(/[0-9a-f]{64}/);
     }

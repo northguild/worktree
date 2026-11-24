@@ -367,7 +367,7 @@ Steps from a file run commands on your machine that someone else wrote, so each 
   in `worktree config --list` and `worktree config <key> <value>` cannot set it.
 - **On a terminal**, `worktree branch` lists every step before anything is created and asks. Yes remembers
   the approval; no exits `1` with nothing created. `worktree config --approve` shows the current steps and
-  asks the same question ahead of time.
+  asks ahead of time, and does the same for the file's provider command (see below). It needs a terminal.
 - **When nothing can be asked** (a script, CI, `--json`, `--yes` or `--non-interactive`), an unapproved or
   changed list stops the run before anything is created, with exit `2` and `missing_value` under `--json`.
   The message names the two ways out: approve once in a terminal with `worktree config --approve`, or skip
@@ -376,7 +376,9 @@ Steps from a file run commands on your machine that someone else wrote, so each 
   pass `--no-install`.
 - **`--no-install` needs no approval**, and neither does `branch --dry-run`, which runs nothing.
 
-**Approving the provider command.** An `issueProvider.command` from the file runs a program of someone else's choosing on every run that reads
+### Approving the provider command
+
+An `issueProvider.command` from the file runs a program of someone else's choosing on every run that reads
 an issue, so each person approves it once, the way they approve the steps. A command from your own git config
 or your [user config file](/worktree/configuration/#user-config-file) is yours and needs no approval.
 
@@ -424,7 +426,7 @@ Two steps move your settings to the file. Only the first is an offer.
     over the file;
   - a local `postCreate`, until you have [approved](#approving-the-steps) the file's step, because your own
     `postCreate` is what lets `branch` run without that approval;
-  - a local `issueProvider.command`, until you have [approved](#approving-the-steps) the file's,
+  - a local `issueProvider.command`, until you have [approved](#approving-the-provider-command) the file's,
     for the same reason, and with it the local `issueProvider.name`;
   - with no `origin/HEAD`, a local `defaultSourceBranch`, because it is what finds the file.
 

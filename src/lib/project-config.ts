@@ -1044,7 +1044,7 @@ export class IssueProviderDeclinedError extends Error {
 function providerApprovalRequired() {
   return new MissingValueError(
     "approval of this project's issue provider command from .worktree.yml",
-    "approving it once in a terminal with `worktree config --approve`",
+    "your approval (run `worktree config --approve` once in a terminal)",
   );
 }
 
@@ -1433,8 +1433,10 @@ async function unsetLocal(key: string) {
  * value, without asking or printing. A file from the default branch keeps
  * supplying them, so the copies only go stale. A copy stays where removing it
  * would change what `worktree` does: a key another scope also sets, a
- * `postCreate` whose step is not approved, and with no origin/HEAD a
- * `defaultSourceBranch`, which is what finds the file. A failed unset throws,
+ * `postCreate` whose step is not approved, an `issueProvider.command` (and
+ * with it the `issueProvider.name`) while the file's command is not
+ * approved, and with no origin/HEAD a `defaultSourceBranch`, which is what
+ * finds the file. A failed unset throws,
  * unless the key is already gone.
  */
 async function removeCoveredLocalConfig(config: ProjectConfig) {

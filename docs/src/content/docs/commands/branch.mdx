@@ -204,7 +204,7 @@ worktree branch --issue VERK-42
   shows the command and asks, and a non-interactive run or a `--dry-run`, which asks nothing, exits `2` with
   `missing_value` and runs nothing; `worktree config --approve` approves it ahead of time. A command from your git
   config or your user config file is your own and needs no approval. See
-  [Approving the provider command](/worktree/project-configuration/#approving-the-steps).
+  [Approving the provider command](/worktree/project-configuration/#approving-the-provider-command).
 - The command runs without a shell, in the repository's top-level directory, and is stopped if it has not answered
   within 15 seconds or prints more than 1 MiB. What it prints is checked before any of it is used: an answer that
   does not match the contract fails the run, exit `1`, naming the provider.

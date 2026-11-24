@@ -100,7 +100,7 @@ The answer describes the issue:
 | Field | Required | Meaning |
 |---|---|---|
 | `key` | yes | The issue's identifier. It becomes `{id}` in the branch name and a directory name, so it must be letters and digits joined by single `-` or `_` (no `/`, `.`, spaces, or a leading, trailing or doubled separator), at most 64 characters. `VERK-42` and `verk_42` are valid; `VERK/42` and `VERK--42` are not. |
-| `title` | yes | The issue's title, any text. Only a slug of it reaches the branch name: lowercased, with anything but letters, digits, spaces and `-` removed (non-ASCII letters go), each run of spaces, `_` and `-` made one `-`, and cut to 48 characters at a whole word. A title with nothing left gives `issue`. |
+| `title` | yes | The issue's title, any text. Only a slug of it reaches the branch name: lowercased, with anything but ASCII letters, digits, whitespace, `_` and `-` removed (non-ASCII letters go), each run of whitespace, `_` and `-` made one `-` (so `a_b` becomes `a-b`), any `-` at either end dropped, and cut to 48 characters at a whole word. A title with nothing left gives `issue`. |
 | `url` | no | An `http:` or `https:` URL, or `null`. Left out, it is `null`, and `--json` reports `url: null`. |
 | `type` | no | The issue's type as a string, such as `Bug`, or `null`. Left out, it is `null`: the issue has no type. |
 | `labels` | no | A list of strings. Left out, it is `[]`. |
@@ -251,7 +251,7 @@ approves it once. A command from your own git config or user config file is your
 - A non-interactive run and `--dry-run`, which asks nothing, stop with exit `2` and `missing_value` before the
   command starts. `worktree config --approve` approves it ahead of time.
 
-See [Approving the provider command](/worktree/project-configuration/#approving-the-steps).
+See [Approving the provider command](/worktree/project-configuration/#approving-the-provider-command).
 
 **A relative path runs the working copy's file.** With `command: ./scripts/verk-provider`, the approval covers those
 characters, not the script, and the script can differ from one branch to the next. Put the provider on your `PATH`, or

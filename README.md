@@ -93,8 +93,9 @@ The setup flow can configure:
 - `opener` for where a worktree opens — `editor` (default), `herdr`, `rex`, `auto` or `none`
 - `agent.command` for the command `--agent` runs to hand a brief to a coding agent, such as `claude --bg`
 - `postCreate` for a command to run in each new worktree, such as `pnpm install` (otherwise the steps in `.worktree.yml`, which you approve first with `worktree config --approve`, then the steps in your user config file, else inferred from the lockfile)
-- `issueProvider.command` for the command that reads issues from your own tracker (from a `.worktree.yml` it needs your approval first, with `worktree config --approve`; from your git config or user config file it needs none)
 - `linear.agentToken`, `linear.webhookSecret`, `linear.agentAllow` and `linear.agentContext` for a Linear agent that starts worktrees: the app's OAuth token and the webhook signing secret (both secret, shown as `***` by `worktree config --list`), the Linear user ids allowed to delegate an issue to it, and `true` to also hand the issue's text to the agent (off by default). `worktree linear-listen` reads them; the wizard never asks for any of them, and a `.worktree.yml` cannot set them
+
+The wizard never asks for `issueProvider.command`, the command that reads issues from your own tracker; set it by name, such as `worktree config issueProvider.command "verk-provider --json"` (from a `.worktree.yml` it needs your approval first, with `worktree config --approve`; from your git config or user config file it needs none).
 
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
 `jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host`, `issueProvider.name` and `issueProvider.command`, read from the default branch; your own git config overrides it. The
