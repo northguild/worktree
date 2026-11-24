@@ -1,0 +1,38 @@
+data: {"type":"RUN_STARTED","threadId":"eval-fixture","runId":"fixture-refusal","timestamp":1700000000000}
+
+data: {"type":"CUSTOM","name":"dox-retrieval","value":{"totalChunks":210,"retrievedCount":0,"chunkTitles":[],"chunkUrls":[],"timings":{"corpus":3,"search":3,"prompt":3}},"timestamp":1700000000000}
+
+data: {"type":"CUSTOM","name":"dox-progress","value":{"text":"Asking Gemma 4 26B…"},"timestamp":1700000000000}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"fixture-refusal-text","role":"assistant","timestamp":1795541737884,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"},"model":"cf-gemma-4-26b"}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"The ","timestamp":1795541737884,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"Work","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"tree","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":" doc","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"umen","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"tati","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"on d","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"oes ","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"not ","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"cove","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"r th","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-refusal-text","delta":"is.","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"fixture-refusal-text","timestamp":1795541737885,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"},"model":"cf-gemma-4-26b"}}}
+
+data: {"type":"CUSTOM","name":"dox-retrieval","value":{"totalChunks":210,"retrievedCount":0,"chunkTitles":[],"chunkUrls":[],"timings":{"corpus":3,"search":3,"prompt":3,"firstToken":21,"total":24},"brainLabel":"Gemma 4 26B"},"timestamp":1700000000000}
+
+data: {"type":"RUN_FINISHED","runId":"fixture-refusal","threadId":"eval-fixture","timestamp":1795541737885,"usage":[{"inputTokens":559,"outputTokens":12,"totalTokens":571}],"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"},"model":"cf-gemma-4-26b","finishReason":"stop"}}}
+

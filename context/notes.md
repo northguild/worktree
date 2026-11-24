@@ -26,3 +26,11 @@ Branch-local observations from the gates of #355 (dox-chat-evals). Read by nothi
 - `docs/evals/offline.test.ts`: `JSON.parse(...) as Report` is a type assertion against `typescript/rules.md`.
 - `docs/evals/README.md` "Adding a case" step 3 says the test fails naming a case missing from the baseline; true only for cases with `chunks`.
 - The gmt source is cited as `evals/metrics.ts`; it is `apps/dox/evals/metrics.ts` at fccce75 (also in plan §8).
+
+## Phase 4 (Gate 2, non-blocking)
+
+- `docs/evals/README.md` graders table: the `markup` row names `<tool_call>` only (the code also catches `</tool_call>`); the `refuse` row is narrower than `graders.ts`'s regex, which accepts "doesn't mention …" and could pass a non-refusal; the `links` row says "no outside URL" though only inline links are read (autolinks, bare URLs and reference links pass).
+- `docs/evals/graders.ts`: `known` does not read `~~~` fences; canary matching is case-sensitive while prompt sentences are not.
+- Unpinned rules: the usage sum and single-object form, the top-level `finishReason` fallback, `yml` and `- key:` YAML, image and titled links (`read-stream.ts`, `graders.ts`).
+- `docs/evals/read-stream.ts`: the `TRACE` and `REFUSAL` schemas repeat `RetrievalTraceData` and `RefusalData` rather than deriving them; test files use module-level arrow functions.
+- The README's recording recipe leaves out `startTimeoutMs`, `log` and the env the recorder used; the throwaway recorder is not in the repository.

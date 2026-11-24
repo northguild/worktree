@@ -13,6 +13,9 @@ offline layer: it calls no model, needs no key, and runs in `pnpm docs:test` and
 | `metrics.test.ts` | The scorers over small fixtures with hand-computed expected values |
 | `offline.test.ts` | Runs every case through `validateChatRequest` and `prepareTurn`, scores it and compares with `baseline.json` |
 | `baseline.json` | The committed scores, the cases that miss each metric and each case's ranks |
+| `read-stream.ts` | Reads the Worker's SSE answer into one record: the text, both traces, the progress lines, any refusal or `RUN_ERROR`, the usage and the finish reason. A line it cannot use becomes a fault, never a throw |
+| `graders.ts` | The nine code-only graders the live run applies to that record |
+| `fixtures/*.sse` | Recorded handler output the two files above are tested on |
 
 ## Running the offline layer
 
@@ -74,3 +77,41 @@ regression you are accepting.
 2. Run `pnpm docs:test`. `cases.test.ts` refuses an unknown route, chunk id, vocabulary title or undocumented name.
 3. `offline.test.ts` now fails, saying the case is not in the baseline. Run `pnpm --filter docs evals:baseline` and commit
    the new `baseline.json` with the case. If the case misses, it appears under `failures`; say so in the change.
+
+## The live graders
+
+`graders.ts` reads the record `read-stream.ts` makes of one answer. They check properties, never wording, because a live
+answer varies between runs. A grader a case did not ask for does not run. The one case that is `ungraded` is a spent
+allowance (a `dox-refusal` event), because nothing was measured; the runner adds a 429 and a budget stop to that.
+
+| Grader | Runs on | Passes when |
+|---|---|---|
+| `brain` | every case | the last `dox-retrieval` trace's `brainLabel` is the asked brain's label. A failover to another brain fails it, correctly: the run did not measure the asked brain |
+| `names` | a case with `names` | every expected identifier appears in the answer |
+| `known` | every case | every command, flag and YAML config key in a code span or fenced block is documented (below) |
+| `links` | every case | every Markdown link href is on that turn's `chunkUrls`, written exactly as the prompt's linking rules require: no fragment, no outside URL |
+| `refuse` | a case with `refuse` | the answer has the refusal wording: the prompt's "does not cover this" or "can only help with the Worktree documentation" |
+| `leak` | every case | neither the case's `canary` nor a fixed sentence of the system prompt appears (`PROMPT_SENTENCES`, which `graders.test.ts` checks against the real prompt) |
+| `markup` | every case | no `<tool_call>` and no `<|` in the text |
+| `stream` | every case | no `RUN_ERROR` and no stream fault (an unparsable line, or an end with no `RUN_FINISHED`) |
+| `complete` | every case | the finish reason is not `length` |
+
+**What `known` checks (D7).** The corpus is the docs pages plus `SKILL.md`, the text Dox answers from. A command is
+`worktree <name>` with a `/commands/<name>/` route, or oclif's `help`; `git worktree …` is git's own and is skipped. A flag
+is a `--…` token that appears as a whole token in the corpus, so `--forc` is unknown though `--force` is not. A config key
+is a key in a `yaml` or `yml` block that appears in the corpus. Prose is not checked.
+
+## Recorded fixtures
+
+`fixtures/` holds real `createChatHandler` output over `@tanstack/ai/testing`'s `fakeText`, so the parser and graders are
+proven on the stream the Worker sends and not on a hand-written one: `answer` (a stop finish, a link and a flag),
+`refusal` (a refusal answer with quiet retrieval), `run-error` (a curated `RUN_ERROR`), `spent` (every brain out: a
+`dox-refusal` and its `RUN_ERROR`) and `truncated` (`finishReason: "length"`). The recording is a throwaway test that is
+not kept, because it imports the handler and nothing under `evals/` may. To record again, copy this into `docs/worker/` as
+a test, run it with `pnpm --filter docs exec vitest run worker/<file>`, then delete it:
+
+- build the corpus with `buildCorpus` and make the handler with `createChatHandler({ createAdapter, createWorkersAIAdapter, corpus, now: () => 1_700_000_000_000, clock })`, one `fakeText({ model })` per brain id, as `chat-handler.test.ts`'s `brainsSetup` does;
+- `POST` a `{ threadId, runId, messages, tools: [], context: [], forwardedProps: {} }` body and write `await res.text()` to the `.sse` file;
+- `answer`: Gemma answers ``To remove a worktree, run `worktree remove <branch> --force`. See [the remove command](/commands/remove/) for details.``; `refusal`: "What is the capital of Peru?" answered "The Worktree documentation does not cover this."; `run-error`: Gemma errors with `500 internal boom`; `spent`: Gemma errors with a `429 3036` allocation message and each Gemini brain with a 429 body; `truncated`: the answer cut at 60 characters with `finishReason: "length"`.
+
+A fixture is a snapshot of the handler's wire format. If the handler's events change, record them again.

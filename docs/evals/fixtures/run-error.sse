@@ -1,0 +1,8 @@
+data: {"type":"RUN_STARTED","threadId":"eval-fixture","runId":"fixture-run-error","timestamp":1700000000000}
+
+data: {"type":"CUSTOM","name":"dox-retrieval","value":{"totalChunks":210,"retrievedCount":10,"chunkTitles":["worktree remove: delete git worktrees › Detached worktrees","worktree cleanup: remove stale git worktrees","worktree remove: delete git worktrees","FAQ: @northguild/worktree and git worktrees › What happens to a Herdr space when I remove the worktree?","worktree remove: delete git worktrees › The confirmation prompt","worktree cleanup: remove stale git worktrees › What it prints","worktree cleanup: remove stale git worktrees › Canceled Linear issues","worktree remove: delete git worktrees › JSON output","worktree cleanup: remove stale git worktrees › Flags","worktree remove: delete git worktrees › Usage"],"chunkUrls":["/commands/remove/","/commands/cleanup/","/faq/"],"timings":{"corpus":3,"search":3,"prompt":3}},"timestamp":1700000000000}
+
+data: {"type":"CUSTOM","name":"dox-progress","value":{"text":"Asking Gemma 4 26B…"},"timestamp":1700000000000}
+
+data: {"type":"RUN_ERROR","timestamp":1700000000000,"message":"The assistant's model is unavailable right now.","code":"upstream_unavailable"}
+
