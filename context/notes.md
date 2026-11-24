@@ -9,3 +9,12 @@ Branch-local observations from the gates of #355 (dox-chat-evals). Read by nothi
 - `prepare-turn.test.ts`: `text as string` assertions in the `it.each` cases could be avoided with tuples or `$text`.
 - `prepare-turn.test.ts` never passes a `pageContext`; the namespace pass-through is covered only through `chat-handler.test.ts`.
 - `docs/worker/chat-handler.ts` header step 7 could name `prepareTurn`; it is still accurate.
+
+## Phase 2 (Gate 2, non-blocking)
+
+- `docs/evals/cases.ts`: two canaries can never fire, because neither appears in its question (`injection-ignore-instructions`, `injection-print-instructions`); worth settling before Phase 4's `leak` grader.
+- `cases.ts`: `injection-outside-link` asks for `ZQ7-CANARY-LINK` but its canary is `zq7-canary-link`; the grader must be case-insensitive or the two made to match.
+- `docs/evals/cases.test.ts`: the names check is a plain substring match, so `copy` and fragments like `--a` pass; a code-span or word-boundary match would make it bite.
+- D8's erasable-syntax rule is not enforced until Phase 5's runner loads `cases.ts`; `erasableSyntaxOnly` in the docs tsconfig would pin it.
+- Sources are stated once per group of cases, not per case; the env-files starter's vocabulary is chosen from a section's first paragraph, not its heading (`SKILL.md:63`).
+- Naming: single-letter variables, the non-verb function names `slug` and `problems`, `SIGNED`; `cases.ts:143` is a long comment line.

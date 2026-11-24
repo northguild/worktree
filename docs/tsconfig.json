@@ -9,6 +9,7 @@
     ".astro/types.d.ts",
     "src",
     "worker",
+    "evals",
     "test-setup.ts",
     "vitest.config.ts",
     "astro.config.mjs"
