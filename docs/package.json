@@ -25,7 +25,8 @@
     "deploy:smoke": "node scripts/deploy-smoke.mjs",
     "build:legacy": "node scripts/build-legacy-pages.mjs",
     "typecheck": "pnpm run worker:build-context && astro check",
-    "test": "vitest run"
+    "test": "vitest run",
+    "evals:baseline": "EVALS_WRITE_BASELINE=1 vitest run evals/offline.test.ts && pnpm -C .. exec biome format docs/evals/baseline.json --write"
   },
   "keywords": [],
   "author": "",

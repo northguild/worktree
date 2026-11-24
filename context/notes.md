@@ -18,3 +18,11 @@ Branch-local observations from the gates of #355 (dox-chat-evals). Read by nothi
 - D8's erasable-syntax rule is not enforced until Phase 5's runner loads `cases.ts`; `erasableSyntaxOnly` in the docs tsconfig would pin it.
 - Sources are stated once per group of cases, not per case; the env-files starter's vocabulary is chosen from a section's first paragraph, not its heading (`SKILL.md:63`).
 - Naming: single-letter variables, the non-verb function names `slug` and `problems`, `SIGNED`; `cases.ts:143` is a long comment line.
+
+## Phase 3 (Gate 2, non-blocking)
+
+- `docs/evals/metrics.ts`: a metric with nothing to score reads 1, where gmt throws (`apps/dox/evals/metrics.ts:156`); a future case set could score a vacuous 1.
+- `metrics.ts`: MRR counts every expectation and recall is per case; gmt counts the first expectation per case. Identical today, since every case has one expectation. Routes match exactly here and by prefix in gmt.
+- `docs/evals/offline.test.ts`: `JSON.parse(...) as Report` is a type assertion against `typescript/rules.md`.
+- `docs/evals/README.md` "Adding a case" step 3 says the test fails naming a case missing from the baseline; true only for cases with `chunks`.
+- The gmt source is cited as `evals/metrics.ts`; it is `apps/dox/evals/metrics.ts` at fccce75 (also in plan §8).

@@ -572,7 +572,8 @@ or use the root-level aliases where noted.
 
 | Command | What it does |
 |---|---|
-| `test` | Run all docs tests with vitest |
+| `test` | Run all docs tests with vitest, the offline Dox evals (`evals/offline.test.ts`) included |
+| `evals:baseline` | Rewrite `evals/baseline.json` from the offline evals and format it with Biome. Run it only when a score moved on purpose; see [`evals/README.md`](evals/README.md) |
 | `worker:test` | Run every worker test under `worker/` (the router, both handlers, the validator, the error mapping, the rate limiter) |
 | `worker:bundle-check` | Build the worker, then `wrangler deploy --dry-run`: proves it still bundles for Cloudflare, with no credentials and nothing sent. Run it after changing a dependency or an import; CI runs it |
 | `worker:setup-secret` | Store `GEMINI_API_KEY` as an encrypted Cloudflare secret (one-time) |

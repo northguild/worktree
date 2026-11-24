@@ -217,7 +217,7 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 
 | Command | What it does | When to run |
 |---|---|---|
-| `worker:test` | Runs every test under `docs/worker/` (the router, both handlers, the validator, the retrieval modules, the error mapping, the rate limiter) with vitest | Before deploying, or in CI |
+| `worker:test` | Runs every test under `docs/worker/` (the router, both handlers, the validator, the retrieval modules, the error mapping, the rate limiter) with vitest. It does not run the Dox evals under `docs/evals/`; `pnpm docs:test` (`test` in the docs workspace) does | Before deploying, or in CI |
 | `worker:bundle-check` | Builds the worker, then `wrangler deploy --dry-run`: proves it still bundles for Cloudflare. Needs no credentials and sends nothing | After changing a dependency or an import; CI runs it |
 
 ### Deployment
