@@ -208,10 +208,26 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 |---|---|---|
 | `worker:dev` | Runs the **already-built** worker locally at `http://localhost:8787` | After `worker:build`, when you want to test against the local worker |
 | `worker:build:watch` | Rebuilds the worker bundle on every file save | In a separate terminal during active worker development |
+| `worker:dev:evals` | Runs the built worker as the local-only `evals` environment (below), with `GEMINI_API_KEY` blanked | Only for the live Dox evals, which spend real Neurons (`docs/evals/README.md`) |
+| `worker:dev:evals:gemini` | The same, with `.dev.vars` left in so the Gemini brains answer | Only when the live evals are to ask a Gemini brain |
 | `worker:build-context` | Scans MDX files + `skills/worktree/SKILL.md` → regenerates `worker/docs-context.ts` (the corpus: chunks, serialised MiniSearch index, vocabulary, counts, plus `LEGACY_PROMPT`, the frozen `POST /` route's whole-docs prompt) **and** `src/chat/docs-routes.generated.ts` (valid link list, corpus counts) | After adding/editing any docs page or the skill guide |
 | `worker:build` | Runs `worker:build-context` then bundles `worker.ts` via tsup | Before `worker:dev`, or manually before deploying |
 
 > **Tip:** Use `dev:local:watch` (see [Local development](#local-development)) to run the full stack in one command instead of managing terminals manually.
+
+### The `evals` environment
+
+`wrangler.toml`'s `[env.evals]` is a local-only copy of this Worker for the live Dox evals (plan #355). It declares `[env.evals.ai]`
+(remote: the models spend the account's real Neurons) and **no** `DOX_USAGE` namespace, because bindings are not inherited into an
+environment. Without the ledger the 5-a-day visitor cap and the usage counts are off, so a run is not stopped after five questions
+and the preview namespace takes no writes. `workers_dev = false` and no route mean it has no URL. **Never deploy it:**
+`worker-deploy.yml` passes no `--env`, and `wrangler deploy --env evals` would create `worktree-gemini-proxy-evals` without the
+visitor cap. A dry run (`wrangler deploy --dry-run --env evals`) is safe, needs no credentials, and prints the bindings
+(`AI` only, with two warnings that `vars` and `kv_namespaces` are not inherited, which is intended).
+
+`wrangler dev --env evals` reads `.dev.vars.evals` if there is one and ignores `.dev.vars` then; with none it reads `.dev.vars`
+(Cloudflare's local-development documentation). That is why `worker:dev:evals` blanks the key with `--var GEMINI_API_KEY:` and
+`worker:dev:evals:gemini` leaves it. The runbook, `docs/evals/README.md`, has the whole procedure.
 
 ### Testing
 

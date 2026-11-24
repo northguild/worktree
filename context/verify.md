@@ -186,6 +186,12 @@ test that genuinely has to be skipped is a conversation, not an edit to this pat
 - **`pnpm --filter docs evals:baseline`** — generation, not verification. It *writes* `docs/evals/baseline.json` from the
   offline evals (Vitest, with `EVALS_WRITE_BASELINE=1`) and formats it with Biome, so it must never sit in a gate section.
   Run it when a score moved on purpose and commit the file with the change; `pnpm check` then passes on the rewritten file.
+- **`pnpm --filter docs evals:live`**, **`pnpm --filter docs worker:dev:evals`** and **`worker:dev:evals:gemini`** — not gates: they
+  spend real quota. `worker:dev:evals` starts the built Worker as its `[env.evals]` environment with Workers AI bound remote, so every
+  question the runner asks draws on the account's daily Neurons (the pool the live site answers from); `evals:live` asks it and
+  refuses to run when `CI` is set. They need `wrangler login` and the network. `evals:live --help` and a run with no Worker at
+  `--base` spend nothing. A run with `--write-baseline` rewrites `docs/evals/live-<brainId>.json`. Never run them to verify anything;
+  the runbook is `docs/evals/README.md`. `wrangler deploy --dry-run --env evals` is safe and credential-free.
 - **`pnpm changeset:add`** — not a gate: interactive (it prompts for a bump level and a description) and it
   writes a `.changeset/*.md` file. Run it when a change owes a release note, per [`release.md`](release.md).
 - **`pnpm changeset:status`** — not a gate: it compares against `origin/main`, so it needs that ref and a

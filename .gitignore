@@ -31,3 +31,6 @@ docs/legacy/
 
 # The Astro build staged under worktree/ for `wrangler deploy` (docs/wrangler.jsonc)
 docs/.deploy/
+
+# Full answers from the live Dox evals (docs/evals/run-live.ts); the committed report holds none
+docs/.cache/

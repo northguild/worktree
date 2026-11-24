@@ -34,3 +34,16 @@ Branch-local observations from the gates of #355 (dox-chat-evals). Read by nothi
 - Unpinned rules: the usage sum and single-object form, the top-level `finishReason` fallback, `yml` and `- key:` YAML, image and titled links (`read-stream.ts`, `graders.ts`).
 - `docs/evals/read-stream.ts`: the `TRACE` and `REFUSAL` schemas repeat `RetrievalTraceData` and `RefusalData` rather than deriving them; test files use module-level arrow functions.
 - The README's recording recipe leaves out `startTimeoutMs`, `log` and the env the recorder used; the throwaway recorder is not in the repository.
+
+## Phase 5 (Gate 2, non-blocking)
+
+- `docs/evals/run-live.ts` has no test seam: the stale-corpus exit 2, the brain-not-offered exit 2, the no-answer and lost-connection stops and the exit-code order are proven by hand only.
+- No test checks that every Workers AI brain in `BRAINS` has a `NEURONS_PER_MILLION` entry; a changed model id would cost every answer at 350, flagged "unmeasured".
+- `docs/evals/report.test.ts`: the written-file no-text test runs on hand-made cases that never held text, so it cannot fail; going through `caseReport` then `writeReport` would cover the path.
+- A Gemini-cap stop exits 0 with cases ungraded (as gmt), against the letter of D11's exit 3.
+- A malformed committed report or a failing `formatWithBiome` still exits 1, the regression code.
+- Unreached cases are not printed after a no-answer stop; under `--brains all` a budget stop skips the remaining brains.
+- `[env.evals]` leaves `preview_urls` unset; `preview_urls = false` would rule out a preview URL on a mistaken deploy.
+- The top-level `wrangler deploy` (bundle-check, `worker-deploy.yml`) now warns that several environments exist; `--env=""` would silence it.
+- `report.ts:69`, `:73` and `report.test.ts:253` use type assertions against `typescript/rules.md`.
+- GLM's output rate is 36,400 here (D10, Cloudflare's page as read 2026-11-24) and 36,364 in gmt.
