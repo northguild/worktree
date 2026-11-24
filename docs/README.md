@@ -96,7 +96,7 @@ On the page, the pieces are:
 - **Brains and progress.** The Worker tries Workers AI's Gemma 4 26B and GLM 4.7 Flash first, then Gemini's three models, and
   skips one that is busy, slow or out for the day before any text streams. Each step is a `dox-progress` event, and
   `useDocsChat` (`progress`) hands the last to the waiting turn, which shows it in place of "Searching docs…". The trace's
-  summary names the brain that answered: "Searched 221 chunks → 8 matched · GLM 4.7 Flash". How the walk works, and what the
+  summary names the brain that answered: "Searched 222 chunks → 8 matched · GLM 4.7 Flash". How the walk works, and what the
   Worker needs for it, is in [worker/README.md](worker/README.md#brains).
 - **The usage ledger.** The Worker keeps a best-effort count of what is spent today in a Workers KV namespace,
   `DOX_USAGE` (`worker/usage.ts`). It is advisory: it picks a brain that probably has room and feeds the badge, and the
@@ -136,7 +136,7 @@ uses one), and cuts each page at its `##` headings (a heading inside a code fenc
 **chunk**: its heading and body, the page's route, and the page's *section* (`commands`, `guides`, or `general` for the
 pages at the root: `routeNamespace` in `src/chat/lib/page-context.ts`). The text before the first heading, with the page's
 title and description, is a chunk of its own. A chunk's route is the page's, never a `#fragment`: the route is what the
-model may link. Today that is 29 pages and 221 chunks.
+model may link. Today that is 29 pages and 222 chunks.
 
 #### 2. Agent Skill (`skills/worktree/SKILL.md`)
 
@@ -181,9 +181,9 @@ The Worker writes what it retrieved into the stream as an AG-UI `CUSTOM` event n
 `RUN_STARTED` and again just before `RUN_FINISHED` (not on a failed run). It carries counts, chunk titles, the pages
 and timings, never prompt text: `{ totalChunks, retrievedCount, chunkTitles, chunkUrls, timings }`. The second write
 adds `firstToken` and `total`. `useDocsChat` reads it with `useChat`'s `onCustomEvent`, keeps the latest per question
-(`traces`, not saved with the transcript) and `RetrievalTrace` shows it in the answer's card: collapsed, "Searched 221
+(`traces`, not saved with the transcript) and `RetrievalTrace` shows it in the answer's card: collapsed, "Searched 222
 chunks → 8 matched"; open, the chunk titles and the stage timings, or "Nothing in the corpus matched this question."
-The empty page's status line, "Dox // 29 pages · 221 sections indexed", reads the counts `build-context.mjs` writes into
+The empty page's status line, "Dox // 29 pages · 222 sections indexed", reads the counts `build-context.mjs` writes into
 `docs-routes.generated.ts`.
 
 #### Regenerating the context

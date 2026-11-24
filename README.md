@@ -99,7 +99,7 @@ The setup flow can configure:
 A repository can also commit a `.worktree.yml` that supplies the team's `defaultSourceBranch`, `branchPrefix.*`,
 `jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host`, `issueProvider.name` and `issueProvider.command`, read from the default branch; your own git config overrides it. The
 wizard skips what the file answers, `worktree config --list` marks each value `(.worktree.yml)` or
-`(overrides .worktree.yml: <file value>)`, and `worktree config --project` writes a `.worktree.yml` from the
+`(overrides .worktree.yml: <file value>)` (an `issueProvider.name` is read from the same place as its command, so one from another place is listed as not in effect), and `worktree config --project` writes a `.worktree.yml` from the
 team keys in your git config (never a personal or secret one), uncommitted. See
 [Project Configuration](https://northguild.dev/worktree/project-configuration/).
 
@@ -107,7 +107,7 @@ A user config file, `~/.config/worktree/config.yml` (or `$XDG_CONFIG_HOME/worktr
 `WORKTREE_USER_CONFIG`), holds your personal keys and a fallback for the team keys, for every repository; write it
 with `worktree config --user <key> <value>`. It ranks below `.worktree.yml`: the order is a flag, git config,
 `.worktree.yml`, the user file, then the built-in default. `worktree config --list` marks its values
-`(user config)` or `(overrides user config: <value>)`, and `worktree config <key>` prints the resolved value. A
+`(user config)` or `(overrides user config: <value>)`, and `worktree config <key>` prints the resolved value (for `issueProvider.name`, the one in effect). A
 secret in it is refused with exit `2`. Its `postCreate` steps run without approval, so keep the file as private
 as a shell profile, and mind what a dotfiles sync carries into it. See
 [Configuration](https://northguild.dev/worktree/configuration/#user-config-file).

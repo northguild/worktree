@@ -54,12 +54,21 @@ import {
 } from "../lib/user-config.js";
 import { conjoin } from "../lib/utils.js";
 import {
+  ISSUE_PROVIDER_NAME_PATTERN,
   validateConfigValue,
   validateUserConfigValue,
 } from "../lib/validators.js";
 
 /** The origin `--list` gives a value read from the user file (#281 D11). */
 const USER_CONFIG_ORIGIN = "user config";
+
+/** The layers `issueProvider.name` and `.command` are read from, in the resolver's order. */
+const PAIR_LAYERS = [
+  "git config",
+  PROJECT_CONFIG_FILE,
+  USER_CONFIG_ORIGIN,
+] as const;
+type PairLayer = (typeof PAIR_LAYERS)[number];
 
 /** Whether the current directory is inside a git work tree. */
 async function isInsideRepository() {
@@ -227,6 +236,115 @@ export default class Config extends BaseCommand {
     return hidden;
   }
 
+  /**
+   * `issueProvider.name` and `.command` are read as a pair (#357 D4, as
+   * `resolveIssueProvider` does): the command comes from the first layer that
+   * sets one, and the name from that same layer, so a name in any other layer
+   * is not in effect. `commandFrom` is that layer, or undefined when no layer
+   * sets a command.
+   */
+  private async issueProviderPair() {
+    const file = await this.loadFile();
+    const { config: user } = await this.loadUser();
+    const read = async (
+      key: "issueProvider.name" | "issueProvider.command",
+    ) => {
+      const values: Partial<Record<PairLayer, string>> = {};
+      const git = await gitGetConfigValue(key);
+      if (git) {
+        values["git config"] = git;
+      }
+      const fromFile = file ? projectFileValue(file, key) : undefined;
+      if (fromFile) {
+        values[PROJECT_CONFIG_FILE] = fromFile;
+      }
+      const fromUser = user ? userFileValue(user, key) : undefined;
+      if (fromUser) {
+        values[USER_CONFIG_ORIGIN] = fromUser;
+      }
+      return values;
+    };
+    const commands = await read("issueProvider.command");
+    const first = PAIR_LAYERS.find((layer) => commands[layer] !== undefined);
+    // A command of only whitespace is no command, as the resolver sees it.
+    const commandFrom = first && commands[first]?.trim() ? first : undefined;
+    const names = await read("issueProvider.name");
+    // The name in effect: the command's layer's, if it fits the pattern. The
+    // resolver drops one that does not (it is only a label), and git config is
+    // the one layer that can hold one.
+    const own = commandFrom && names[commandFrom]?.trim();
+    const inEffect =
+      own && ISSUE_PROVIDER_NAME_PATTERN.test(own) ? own : undefined;
+    return { commandFrom, names, inEffect };
+  }
+
+  /**
+   * The `--list` lines for `issueProvider.name`: the name in effect, if any,
+   * then each other layer's name, marked as not in effect and why.
+   */
+  private async listIssueProviderName() {
+    const { commandFrom, names, inEffect } = await this.issueProviderPair();
+    const shownValue = (layer: PairLayer, value: string) =>
+      layer === "git config" ? value : showVisibly(value);
+    const lines: string[] = [];
+    // The layer the effective git value already names as overridden.
+    let overridden: PairLayer | undefined;
+    const effective = commandFrom && inEffect ? names[commandFrom] : undefined;
+    if (commandFrom && effective) {
+      let source = commandFrom === "git config" ? "" : ` (${commandFrom})`;
+      if (commandFrom === "git config") {
+        const lower: PairLayer[] = [PROJECT_CONFIG_FILE, USER_CONFIG_ORIGIN];
+        overridden = lower.find((layer) => names[layer] !== undefined);
+        const other = overridden && names[overridden];
+        if (overridden && other !== undefined) {
+          source =
+            other === effective
+              ? ` (${overridden})`
+              : ` (overrides ${overridden}: ${showVisibly(other)})`;
+        }
+      }
+      lines.push(
+        `issueProvider.name=${shownValue(commandFrom, effective)}${source}`,
+      );
+    }
+    const why = commandFrom
+      ? `issueProvider.command comes from ${commandFrom}, so the name is read from there`
+      : "no issueProvider.command is set";
+    for (const layer of PAIR_LAYERS) {
+      const value = names[layer];
+      if (value === undefined || layer === overridden) {
+        continue;
+      }
+      if (layer !== commandFrom) {
+        lines.push(
+          `issueProvider.name=${shownValue(layer, value)} (${layer}; not in effect: ${why})`,
+        );
+      } else if (!inEffect) {
+        lines.push(
+          `issueProvider.name=${shownValue(layer, value)} (${layer}; not in effect: not a valid name, so it is ignored)`,
+        );
+      }
+    }
+    return lines.length > 0 ? lines : ["issueProvider.name"];
+  }
+
+  /**
+   * Setting the name in git config. It is read only where the command is
+   * also in git config, so anywhere else it is stored and said to do nothing yet.
+   */
+  private async confirmIssueProviderName(value: string) {
+    const { commandFrom, names } = await this.issueProviderPair();
+    if (commandFrom === "git config") {
+      return this.confirmOverride("issueProvider.name", value);
+    }
+    this.warn(
+      commandFrom
+        ? `issueProvider.name is stored in your git config but has no effect: issueProvider.command comes from ${commandFrom}, and the name is read from there (${names[commandFrom] === undefined ? "none set" : showVisibly(names[commandFrom])}). Set issueProvider.command in your git config too to use it.`
+        : "issueProvider.name is stored in your git config but has no effect until issueProvider.command is also set in your git config.",
+    );
+    return true;
+  }
+
   private async renderList(missing: boolean) {
     let count = 0;
     const hidden = await this.getHiddenConfigNames();
@@ -262,6 +380,15 @@ export default class Config extends BaseCommand {
         missing &&
         (UNPROMPTED_CONFIG_NAMES as readonly string[]).includes(variable)
       ) {
+        continue;
+      }
+
+      // The name is read as a pair with the command, not by layer on its own.
+      if (variable === "issueProvider.name") {
+        for (const line of await this.listIssueProviderName()) {
+          this.log(line);
+        }
+        count++;
         continue;
       }
 
@@ -599,7 +726,11 @@ export default class Config extends BaseCommand {
 
       if (args.value) {
         await validateConfigValue(args.name, args.value);
-        if (await this.confirmOverride(args.name, args.value)) {
+        const proceed =
+          args.name === "issueProvider.name"
+            ? await this.confirmIssueProviderName(args.value)
+            : await this.confirmOverride(args.name, args.value);
+        if (proceed) {
           await gitSetConfigValue(args.name, args.value);
         }
         return;
@@ -607,7 +738,12 @@ export default class Config extends BaseCommand {
       // The value alone, secrets included (unlike `--list`, which masks them),
       // so `$(worktree config <name>)` is usable in a script. An unset key prints nothing and
       // exits 0, the same empty answer the rest of the CLI reads it as.
-      const current = (await this.resolve(args.name)).value;
+      // `issueProvider.name` is the exception: the name in effect, read as a
+      // pair with the command, not the highest layer's on its own.
+      const current =
+        args.name === "issueProvider.name"
+          ? ((await this.issueProviderPair()).inEffect ?? "")
+          : (await this.resolve(args.name)).value;
       if (current) {
         this.log(current);
       }

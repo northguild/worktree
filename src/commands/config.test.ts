@@ -5123,6 +5123,269 @@ postCreate:
         );
       });
 
+      // #357 D4: `issueProvider.name` is read as a pair with the command, from
+      // the layer that sets the command (git config, else .worktree.yml, else
+      // the user file). Expected lines follow that rule as the docs state it
+      // (project-configuration.mdx, "The two are read as a pair"), not the
+      // resolver's output. The user-file combinations are in config-user.test.ts.
+      describe("issueProvider.name follows its command", () => {
+        const FILE_PAIR =
+          "issueProvider:\n  name: filename\n  command: file-provider\n";
+        const comesFrom = (where: string) =>
+          `not in effect: issueProvider.command comes from ${where}, so the name is read from there`;
+
+        beforeEach(() => {
+          parsed({}, { list: true, missing: false });
+        });
+
+        it("lists a git config name beside a git config command as the one in effect", async () => {
+          personal["issueProvider.command"] = "my-provider";
+          personal["issueProvider.name"] = "mine";
+
+          await config.run();
+
+          expect(printed()).toContain("issueProvider.name=mine");
+        });
+
+        it("lists a git config name beside the file's command as not in effect, and the file's name as the one in effect", async () => {
+          await withFile(FILE_PAIR);
+          personal["issueProvider.name"] = "mine";
+
+          await config.run();
+
+          expect(printed()).toContain(
+            "issueProvider.name=filename (.worktree.yml)",
+          );
+          expect(printed()).toContain(
+            `issueProvider.name=mine (git config; ${comesFrom(".worktree.yml")})`,
+          );
+          expect(printed().join("\n")).not.toContain("overrides");
+        });
+
+        it("lists a git config name beside a file command that has no name as not in effect, with no name in effect", async () => {
+          await withFile("issueProvider:\n  command: file-provider\n");
+          personal["issueProvider.name"] = "mine";
+
+          await config.run();
+
+          expect(printed()).toContain(
+            `issueProvider.name=mine (git config; ${comesFrom(".worktree.yml")})`,
+          );
+          expect(
+            printed().filter((l) => l.startsWith("issueProvider.name")),
+          ).toHaveLength(1);
+        });
+
+        it("lists the file's name beside a git config command as not in effect", async () => {
+          await withFile(FILE_PAIR);
+          personal["issueProvider.command"] = "my-provider";
+
+          await config.run();
+
+          expect(printed()).toContain(
+            `issueProvider.name=filename (.worktree.yml; ${comesFrom("git config")})`,
+          );
+          expect(printed()).not.toContain(
+            "issueProvider.name=filename (.worktree.yml)",
+          );
+        });
+
+        it("still says a git config name overrides the file's name when both commands are git config's", async () => {
+          await withFile(FILE_PAIR);
+          personal["issueProvider.command"] = "my-provider";
+          personal["issueProvider.name"] = "mine";
+
+          await config.run();
+
+          expect(printed()).toContain(
+            "issueProvider.name=mine (overrides .worktree.yml: filename)",
+          );
+        });
+
+        it("lists a name with no command in any layer as not in effect", async () => {
+          personal["issueProvider.name"] = "mine";
+
+          await config.run();
+
+          expect(printed()).toContain(
+            "issueProvider.name=mine (git config; not in effect: no issueProvider.command is set)",
+          );
+        });
+
+        it("lists a file name with no command in any layer as not in effect", async () => {
+          await withFile("issueProvider:\n  name: filename\n");
+
+          await config.run();
+
+          expect(printed()).toContain(
+            "issueProvider.name=filename (.worktree.yml; not in effect: no issueProvider.command is set)",
+          );
+        });
+
+        // The resolver drops a name that fails the pattern (it is only a label),
+        // and git config is the one layer that can hold one.
+        it("lists a git config name that is not a valid name as not in effect, beside a git config command", async () => {
+          personal["issueProvider.command"] = "my-provider";
+          personal["issueProvider.name"] = "Not Valid";
+
+          await config.run();
+
+          expect(printed()).toContain(
+            "issueProvider.name=Not Valid (git config; not in effect: not a valid name, so it is ignored)",
+          );
+          expect(printed()).not.toContain("issueProvider.name=Not Valid");
+        });
+
+        // `config <key>` prints what worktree would use: the name from the
+        // command's layer, and nothing when that layer has none.
+        it("prints the file's name, not git config's, when the command is the file's", async () => {
+          await withFile(FILE_PAIR);
+          personal["issueProvider.name"] = "mine";
+          parsed({ name: "issueProvider.name" }, {});
+
+          await config.run();
+
+          expect(printed()).toEqual(["filename"]);
+        });
+
+        it("prints nothing when the command's layer has no name, though another layer has one", async () => {
+          await withFile("issueProvider:\n  command: file-provider\n");
+          personal["issueProvider.name"] = "mine";
+          parsed({ name: "issueProvider.name" }, {});
+
+          await config.run();
+
+          expect(printed()).toEqual([]);
+        });
+
+        it("prints nothing when no layer has a command", async () => {
+          personal["issueProvider.name"] = "mine";
+          parsed({ name: "issueProvider.name" }, {});
+
+          await config.run();
+
+          expect(printed()).toEqual([]);
+        });
+
+        it("prints git config's name beside a git config command", async () => {
+          personal["issueProvider.command"] = "my-provider";
+          personal["issueProvider.name"] = "mine";
+          parsed({ name: "issueProvider.name" }, {});
+
+          await config.run();
+
+          expect(printed()).toEqual(["mine"]);
+        });
+
+        it("prints nothing for a git config name that is not a valid name", async () => {
+          personal["issueProvider.command"] = "my-provider";
+          personal["issueProvider.name"] = "Not Valid";
+          parsed({ name: "issueProvider.name" }, {});
+
+          await config.run();
+
+          expect(printed()).toEqual([]);
+        });
+
+        it("lists an unset name by name alone", async () => {
+          await config.run();
+
+          expect(printed()).toContain("issueProvider.name");
+        });
+      });
+
+      describe("config issueProvider.name <value>", () => {
+        const FILE_PAIR =
+          "issueProvider:\n  name: filename\n  command: file-provider\n";
+
+        // The loader also warns that it read the override file.
+        const noEffectWarning = () =>
+          String(
+            warn.mock.calls
+              .map(([message]: [string]) => message)
+              .find((message: string) => message.includes("has no effect")),
+          );
+
+        beforeEach(() => {
+          parsed({ name: "issueProvider.name", value: "mine" }, {});
+        });
+
+        it("stores the name quietly when the command is in git config too", async () => {
+          personal["issueProvider.command"] = "my-provider";
+
+          await config.run();
+
+          expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
+            "issueProvider.name",
+            "mine",
+          );
+          expect(warn).not.toHaveBeenCalled();
+          expect(mockConfirm).not.toHaveBeenCalled();
+        });
+
+        it("keeps the override question where the command is git config's and the file names the provider", async () => {
+          await withFile(FILE_PAIR);
+          personal["issueProvider.command"] = "my-provider";
+          mockConfirm.mockResolvedValue(true);
+
+          await config.run();
+
+          expect(mockConfirm).toHaveBeenCalledTimes(1);
+          expect(printed().join("\n")).toContain(
+            "overrides the file for you only",
+          );
+          expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
+            "issueProvider.name",
+            "mine",
+          );
+        });
+
+        it("warns that the name has no effect when the command comes from the file, and does not say it overrides the file", async () => {
+          await withFile(FILE_PAIR);
+
+          await config.run();
+
+          const said = noEffectWarning();
+          expect(said).toContain("has no effect");
+          expect(said).toContain(
+            "issueProvider.command comes from .worktree.yml",
+          );
+          expect(said).toContain("filename");
+          expect(said).toContain(
+            "issueProvider.command in your git config too",
+          );
+          expect(said).not.toContain("overrides the file");
+          expect(mockConfirm).not.toHaveBeenCalled();
+          expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
+            "issueProvider.name",
+            "mine",
+          );
+        });
+
+        it("warns that the name has no effect until a git config command is set when no layer has a command", async () => {
+          await config.run();
+
+          const said = noEffectWarning();
+          expect(said).toContain(
+            "no effect until issueProvider.command is also set in your git config",
+          );
+          expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
+            "issueProvider.name",
+            "mine",
+          );
+        });
+
+        it("warns the same without prompting when non-interactive", async () => {
+          setNonInteractive(true);
+          await withFile(FILE_PAIR);
+
+          await config.run();
+
+          expect(noEffectWarning()).toContain("no effect");
+          expect(mockConfirm).not.toHaveBeenCalled();
+        });
+      });
+
       it("summarises the file-only keys, one line each", async () => {
         await withFile(EXAMPLE);
 

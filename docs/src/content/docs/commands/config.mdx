@@ -29,7 +29,7 @@ exits `0`.
 The value `worktree config <key>` prints is the one `worktree` would use: your git config first, then, for a key
 the file can set, the repository's `.worktree.yml`, then your [user config file](#user-config-file). Two
 exceptions: a secret, and `postCreate`, print what your git config holds and nothing from a file. The files'
-`postCreate` step lists show in `--list`.
+`postCreate` step lists show in `--list`. `issueProvider.name` prints the name in effect, the one from the layer that sets `issueProvider.command`, and nothing when that layer has none or holds one that is not a valid name.
 
 `--missing` filters to values that are not configured yet.
 
@@ -86,7 +86,9 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
   which is why `branch`'s offer to fill in missing values never asks for one.
 - **`worktree config <key> <value>` for a key the file sets** says so, shows the file's value and yours, and
   asks before writing your value. Yes overrides the file for you only. Non-interactive, naming the key and
-  value is asking for it, so the value is set and a warning says the file sets the key.
+  value is asking for it, so the value is set and a warning says the file sets the key. `issueProvider.name` is the
+  exception: it is asked about only when the command is in your git config too, and otherwise it is stored with a warning
+  that it has no effect (see [Issue Provider Keys](#issue-provider-keys)).
 - **`--list` marks where each value comes from**, in plain text:
 
   ```text
@@ -98,7 +100,11 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
   file's carries `(overrides .worktree.yml: <the file's value>)`. Values from your
   [user config file](#user-config-file) are marked the same way with `(user config)` and
   `(overrides user config: <the file's value>)`; where `.worktree.yml` sets the key too, only it is named,
-  since it outranks the user file. Keys only the file can set follow, one line
+  since it outranks the user file. The exception is `issueProvider.name`, which is read from the same place as
+  `issueProvider.command` (see [Issue Provider Keys](#issue-provider-keys)): a name in another layer is listed as
+  `issueProvider.name=<value> (<where it is set>; not in effect: issueProvider.command comes from <where>, so the name is read from there)`,
+  or `not in effect: no issueProvider.command is set`, and a name in that same layer that is not a valid name is listed as
+  `not in effect: not a valid name, so it is ignored`. Keys only the file can set follow, one line
   each: `jira.branchType: 4 rules`, `issueProvider.branchType: 2 rules`, `branchType: 2 rules` (the shared list), `branchName=<template>`, `copy: 1 pattern` and `postCreate: 2 steps`,
   each marked `(.worktree.yml)`. A value the file supplies is not missing, so `--list --missing` leaves it
   out. Secrets stay masked as `<key>=***`.
@@ -300,6 +306,26 @@ by the wizard (a bare run and `--missing` skip them), and none can be set from `
   in `.worktree.yml` run instead (after you approve them), then the steps in your [user config file](#user-config-file) (no approval), else the command is inferred from the lockfile. It is validated like `agent.command`: its first word has to be on `PATH`. See
   [Configuration](/worktree/configuration/#post-create-command). The prompt accepts an empty answer, which leaves
   it unset.
+
+## Issue Provider Keys
+
+- `issueProvider.command` the command line that reads issues from your own tracker, for `branch --issue`. It is split
+  into arguments and never passed through a shell; its first word has to be on `PATH`. A team key that can also be set in
+  `.worktree.yml` under `issueProvider:`, or in your [user config file](#user-config-file). **The wizard never asks for
+  it**, and `--missing` never lists it. Set it by name, for example `worktree config issueProvider.command "verk-provider --json"`.
+  A command from `.worktree.yml` needs your approval before it runs; one from your git config or user config file needs
+  none. See [Approving the provider command](/worktree/project-configuration/#approving-the-steps) and
+  [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
+- `issueProvider.name` an optional short label for the provider: one lowercase letter followed by up to 31 lowercase
+  letters, digits or hyphens (anything else is refused with exit `2`). A team key that can also be set in `.worktree.yml`
+  under `issueProvider:`, or in your user config file. **The wizard never asks for it**, and `--missing` never lists it.
+  **The name is read as a pair with the command:** it always comes from the same place as `issueProvider.command` (your
+  git config, else `.worktree.yml`, else your user config file), so a name in any other place is not in effect. To use a
+  name of your own, set it in git config next to a command of your own. `worktree config issueProvider.name <value>`
+  stores the name in your git config, and says so when it will have no effect there: because the command comes from
+  `.worktree.yml` or your user config file, or because no command is set anywhere yet. `--list` shows the same: the name
+  in effect, then any other as `not in effect`, with the reason. See
+  [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
 
 ## Approving Post-create Steps and the Provider Command
 

@@ -32,6 +32,12 @@ const SITES: Record<string, Site[]> = {
   ],
   "commands/config.ts": [
     {
+      key: "key",
+      kind: "git-only",
+      reason:
+        "`--list` and `config issueProvider.name <value>` read git config's own layer of the name/command pair, to say which layer the name comes from (#357 D4)",
+    },
+    {
       key: "variable",
       kind: "git-only",
       reason:

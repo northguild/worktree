@@ -375,6 +375,73 @@ describe("config command and the user file", () => {
     });
   });
 
+  // #357 D4: `issueProvider.name` is read from the layer that sets the command
+  // (git config, else .worktree.yml, else the user file). Expected lines follow
+  // the pair rule in project-configuration.mdx, not the resolver's output.
+  describe("issueProvider.name follows its command", () => {
+    const comesFrom = (where: string) =>
+      `not in effect: issueProvider.command comes from ${where}, so the name is read from there`;
+    const nameLines = async () => {
+      parsed({}, { list: true, missing: false });
+      await config.run();
+      return printed().filter((line: string) =>
+        line.startsWith("issueProvider.name"),
+      );
+    };
+
+    it("lists the user file's name beside the user file's command as the one in effect", async () => {
+      writeUser("issueProvider:\n  name: usr\n  command: user-provider\n");
+      expect(await nameLines()).toEqual([
+        "issueProvider.name=usr (user config)",
+      ]);
+    });
+
+    it("lists a git config name beside the user file's command as not in effect", async () => {
+      writeUser("issueProvider:\n  command: user-provider\n");
+      stored["issueProvider.name"] = "mine";
+      expect(await nameLines()).toEqual([
+        `issueProvider.name=mine (git config; ${comesFrom("user config")})`,
+      ]);
+    });
+
+    it("lists the user file's name beside a git config command as not in effect", async () => {
+      writeUser("issueProvider:\n  name: usr\n");
+      stored["issueProvider.command"] = "my-provider";
+      expect(await nameLines()).toEqual([
+        `issueProvider.name=usr (user config; ${comesFrom("git config")})`,
+      ]);
+    });
+
+    it("lists the user file's name beside the project file's command as not in effect", async () => {
+      await withProjectFile("issueProvider:\n  command: file-provider\n");
+      writeUser("issueProvider:\n  name: usr\n");
+      expect(await nameLines()).toEqual([
+        `issueProvider.name=usr (user config; ${comesFrom(".worktree.yml")})`,
+      ]);
+    });
+
+    it("lists the project file's name beside the user file's command as not in effect", async () => {
+      await withProjectFile("issueProvider:\n  name: filename\n");
+      writeUser("issueProvider:\n  command: user-provider\n");
+      expect(await nameLines()).toEqual([
+        `issueProvider.name=filename (.worktree.yml; ${comesFrom("user config")})`,
+      ]);
+    });
+
+    it("warns that a git config name has no effect while the user file supplies the command", async () => {
+      writeUser("issueProvider:\n  name: usr\n  command: user-provider\n");
+      parsed({ name: "issueProvider.name", value: "mine" }, {});
+
+      await config.run();
+
+      const said = warned().join("\n");
+      expect(said).toContain("no effect");
+      expect(said).toContain("issueProvider.command comes from user config");
+      expect(said).toContain("usr");
+      expect(sets()).toContainEqual(["issueProvider.name", "mine"]);
+    });
+  });
+
   // D7: reading a key gives the resolved value.
   describe("worktree config <key>", () => {
     it("prints the file's value where git config has none", async () => {

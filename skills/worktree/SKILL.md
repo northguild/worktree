@@ -675,8 +675,11 @@ the value and warns. `worktree config --list` prints `<key>=<value> (.worktree.y
 or `<key>=<value> (overrides .worktree.yml: <file value>)`, then one summary line per
 file-only key (rules per provider, `branchName`, `copy`, `postCreate` steps). Values
 from the user config file read `(user config)` or `(overrides user config: <value>)`.
+`issueProvider.name` is read from the same layer as `issueProvider.command`, so `--list` prints a name from
+another layer as `<key>=<value> (<layer>; not in effect: <why>)`, and `worktree config issueProvider.name <value>`
+warns that it has no effect when the command is not in git config too.
 `worktree config <key>` prints the resolved value (git config, then `.worktree.yml`,
-then the user file), not git config alone; `postCreate` and secrets are excepted:
+then the user file), not git config alone (`issueProvider.name` prints the name in effect, from the layer that sets the command); `postCreate` and secrets are excepted:
 they print git config's value only (the files' step lists show in `--list`).
 `worktree config --project` writes a commented `.worktree.yml` at the current
 worktree's top level from the team keys in git config (never a personal or secret
