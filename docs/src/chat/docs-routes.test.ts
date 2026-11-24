@@ -34,9 +34,13 @@ const OLD_ROUTES = [
   "/docs/project-configuration",
 ];
 
-// Pages added since the move, which have no old route: the Rex Sessions guide (#270) and the `rename`
-// command page (#272).
-const ADDED_ROUTES = ["/guides/rex-sessions/", "/commands/rename/"];
+// Pages added since the move, which have no old route: the Rex Sessions guide (#270), the `rename`
+// command page (#272) and the custom issue provider guide (#357).
+const ADDED_ROUTES = [
+  "/guides/rex-sessions/",
+  "/commands/rename/",
+  "/guides/custom-issue-provider/",
+];
 
 function toNewRoute(old: string): string {
   if (old === "/docs") return "/";
@@ -50,7 +54,7 @@ describe("VALID_DOC_ROUTES", () => {
 
     expect(OLD_ROUTES).toHaveLength(26);
     expect(mapped).toHaveLength(26);
-    expect(expected).toHaveLength(28);
+    expect(expected).toHaveLength(29);
     expect([...VALID_DOC_ROUTES].sort()).toEqual(expected);
   });
 });

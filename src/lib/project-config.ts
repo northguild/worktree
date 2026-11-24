@@ -29,9 +29,12 @@ import { isNonInteractive } from "./interaction.js";
 import { askConfirm, InvalidValueError, MissingValueError } from "./prompt.js";
 import type { ConfigName } from "./types.js";
 import { loadUserConfig } from "./user-config.js";
+import { splitCommandValue } from "./utils.js";
 import {
   GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
+  ISSUE_PROVIDER_NAME_PATTERN,
+  ISSUE_PROVIDER_NAME_RULE,
   isValidGitHubHost,
   isValidGitHubRepository,
 } from "./validators.js";
@@ -189,6 +192,28 @@ export const projectConfigSchema = z
       })
       .optional(),
     linear: branchType.optional(),
+    // The team's own tracker, run as a command (#357 D4). No key holds a
+    // credential: the command finds its own.
+    issueProvider: branchType
+      .extend({
+        name: z
+          .string()
+          .regex(ISSUE_PROVIDER_NAME_PATTERN, {
+            message: `name ${ISSUE_PROVIDER_NAME_RULE}`,
+          })
+          .meta({
+            description:
+              "A short name for the provider, shown in messages and reported by --json. Optional.",
+          })
+          .optional(),
+        command: step
+          .meta({
+            description:
+              "The command line that runs the provider, split into arguments, never through a shell.",
+          })
+          .optional(),
+      })
+      .optional(),
     clickup: branchType
       .extend({
         workspaceId: scalar
@@ -424,6 +449,10 @@ const TEAM_CONFIG_KEYS = [
   "clickup.workspaceId",
   "github.repository",
   "github.host",
+  // The command before the name: the name is half of a pair with it, and the
+  // covered-key removal relies on seeing the command first.
+  "issueProvider.command",
+  "issueProvider.name",
 ] as const satisfies readonly ConfigName[];
 
 export type TeamConfigKey = (typeof TEAM_CONFIG_KEYS)[number];
@@ -451,6 +480,10 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
       return config.github?.repository;
     case "github.host":
       return config.github?.host;
+    case "issueProvider.command":
+      return config.issueProvider?.command;
+    case "issueProvider.name":
+      return config.issueProvider?.name;
     case "clickup.workspaceId":
       // YAML reads an unquoted 9001234 as a number; git config holds text.
       return config.clickup?.workspaceId === undefined
@@ -462,34 +495,109 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
 /**
  * A team key by D2 (#281): git config (any scope) first, then the project
  * file, then the user file, then `""` with source `default` for the caller's
- * built-in. A file is not read when a layer above it answers. A file that
- * cannot be used throws `ProjectConfigError` or `UserConfigError`, as
- * `loadProjectConfig` and `loadUserConfig` do.
+ * built-in. A file is not read when a layer above it answers. A value of only
+ * whitespace is no answer: it would otherwise hide a lower layer's real one and
+ * then trim to nothing. A file that cannot be used throws `ProjectConfigError`
+ * or `UserConfigError`, as `loadProjectConfig` and `loadUserConfig` do.
  */
 export async function resolveTeamConfig(name: TeamConfigKey): Promise<{
   value: string;
   source: ConfigValueSource;
 }> {
   const personal = await gitGetConfigValue(name);
-  if (personal) {
+  if (personal?.trim()) {
     return { value: personal, source: "git-config" };
   }
   const result = await loadProjectConfig();
   const fromFile =
     result.status === "loaded" ? projectValue(result.config, name) : undefined;
-  if (fromFile) {
+  if (fromFile?.trim()) {
     return { value: fromFile, source: "project" };
   }
   const user = await loadUserConfig();
   const fromUser =
     user.status === "loaded" ? fileSettingValue(user.config, name) : undefined;
-  return fromUser
+  return fromUser?.trim()
     ? { value: fromUser, source: "user" }
     : { value: "", source: "default" };
 }
 
 export async function getTeamConfigValue(name: TeamConfigKey) {
   return (await resolveTeamConfig(name)).value;
+}
+
+/** Where an issue provider can be set, highest first (#281 D2). */
+export const ISSUE_PROVIDER_SOURCES = [
+  "git-config",
+  "project",
+  "user",
+] as const;
+export type IssueProviderSource = (typeof ISSUE_PROVIDER_SOURCES)[number];
+
+export interface ResolvedIssueProvider {
+  name: string | null;
+  command: string;
+  source: IssueProviderSource;
+}
+
+/**
+ * The pairing rule for `issueProvider.name` and `.command` (#357 D4), on its
+ * own so `branch` and `config` cannot read the pair two ways. The command is
+ * the first layer's that is more than whitespace, trimmed, and the name is
+ * that same layer's, so a file's name cannot label a person's own command. A
+ * name that does not match the pattern (git config takes anything) is dropped,
+ * not reported: it is only a label. `read` is asked for one layer at a time,
+ * in order, so a layer below the answer is never read.
+ */
+export async function pairIssueProvider(
+  read: (
+    source: IssueProviderSource,
+  ) => Promise<{ name?: string; command?: string }>,
+): Promise<ResolvedIssueProvider | undefined> {
+  for (const source of ISSUE_PROVIDER_SOURCES) {
+    const layer = await read(source);
+    const command = layer.command?.trim();
+    if (!command) {
+      continue;
+    }
+    const name = layer.name?.trim();
+    return {
+      name: name && ISSUE_PROVIDER_NAME_PATTERN.test(name) ? name : null,
+      command,
+      source,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The team's own issue provider (#357 D4), by `pairIssueProvider`'s rule from
+ * git config, the project file and the user file, or `undefined` when no layer
+ * sets a command. A file that cannot be used throws, as `resolveTeamConfig`
+ * does.
+ */
+export function resolveIssueProvider() {
+  return pairIssueProvider(async (source) => {
+    if (source === "git-config") {
+      return {
+        command: await gitGetConfigValue("issueProvider.command"),
+        name: await gitGetConfigValue("issueProvider.name"),
+      };
+    }
+    if (source === "project") {
+      const project = await loadProjectConfig();
+      return project.status === "loaded"
+        ? (project.config.issueProvider ?? {})
+        : {};
+    }
+    const user = await loadUserConfig();
+    return user.status === "loaded"
+      ? {
+          command: fileSettingValue(user.config, "issueProvider.command"),
+          name: fileSettingValue(user.config, "issueProvider.name"),
+        }
+      : {};
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -503,7 +611,7 @@ export async function getTeamConfigValue(name: TeamConfigKey) {
  * says the rules are the shared list, whose absent-field rules do not warn (D5).
  */
 export async function getBranchTypeRules(
-  provider: "jira" | "github" | "linear" | "clickup",
+  provider: "jira" | "github" | "linear" | "clickup" | "issueProvider",
 ) {
   const project = await loadProjectConfig();
   if (project.status !== "loaded") {
@@ -796,15 +904,15 @@ export async function getUserPostCreateSteps() {
     : [];
 }
 
-async function readApproval() {
+async function readApprovalAt(key: string) {
   try {
-    return (
-      await run("git", ["config", "--local", POST_CREATE_APPROVAL_KEY])
-    ).trim();
+    return (await run("git", ["config", "--local", key])).trim();
   } catch {
     return "";
   }
 }
+
+const readApproval = () => readApprovalAt(POST_CREATE_APPROVAL_KEY);
 
 async function storeApproval(steps: readonly string[]) {
   await run("git", [
@@ -891,8 +999,9 @@ export async function ensurePostCreateApproved(options: { install?: boolean }) {
 }
 
 /**
- * `worktree config --approve`: shows the current steps and asks. A refusal to
- * run unattended, since an approval nobody saw is no approval.
+ * `worktree config --approve`: shows the current steps and asks, or, when
+ * they are already approved, shows them and says so. A refusal to run
+ * unattended, since an approval nobody saw is no approval.
  */
 export async function approvePostCreate() {
   if (isNonInteractive()) {
@@ -903,7 +1012,145 @@ export async function approvePostCreate() {
     console.error("This project's .worktree.yml has no postCreate steps.");
     return false;
   }
+  if ((await readApproval()) === postCreateApprovalHash(steps)) {
+    // Not asked again, but still listed: this is how a person reviews what
+    // they approved without reading .worktree.yml by hand.
+    showSteps(steps);
+    console.error("These steps are already approved.");
+    return false;
+  }
   return askToApprove(steps);
+}
+
+// ---------------------------------------------------------------------------
+// Approval of the file's issue provider command (#357 D5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a person's approval of the file's provider command is kept, beside
+ * `POST_CREATE_APPROVAL_KEY` and for the same reason: outside `CONFIG_NAMES`,
+ * so `--list` never shows it and `worktree config <key> <value>` cannot set it.
+ */
+export const ISSUE_PROVIDER_APPROVAL_KEY =
+  "northguild.worktree.issueProviderApproval";
+
+/**
+ * SHA-256 over the UTF-8 bytes of the JSON array of the argv tokens the command
+ * splits into (D5), so spacing between tokens does not matter and any change to
+ * a token does. A relative program path is hashed as written: the file it names
+ * in the working copy is not covered (plan #357 §5).
+ */
+export function issueProviderApprovalHash(argv: readonly string[]) {
+  return createHash("sha256")
+    .update(JSON.stringify(argv), "utf8")
+    .digest("hex");
+}
+
+/** The project file's provider command, trimmed; `""` when it sets none. */
+async function getProjectIssueProviderCommand() {
+  const project = await loadProjectConfig();
+  return project.status === "loaded"
+    ? (project.config.issueProvider?.command ?? "").trim()
+    : "";
+}
+
+async function issueProviderApproved(command: string) {
+  return (
+    (await readApprovalAt(ISSUE_PROVIDER_APPROVAL_KEY)) ===
+    issueProviderApprovalHash(splitCommandValue(command))
+  );
+}
+
+/** A person said no to running the file's provider command: exit 1. */
+export class IssueProviderDeclinedError extends Error {
+  /** Read by `BaseCommand.catch` for the exit code. */
+  readonly oclif = { exit: 1 };
+
+  constructor() {
+    super(
+      "The project's issue provider command was not approved, so it was not run.",
+    );
+    this.name = "IssueProviderDeclinedError";
+  }
+}
+
+// The hash is kept out of messages, for the reason `approvalRequired` gives.
+function providerApprovalRequired() {
+  return new MissingValueError(
+    "approval of this project's issue provider command from .worktree.yml",
+    "your approval (run `worktree config --approve` once in a terminal)",
+  );
+}
+
+function showProviderCommand(command: string) {
+  console.error(
+    `This project's .worktree.yml runs this command to read issues from its own tracker:\n  ${showVisibly(command)}`,
+  );
+}
+
+async function askToApproveProvider(command: string) {
+  showProviderCommand(command);
+  const approved = await askConfirm(
+    { message: "Run this command on this machine?" },
+    providerApprovalRequired(),
+  );
+  if (approved) {
+    await run("git", [
+      "config",
+      "--local",
+      ISSUE_PROVIDER_APPROVAL_KEY,
+      issueProviderApprovalHash(splitCommandValue(command)),
+    ]);
+  }
+  return approved;
+}
+
+/**
+ * The check `branch` makes before the first provider call (D5). Only a command
+ * that came from the project file needs it: one from git config or the user
+ * file is the person's own (#281 D10). An approved command passes; otherwise a
+ * terminal run shows it and asks, and a non-interactive run or a `--dry-run`,
+ * which asks nothing, fails closed with a missing value before any process
+ * starts.
+ */
+export async function ensureIssueProviderApproved(
+  options: { dryRun?: boolean; provider?: ResolvedIssueProvider } = {},
+) {
+  // A caller that already resolved the pair passes it, so it is read once.
+  const provider = options.provider ?? (await resolveIssueProvider());
+  if (provider?.source !== "project") {
+    return;
+  }
+  if (await issueProviderApproved(provider.command)) {
+    return;
+  }
+  if (options.dryRun || isNonInteractive()) {
+    throw providerApprovalRequired();
+  }
+  if (!(await askToApproveProvider(provider.command))) {
+    throw new IssueProviderDeclinedError();
+  }
+}
+
+/**
+ * `worktree config --approve`, for the provider command: shown when the file
+ * sets one, and asked only when this person has not approved it. Refuses to
+ * run unattended, like `approvePostCreate`.
+ */
+export async function approveIssueProvider() {
+  if (isNonInteractive()) {
+    throw providerApprovalRequired();
+  }
+  const command = await getProjectIssueProviderCommand();
+  if (command === "") {
+    return false;
+  }
+  if (await issueProviderApproved(command)) {
+    showProviderCommand(command);
+    console.error("This command is already approved.");
+    return false;
+  }
+  return askToApproveProvider(command);
 }
 
 // ---------------------------------------------------------------------------
@@ -953,7 +1200,13 @@ function count(amount: number, noun: string) {
  */
 export function summariseProjectFile(config: ProjectConfig) {
   const lines: string[] = [];
-  for (const provider of ["jira", "github", "linear", "clickup"] as const) {
+  for (const provider of [
+    "jira",
+    "github",
+    "linear",
+    "clickup",
+    "issueProvider",
+  ] as const) {
     const rules = config[provider]?.branchType;
     if (rules) {
       lines.push(
@@ -1013,6 +1266,8 @@ export function renderProjectFile(
   section("jira", "deployment", values["jira.deployment"]);
   section("github", "repository", values["github.repository"]);
   section("github", "host", values["github.host"]);
+  section("issueProvider", "name", values["issueProvider.name"]);
+  section("issueProvider", "command", values["issueProvider.command"]);
   section("clickup", "workspaceId", values["clickup.workspaceId"]);
   // A personal postCreate is one string; the file holds a list of steps.
   document.postCreate = values.postCreate ? [values.postCreate] : undefined;
@@ -1218,8 +1473,11 @@ async function unsetLocal(key: string) {
  * value, without asking or printing. A file from the default branch keeps
  * supplying them, so the copies only go stale. A copy stays where removing it
  * would change what `worktree` does: a key another scope also sets, a
- * `postCreate` whose step is not approved, and with no origin/HEAD a
- * `defaultSourceBranch`, which is what finds the file. A failed unset throws,
+ * `postCreate` whose step is not approved, an `issueProvider.command` (and
+ * with it the `issueProvider.name`) while the file's command is not
+ * approved or while git config names the provider otherwise than the file,
+ * and with no origin/HEAD a `defaultSourceBranch`, which is what
+ * finds the file. A failed unset throws,
  * unless the key is already gone.
  */
 async function removeCoveredLocalConfig(config: ProjectConfig) {
@@ -1228,14 +1486,45 @@ async function removeCoveredLocalConfig(config: ProjectConfig) {
     // Only a local value the file repeats exactly. A differing one is the
     // discouraged override, and a global one is not this repository's to remove.
     // A list of steps is not one string, so only a single step can match.
+    // A key the file does not set is skipped first, so a repository that does
+    // not use a provider reads none of its keys here.
+    const fromFile = projectFileValue(config, key);
+    if (!fromFile) {
+      continue;
+    }
     if (key === "postCreate" && !(await fileStepApproved(config))) {
       continue;
+    }
+    // The same for the provider command (#357 D5): the copy is what lets an
+    // unattended `branch` pass until the file's command is approved.
+    if (
+      key === "issueProvider.command" &&
+      !(await issueProviderApproved(config.issueProvider?.command ?? ""))
+    ) {
+      continue;
+    }
+    // Removing the command moves it to the file's layer, and the name in
+    // effect moves with it (D4): a git-config name other than the file's would
+    // silently give way to the file's, so the command copy stays while git
+    // config names the provider differently.
+    if (key === "issueProvider.command") {
+      const ownName = (await gitGetConfigValue("issueProvider.name"))?.trim();
+      if (ownName && ownName !== config.issueProvider?.name) {
+        continue;
+      }
     }
     if (key === "defaultSourceBranch" && !hasOriginHead) {
       continue;
     }
-    const fromFile = projectFileValue(config, key);
-    if (fromFile && (await onlyLocalValue(localKey(key))) === fromFile) {
+    // The name is half of a pair with the command (D4): while a git-config
+    // command stays, the file's name must not be handed to it by a removal.
+    if (
+      key === "issueProvider.name" &&
+      (await resolveTeamConfig("issueProvider.command")).source === "git-config"
+    ) {
+      continue;
+    }
+    if ((await onlyLocalValue(localKey(key))) === fromFile) {
       await unsetLocal(localKey(key));
     }
   }

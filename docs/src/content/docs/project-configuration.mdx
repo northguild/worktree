@@ -56,7 +56,8 @@ Every run that uses it says so on stderr.
 
 ## Precedence
 
-For each key, the first of these that has a value wins:
+For each key, the first of these that has a value wins. A value of only spaces is no value, and the next source
+is read:
 
 | Order | Source |
 |---|---|
@@ -78,8 +79,8 @@ not offer to run `worktree config` for a key the file supplies.
 
 | Kind of key | Keys | In the file |
 |---|---|---|
-| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host` | Read; your git config overrides them, and they override your user config file |
-| Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `rex.focus`, `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoAssign`, `clickup.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
+| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host`, `issueProvider.name`, `issueProvider.command` | Read; your git config overrides them, and they override your user config file |
+| Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `rex.focus`, `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoAssign`, `clickup.autoStart`, `issueProvider.autoAssign`, `issueProvider.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
 | Secret keys | `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret`, `clickup.apiToken`, `github.token` | Refused; the run stops |
 
 Keys mirror `worktree config`: `jira.host` is `host` under `jira`, `jira.deployment` is `deployment` under `jira` (`cloud` or `datacenter`, default `cloud`), and `branchPrefix.bugfix` is `bugfix`
@@ -99,6 +100,15 @@ code, as for [`jira.host`](#jirahost-receives-everyones-credentials). Your own `
 overrides the file's, and `github.com` there puts a repository back on the default. `worktree config` never
 asks for it. See [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
 
+`issueProvider` is for a team's own issue tracker, one that is none of the four above. `issueProvider.command` is the
+command line that runs it, split into arguments and never passed through a shell, and
+`issueProvider.name` is an optional short label of one lowercase letter followed by up to 31 lowercase letters, digits or
+hyphens. The two are read as a pair: the name always comes from the same place as the command (your git config, the
+file, or your user config file), so a name in the file never labels a command you set yourself. No key holds a
+credential; the command finds its own, so a token never goes in this section, and `worktree config` never asks for either
+key. `issueProvider.branchType` is file-only, like the other providers' lists, and takes the same rules. What the command
+is sent and what it may answer is in [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
+
 The `branchType` lists under `jira`, `github`, `linear` and `clickup`, and the shared top-level `branchType`, are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
 `copy`, see [Copy files](#copy-files), and `postCreate`, see [Post-create steps](#post-create-steps).
@@ -114,9 +124,10 @@ should not stop you.
 
 Which prefix a branch gets (`feat/`, `fix/`, `chore/`) depends on the kind of issue. By default `worktree`
 guesses from the issue (Jira and GitHub from the issue type, Linear from labels, ClickUp from tags). A
-`branchType` list under `jira`, `github`, `linear` or `clickup` replaces that provider's guess with your
+`branchType` list under `jira`, `github`, `linear`, `clickup` or `issueProvider` replaces that provider's guess with your
 team's own rules, and a top-level `branchType` list does the same for every provider that has no list of its
-own.
+own. `issueProvider` is [your own tracker](/worktree/commands/branch/), whose command may say a `kind` of its own; that
+is its built-in mapping, used only when neither list is set.
 
 ```yaml
 jira:
@@ -157,9 +168,9 @@ branchType:
 
 For each run, the first of these that exists decides the kind:
 
-1. the provider's own list (`jira.branchType`, `github.branchType`, `linear.branchType` or `clickup.branchType`);
+1. the provider's own list (`jira.branchType`, `github.branchType`, `linear.branchType`, `clickup.branchType` or `issueProvider.branchType`);
 2. the shared `branchType` list;
-3. the provider's built-in mapping.
+3. the provider's built-in mapping (for `issueProvider`, the `kind` its command gave).
 
 A provider's own list is the escape hatch for fields that only that provider has, such as a Jira custom field.
 It wins over the shared list for that provider, and the shared list still applies to the others.
@@ -192,6 +203,7 @@ that has the thing, which is what lets one shared list work everywhere.
 | GitHub | `Type` (the issue type) and `Labels` | yes, for both |
 | Linear | `Labels` (no `Type`: Linear has no issue type) | yes |
 | ClickUp | `Tags`, and `Labels` (the same tags) | no: a ClickUp tag has no id, so match it by name |
+| Your own tracker (`issueProvider`) | `Type` (the `type` the command gave, empty when it gave none), `Labels`, and every entry of the `fields` it gave, by the `id` and `name` it chose; one of its fields called `Type` or `Labels` is dropped, because the portable one is what a shared list reads | yes, where the command gave a value an `id` |
 
 Jira's `Type` and `Labels` and ClickUp's `Labels` are added beside the native field, never in place of it, so a
 list that names `issuetype`, `labels`, `Issue Type` or `Tags` keeps working. Jira's `Labels` matters on a Jira
@@ -246,6 +258,7 @@ worktree branch --jira DEV-123 --dry-run
 worktree branch --github 42 --dry-run
 worktree branch --linear ENG-123 --dry-run
 worktree branch --clickup 9hx --dry-run
+worktree branch --issue VERK-42 --dry-run
 ```
 
 1. Run it on an issue of the kind you want a rule for.
@@ -355,7 +368,8 @@ Steps from a file run commands on your machine that someone else wrote, so each 
   in `worktree config --list` and `worktree config <key> <value>` cannot set it.
 - **On a terminal**, `worktree branch` lists every step before anything is created and asks. Yes remembers
   the approval; no exits `1` with nothing created. `worktree config --approve` shows the current steps and
-  asks the same question ahead of time.
+  asks ahead of time, or, when they are already approved, shows them and says so, which is how to read again
+  what you approved. It does the same for the file's provider command (see below). It needs a terminal.
 - **When nothing can be asked** (a script, CI, `--json`, `--yes` or `--non-interactive`), an unapproved or
   changed list stops the run before anything is created, with exit `2` and `missing_value` under `--json`.
   The message names the two ways out: approve once in a terminal with `worktree config --approve`, or skip
@@ -364,11 +378,34 @@ Steps from a file run commands on your machine that someone else wrote, so each 
   pass `--no-install`.
 - **`--no-install` needs no approval**, and neither does `branch --dry-run`, which runs nothing.
 
+### Approving the provider command
+
+An `issueProvider.command` from the file runs a program of someone else's choosing on every run that reads
+an issue, so each person approves it once, the way they approve the steps. A command from your own git config
+or your [user config file](/worktree/configuration/#user-config-file) is yours and needs no approval.
+
+- **The approval covers exactly this command line.** It is kept for the command split into its arguments, so
+  changing, adding or removing an argument asks again, and so does a different program name. It is kept in
+  your clone's local git config under an internal key, separate from the steps' approval, and, like it, is
+  not in `worktree config --list` and cannot be set by `worktree config <key> <value>`.
+- **On a terminal**, the command is shown, with any control character written out, and asked about before
+  the first call to the provider. Yes remembers the approval; no exits `1` and the provider is not run.
+  `worktree config --approve` shows the provider command and the steps, each when the file sets it, and asks
+  only about one you have not approved; one already approved is shown and said to be approved.
+- **When nothing can be asked** (a script, CI, `--json`, `--yes` or `--non-interactive`), and under
+  `--dry-run`, which never asks, an unapproved or changed command stops the run before the provider starts,
+  with exit `2` and `missing_value` under `--json`. The message names `worktree config --approve`. It never
+  prints a value you could paste to approve it.
+- **A relative program path** such as `./scripts/provider` is approved as written, and the approval does not
+  cover the file it points to, which can differ from one branch to the next. Prefer a program on your `PATH`.
+- **Keep credentials out of the command line.** A token in the command shows in the file, in git history and
+  in the process list. The provider should find its own credentials.
+
 ## Starting a file from your git config
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree
 from the team keys in your git config: the source branch, the branch prefixes, the Jira host and deployment, the ClickUp
-workspace id, the GitHub repository, the GitHub host and `postCreate`, which becomes a one-step list. It never writes a personal or secret key. The
+workspace id, the GitHub repository, the GitHub host, the issue provider's name and command, and `postCreate`, which becomes a one-step list. It never writes a personal or secret key. The
 file is left uncommitted and the command refuses to overwrite one that is there, so review it, commit it and
 merge it to the default branch. The result loads exactly as written.
 
@@ -391,6 +428,10 @@ Two steps move your settings to the file. Only the first is an offer.
     over the file;
   - a local `postCreate`, until you have [approved](#approving-the-steps) the file's step, because your own
     `postCreate` is what lets `branch` run without that approval;
+  - a local `issueProvider.command`, until you have [approved](#approving-the-provider-command) the file's,
+    for the same reason, and with it the local `issueProvider.name`; and while your git config sets an
+    `issueProvider.name` other than the file's, because the name is read from the command's layer and would
+    become the file's;
   - with no `origin/HEAD`, a local `defaultSourceBranch`, because it is what finds the file.
 
   If a key cannot be removed, `branch` and `worktree config` warn and still succeed.

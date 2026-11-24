@@ -20,6 +20,7 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
   "/guides/",
   "/guides/clickup-integration/",
   "/guides/context-switching/",
+  "/guides/custom-issue-provider/",
   "/guides/editor-integration/",
   "/guides/env-files/",
   "/guides/github-issue-integration/",
@@ -34,6 +35,6 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
 
 /** What the Worker indexes: the hub's status line reads it. */
 export const CORPUS_COUNTS: { pages: number; chunks: number } = {
-  pages: 28,
-  chunks: 210,
+  pages: 29,
+  chunks: 222,
 };

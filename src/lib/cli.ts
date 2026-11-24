@@ -43,6 +43,22 @@ interface RunOptions extends ExecOptions {
   trim?: boolean;
 }
 
+interface CapturingOptions {
+  /**
+   * Written to the child's stdin, which is then closed, so a child that reads
+   * until end-of-input finishes. A request goes here rather than into argv so a
+   * value starting with `-` is never read as an option by the child's own
+   * argument parser. Unset, stdin is left as execFile has it.
+   */
+  input?: string;
+  /**
+   * Bytes of stdout or stderr after which the child is terminated and the call
+   * rejects with `code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"`. Left unset, Node's
+   * own default (1 MiB) applies.
+   */
+  maxBuffer?: number;
+}
+
 interface SpawnDetachedOptions {
   cwd?: string;
   onError?: (error: Error) => void;
@@ -128,13 +144,22 @@ export function runCapturing(
     timeout,
     env,
     trim = true,
-  }: ExecOptions & Pick<RunOptions, "trim"> = {},
+    input,
+    maxBuffer,
+  }: ExecOptions & Pick<RunOptions, "trim"> & CapturingOptions = {},
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       file,
       args,
-      { cwd, timeout, env: mergeEnv(env) },
+      // An explicit `maxBuffer: undefined` replaces Node's 1 MiB default with no
+      // limit at all, so the key is passed only when the caller set it.
+      {
+        cwd,
+        timeout,
+        env: mergeEnv(env),
+        ...(maxBuffer === undefined ? {} : { maxBuffer }),
+      },
       (error, stdout, stderr) => {
         disarm();
         const output = {
@@ -142,6 +167,25 @@ export function runCapturing(
           stderr: stderr.trim(),
         };
 
+        // A child that handles SIGTERM by exiting reports a number (or none at
+        // all, for exit 0), but it was stopped by the timeout and so did not
+        // finish: reject, as the doc above says, whatever it exited with.
+        // A signal or maxBuffer error (a string or null `code`) is already
+        // specific and falls through to the rejection below, unchanged.
+        if (
+          child.killed &&
+          timeout &&
+          (!error || typeof error.code === "number")
+        ) {
+          reject(
+            Object.assign(
+              new Error(`${file} was killed after ${timeout}ms`),
+              error ?? {},
+              { killed: true, code: null },
+            ),
+          );
+          return;
+        }
         if (!error) {
           resolve({ ...output, exitCode: 0 });
           return;
@@ -154,6 +198,13 @@ export function runCapturing(
       },
     );
     const disarm = killAfterGrace(child, timeout);
+    if (input !== undefined) {
+      // A child may exit without reading all of its input; the write then fails
+      // with EPIPE, which is the child's choice and not this call's failure —
+      // its exit decides the outcome. Without a listener the error is thrown.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(input);
+    }
   });
 }
 
