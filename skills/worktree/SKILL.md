@@ -3,7 +3,7 @@ name: worktree
 description: >
   Use when creating, listing, opening, renaming, removing or cleaning up git worktrees
   with the `worktree` CLI (@northguild/worktree), including starting a
-  worktree from a GitHub, Jira or Linear issue or a ClickUp task, handing a new worktree to a coding
+  worktree from a GitHub, Jira or Linear issue, a ClickUp task or an issue in the team's own tracker, handing a new worktree to a coding
   agent, opening worktrees as Herdr spaces or Rex sessions, and driving worktrees from a
   script, CI or another coding agent with `--json`.
 ---
@@ -81,7 +81,7 @@ worktree checkout origin/feature/fix-login-timeout
 Use `checkout` only for branches that already exist on the remote.
 Use `branch` to create something new.
 
-### Derive a branch name from a GitHub, Jira or Linear issue or a ClickUp task
+### Derive a branch name from a GitHub, Jira or Linear issue, a ClickUp task or your own tracker
 
 ```bash
 # GitHub — requires github.token in config (or gh CLI authenticated). On a
@@ -145,14 +145,31 @@ worktree branch --clickup DEV-123
 # the worktree exists (needs edit access to the task). --no-start skips it for one run.
 worktree branch --clickup 9hx --start
 worktree branch --clickup 9hx --no-start
+
+# Your own tracker — requires issueProvider.command (git config, .worktree.yml or
+# the user config file): a program that gets {"version":1,"operation":"fetch",
+# "reference":"<what you typed>"} on stdin and prints the issue as JSON. The
+# reference is passed as typed, after trimming; the program parses it. A command
+# from .worktree.yml runs only once the person approved it (see Common Mistakes).
+worktree branch --issue VERK-42
+worktree branch --issue VERK-42 --dry-run
 ```
 
-`--github`, `--jira`, `--linear` and `--clickup` are mutually exclusive. `--assign` and
-`--no-assign` need one of the four; `--assign --linear` skips the assignment
+`--issue` (short `-i`) reports `issue` as `{provider:"custom",name,key,url}` in `--json`
+(`name` is `issueProvider.name`, `null` when none is set; `provider` is always `custom`).
+The prefix comes from `issueProvider.branchType`, else the shared `branchType`, else the `kind`
+the command gave, else none; `Type` and `Labels` (and any `fields` the command gave) are what
+the rules match. `--assign` and `--start` with `--issue` warn that they are not supported yet and
+the run carries on. With no `issueProvider.command` anywhere `--issue` exits `2` with
+`missing_value`, naming `issueProvider.command`. The command is run without a shell, is stopped
+after 15 s, and its answer is validated before any of it is used.
+
+`--github`, `--jira`, `--linear`, `--clickup` and `--issue` are mutually exclusive. `--assign` and
+`--no-assign` need one of the five issue flags; `--assign --linear` skips the assignment
 with a warning, because assignment is not supported for Linear yet. `--linear`
 alone warns nothing about assignment.
 
-`--start` and `--no-start` also need one of the four (exit `2` otherwise), and `--linear`,
+`--start` and `--no-start` also need an issue flag (exit `2` otherwise), and `--linear`,
 `--clickup` and `--jira` act on them: `--start` with `--github` warns that it is not supported
 and the run carries on. `--no-start` never warns. With neither flag,
 `linear.autoStart` decides whether a `--linear` issue is moved to its team's started
@@ -240,7 +257,7 @@ live Workspace), unless `clickup.branchType` rules (or the shared `branchType`) 
 **Issue content is used for the branch name and nothing else, with two exceptions: the Linear menu and the opt-in Linear listener context.** A bare `--linear` shows the identifier, title and state name of the person's own unstarted and started issues to them at the terminal (escaped), never in `--json`, never to an agent; a non-interactive run cannot reach it. `--github`,
 `--jira`, `--linear` and `--clickup` read the issue's number or key (`--github`, `--jira` and `--linear` also accept a pasted issue URL, refused with exit `2` if it names another repository, GitHub host, Jira site (its base: the host and any context path) or Linear workspace), its title (Jira:
 summary) and its type (GitHub: its type and labels; Linear: its labels; ClickUp: its tags); `--linear` with a start also reads the issue's
-workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--clickup` with an assignment also reads the authorized user's id and username and the ids of the task's assignees; `--jira` with a start also reads the issue's status and the transitions Jira offers from it (never the description or comments); `--github` also reads whether the
+workflow state and its team's started states (names, types and positions, never the description); `--clickup` with a start also reads the task's status and its List's statuses (never the description or comments); `--clickup` with an assignment also reads the authorized user's id and username and the ids of the task's assignees; `--jira` with a start also reads the issue's status and the transitions Jira offers from it (never the description or comments); `--issue` reads only what the team's own command prints (the key, title, URL, type, labels and any fields it chooses to give), validated first; `--github` also reads whether the
 issue is closed and whether the number is a pull request. A pull request is
 refused, naming `worktree checkout <branch>` when its branch is on `origin`
 and its name is only letters, digits, `_`, `.`, `/` and `-`, and a closed issue warns (interactively, it asks first). The title is reduced to lowercase letters, digits and `-` before it
@@ -322,7 +339,8 @@ Flags for agent mode:
 | `--no-open` | `branch` | create the worktree and print its path; call none of Herdr, Rex or the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
-| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not |
+| `--issue <reference>` (`-i`) | `branch` | name the branch from an issue in your own tracker, read by the command in `issueProvider.command` (reference on stdin); not with another issue flag |
+| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not (`--assign` with `--issue` warns: not supported yet) |
 | `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its workflow's in-progress transition (the one to the status named In Progress where there are several), once the worktree exists, or not; only a backlog or unstarted issue (Linear), an open-status task (ClickUp) or a To Do-category issue (Jira) moves, and a `--start` with no issue flag exits `2` |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, move, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
@@ -387,7 +405,7 @@ document:
 ```
 
 - `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`,
-  `{provider:"clickup",key,url}`, or `null`; `url` can itself be `null`.
+  `{provider:"clickup",key,url}`, `{provider:"custom",name,key,url}` (`--issue`), or `null`; `url` can itself be `null`.
 - `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, a Jira issue is held by someone else, or Jira does not show a Jira issue's assignee), `null` when no assignment was attempted.
 - `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), `null` when none was attempted.
 - `herdr`, `rex` and `agent` are `null` when skipped. `rex` is `{session,block}`
@@ -926,6 +944,31 @@ created, a `No agent configured` warning is printed, and the exit code is `1`
 because the brief was not delivered.
 
 Source: `src/lib/base-command.ts` — `dispatchAgent()`
+
+---
+
+### HIGH `--issue` with no issue provider configured
+
+Wrong:
+
+```bash
+worktree branch --issue VERK-42 --json
+# exit 2, missing_value naming issueProvider.command
+```
+
+Correct:
+
+```bash
+# Once, by the person who owns this repository's settings
+worktree config issueProvider.command "verk-provider"
+# or commit issueProvider.command to .worktree.yml
+```
+
+`--issue` runs a command the team configured; `worktree` ships none, and it never
+guesses a tracker from the reference. It fails before anything is run, so nothing
+is created.
+
+Source: `src/commands/branch.ts`
 
 ---
 

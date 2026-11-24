@@ -581,7 +581,7 @@ export async function resolveIssueProvider(): Promise<
  * says the rules are the shared list, whose absent-field rules do not warn (D5).
  */
 export async function getBranchTypeRules(
-  provider: "jira" | "github" | "linear" | "clickup",
+  provider: "jira" | "github" | "linear" | "clickup" | "issueProvider",
 ) {
   const project = await loadProjectConfig();
   if (project.status !== "loaded") {
@@ -1443,6 +1443,12 @@ async function removeCoveredLocalConfig(config: ProjectConfig) {
     // Only a local value the file repeats exactly. A differing one is the
     // discouraged override, and a global one is not this repository's to remove.
     // A list of steps is not one string, so only a single step can match.
+    // A key the file does not set is skipped first, so a repository that does
+    // not use a provider reads none of its keys here.
+    const fromFile = projectFileValue(config, key);
+    if (!fromFile) {
+      continue;
+    }
     if (key === "postCreate" && !(await fileStepApproved(config))) {
       continue;
     }
@@ -1465,8 +1471,7 @@ async function removeCoveredLocalConfig(config: ProjectConfig) {
     ) {
       continue;
     }
-    const fromFile = projectFileValue(config, key);
-    if (fromFile && (await onlyLocalValue(localKey(key))) === fromFile) {
+    if ((await onlyLocalValue(localKey(key))) === fromFile) {
       await unsetLocal(localKey(key));
     }
   }

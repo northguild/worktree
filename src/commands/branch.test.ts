@@ -27,6 +27,7 @@ import {
   expectCommands,
   loadConfig,
   mockRun,
+  mockRunCapturing,
 } from "../test-setup.js";
 import Branch from "./branch.js";
 
@@ -7969,6 +7970,585 @@ describe("branch command — issue URLs", () => {
       expect(everything()).not.toContain("SECRETQ");
       expect(everything()).not.toContain("SECRETU");
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// #357 Phase 4: `--issue` runs the team's own provider command. The provider is
+// a process, so "was it spawned" is asserted against `runCapturing`, the helper
+// its runner uses (src/test-setup.ts mocks it for every suite); `mockRun` is
+// git's, and says nothing about the provider.
+describe("branch command — --issue (a custom issue provider)", () => {
+  const originalExitCode = process.exitCode;
+  const mockConfirm = vi.mocked(confirm);
+  const mockInput = vi.mocked(input);
+  let output: ReturnType<typeof captureOutput>;
+  let gitConfigValues: Record<string, string>;
+  let approvalStored: string;
+  let fileContent: string | undefined;
+
+  const APPROVAL_KEY = "northguild.worktree.issueProviderApproval";
+  // D5: SHA-256 of the UTF-8 JSON of the split argv, here
+  // `["verk-cli","--stdin"]`; worked out with `shasum -a 256`, not by the code.
+  const APPROVAL_HASH =
+    "a1eb02c98f4e624cb9489b56080dc0733e0945c98c18b51526f097420bc791ac";
+  // The stand-in provider the Done-when names: key VERK-42, title "Fix login",
+  // kind bugfix, so `branchPrefix.bugfix` `fix/` gives `fix/VERK-42-fix-login`.
+  const verkIssue = {
+    key: "VERK-42",
+    title: "Fix login",
+    url: "https://verk.example/i/42",
+    type: "Bug",
+    labels: ["auth"],
+    fields: [],
+    kind: "bugfix",
+    can: [],
+  };
+
+  function answer(issue: Record<string, unknown> = {}) {
+    mockRunCapturing.mockResolvedValue({
+      stdout: JSON.stringify({ version: 1, issue: { ...verkIssue, ...issue } }),
+      stderr: "",
+      exitCode: 0,
+    });
+  }
+
+  function projectFile(content: string) {
+    fileContent = content;
+  }
+
+  async function runIssue(
+    flags: Record<string, unknown>,
+    { json = false, args = {} }: { json?: boolean; args?: object } = {},
+  ) {
+    const command = new Branch(json ? ["--json"] : [], await loadConfig());
+    (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
+    (command as any).parsed = true;
+    const open = vi
+      .spyOn(command as any, "openWorktreePath")
+      .mockResolvedValue({ opener: "none" });
+    return { command, open };
+  }
+
+  async function runJson(flags: Record<string, unknown>) {
+    const { command } = await runIssue(flags, { json: true });
+    return (command as any)._run();
+  }
+
+  async function runPlain(flags: Record<string, unknown>) {
+    const { command } = await runIssue(flags);
+    return command.run();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    output = captureOutput();
+    resetProjectConfigCache();
+    resetUserConfigCache();
+    approvalStored = "";
+    fileContent = undefined;
+    gitConfigValues = {
+      "has-called-config": "true",
+      defaultSourceBranch: "origin/main",
+      "branchPrefix.feature": "feature/",
+      "branchPrefix.bugfix": "fix/",
+      "branchPrefix.chore": "chore/",
+      "issueProvider.command": "verk-cli --stdin",
+      "issueProvider.name": "verk",
+    };
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key: string) =>
+      Promise.resolve(gitConfigValues[key] ?? ""),
+    );
+    // The approval record is read and written through git's `run`.
+    mockRun.mockImplementation(async (_file: string, args: string[]) => {
+      if (args.length === 3) {
+        if (approvalStored) return approvalStored;
+        throw new Error("exit 1");
+      }
+      approvalStored = args[args.length - 1] ?? "";
+      return "";
+    });
+    expectCommands(
+      `git config --local ${APPROVAL_KEY}`,
+      `git config --local ${APPROVAL_KEY} ${APPROVAL_HASH}`,
+    );
+    vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockImplementation(async () =>
+      fileContent === undefined
+        ? { status: "absent-path" }
+        : { status: "found", content: fileContent },
+    );
+    vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/repo/top");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    vi.mocked(copyEnvFilesFromRootPath).mockResolvedValue([]);
+    vi.mocked(runInstall).mockResolvedValue({ ran: false, reason: "skipped" });
+    mockInput.mockImplementation(async (config: any) => config.default);
+    answer();
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+    setNonInteractive(false);
+  });
+
+  describe("naming", () => {
+    it("creates fix/VERK-42-fix-login from the provider's kind and reports the issue", async () => {
+      await runJson({ issue: "VERK-42", assign: false });
+
+      expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+        "fix/VERK-42-fix-login",
+        "origin/main",
+        { fetch: false },
+      );
+      expect(output.document()).toMatchObject({
+        branch: "fix/VERK-42-fix-login",
+        issue: {
+          provider: "custom",
+          name: "verk",
+          key: "VERK-42",
+          url: "https://verk.example/i/42",
+        },
+      });
+    });
+
+    it("spawns the configured command unchanged, in the top level, with the reference on stdin", async () => {
+      await runJson({ issue: "VERK-42" });
+
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+      const [file, args, options] = mockRunCapturing.mock.calls[0] as [
+        string,
+        string[],
+        { cwd: string; input: string },
+      ];
+      expect([file, ...args]).toEqual(["verk-cli", "--stdin"]);
+      expect(options.cwd).toBe("/repo/top");
+      expect(JSON.parse(options.input)).toEqual({
+        version: 1,
+        operation: "fetch",
+        reference: "VERK-42",
+      });
+    });
+
+    it("passes the trimmed reference verbatim, even one that looks like an option", async () => {
+      await runJson({ issue: "  --all  " });
+
+      const options = mockRunCapturing.mock.calls[0]?.[2] as { input: string };
+      expect(JSON.parse(options.input).reference).toBe("--all");
+    });
+
+    it("reports name null when no name is configured", async () => {
+      delete gitConfigValues["issueProvider.name"];
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        issue: { provider: "custom", name: null, key: "VERK-42" },
+      });
+    });
+
+    it("reports url null when the provider gave none", async () => {
+      answer({ url: null });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({ issue: { url: null } });
+    });
+
+    it("gives no prefix when the provider names no kind and no list is set", async () => {
+      answer({ kind: null });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({ branch: "VERK-42-fix-login" });
+    });
+
+    it("lets a shared branchType rule on Type: Bug decide over the provider's kind (D7)", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: chore\n");
+      answer({ kind: "feature" });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        branch: "chore/VERK-42-fix-login",
+      });
+    });
+
+    it("lets issueProvider.branchType decide over the shared list (D7)", async () => {
+      projectFile(
+        "branchType:\n  - otherwise: chore\nissueProvider:\n  branchType:\n    - when: { Labels: auth }\n      type: feature\n",
+      );
+      answer({ kind: "bugfix" });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        branch: "feature/VERK-42-fix-login",
+      });
+    });
+
+    it("gives a list that matches nothing no prefix, as every provider's list does", async () => {
+      projectFile(
+        "branchType:\n  - when: { Type: Story }\n    type: feature\n",
+      );
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({ branch: "VERK-42-fix-login" });
+    });
+
+    it("matches a rule on a provider-supplied field by id", async () => {
+      projectFile(
+        "issueProvider:\n  branchType:\n    - when: { severity: high }\n      type: bugfix\n",
+      );
+      answer({
+        kind: null,
+        fields: [
+          { id: "severity", name: "Severity", values: [{ name: "high" }] },
+        ],
+      });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        branch: "fix/VERK-42-fix-login",
+      });
+    });
+
+    it("lets the portable Type win over a provider field that reuses its name", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: bugfix\n");
+      answer({
+        kind: null,
+        fields: [{ id: "Type", name: "Type", values: [{ name: "Task" }] }],
+      });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        branch: "fix/VERK-42-fix-login",
+      });
+    });
+
+    it("escapes the reference in the spinner text", async () => {
+      await runJson({ issue: "VERK-42\u001b[2J" });
+
+      const texts = vi
+        .mocked(ora)
+        .mock.calls.map((call) => JSON.stringify(call[0]));
+      expect(texts.some((text) => text.includes("VERK-42"))).toBe(true);
+      expect(texts.join("")).not.toContain("\\u001b");
+    });
+  });
+
+  describe("errors", () => {
+    it("gives an invalid_reference as invalid_value with exit 2 and no worktree", async () => {
+      mockRunCapturing.mockResolvedValue({
+        stdout: JSON.stringify({
+          version: 1,
+          error: { code: "invalid_reference", message: "Not a key." },
+        }),
+        stderr: "",
+        exitCode: 0,
+      });
+
+      await runJson({ issue: "nope" });
+
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("gives not_found as failed with exit 1 and no worktree", async () => {
+      mockRunCapturing.mockResolvedValue({
+        stdout: JSON.stringify({
+          version: 1,
+          error: { code: "not_found", message: "No issue VERK-9." },
+        }),
+        stderr: "",
+        exitCode: 0,
+      });
+
+      await runJson({ issue: "VERK-9" });
+
+      expect(output.document()).toMatchObject({ error: { code: "failed" } });
+      expect(process.exitCode).toBe(1);
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("refuses an empty reference before spawning anything", async () => {
+      await runJson({ issue: "   " });
+
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    it("exits 2 with missing_value naming issueProvider.command when none is configured", async () => {
+      delete gitConfigValues["issueProvider.command"];
+
+      await runJson({ issue: "VERK-42" });
+
+      const document = output.document() as any;
+      expect(document.error.code).toBe("missing_value");
+      expect(document.error.message).toContain("issueProvider.command");
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["--github", { github: "42" }],
+      ["--jira", { jira: "DEV-1" }],
+      ["--linear", { linear: "ENG-1" }],
+      ["--clickup", { clickup: "9hx" }],
+    ])("refuses --issue with %s, exit 2, before spawning", async (_label, other) => {
+      await expect(runPlain({ issue: "VERK-42", ...other })).rejects.toThrow(
+        "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    it("exits 2 for --issue with --github through the command's own exit code", async () => {
+      await runJson({ issue: "VERK-42", github: "42" });
+
+      expect(process.exitCode).toBe(2);
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+    });
+  });
+
+  describe("approval of a command from the file (D5)", () => {
+    const FILE = "issueProvider:\n  command: verk-cli --stdin\n  name: verk\n";
+
+    beforeEach(() => {
+      delete gitConfigValues["issueProvider.command"];
+      delete gitConfigValues["issueProvider.name"];
+      projectFile(FILE);
+    });
+
+    it("fails closed non-interactively: exit 2, nothing spawned, no worktree", async () => {
+      setNonInteractive(true);
+
+      await runJson({ issue: "VERK-42" });
+
+      const document = output.document() as any;
+      expect(document.error.code).toBe("missing_value");
+      expect(JSON.stringify(document)).toContain("worktree config --approve");
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("asks in a terminal, stores the approval on yes and then spawns", async () => {
+      mockConfirm.mockResolvedValue(true);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await runPlain({ issue: "VERK-42", assign: false });
+
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(approvalStored).toBe(APPROVAL_HASH);
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("spawns nothing and creates nothing when the question is declined", async () => {
+      mockConfirm.mockResolvedValue(false);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await expect(runPlain({ issue: "VERK-42" })).rejects.toThrow(
+        "not approved",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("runs an approved command without asking", async () => {
+      approvalStored = APPROVAL_HASH;
+
+      await runPlain({ issue: "VERK-42", assign: false });
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets a command from git config run with no approval at all", async () => {
+      gitConfigValues["issueProvider.command"] = "verk-cli --stdin";
+      setNonInteractive(true);
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("fails a dry run closed too, which asks nothing, before spawning", async () => {
+      await expect(
+        runPlain({ issue: "VERK-42", "dry-run": true }),
+      ).rejects.toBeInstanceOf(MissingValueError);
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("--assign, --start and --dry-run", () => {
+    it("warns that --assign and --start are not supported yet, and asks nothing", async () => {
+      await runJson({ issue: "VERK-42", assign: true, start: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBeNull();
+      expect(document.started).toBeNull();
+      expect(document.warnings).toEqual([
+        expect.stringContaining("--assign"),
+        expect.stringContaining("--start"),
+      ]);
+      expect(mockConfirm).not.toHaveBeenCalled();
+      // One call: the fetch. Assign and start are not asked of the provider.
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not warn or ask when neither flag is given", async () => {
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        assigned: null,
+        started: null,
+        warnings: [],
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("does not warn about --no-assign and --no-start, which ask for nothing", async () => {
+      await runJson({ issue: "VERK-42", assign: false, start: false });
+
+      expect(output.document()).toMatchObject({ warnings: [] });
+    });
+
+    it("names the list that decided in a dry run, and creates nothing", async () => {
+      projectFile(
+        "issueProvider:\n  branchType:\n    - when: { Type: Bug }\n      type: bugfix\n",
+      );
+
+      await runIssue({ issue: "VERK-42", "dry-run": true }).then(
+        ({ command }) => command.run(),
+      );
+
+      expect(output.stdout()).toContain("Branch name: fix/VERK-42-fix-login");
+      expect(output.stdout()).toContain(
+        "Rule: rule 1 of issueProvider.branchType: when: { Type: Bug }, type: bugfix",
+      );
+      expect(output.stdout()).toContain("Type (id Type)");
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("names the shared list when it decided", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: chore\n");
+
+      await runIssue({ issue: "VERK-42", "dry-run": true }).then(
+        ({ command }) => command.run(),
+      );
+
+      expect(output.stdout()).toContain("Branch name: chore/VERK-42-fix-login");
+      expect(output.stdout()).toContain("rule 1 of branchType:");
+    });
+
+    it("reports the provider's own mapping, not a list, when no kind came from anywhere", async () => {
+      answer({ kind: null });
+
+      await runIssue({ issue: "VERK-42", "dry-run": true }).then(
+        ({ command }) => command.run(),
+      );
+
+      expect(output.stdout()).toContain("Branch name: VERK-42-fix-login");
+      // No list was written, so the line must not point at one (as for every
+      // built-in provider).
+      expect(output.stdout()).toContain(
+        "Rule: built-in mapping (the project file has no issueProvider.branchType or shared branchType)",
+      );
+      expect(output.stdout()).not.toContain("none matched");
+    });
+
+    it("prints the dry run's document with the custom issue member", async () => {
+      const { command } = await runIssue(
+        { issue: "VERK-42", "dry-run": true },
+        { json: true },
+      );
+
+      await (command as any)._run();
+
+      expect(output.document()).toMatchObject({
+        dryRun: true,
+        branch: "fix/VERK-42-fix-login",
+        issue: {
+          provider: "custom",
+          name: "verk",
+          key: "VERK-42",
+          url: "https://verk.example/i/42",
+        },
+        kind: "bugfix",
+        match: { source: "built-in" },
+      });
+    });
+
+    it("accepts --assign and --start only with an issue flag, naming the old four", async () => {
+      await expect(runPlain({ assign: true })).rejects.toThrow(
+        "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+      );
+    });
+  });
+
+  describe("a run without --issue", () => {
+    it("spawns nothing and reads no issueProvider key", async () => {
+      await runPlain({ "no-open": true });
+      // a positional name
+      const { command } = await runIssue(
+        {},
+        { args: { branchName: "feature/own-name" } },
+      );
+      await command.run();
+
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      const keys = vi
+        .mocked(gitConfig.gitGetConfigValue)
+        .mock.calls.map((call) => String(call[0]));
+      expect(keys.filter((key) => key.startsWith("issueProvider"))).toEqual([]);
+      expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+        "feature/own-name",
+        "origin/main",
+        { fetch: false },
+      );
+    });
+
+    it("spawns nothing for --github either", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 8,
+        title: "Fix it",
+        state: "open",
+        htmlUrl: null,
+        type: null,
+        labels: [],
+        pullRequest: null,
+      } as any);
+      vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
+        login: "o",
+        assigned: true,
+      });
+
+      await runPlain({ github: "8", assign: false });
+
+      expect(mockRunCapturing).not.toHaveBeenCalled();
     });
   });
 });

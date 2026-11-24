@@ -122,9 +122,10 @@ should not stop you.
 
 Which prefix a branch gets (`feat/`, `fix/`, `chore/`) depends on the kind of issue. By default `worktree`
 guesses from the issue (Jira and GitHub from the issue type, Linear from labels, ClickUp from tags). A
-`branchType` list under `jira`, `github`, `linear` or `clickup` replaces that provider's guess with your
+`branchType` list under `jira`, `github`, `linear`, `clickup` or `issueProvider` replaces that provider's guess with your
 team's own rules, and a top-level `branchType` list does the same for every provider that has no list of its
-own.
+own. `issueProvider` is [your own tracker](/worktree/commands/branch/), whose command may say a `kind` of its own; that
+is its built-in mapping, used only when neither list is set.
 
 ```yaml
 jira:
@@ -165,9 +166,9 @@ branchType:
 
 For each run, the first of these that exists decides the kind:
 
-1. the provider's own list (`jira.branchType`, `github.branchType`, `linear.branchType` or `clickup.branchType`);
+1. the provider's own list (`jira.branchType`, `github.branchType`, `linear.branchType`, `clickup.branchType` or `issueProvider.branchType`);
 2. the shared `branchType` list;
-3. the provider's built-in mapping.
+3. the provider's built-in mapping (for `issueProvider`, the `kind` its command gave).
 
 A provider's own list is the escape hatch for fields that only that provider has, such as a Jira custom field.
 It wins over the shared list for that provider, and the shared list still applies to the others.
@@ -200,6 +201,7 @@ that has the thing, which is what lets one shared list work everywhere.
 | GitHub | `Type` (the issue type) and `Labels` | yes, for both |
 | Linear | `Labels` (no `Type`: Linear has no issue type) | yes |
 | ClickUp | `Tags`, and `Labels` (the same tags) | no: a ClickUp tag has no id, so match it by name |
+| Your own tracker (`issueProvider`) | `Type` (the `type` the command gave, empty when it gave none), `Labels`, and every entry of the `fields` it gave, by the `id` and `name` it chose; one of its fields called `Type` or `Labels` is dropped, because the portable one is what a shared list reads | yes, where the command gave a value an `id` |
 
 Jira's `Type` and `Labels` and ClickUp's `Labels` are added beside the native field, never in place of it, so a
 list that names `issuetype`, `labels`, `Issue Type` or `Tags` keeps working. Jira's `Labels` matters on a Jira
@@ -254,6 +256,7 @@ worktree branch --jira DEV-123 --dry-run
 worktree branch --github 42 --dry-run
 worktree branch --linear ENG-123 --dry-run
 worktree branch --clickup 9hx --dry-run
+worktree branch --issue VERK-42 --dry-run
 ```
 
 1. Run it on an issue of the kind you want a rule for.

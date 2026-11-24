@@ -1,6 +1,6 @@
 ---
 title: "worktree branch: create a git worktree for a new branch"
-description: "worktree branch creates a new git branch in its own worktree, named from a GitHub, Jira, Linear or ClickUp issue, and can hand it to a coding agent."
+description: "worktree branch creates a git branch in its own worktree, named from a GitHub, Jira, Linear, ClickUp or custom-tracker issue, and can start an agent."
 ---
 
 Create a new branch in a dedicated worktree.
@@ -25,6 +25,8 @@ worktree branch --clickup <task-id>
 worktree branch --clickup <task-id> --assign
 worktree branch --clickup <task-id> --start
 worktree branch --clickup <task-id> --no-start
+worktree branch --issue <reference>
+worktree branch --issue <reference> --dry-run
 worktree branch --jira <issue-id> --dry-run
 worktree branch <name> --agent "<prompt>"
 worktree branch <name> --agent-file <path>
@@ -53,6 +55,8 @@ worktree branch --linear eng-123
 worktree branch --linear ENG-123 --no-start
 worktree branch --clickup 9hx
 worktree branch --clickup DEV-123
+worktree branch --issue VERK-42
+worktree branch --issue VERK-42 --dry-run
 worktree branch --jira DEV-123 --dry-run
 worktree branch --github 42 --dry-run --json
 worktree branch feature/add-bulk-actions --agent "add bulk actions to the table"
@@ -176,10 +180,40 @@ worktree config clickup.autoAssign true
 - `--assign` and `--no-assign` both require one of `--github`, `--jira`, `--linear` or `--clickup`; on their own there is no issue to act
   on. `--assign --linear` warns that assignment is not supported for Linear yet and carries on.
 
+**Branching from your own tracker.** Use the `--issue` flag (short: `-i`) to create a branch name from an issue in a tracker that is none of the four
+above. The team writes a small program that reads its tracker and prints the issue as JSON, and
+`issueProvider.command` in the [project file](/worktree/project-configuration/) names it. `--issue` cannot be
+combined with `--github`, `--jira`, `--linear` or `--clickup`.
+
+```bash
+worktree branch --issue VERK-42
+```
+
+- The reference is passed to the command exactly as you typed it, after trimming spaces: the command decides
+  whether a key, a number or a URL is valid, and answers `invalid_reference` (exit `2`, `invalid_value`) when it
+  is not. It is sent on the command's standard input, never on its command line, so a reference that starts with `-`
+  cannot be read as an option.
+- The branch is named `<prefix><key>-<title>` from what the command printed, through your
+  [`branchName` template](/worktree/project-configuration/#branch-name-template). The prefix comes from
+  `issueProvider.branchType`, else the shared `branchType`, else the `kind` the command gave (`feature`, `bugfix` or
+  `chore`), else there is none. See [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+- With no `issueProvider.command` anywhere, the run exits `2` with `missing_value`, naming `issueProvider.command`,
+  before anything is run.
+- A command from `.worktree.yml` runs only after you have approved it, once for each command line: a terminal run
+  shows the command and asks, and a non-interactive run or a `--dry-run`, which asks nothing, exits `2` with
+  `missing_value` and runs nothing; `worktree config --approve` approves it ahead of time. A command from your git
+  config or your user config file is your own and needs no approval. See
+  [Approving the provider command](/worktree/project-configuration/#approving-the-steps).
+- The command runs without a shell, in the repository's top-level directory, and is stopped if it has not answered
+  within 15 seconds or prints more than 1 MiB. What it prints is checked before any of it is used: an answer that
+  does not match the contract fails the run, exit `1`, naming the provider.
+- `--assign` and `--start` are not supported with `--issue` yet: each warns and the run carries on. `--no-assign` and
+  `--no-start` are accepted and do nothing.
+
 ## Previewing a branch name
 
 `--dry-run` shows what `branch` would name a branch, and why, without making it. Pass it with one of
-`--github`, `--jira`, `--linear` or `--clickup`: it fetches that issue, applies the
+`--github`, `--jira`, `--linear`, `--clickup` or `--issue`: it fetches that issue, applies the
 [`branchType` rules](/worktree/project-configuration/#branch-type-rules) and the
 [`branchName` template](/worktree/project-configuration/#branch-name-template), and stops after naming. On its own
 it is refused with exit `2`, because with no issue there is nothing to evaluate the rules against. A bare `--linear` is
@@ -207,7 +241,7 @@ Fields with a value (2), each with a line to paste into jira.branchType:
   issue is a warning instead of a prompt. `--agent`, `--agent-file`, `--agent-stdin`, `--source`, `--assign`,
   `--start`, `--install` and `--no-open` flags are accepted and ignored.
 - **The `Rule:` line** names the rule that chose the prefix by its position in the list and its text, and
-  names the list: `jira.branchType`, or `branchType` when the shared list decided. It
+  names the list: `jira.branchType` (`issueProvider.branchType` for `--issue`), or `branchType` when the shared list decided. It
   reads `built-in mapping` when the file has neither a rule list for that provider nor a shared `branchType`, and `none matched` when it has rules
   and none matched, so the name has no prefix.
 - **Every field the issue has a value for** is listed with its id and its name as your account sees it, and
@@ -557,6 +591,7 @@ animates; progress goes to stderr as plain lines.
   `worktree: no default for <value>; pass <flag>`. Here that is the branch name (`<branchName>`), and a
   `--source` without the `origin/` prefix (`--source origin/<branch>`), and a `--linear` with no identifier
   (`--linear <identifier>`), which is refused before the fetch and before any request.
+- A `.worktree.yml` `issueProvider.command` you have not approved stops an `--issue` run with exit `2` and `missing_value` before the command is run; the message names `worktree config --approve`.
 - Dependencies are installed by default, from `postCreate` (git config, `.worktree.yml` or your user config file) or the lockfile; `--no-install` skips it. Steps from `.worktree.yml` that you have not approved stop the run with exit `2` and `missing_value` before anything is created; the message names `worktree config --approve` and `--no-install`.
 - A branch name that is already taken is refused, exit `2` with `invalid_value`, naming the existing worktree's path and `worktree open <branch>`; it is never opened unasked.
 - Missing config is not offered to `config`: `defaultSourceBranch` unset in your git config, `.worktree.yml` and your user config file warns and falls back to `origin/main`.
@@ -628,7 +663,7 @@ person goes to stderr instead: the spinner lines, the env-file list, notes and w
 | Key | Value |
 | --- | --- |
 | `path`, `branch`, `source` | the worktree's absolute path, its branch, and the ref it was created from |
-| `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}` or `{provider:"clickup", key, url}`; `null` when no issue was used. `url` is `null` when it is not known |
+| `issue` | `{provider:"github", number, url}`, `{provider:"jira", key, url}`, `{provider:"linear", key, url}`, `{provider:"clickup", key, url}` or `{provider:"custom", name, key, url}` for `--issue`; `null` when no issue was used. `url` is `null` when it is not known. `name` is `issueProvider.name`, `null` when none is set, and `provider` is always the word `custom`, never the name |
 | `assigned` | `true` once the issue is yours (assigned, or already yours); `false` when it is not (the attempt failed, a Jira issue is held by someone else, or Jira does not show a Jira issue's assignee); `null` when none was (no issue, `--no-assign`, or a configured `false`) |
 | `started` | `true` once the Linear issue, ClickUp task or Jira issue is in a started state (moved, or already there); `false` when it is not (left alone, no started state to move to, or the attempt failed); `null` when none was attempted (none of `--linear`, `--clickup` or `--jira`, `--no-start`, a configured `false`, or a declined prompt) |
 | `envFilesCopied` | the env files and `copy` files copied, relative to the repository root; `[]` when there were none |
@@ -653,7 +688,7 @@ describing it goes to stderr as usual:
 | `code` | Means | Exit |
 | --- | --- | --- |
 | `missing_value` | a value with no default was not given, such as `--linear` with no identifier in a run that cannot ask or with `--dry-run`; `details` names it and the flag | `2` |
-| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a `--github`, `--jira` or `--linear` URL for another repository or GitHub host, Jira site or Linear workspace or of a shape not accepted, a `--github` number that is a pull request, a branch name that is already taken | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a reference the `--issue` provider calls `invalid_reference`, an empty `--issue`, a `--github`, `--jira` or `--linear` URL for another repository or GitHub host, Jira site or Linear workspace or of a shape not accepted, a `--github` number that is a pull request, a branch name that is already taken | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |
 | `failed` | anything else | `1` |

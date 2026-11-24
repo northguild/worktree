@@ -1101,6 +1101,27 @@ describe("getBranchTypeRules and getBranchPrefix", () => {
     });
   });
 
+  // #357 D7: the custom provider's own list is `issueProvider.branchType`, and
+  // the shared one is its fallback, as for every other provider.
+  it("names the custom provider's list issueProvider.branchType, then the shared one", async () => {
+    fromOriginMain(
+      "branchType:\n  - otherwise: chore\nissueProvider:\n  branchType:\n    - otherwise: bugfix\n",
+    );
+    expect(await getBranchTypeRules("issueProvider")).toEqual({
+      rules: [{ otherwise: "bugfix" }],
+      listName: "issueProvider.branchType",
+      shared: false,
+    });
+
+    resetProjectConfigCache();
+    fromOriginMain("branchType:\n  - otherwise: chore\n");
+    expect(await getBranchTypeRules("issueProvider")).toEqual({
+      rules: [{ otherwise: "chore" }],
+      listName: "branchType",
+      shared: true,
+    });
+  });
+
   it("rejects a bad rule in the shared list like any other", async () => {
     const error = await failure("branchType:\n  - otherwise: epic\n");
 
@@ -2150,6 +2171,25 @@ describe("offerProjectConfig: removing the keys the file covers", () => {
       "--unset",
       "northguild.worktree.branchPrefix.feature",
     ]);
+  });
+
+  // #357 Phase 4: a repository that does not use a custom issue provider reads
+  // none of its keys, here the command or the approval record. (One whose file
+  // sets the provider still reads them, which D4 and D5 require.)
+  it("reads no issueProvider key and no approval when the file has no issueProvider section", async () => {
+    fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    mockedConfig.gitGetConfigValue.mockClear();
+    mockRun.mockClear();
+
+    await offerProjectConfig();
+
+    const read = [
+      ...mockedConfig.gitGetConfigValue.mock.calls.map((call) =>
+        String(call[0]),
+      ),
+      ...mockRun.mock.calls.map((call) => (call[1] as string[]).join(" ")),
+    ];
+    expect(read.filter((entry) => entry.includes("issueProvider"))).toEqual([]);
   });
 
   // project-configuration.mdx: with no origin/HEAD the personal

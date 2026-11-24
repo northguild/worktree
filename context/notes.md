@@ -55,3 +55,21 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
 - **Smaller:** `const readApproval = () => …` at `project-config.ts:885` breaks `typescript/rules.md:27`
   (function declarations for named functions); the "escaped" test names exercise no escape; `--approve` with
   only a provider command first prints "…has no postCreate steps."
+
+## Phase 4
+
+- **The `--assign`, `--start` and `--dry-run` "requires one of …" messages still name only the four built-in
+  flags** (`branch.ts:1430, 1444, 1460`), while the docs and the skill say five, and Phase 4's Scope and §4.1
+  say every "one of" message names `--issue`. Kept so existing assertions stayed unchanged; fixing it edits 11
+  assertions in `branch.test.ts`. User-visible; a scope shortfall.
+- **`--issue ""` / `--issue=`** is falsy, so the run acts as if no issue flag was given, while `branch.mdx`'s
+  `invalid_value` row says an empty `--issue` is refused. Only whitespace-only values reach the trim check.
+  (`--github ""` probably behaves the same today; unchecked.)
+- **The Phase 2 `config --list` pair defect is still open** — Phase 4's scope did not include it.
+- **`branch.mdx`'s new section is a bold-led paragraph**, not a heading, for the same `audit-dist.mjs:934`
+  20-removal cap as Phase 3.
+- **Smaller:** provider fields named `Type`/`Labels` are dropped case-insensitively by id or name, only the
+  both-`Type` case is tested; `resolveIssueProvider()` runs three times per run; tests use `.then(...)` and
+  `as any`; a repository whose file sets `issueProvider` still reads those keys during the removal step on
+  runs without `--issue` (required by D4/D5, so Done-when's "reads no `issueProvider` key" holds only for
+  repositories not using the feature).

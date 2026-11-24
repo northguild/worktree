@@ -6,6 +6,11 @@ import {
   startClickUpTask,
 } from "../integrations/clickup.js";
 import {
+  type CustomIssue,
+  fetchCustomIssue,
+  getCustomBranchNaming,
+} from "../integrations/custom-provider.js";
+import {
   assignGitHubIssue,
   describeGitHubRepository,
   fetchGitHubIssue,
@@ -51,17 +56,20 @@ import {
   gitFindBranchCheckout,
   gitGetLocalBranches,
   gitGetRemoteBranches,
+  gitGetTopLevelPath,
 } from "../lib/git.js";
 import { type InstallResult, runInstall } from "../lib/install.js";
 import { isNonInteractive } from "../lib/interaction.js";
 import { gitSetBranchIssueLink } from "../lib/issue-link.js";
 import { createSpinner } from "../lib/progress.js";
 import {
+  ensureIssueProviderApproved,
   ensurePostCreateApproved,
   getBranchTypeRules,
   getTeamConfigValue,
   loadProjectConfig,
   offerProjectConfig,
+  resolveIssueProvider,
   showLinesVisibly,
   showVisibly,
 } from "../lib/project-config.js";
@@ -82,7 +90,11 @@ import type {
   ConfigName,
   OpenOutcome,
 } from "../lib/types.js";
+import { splitCommandValue } from "../lib/utils.js";
 import { isValidBranchName } from "../lib/validators.js";
+
+/** What messages call a provider that has no `issueProvider.name`. */
+const ISSUE_PROVIDER_FALLBACK_NAME = "Issue provider";
 
 /** A name derived from an issue; `naming` is set only on a dry run. */
 interface DerivedName {
@@ -181,7 +193,14 @@ and asks you to pick one, then carries on as if you had typed its identifier.
 It needs a terminal: --json, --yes, --non-interactive, CI and a missing
 terminal refuse with exit 2 before any request, and so does --dry-run.
 
---dry-run (with --github, --jira, --linear or --clickup) fetches the issue and
+--issue <reference> reads an issue from your own tracker by running the command
+set as issueProvider.command, which gets the reference on stdin and prints the
+issue as JSON (the guide on the docs site is the contract). A command from
+.worktree.yml runs only once you have approved it (worktree config --approve);
+a non-interactive run and --dry-run refuse with exit 2 until then. --assign and
+--start are not supported with --issue yet.
+
+--dry-run (with --github, --jira, --linear, --clickup or --issue) fetches the issue and
 prints the branch name, the rule that chose its prefix and every field the issue
 has a value for, with a paste-ready .worktree.yml line per value. It creates
 nothing, assigns nothing, moves nothing, saves nothing and asks nothing, so
@@ -192,7 +211,8 @@ path, branch, source, issue, assigned, started, envFilesCopied, installed,
 herdr, rex, agent, warnings
 issue: {provider:"github", number, url|null}, {provider:"jira", key,
 url|null}, {provider:"linear", key, url|null}, {provider:"clickup", key,
-url|null} or null
+url|null}, {provider:"custom", name|null, key, url|null} (name is the
+configured issueProvider.name) or null
 assigned: true if the issue is yours after the run (assigned or already yours),
 false if it is not (held by someone else, a Jira assignee Jira hides, or the
 attempt failed), null if none was attempted
@@ -239,6 +259,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     "<%= config.bin %> <%= command.id %> --linear ENG-123 --no-start",
     "<%= config.bin %> <%= command.id %> --clickup 9hx",
     "<%= config.bin %> <%= command.id %> --clickup DEV-123",
+    "<%= config.bin %> <%= command.id %> --issue VERK-42",
+    "<%= config.bin %> <%= command.id %> --issue VERK-42 --dry-run",
     '<%= config.bin %> <%= command.id %> --github 42 --agent "implement the issue"',
     "<%= config.bin %> <%= command.id %> --github 42 --agent-file brief.md",
     "<%= config.bin %> <%= command.id %> --github 42 --no-agent",
@@ -269,6 +291,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       char: "c",
       description: "Create a branch from a ClickUp task (task id)",
     }),
+    // The team's own provider (#357 D3): one flag to the one configured command,
+    // the reference passed on as typed. The provider parses it.
+    issue: Flags.string({
+      char: "i",
+      description:
+        "Create a branch from an issue in your own tracker, read by the command in issueProvider.command (a key, number or URL, as that command accepts)",
+    }),
     // The three brief sources are one choice (D13), and `--no-agent` says there
     // is no brief to deliver, so it excludes all of them.
     agent: Flags.string({
@@ -298,21 +327,21 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     assign: Flags.boolean({
       allowNo: true,
       description:
-        "Assign the issue to you when creating a branch from --github, --jira or --clickup (not supported for --linear yet)",
+        "Assign the issue to you when creating a branch from --github, --jira or --clickup (not supported for --linear or --issue yet)",
     }),
     // Source-agnostic like `--assign` (D4), so #125 and #131 add no flag. Unset
     // is meaningful (the key, then the mode), so there is no `default`.
     start: Flags.boolean({
       allowNo: true,
       description:
-        "Move the issue to its first started state once the worktree exists, when it is in a backlog or unstarted state: a --linear issue to its team's, a --clickup task in an open status to its List's first in-progress status, a --jira issue in the To Do category to the in-progress status its workflow offers (not supported for --github)",
+        "Move the issue to its first started state once the worktree exists, when it is in a backlog or unstarted state: a --linear issue to its team's, a --clickup task in an open status to its List's first in-progress status, a --jira issue in the To Do category to the in-progress status its workflow offers (not supported for --github or --issue yet)",
     }),
     // D13: the way to write branchType rules against a real issue. It is a
     // `branch` flag rather than a command so that the name it prints is the one
     // a real run would give.
     "dry-run": Flags.boolean({
       description:
-        "With --github, --jira, --linear or --clickup: show the branch name, the rule that chose its prefix and the issue's fields, and create nothing",
+        "With --github, --jira, --linear, --clickup or --issue: show the branch name, the rule that chose its prefix and the issue's fields, and create nothing",
     }),
     // Unset is meaningful: it defers to postCreate and the run's mode (D9), so
     // there is no `default`. `--no-install` is the one switch that wins over both.
@@ -694,6 +723,54 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
           provider: "clickup",
           key: task.customId ?? task.id,
           url: task.url,
+        },
+      };
+    } catch (error) {
+      spinner.fail();
+      throw error;
+    }
+  }
+
+  /**
+   * The team's own provider (#357): the one fetch gives the name and the url
+   * the provider reported. Everything shown that the provider wrote, and the
+   * reference as typed, goes through `showVisibly`.
+   */
+  private async getCustomIssueBranchName(
+    reference: string,
+    dryRun: boolean,
+  ): Promise<DerivedName> {
+    const provider = await resolveIssueProvider();
+    if (!provider) {
+      // `run` checked before it got here; this keeps the type honest.
+      throw new Error("--issue reached the fetch without a provider.");
+    }
+    const spinner = createSpinner(
+      `Fetching issue ${showVisibly(reference)} from ${provider.name ?? "the issue provider"}`,
+    ).start();
+    try {
+      const issue: CustomIssue = await fetchCustomIssue(
+        splitCommandValue(provider.command),
+        reference,
+        {
+          name: provider.name ?? ISSUE_PROVIDER_FALLBACK_NAME,
+          cwd: await gitGetTopLevelPath(),
+        },
+      );
+      const naming = await getCustomBranchNaming(
+        issue,
+        (warning) => this.warn(warning),
+        dryRun,
+      );
+      spinner.succeed();
+      return {
+        branchName: naming.branchName,
+        naming,
+        issue: {
+          provider: "custom",
+          name: provider.name,
+          key: issue.key,
+          url: issue.url,
         },
       };
     } catch (error) {
@@ -1162,6 +1239,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       jira?: string;
       linear?: string;
       clickup?: string;
+      issue?: string;
     },
     dryRun: boolean,
   ): Promise<DerivedName | undefined> {
@@ -1176,6 +1254,9 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
     if (flags.clickup) {
       return this.getClickUpTaskBranchName(flags.clickup, dryRun);
+    }
+    if (flags.issue) {
+      return this.getCustomIssueBranchName(flags.issue, dryRun);
     }
     return undefined;
   }
@@ -1194,11 +1275,13 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
     // The list that decided (D7): the provider's own, else the shared one;
     // with neither, the name a person would write one under.
-    const inForce = await getBranchTypeRules(issue.provider);
-    const listName = inForce?.listName ?? `${issue.provider}.branchType`;
+    const section =
+      issue.provider === "custom" ? "issueProvider" : issue.provider;
+    const inForce = await getBranchTypeRules(section);
+    const listName = inForce?.listName ?? `${section}.branchType`;
     const shared = inForce?.shared === true;
     const withValue = naming.fields.filter((field) => field.values.length > 0);
-    const ownList = `${issue.provider}.branchType`;
+    const ownList = `${section}.branchType`;
     const fields = withValue.map((field) => ({
       id: field.id,
       name: field.name,
@@ -1226,7 +1309,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       match.source === "rule"
         ? `Rule: rule ${match.position} of ${listName}: ${match.rule}`
         : match.source === "built-in"
-          ? `Rule: built-in mapping (the project file has no ${issue.provider}.branchType or shared branchType)`
+          ? `Rule: built-in mapping (the project file has no ${section}.branchType or shared branchType)`
           : `Rule: none matched in ${listName}, so the name has no prefix`,
     );
     this.log(
@@ -1236,7 +1319,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     );
     for (const field of fields) {
       this.log(
-        `  ${field.name} (id ${field.id})${field.pasteInto === listName ? "" : ` - only ${issue.provider} has this field: paste into ${field.pasteInto}, not ${listName}`}`,
+        `  ${field.name} (id ${field.id})${field.pasteInto === listName ? "" : ` - only ${section} has this field: paste into ${field.pasteInto}, not ${listName}`}`,
       );
       for (const value of field.values) {
         const label = value.name ?? "(no name)";
@@ -1271,6 +1354,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       jira?: string;
       linear?: string;
       clickup?: string;
+      issue?: string;
     },
   ): Promise<{ branchName: string; issue: BranchIssue | null }> {
     if (
@@ -1278,6 +1362,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags?.jira &&
       !flags?.linear &&
       !flags?.clickup &&
+      !flags?.issue &&
       branchNameArg &&
       this.validateBranchName(branchNameArg)
     ) {
@@ -1314,11 +1399,19 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // A copy: a bare `--linear` is swapped for the picked identifier below.
     const flags = { ...parsed.flags };
     if (
-      [flags.github, flags.jira, flags.linear, flags.clickup].filter(Boolean)
-        .length > 1
+      [
+        flags.github,
+        flags.jira,
+        flags.linear,
+        flags.clickup,
+        flags.issue,
+      ].filter(Boolean).length > 1
     ) {
+      // The wording without --issue is the one every earlier run printed.
       this.error(
-        "Please provide only one of --github, --jira, --linear or --clickup, not several.",
+        flags.issue
+          ? "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several."
+          : "Please provide only one of --github, --jira, --linear or --clickup, not several.",
       );
     }
 
@@ -1330,7 +1423,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.github &&
       !flags.jira &&
       !flags.linear &&
-      !flags.clickup
+      !flags.clickup &&
+      !flags.issue
     ) {
       this.error(
         "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
@@ -1343,7 +1437,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.github &&
       !flags.jira &&
       !flags.linear &&
-      !flags.clickup
+      !flags.clickup &&
+      !flags.issue
     ) {
       this.error(
         "--start/--no-start requires one of --github, --jira, --linear or --clickup.",
@@ -1358,7 +1453,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.github &&
       !flags.jira &&
       !flags.linear &&
-      !flags.clickup
+      !flags.clickup &&
+      !flags.issue
     ) {
       this.error(
         "--dry-run requires one of --github, --jira, --linear or --clickup.",
@@ -1419,6 +1515,26 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     }
     // The user file was read, and its warnings said, before `run` (#281, see
     // `loadUserConfigUpFront`).
+
+    // #357 D5: the provider command is found, and approved by this person when
+    // the file is where it came from, before anything can run it. Only a run
+    // with --issue reads an issueProvider key.
+    if (flags.issue) {
+      const reference = flags.issue.trim();
+      if (reference === "") {
+        throw new InvalidValueError(
+          "--issue needs the issue's key, number or URL.",
+        );
+      }
+      flags.issue = reference;
+      if (!(await resolveIssueProvider())) {
+        throw new MissingValueError(
+          "the issue provider command",
+          "`worktree config issueProvider.command <command>`, or issueProvider.command in .worktree.yml",
+        );
+      }
+      await ensureIssueProviderApproved({ dryRun });
+    }
 
     const configNames: ConfigName[] = !flags.source
       ? ["defaultSourceBranch"]
@@ -1507,6 +1623,14 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     let assigned: boolean | null = null;
     if (flags.linear && flags.assign) {
       this.warn("Assignment is not supported for Linear issues yet.");
+    } else if (flags.issue) {
+      // Phase 5 replaces this with the provider's own operation. Only an
+      // explicit --assign warns: --no-assign asks for nothing.
+      if (flags.assign) {
+        this.warn(
+          "--assign is not supported with --issue yet, so the issue was not assigned.",
+        );
+      }
     } else if (flags.clickup) {
       if (await this.shouldAssignIssue("clickup.autoAssign", flags.assign)) {
         assigned = await this.assignClickUpTask(flags.clickup);
@@ -1531,6 +1655,12 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       this.warn(
         "Moving an issue to started is not supported for GitHub issues.",
       );
+    } else if (flags.issue) {
+      if (flags.start) {
+        this.warn(
+          "--start is not supported with --issue yet, so the issue was not moved.",
+        );
+      }
     } else if (flags.jira) {
       startJira = await this.shouldStartIssue("jira.autoStart", flags.start);
     } else if (flags.clickup) {

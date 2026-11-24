@@ -206,7 +206,15 @@ export type BranchIssue =
   | { provider: "github"; number: number; url: string | null }
   | { provider: "jira"; key: string; url: string | null }
   | { provider: "linear"; key: string; url: string | null }
-  | { provider: "clickup"; key: string; url: string | null };
+  | { provider: "clickup"; key: string; url: string | null }
+  // The team's own provider command (#357 D9): `name` is the configured display
+  // name, `null` when none is, and never the value of `provider`.
+  | {
+      provider: "custom";
+      name: string | null;
+      key: string;
+      url: string | null;
+    };
 
 export interface BranchDocument {
   path: string;

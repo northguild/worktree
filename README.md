@@ -331,15 +331,16 @@ line, `worktree: no default for <value>; pass <flag>`.
 | `--no-open` | `branch` | create the worktree and print its path; call none of Herdr, Rex or the editor |
 | `--no-agent` | `branch` | open as usual, start no agent |
 | `--install` / `--no-install` | `branch` | force the dependency install on or off for this run |
-| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not (a Jira issue someone else holds is left alone; a ClickUp task keeps its other assignees) |
-| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its workflow's in-progress transition (the one to the status named In Progress where there are several), once the worktree exists, or not; only a backlog or unstarted Linear issue, an open-status ClickUp task and a Jira issue in the To Do category move (one already in progress is reported, a finished one is left alone, and a Jira workflow with no in-progress status, or several with none named In Progress, is left alone with a warning), and it needs a key with the Write permission (Linear), edit access to the task (ClickUp) or the Transition Issues permission (Jira); a `--start` with no issue flag exits `2` |
+| `--issue <reference>` (`-i`) | `branch` | name the branch from an issue in your own tracker: runs the `issueProvider.command` you configured, passes it the reference on stdin and reads the issue it prints; a command from `.worktree.yml` needs your approval first; cannot be combined with `--github`, `--jira`, `--linear` or `--clickup` |
+| `--assign` / `--no-assign` | `branch` | assign the `--github`, `--jira` or `--clickup` issue to you, or not (a Jira issue someone else holds is left alone; a ClickUp task keeps its other assignees); `--assign` with `--issue` warns that it is not supported yet |
+| `--start` / `--no-start` | `branch` | move the `--linear` issue to its team's started state, the `--clickup` task to its List's first in-progress status, or the `--jira` issue through its workflow's in-progress transition (the one to the status named In Progress where there are several), once the worktree exists, or not; only a backlog or unstarted Linear issue, an open-status ClickUp task and a Jira issue in the To Do category move (one already in progress is reported, a finished one is left alone, and a Jira workflow with no in-progress status, or several with none named In Progress, is left alone with a warning), and it needs a key with the Write permission (Linear), edit access to the task (ClickUp) or the Transition Issues permission (Jira); a `--start` with no issue flag exits `2`; `--start` with `--issue` warns that it is not supported yet |
 | `--linear` with no identifier | `branch` | list your own unstarted and started Linear issues (title and state, escaped) and pick one, then carry on as if you had typed its identifier; it needs a terminal, so `--json`, `--yes`, `--non-interactive`, CI, no terminal and `--dry-run` refuse with exit `2` and `missing_value` before any request |
 | `--dry-run` | `branch` | with an issue flag (a `--linear` needs its identifier): print the branch name, the rule behind its prefix and the issue's fields with ids and paste-ready `when:` lines, and create, assign, save and ask nothing; `--json` prints its own document (`dryRun`, `branch`, `issue`, `kind`, `match`, `fields`, `warnings`) |
 | `-f`, `--force` | `remove` | skip the confirmation; required when non-interactive |
 
 ### Defaults when non-interactive
 
-- **Branch name** from `--github`: by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to 48 characters at the last dash.
+- **Branch name** from `--github` (or `--issue`, whose provider supplies the key and title): by default `<prefix><number>-<slug>` (a `branchName` template in `.worktree.yml` changes the shape), the slug cut to 48 characters at the last dash.
   With no issue, the name is required.
 - **Assignment:** `--assign`/`--no-assign`, then `github.autoAssign`, `jira.autoAssign` or `clickup.autoAssign`, then assign. The default is never saved.
 - **Start (Linear, ClickUp, Jira):** `--start`/`--no-start`, then `linear.autoStart`, `clickup.autoStart` or `jira.autoStart`, then start: a non-interactive `--linear` run moves a backlog or unstarted issue to started, a non-interactive `--clickup` run moves an open-status task to the List's first in-progress status, and a non-interactive `--jira` run moves a To Do issue to its in-progress status, unless `--no-start` or the key is `false`. The default is never saved, and a failed move warns and changes no exit code.
@@ -351,7 +352,7 @@ line, `worktree: no default for <value>; pass <flag>`.
 - **Issue provider command:** a command from `.worktree.yml` runs only once you have approved that exact command line, with `worktree config --approve` in a terminal. Unapproved, a non-interactive run and `--dry-run` exit `2` (`missing_value`) before the provider starts, naming `worktree config --approve` and printing no value to approve with. A command from your git config or user config file needs no approval.
 - **Source branch:** `defaultSourceBranch` (git config, else `.worktree.yml`, else your user config file), else `origin/main` with a warning.
 - **Removal** has no default: `remove <branch> -f`.
-- **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, `git fetch` 60 s, `gh auth token` and the session listing
+- **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, an `--issue` provider call 15 s (and at most 1 MiB of output), `git fetch` 60 s, `gh auth token` and the session listing
   10 s, the install 10 min. A command still running at its bound is sent SIGTERM, then SIGKILL 2 s later, so
   one that ignores SIGTERM cannot hold the run open.
 
@@ -375,7 +376,7 @@ worktree branch --github 42 --json --agent-file brief.md
  "warnings":[]}
 ```
 
-- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, `{provider:"clickup",key,url}`, or `null`.
+- `issue` is `{provider:"github",number,url}`, `{provider:"jira",key,url}`, `{provider:"linear",key,url}`, `{provider:"clickup",key,url}`, `{provider:"custom",name,key,url}` (`--issue`; `name` is `issueProvider.name` or `null`), or `null`.
 - `assigned` is `true` when the issue is yours after the run, `false` when it is not (the attempt failed, a Jira issue is held by someone else, or Jira does not show a Jira issue's assignee), and `null` when no assignment was attempted. `started` is `true` when the `--linear` issue, `--clickup` task or `--jira` issue is in a started state after the run (moved, or already there), `false` when it is not (left alone, no started state to move to, or the attempt failed), and `null` when none was attempted. `herdr`, `rex` and `agent` are `null` when skipped (`rex` is `{session,block}`, with `block` `null` when the session was found rather than reported by `rex new`: one that was already open, or one whose `rex new` timed out and turned up after; `agent` says whether an agent started), and
   `agent.command` leaves the brief out. `agent.name` is `null` where this CLI named nothing (a detached start).
 - `installed` is `{ran:false,reason}` when skipped. `steps` are the commands that ran, in order; `command` is the

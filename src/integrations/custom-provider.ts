@@ -1,8 +1,22 @@
 import { z } from "zod";
+import {
+  type BranchMatch,
+  type BranchNaming,
+  evaluateBranchTypeRules,
+  type IssueField,
+  matchOfResult,
+} from "../lib/branch-type.js";
 import { runCapturing } from "../lib/cli.js";
 import { showVisibly } from "../lib/config-keys.js";
+import {
+  type BranchKind,
+  getBranchPrefix,
+  getBranchTypeRules,
+  renderBranchName,
+} from "../lib/project-config.js";
 import { InvalidValueError } from "../lib/prompt.js";
 import { redactSecrets } from "../lib/redact.js";
+import { slugifyBranchTitle } from "../lib/utils.js";
 
 // A custom issue provider is a configured command that prints JSON in the shape
 // below (version 1). It runs through `runCapturing`, so it is bounded, killed on
@@ -243,4 +257,75 @@ function describeRunFailure(
   return new Error(
     `${name}: issueProvider.command could not be run (${shown(reason)}).`,
   );
+}
+
+/**
+ * The fields the rules compare (D7): the portable `Type` and `Labels` made from
+ * the answer's `type` and `labels`, then the provider's own `fields`. A field
+ * of the provider's that answers to `Type` or `Labels` is dropped, because two
+ * fields under one name make a rule ambiguous, and the portable one is what a
+ * shared `branchType` list is written against.
+ */
+export function getCustomIssueFields(issue: CustomIssue): IssueField[] {
+  const portable: IssueField[] = [
+    {
+      id: "Type",
+      name: "Type",
+      values: issue.type === null ? [] : [{ name: issue.type }],
+    },
+    {
+      id: "Labels",
+      name: "Labels",
+      values: issue.labels.map((name) => ({ name })),
+    },
+  ];
+  const taken = new Set(portable.map((entry) => entry.id.toLowerCase()));
+  const own = issue.fields.filter(
+    (entry) =>
+      !taken.has(entry.id.toLowerCase()) &&
+      !taken.has(entry.name.toLowerCase()),
+  );
+  return [...portable, ...own];
+}
+
+/**
+ * The branch name for a fetched issue (D7). The kind comes from
+ * `issueProvider.branchType`, else the shared `branchType` (the rules engine,
+ * where a list that matches nothing gives no prefix, as for every provider),
+ * else the answer's own `kind`, else no prefix. Rule warnings go to
+ * `onWarning`.
+ */
+export async function getCustomBranchNaming(
+  issue: CustomIssue,
+  onWarning: (warning: string) => void = () => {},
+  dryRun = false,
+): Promise<BranchNaming> {
+  const list = await getBranchTypeRules("issueProvider");
+  const fields = getCustomIssueFields(issue);
+
+  let kind: BranchKind | undefined;
+  let match: BranchMatch;
+  if (list) {
+    const result = evaluateBranchTypeRules(list.rules, fields, list.listName, {
+      shared: list.shared,
+      dryRun,
+    });
+    for (const warning of result.warnings) {
+      onWarning(warning);
+    }
+    kind = result.kind;
+    match = matchOfResult(result);
+  } else {
+    // No list was written, so nothing "matched" or failed to: the answer's own
+    // `kind` (or none) is the provider's built-in mapping, as for the others.
+    kind = issue.kind ?? undefined;
+    match = { source: "built-in" };
+  }
+
+  const branchName = await renderBranchName({
+    prefix: await getBranchPrefix(kind),
+    id: issue.key,
+    slug: slugifyBranchTitle(issue.title),
+  });
+  return { branchName, kind, fields, match };
 }
