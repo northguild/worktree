@@ -8649,6 +8649,79 @@ describe("branch command — --issue (a custom issue provider)", () => {
       expect(process.exitCode).toBeUndefined();
     });
 
+    // A start answer is untrusted input, capped only at 1 MiB. Whatever it
+    // puts in `from`, `to` or `state` is shown cut to 200 characters after
+    // escaping, the bound `heldBy` has, so no printed line or `--json` warning
+    // carries more than 200 characters of the provider's words.
+    describe("bounds what a start answer can print", () => {
+      const long = "A".repeat(1000);
+      // Every line a spinner of this run settled with, succeed or warn.
+      const settledLines = () =>
+        vi
+          .mocked(ora)
+          .mock.results.flatMap((r) => [
+            ...r.value.succeed.mock.calls,
+            ...r.value.warn.mock.calls,
+          ])
+          .map(([text]: [string | undefined]) => text ?? "");
+
+      it.each([
+        ["from", { outcome: "started", from: long, to: "Doing" }],
+        ["to", { outcome: "started", from: "Todo", to: long }],
+        ["state", { outcome: "already-started", state: long }],
+        ["state", { outcome: "left-alone", state: long }],
+      ])("cuts a long %s of start answer %# to 200 characters in the line", async (_f, start) => {
+        provide({ start });
+
+        await runJson({ issue: "VERK-42", start: true, assign: false });
+
+        const lines = settledLines().filter((line) => line.includes("AAAA"));
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toContain("A".repeat(200));
+        expect(lines[0]).not.toContain("A".repeat(201));
+      });
+
+      it("cuts a long state of left-alone to 200 characters in the --json warning", async () => {
+        provide({ start: { outcome: "left-alone", state: long } });
+
+        await runJson({ issue: "VERK-42", start: true, assign: false });
+
+        const document = output.document() as any;
+        expect(document.warnings).toHaveLength(1);
+        expect(document.warnings[0]).toContain("A".repeat(200));
+        expect(document.warnings[0]).not.toContain("A".repeat(201));
+      });
+
+      it("cuts a long heldBy to 200 characters in the line and the --json warning", async () => {
+        provide({ assign: { outcome: "held-by-other", heldBy: long } });
+
+        await runJson({ issue: "VERK-42", assign: true, start: false });
+
+        const lines = settledLines().filter((line) => line.includes("AAAA"));
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toContain("A".repeat(200));
+        expect(lines[0]).not.toContain("A".repeat(201));
+        const document = output.document() as any;
+        expect(document.warnings).toHaveLength(1);
+        expect(document.warnings[0]).toContain("A".repeat(200));
+        expect(document.warnings[0]).not.toContain("A".repeat(201));
+      });
+
+      it("never leaves half a character where the cut falls inside one", async () => {
+        // An emoji is two UTF-16 units; at 199 it straddles the 200th.
+        const state = `${"A".repeat(199)}\u{1F600}${"B".repeat(10)}`;
+        provide({ start: { outcome: "left-alone", state } });
+
+        await runJson({ issue: "VERK-42", start: true, assign: false });
+
+        const document = output.document() as any;
+        expect(document.warnings).toHaveLength(1);
+        expect(document.warnings[0]).not.toMatch(/\p{Cs}/u);
+        expect(document.warnings[0]).toContain(`${"A".repeat(199)}�`);
+        expect(document.warnings[0]).not.toContain("B");
+      });
+    });
+
     it("reports started false and exit 0 when the start call fails", async () => {
       provide({ startRaw: { stdout: "", stderr: "no", exitCode: 2 } });
 

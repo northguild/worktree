@@ -35,6 +35,8 @@ const MAX_STDOUT_BYTES = 1024 * 1024;
 
 /** The longest stretch of the provider's own words shown to a person. */
 const MAX_SHOWN_CHARS = 200;
+// With the u flag a pair is one code point, so this matches only a lone half.
+const LONE_SURROGATE = /\p{Cs}/gu;
 
 const PROTOCOL_VERSION = 1;
 
@@ -145,9 +147,23 @@ export interface FetchCustomIssueOptions {
   timeoutMs?: number;
 }
 
+/**
+ * One free-text answer field of the provider's, as it may be shown in a line or
+ * a `--json` warning: control characters written out, then cut to
+ * `MAX_SHOWN_CHARS`. The schema keeps these fields free of control characters
+ * already; this is the bound on length, which the schema does not give them.
+ */
+export function shownField(text: string): string {
+  // A cut inside a surrogate pair, or a lone surrogate the provider sent,
+  // becomes U+FFFD rather than half a character.
+  return showVisibly(text)
+    .slice(0, MAX_SHOWN_CHARS)
+    .replace(LONE_SURROGATE, "\uFFFD");
+}
+
 /** Text the provider wrote, as it may be shown: no secret, no escape, cut. */
 function shown(text: string): string {
-  return showVisibly(redactSecrets(text)).slice(0, MAX_SHOWN_CHARS);
+  return shownField(redactSecrets(text));
 }
 
 function lastLine(stderr: string): string {

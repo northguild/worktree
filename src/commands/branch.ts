@@ -10,6 +10,7 @@ import {
   type CustomIssue,
   fetchCustomIssue,
   getCustomBranchNaming,
+  shownField,
   startCustomIssue,
 } from "../integrations/custom-provider.js";
 import {
@@ -946,7 +947,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
   /**
    * The team's own provider (#357 D8): nothing here aborts `branch`, as for the
    * built-ins. Everything the provider wrote is shown through `showVisibly`
-   * (`heldBy` is the one string that reaches a warning unchanged), and every
+   * (`heldBy`, `from`, `to` and `state` are each cut to 200 characters), and every
    * failure, a timeout included, is a warning and `false`.
    */
   private async assignCustomIssue(
@@ -970,9 +971,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
         );
         return true;
       }
-      const holder = result.heldBy
-        ? showVisibly(result.heldBy).slice(0, 200)
-        : "someone else";
+      const holder = result.heldBy ? shownField(result.heldBy) : "someone else";
       const message = `${key} is already assigned to ${holder}, so it was left alone.`;
       spinner.warn(message);
       this.recordWarning(message);
@@ -1001,16 +1000,16 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       switch (result.outcome) {
         case "started":
           spinner.succeed(
-            `Moved ${key} from ${showVisibly(result.from)} to ${showVisibly(result.to)}`,
+            `Moved ${key} from ${shownField(result.from)} to ${shownField(result.to)}`,
           );
           return true;
         case "already-started":
           spinner.succeed(
-            `${key} is already started (${showVisibly(result.state)})`,
+            `${key} is already started (${shownField(result.state)})`,
           );
           return true;
         case "left-alone": {
-          const message = `${key} is in ${showVisibly(result.state)}, so it was not moved to started.`;
+          const message = `${key} is in ${shownField(result.state)}, so it was not moved to started.`;
           spinner.warn(message);
           this.recordWarning(message);
           return false;

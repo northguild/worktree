@@ -168,7 +168,7 @@ The answer is one of three outcomes:
 | `already-yours` | it already was | `true` |
 | `held-by-other` | someone else holds it, so the provider left it alone | `false`, with a warning |
 
-`heldBy` is optional, only on `held-by-other`, plain text. Left out, the warning says the issue is held by "someone
+`heldBy` is optional, only on `held-by-other`, plain text, shown cut to 200 characters. Left out, the warning says the issue is held by "someone
 else". What assigning means in your tracker, claiming included, is yours to decide. An outcome may carry only its own
 fields: `heldBy` on `assigned` fails the answer.
 
@@ -195,7 +195,8 @@ by default (a person's `false` or `--no-start` stops it):
 | `already-started` | `state` (required) | it was already started | `true` |
 | `left-alone` | `state` (required) | the provider chose not to move it | `false`, with a warning |
 
-All of these are plain text. `from`, `to` and `state` are shown to the person with control characters written out.
+All of these are plain text. `from`, `to` and `state` are shown to the person with control characters written out and
+cut to 200 characters, in the line and in the `--json` warning alike.
 
 ### What `can` decides
 
