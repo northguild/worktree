@@ -615,7 +615,8 @@ With `--dry-run`, steps 2 to 10 do not happen: the command stops after naming, s
 
 1. Fetches from `origin` once, then reads the team's [`.worktree.yml`](/worktree/project-configuration/) from the
    default branch. A file that cannot be used stops the command here, with exit `2`, before anything is created.
-2. Assigns the issue to you, when creating from `--github`, `--jira` or `--clickup` and assignment is enabled.
+2. Assigns the issue to you, when creating from `--github`, `--jira` or `--clickup`, or from `--issue` with a
+   provider that can assign, and assignment is enabled.
 3. Creates a branch from your configured source branch (`--source`, else your `defaultSourceBranch`, else the
    file's, else `origin/main`).
 4. Adds a worktree under `<repo>.worktrees/<branch-name>`.
@@ -625,7 +626,8 @@ With `--dry-run`, steps 2 to 10 do not happen: the command stops after naming, s
    the branch is renamed and drops it when the branch is deleted. A failed write warns, saying `cleanup` will
    not see the branch's Linear state, and the run carries on. A reopened branch and the other providers write
    nothing.
-6. Moves the issue to started, when creating from `--linear`, `--clickup` or `--jira` and starting is enabled — see
+6. Moves the issue to started, when creating from `--linear`, `--clickup` or `--jira`, or from `--issue` with a
+   provider that can start, and starting is enabled — see
    [Moving the issue to started](#moving-the-issue-to-started),
    [Moving the ClickUp task to in progress](#moving-the-clickup-task-to-in-progress) and
    [Moving the Jira issue to in progress](#moving-the-jira-issue-to-in-progress). A failure warns and the run carries on.

@@ -390,7 +390,8 @@ Defaults when non-interactive:
   `<repo>.worktrees/`, and a worktree whose directory was deleted are refused
   the same way. On a terminal the first case asks whether to open it instead.
 - **Removal** has no default: `remove <branch> -f`.
-- **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, `git fetch` 60 s,
+- **Bounded calls:** GitHub, Jira, Linear and ClickUp requests 15 s, an `--issue`
+  provider call 15 s (and at most 1 MiB of output), `git fetch` 60 s,
   `gh auth token` and the session listing 10 s, the install 10 min. A command
   still running at its bound is sent SIGTERM, then SIGKILL 2 s later.
 
