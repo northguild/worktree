@@ -35,10 +35,8 @@ import {
   type RetrievalTimings,
   type RetrievalTraceData,
   USAGE_EVENT,
-  type VocabularySection,
 } from "../src/chat/lib/chat-types";
 import { nextVisitorMidnightMs } from "../src/chat/lib/day-clock";
-import { namespaceFromPageContext } from "../src/chat/lib/page-context";
 import {
   type AiBinding,
   brainChatOptions,
@@ -59,18 +57,17 @@ import {
   mapUpstreamError,
 } from "./error-mapping";
 import {
+  prepareTurn,
+  type RetrievalCorpus,
+  type StageTimer,
+} from "./prepare-turn";
+import {
   chatRateLimiter,
   getClientId,
   nowMs,
   retryAfterSeconds,
 } from "./rate-limit";
-import { fitChunks } from "./retrieval/fit-chunks";
-import { loadIndex, searchChunks } from "./retrieval/search";
-import { selectVocabulary } from "./retrieval/select-vocabulary";
-import {
-  assembleSystemPrompt,
-  routeAllowlist,
-} from "./retrieval/system-prompt";
+import { routeAllowlist } from "./retrieval/system-prompt";
 import {
   type BrainState,
   EMPTY_SNAPSHOT,
@@ -104,13 +101,7 @@ export type ChatLogEntry =
       runId: string;
     };
 
-/** What `build-context.mjs` generates (`docs-context.ts`): the corpus the handler retrieves from. */
-export interface RetrievalCorpus {
-  chunks: readonly RetrievalChunk[];
-  /** `MiniSearch#toJSON` of `chunks`. Empty when there is no corpus (the test stub). */
-  searchIndexJson: string;
-  vocabulary: readonly VocabularySection[];
-}
+export type { RetrievalCorpus };
 
 export interface ChatHandlerDeps {
   /** A Gemini brain's adapter: its model id and the key. */
@@ -134,29 +125,6 @@ export interface StreamErrorContext {
   model: string;
   now: () => number;
   log: (entry: ChatLogEntry) => void;
-}
-
-interface Retriever {
-  index: ReturnType<typeof loadIndex> | null;
-  byId: ReadonlyMap<string, RetrievalChunk>;
-}
-
-// The serialized index is parsed once per isolate and kept for as long as the corpus object lives (R1).
-const RETRIEVERS = new WeakMap<RetrievalCorpus, Retriever>();
-
-function retrieverFor(corpus: RetrievalCorpus): Retriever {
-  let retriever = RETRIEVERS.get(corpus);
-  if (!retriever) {
-    retriever = {
-      index:
-        corpus.searchIndexJson === ""
-          ? null
-          : loadIndex(corpus.searchIndexJson),
-      byId: new Map(corpus.chunks.map((chunk) => [chunk.id, chunk])),
-    };
-    RETRIEVERS.set(corpus, retriever);
-  }
-  return retriever;
 }
 
 const SPENT_MESSAGE = "Dox has used its free allowance for today.";
@@ -386,10 +354,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     const clock = deps.clock ?? (() => performance.now());
     const started = clock();
     const timings: RetrievalTimings = { corpus: 0, search: 0, prompt: 0 };
-    const timed = <T>(
-      stage: "corpus" | "search" | "prompt",
-      work: () => T,
-    ): T => {
+    const timed: StageTimer = (stage, work) => {
       const at = clock();
       try {
         return work();
@@ -398,25 +363,15 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       }
     };
 
-    const question = messages.at(-1)?.content ?? "";
     let kept: RetrievalChunk[];
     let systemPrompt: string;
     try {
-      const retriever = timed("corpus", () => retrieverFor(deps.corpus));
-      const found = timed("search", () =>
-        retriever.index === null
-          ? []
-          : searchChunks(retriever.index, retriever.byId, question, {
-              namespace: namespaceFromPageContext(pageContext),
-            }),
-      );
-      kept = fitChunks(found);
-      systemPrompt = timed("prompt", () =>
-        assembleSystemPrompt({
-          chunks: kept,
-          vocabulary: selectVocabulary(deps.corpus.vocabulary, question, kept),
-        }),
-      );
+      ({ kept, systemPrompt } = prepareTurn(
+        messages,
+        pageContext,
+        deps.corpus,
+        timed,
+      ));
     } catch (error) {
       console.error(
         JSON.stringify({

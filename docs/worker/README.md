@@ -17,7 +17,7 @@ Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev/api/c
                           3a. the ledger (usage.ts): read today's counts from KV (if bound);
                               a visitor at their cap of 5 a UTC day → 429 { error, retryable, resetsAt }
                           4. retrieval: search the question in the bundled corpus,
-                             keep what fits, build the system prompt (retrieval/)  → 500 if the corpus cannot be searched
+                             keep what fits, build the system prompt (prepare-turn.ts, over retrieval/)  → 500 if the corpus cannot be searched
                           5. the stream opens: RUN_STARTED, then the walk past the brains (brains.ts, walkBrains):
                                for each candidate the ledger has not marked out, in order, chat()  (@tanstack/ai) over its adapter
                                  – createCloudflareText over env.AI for a Workers AI brain
@@ -425,7 +425,8 @@ assembled, and how AI-generated links are validated, see
 ### Quick reference for this worker
 
 The worker does not carry the docs in its prompt. For each question it searches a corpus that is embedded in the bundle
-and builds a prompt from what it finds (`retrieval/`):
+and builds a prompt from what it finds. `prepare-turn.ts` (`prepareTurn`) runs the steps below in order, once per
+question, and `chat-handler.ts` calls it; the pieces are in `retrieval/`:
 
 1. **`search.ts`**: MiniSearch 7.2.0 over the docs' heading sections, loaded once per isolate from the index
    `worker:build-context` serialised. Stopwords out, identifiers split into words, a 1.5 boost for the section of the

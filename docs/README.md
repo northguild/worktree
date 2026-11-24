@@ -154,7 +154,8 @@ The build indexes the chunks with [MiniSearch](https://lucaong.github.io/minisea
 
 #### What the Worker does with a question
 
-For each `POST /api/chat`, after validation (`docs/worker/chat-handler.ts`):
+For each `POST /api/chat`, after validation, `docs/worker/chat-handler.ts` calls `prepareTurn`
+(`docs/worker/prepare-turn.ts`), which runs these four steps in order:
 
 1. **Search** the last message of the conversation (`retrieval/search.ts`). Stopwords are dropped; an identifier such as
    `branchPrefix` is also split into its words in the index; a chunk in the section of the page the reader came from
