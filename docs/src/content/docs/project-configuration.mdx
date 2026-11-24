@@ -105,7 +105,8 @@ command line that runs it, split into arguments and never passed through a shell
 hyphens. The two are read as a pair: the name always comes from the same place as the command (your git config, the
 file, or your user config file), so a name in the file never labels a command you set yourself. No key holds a
 credential; the command finds its own, so a token never goes in this section, and `worktree config` never asks for either
-key. `issueProvider.branchType` is file-only, like the other providers' lists, and takes the same rules.
+key. `issueProvider.branchType` is file-only, like the other providers' lists, and takes the same rules. What the command
+is sent and what it may answer is in [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
 
 The `branchType` lists under `jira`, `github`, `linear` and `clickup`, and the shared top-level `branchType`, are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),

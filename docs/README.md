@@ -96,7 +96,7 @@ On the page, the pieces are:
 - **Brains and progress.** The Worker tries Workers AI's Gemma 4 26B and GLM 4.7 Flash first, then Gemini's three models, and
   skips one that is busy, slow or out for the day before any text streams. Each step is a `dox-progress` event, and
   `useDocsChat` (`progress`) hands the last to the waiting turn, which shows it in place of "Searching docs…". The trace's
-  summary names the brain that answered: "Searched 210 chunks → 8 matched · GLM 4.7 Flash". How the walk works, and what the
+  summary names the brain that answered: "Searched 221 chunks → 8 matched · GLM 4.7 Flash". How the walk works, and what the
   Worker needs for it, is in [worker/README.md](worker/README.md#brains).
 - **The usage ledger.** The Worker keeps a best-effort count of what is spent today in a Workers KV namespace,
   `DOX_USAGE` (`worker/usage.ts`). It is advisory: it picks a brain that probably has room and feeds the badge, and the
@@ -136,7 +136,7 @@ uses one), and cuts each page at its `##` headings (a heading inside a code fenc
 **chunk**: its heading and body, the page's route, and the page's *section* (`commands`, `guides`, or `general` for the
 pages at the root: `routeNamespace` in `src/chat/lib/page-context.ts`). The text before the first heading, with the page's
 title and description, is a chunk of its own. A chunk's route is the page's, never a `#fragment`: the route is what the
-model may link. Today that is 28 pages and 210 chunks.
+model may link. Today that is 29 pages and 221 chunks.
 
 #### 2. Agent Skill (`skills/worktree/SKILL.md`)
 
@@ -181,9 +181,9 @@ The Worker writes what it retrieved into the stream as an AG-UI `CUSTOM` event n
 `RUN_STARTED` and again just before `RUN_FINISHED` (not on a failed run). It carries counts, chunk titles, the pages
 and timings, never prompt text: `{ totalChunks, retrievedCount, chunkTitles, chunkUrls, timings }`. The second write
 adds `firstToken` and `total`. `useDocsChat` reads it with `useChat`'s `onCustomEvent`, keeps the latest per question
-(`traces`, not saved with the transcript) and `RetrievalTrace` shows it in the answer's card: collapsed, "Searched 210
+(`traces`, not saved with the transcript) and `RetrievalTrace` shows it in the answer's card: collapsed, "Searched 221
 chunks → 8 matched"; open, the chunk titles and the stage timings, or "Nothing in the corpus matched this question."
-The empty page's status line, "Dox // 28 pages · 210 sections indexed", reads the counts `build-context.mjs` writes into
+The empty page's status line, "Dox // 29 pages · 221 sections indexed", reads the counts `build-context.mjs` writes into
 `docs-routes.generated.ts`.
 
 #### Regenerating the context
@@ -431,7 +431,7 @@ shortcut are gone, and every other page links to it (*Opening it* above).
   the page does not scroll and the hub is centred.
 - **Kept out of lists.** The sitemap is `@astrojs/sitemap`, configured in `astro.config.mjs` with a `filter` that drops `/worktree/dox/`
   (Starlight adds its own sitemap only when none is configured). `llms.txt` is built from the content collection, which `/dox/` is not
-  part of, and it is not one of the audit's 28 `PAGE_PATHS`.
+  part of, and it is not one of the audit's 29 `PAGE_PATHS`.
 - **The chat (`chat/components/DoxChat.tsx`).** The engine is `useDocsChat`; the parts (`ChatInput`, `ChatSubmitButton`, `ChatWarning`, `MarkdownContent`) are the
   site's own, restyled into the hive. Each question and answer is a turn: the crystal's node, labelled "You" or "Dox", beside a card (a zigzag from 48rem
   of the transcript's own width; one column below). The answer is `MarkdownContent`, whose fenced code carries the language and a
@@ -674,8 +674,8 @@ site; see [Deployment](#deployment)).
    - Bing Webmaster Tools, for the same site: *Sitemaps* → *Submit sitemap*.
 2. **Read each engine's Pages report** (*Pages* under *Indexing* in Search Console; Bing's index report for the
    site), a few days after the submission, not the same day.
-3. **A healthy result** is 28 pages discovered and 28 indexed, one for each `<loc>` in `sitemap-0.xml`, with no
-   *Duplicate* or *Alternate page* entry for a `/worktree/` URL. Twenty-seven of the 28 carry a `<lastmod>`;
+3. **A healthy result** is 29 pages discovered and 29 indexed, one for each `<loc>` in `sitemap-0.xml`, with no
+   *Duplicate* or *Alternate page* entry for a `/worktree/` URL. Twenty-eight of the 29 carry a `<lastmod>`;
    the landing page is the one that does not, on purpose. A page that is discovered but not indexed is
    Google's call and needs no change here. A duplicate or alternate entry does: it means two URLs are
    competing for one page, so check the page's canonical link first.

@@ -536,3 +536,4 @@ MIT
 - [x] Integrate with JIRA for automated branch naming
 - [x] Integrate with Linear for automated branch naming
 - [x] Integrate with ClickUp for automated branch naming
+- [x] Integrate with your own issue tracker through a custom issue provider command (`--issue`; the [guide](https://northguild.dev/worktree/guides/custom-issue-provider/) is its contract)

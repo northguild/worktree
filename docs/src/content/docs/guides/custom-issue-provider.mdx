@@ -1,0 +1,346 @@
+---
+title: "Create a git worktree from your own issue tracker"
+description: "Write a small issue provider program so worktree can name a branch from, assign and start an issue in a tracker it has no built-in support for."
+---
+
+`worktree` reads GitHub, Jira, Linear and ClickUp itself. For any other tracker, your team writes a small program
+that reads the tracker, and `worktree branch --issue` runs it. This page is the contract between the two: what
+`worktree` sends, what the program must print, and what happens when it does not.
+
+The examples use a made-up tracker called Verk, with issue keys such as `VERK-42`.
+
+## How it fits together
+
+1. A person runs `worktree branch --issue VERK-42`.
+2. `worktree` runs the configured command and writes one JSON request on its standard input.
+3. The command prints one JSON answer on its standard output and exits.
+4. `worktree` checks the answer, names the branch from it, and creates the worktree.
+
+The command is yours. It can be a shell script, a Node or Python program, or a wrapper around the tracker's own
+CLI. `worktree` knows nothing about your tracker beyond what this contract carries.
+
+## Configure the command
+
+Name the command in `.worktree.yml`, so every teammate gets it, or in your own git config or user config file:
+
+```yaml
+issueProvider:
+  name: verk
+  command: verk-provider --json
+```
+
+- `issueProvider.command` is the command line. It is split into arguments the way `codeEditor` is and is **never
+  passed through a shell**, so there is no globbing, no pipe and no variable expansion. Its first word has to be a
+  program that exists.
+- `issueProvider.name` is an optional label, one lowercase letter followed by up to 31 lowercase letters, digits
+  or hyphens. Every message about the provider starts with it. Without one, messages say "Issue provider".
+- Both are team keys: your git config wins, then the file, then your user config file. The name is always read from
+  the same place as the command.
+
+Then run it with:
+
+```bash
+worktree branch --issue VERK-42
+worktree branch --issue VERK-42 --dry-run
+```
+
+`--issue` (short `-i`) cannot be combined with `--github`, `--jira`, `--linear` or `--clickup`. See
+[`worktree branch`](/worktree/commands/branch/) for the flag and
+[Project Configuration](/worktree/project-configuration/) for the file.
+
+## How the command is run
+
+- **The command line is run unchanged.** `worktree` appends nothing to it. The operation and the reference arrive on
+  standard input, never as arguments, so a reference that starts with `-` cannot be read as an option.
+- **The working directory is the repository's top level**, and the environment is `worktree`'s own, with nothing
+  added. That is how the command finds its credentials.
+- **Standard input** carries one JSON object, then is closed.
+- **Standard output** must be one JSON object and nothing else, at most 1 MiB. A provider that prints more is
+  stopped.
+- **Each call has 15 seconds.** `worktree` makes one call per operation, and stops a command that has not answered.
+  The message reads `<name>: the issue provider did not answer within 15s.`
+- **Standard error is yours.** It is shown only when the call fails, and then only its last non-empty line, with
+  secrets redacted, control characters written out and cut to 200 characters.
+
+Every request and every answer has `"version": 1`. It is required in both directions. An answer with another
+version, or none, fails the run and names the provider.
+
+## Operations
+
+There are three operations. `fetch` is required. `assign` and `start` are optional, and the answer to `fetch` says
+which of them the provider supports.
+
+### fetch
+
+`worktree` sends the reference exactly as typed after `--issue`, trimmed of surrounding spaces. Your command decides
+whether it is a key, a number or a URL.
+
+```json
+{"version":1,"operation":"fetch","reference":"VERK-42"}
+```
+
+The answer describes the issue:
+
+```json
+{
+  "version": 1,
+  "issue": {
+    "key": "VERK-42",
+    "title": "Fix login",
+    "url": "https://verk.example/i/42",
+    "type": "Bug",
+    "labels": ["auth"],
+    "fields": [],
+    "kind": "bugfix",
+    "can": ["assign", "start"]
+  }
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `key` | yes | The issue's identifier. It becomes `{id}` in the branch name and a directory name, so it must be letters and digits joined by single `-` or `_` (no `/`, `.`, spaces, or a leading, trailing or doubled separator), at most 64 characters. `VERK-42` and `verk_42` are valid; `VERK/42` and `VERK--42` are not. |
+| `title` | yes | The issue's title, any text. Only a slug of it reaches the branch name: lowercased, with anything but letters, digits, spaces and `-` removed (non-ASCII letters go), each run of spaces, `_` and `-` made one `-`, and cut to 48 characters at a whole word. A title with nothing left gives `issue`. |
+| `url` | no | An `http:` or `https:` URL, or `null`. Left out, it is `null`, and `--json` reports `url: null`. |
+| `type` | no | The issue's type as a string, such as `Bug`, or `null`. Left out, it is `null`: the issue has no type. |
+| `labels` | no | A list of strings. Left out, it is `[]`. |
+| `fields` | no | Extra fields for branch-type rules, described below. Left out, it is `[]`. |
+| `kind` | no | `feature`, `bugfix`, `chore` or `null`: your own mapping from the issue to a branch prefix. Left out, it is `null`. |
+| `can` | no | Which optional operations the provider supports: `"assign"`, `"start"`, both, or neither. Left out, it is `[]`. |
+
+**Every string except `title` must be plain text.** A control or formatting character (a newline, an escape, a
+right-to-left override) fails the run, because it could redraw the terminal or reorder what is printed.
+
+**The answer is strict.** A field this page does not list, in `issue`, in a field or in a field value, fails the
+run instead of being ignored. That keeps a misspelt name from passing silently.
+
+#### Extra fields
+
+Each entry of `fields` has the shape the other providers' fields have, so a branch-type rule can match it:
+
+```json
+{"id": "severity", "name": "Severity", "values": [{"id": "s1", "name": "Critical"}]}
+```
+
+`id`, `name` and `values` are required on a field; `values` may be empty. In each value `id` and `name` are both
+optional, and a rule matches whichever is there. A field whose `id` or `name` is `Type` or `Labels`, in any case,
+is dropped, because the portable `Type` and `Labels` made from `type` and `labels` are what a shared `branchType`
+list is written against.
+
+#### Which prefix the branch gets
+
+The branch prefix comes from, in order:
+
+1. `issueProvider.branchType`, the provider's own rules, when the file has them;
+2. otherwise the shared top-level `branchType`, when the file has it;
+3. otherwise the `kind` the answer gave;
+4. otherwise no prefix.
+
+Rules see `Type`, `Labels` and your extra `fields`. As for every provider, a rule list that is in force replaces the
+built-in mapping: when it has no `otherwise` and no rule matches, the branch gets no prefix, and the answer's `kind`
+is not used. `worktree` carries no table of tracker vocabulary, so a `Bug` is a `bugfix` only if your rules or your
+`kind` say so. See [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+
+### assign
+
+Sent after a successful `fetch` when the answer's `can` lists `"assign"` and the decision order in
+[Assigning the issue to yourself](/worktree/commands/branch/#assigning-the-issue-to-yourself) says to try: `--assign`,
+or `issueProvider.autoAssign`, or a yes to the prompt, or, when none of those is set, a run that cannot ask (CI,
+`--json`, `--yes`, `--non-interactive`), which assigns by default. A side-effecting `assign` must expect to be called
+on unattended runs. The `key` is the one `fetch` returned, not the reference
+the person typed:
+
+```json
+{"version":1,"operation":"assign","key":"VERK-42"}
+```
+
+The answer is one of three outcomes:
+
+```json
+{"version":1,"outcome":"assigned"}
+{"version":1,"outcome":"already-yours"}
+{"version":1,"outcome":"held-by-other","heldBy":"Ada"}
+```
+
+| Outcome | Meaning | `assigned` in `--json` |
+|---|---|---|
+| `assigned` | the issue is now the person's | `true` |
+| `already-yours` | it already was | `true` |
+| `held-by-other` | someone else holds it, so the provider left it alone | `false`, with a warning |
+
+`heldBy` is optional, only on `held-by-other`, plain text. Left out, the warning says the issue is held by "someone
+else". What assigning means in your tracker, claiming included, is yours to decide. An outcome may carry only its own
+fields: `heldBy` on `assigned` fails the answer.
+
+### start
+
+Sent after the worktree is created, when `can` lists `"start"` and the decision order in
+[Moving the issue to started](/worktree/commands/branch/#moving-the-issue-to-started) says to try: `--start`, or
+`issueProvider.autoStart`, or a yes to the prompt, or, when none of those is set, a run that cannot ask, which starts
+by default (a person's `false` or `--no-start` stops it):
+
+```json
+{"version":1,"operation":"start","key":"VERK-42"}
+```
+
+```json
+{"version":1,"outcome":"started","from":"Todo","to":"In progress"}
+{"version":1,"outcome":"already-started","state":"In progress"}
+{"version":1,"outcome":"left-alone","state":"Blocked"}
+```
+
+| Outcome | Fields | Meaning | `started` in `--json` |
+|---|---|---|---|
+| `started` | `from`, `to` (both required) | the provider moved the issue | `true` |
+| `already-started` | `state` (required) | it was already started | `true` |
+| `left-alone` | `state` (required) | the provider chose not to move it | `false`, with a warning |
+
+All of these are plain text. `from`, `to` and `state` are shown to the person with control characters written out.
+
+### What `can` decides
+
+`worktree` asks a provider only for what its `fetch` answer lists. An explicit `--assign` or `--start` for an
+operation the provider does not list warns (`<name> does not support assigning, so the issue was not assigned.`) and
+calls nothing. `--no-assign`, `--no-start` and an unset `issueProvider.autoAssign` or `issueProvider.autoStart` ask
+for nothing and warn nothing. For an operation it does list, the decision to try is the same one the built-in
+providers use; see [Assigning the issue to yourself](/worktree/commands/branch/#assigning-the-issue-to-yourself)
+and [Moving the issue to started](/worktree/commands/branch/#moving-the-issue-to-started).
+
+A failed `assign` or `start`, including a timeout, is a warning: `assigned` or `started` is `false` and the exit
+code does not change. Only a failed `fetch` stops the run.
+
+## Errors
+
+A provider reports a failure it understands as an error answer:
+
+```json
+{"version":1,"error":{"code":"not_found","message":"No issue VERK-42."}}
+```
+
+`code` is one of three values, and `message` is any text, shown after the provider's name with secrets redacted and
+control characters written out. Any operation may answer this way, and `worktree` honours it whatever the command
+exited with.
+
+| Code | Use it for | Exit | `--json` error |
+|---|---|---|---|
+| `invalid_reference` | the reference is not one the provider can read | `2` | `invalid_value` |
+| `not_found` | no such issue | `1` | `failed` |
+| `failed` | anything else the provider knows went wrong | `1` | `failed` |
+
+Exit `1` is what a missing issue gives for the built-in providers too. These fail the run with exit `1` and a
+message that starts with the provider's name, without an error answer:
+
+- the command exits non-zero with no error answer, even if it also printed a well-formed answer: the exit status is
+  the provider saying it did not succeed. The message names `issueProvider.command` and the exit code;
+- the command cannot be run (no such program, not executable);
+- it prints no valid JSON, or JSON with a missing or unsupported `version`;
+- it prints JSON that does not match the schema above, naming the first offending field;
+- it does not answer in 15 seconds (the run's `--json` error is `timeout`);
+- it prints more than 1 MiB.
+
+An error answer for `assign` or `start` is a warning, as above, not a failure of the run.
+
+## Approval
+
+A command from `.worktree.yml` is a program someone else chose, running on every teammate's machine, so each person
+approves it once. A command from your own git config or user config file is yours and needs no approval.
+
+- The approval covers exactly the command line, as split into arguments. Any change to an argument, or a different
+  program, asks again.
+- In a terminal, `worktree` shows the command and asks before the first call.
+- A non-interactive run and `--dry-run`, which asks nothing, stop with exit `2` and `missing_value` before the
+  command starts. `worktree config --approve` approves it ahead of time.
+
+See [Approving the provider command](/worktree/project-configuration/#approving-the-steps).
+
+**A relative path runs the working copy's file.** With `command: ./scripts/verk-provider`, the approval covers those
+characters, not the script, and the script can differ from one branch to the next. Put the provider on your `PATH`, or
+treat a change to the script as a change to be reviewed.
+
+## Credentials
+
+No `issueProvider` key holds a credential, and `worktree config` never asks for one. The provider finds its own, from
+its environment or from the tracker CLI's own store.
+
+**Do not put a token on the command line.** `verk-provider --token abc123` is written in the file and in git
+history, and shows to every user of the machine in the process list. `worktree config --list` prints the command, so
+a token there is plainly visible. Read it from an environment variable such as `VERK_TOKEN`, or from a credential
+store, inside the provider. `worktree` passes its own environment through untouched, so the variable is there.
+
+## What `--json` reports
+
+With `--issue`, the `issue` field of the `branch` document, and of the `--dry-run` document, is:
+
+```json
+{"provider":"custom","name":"verk","key":"VERK-42","url":"https://verk.example/i/42"}
+```
+
+`name` is `issueProvider.name`, or `null` when none is set. `url` is `null` when the provider gave none. `provider`
+is always `custom`, never the name, so a script that switches on it keeps working. See
+[JSON output](/worktree/commands/branch/#json-output).
+
+## A minimal provider
+
+This Node script serves `fetch` for Verk issues and supports neither optional operation. It needs a Node with a global `fetch` (18 or later), and it runs as CommonJS or as a module.
+Save it as `verk-provider`, make it executable and put it on your `PATH`.
+
+```js
+#!/usr/bin/env node
+async function main() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const request = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+
+  const reply = (answer) => {
+    process.stdout.write(JSON.stringify({ version: 1, ...answer }));
+  };
+  const fail = (code, message) => reply({ error: { code, message } });
+
+  if (request.version !== 1 || request.operation !== "fetch") {
+    fail("failed", "Only fetch is supported.");
+  } else {
+    const key = /^(?:VERK-)?(\d+)$/i.exec(request.reference.trim())?.[1];
+    if (!key) {
+      fail("invalid_reference", `${request.reference} is not a Verk key.`);
+    } else {
+      const response = await fetch(`https://verk.example/api/issues/${key}`, {
+        headers: { authorization: `Bearer ${process.env.VERK_TOKEN}` },
+      });
+      if (response.status === 404) {
+        fail("not_found", `No issue VERK-${key}.`);
+      } else if (!response.ok) {
+        fail("failed", `Verk answered ${response.status}.`);
+      } else {
+        const issue = await response.json();
+        reply({
+          issue: {
+            key: `VERK-${key}`,
+            title: issue.title,
+            url: `https://verk.example/i/${key}`,
+            type: issue.type ?? null,
+            labels: issue.labels ?? [],
+          },
+        });
+      }
+    }
+  }
+}
+
+main();
+```
+
+It exits `0` after printing an error answer, which is fine: `worktree` honours the error answer whatever the exit
+status. Leaving out `fields`, `kind` and `can` gives `[]`, `null` and `[]`, so this provider is asked for nothing
+but `fetch`. To support `assign` or `start`, add `"can": ["assign", "start"]` to the issue and answer those
+operations as above.
+
+Try a provider by hand before configuring it. It reads a request on standard input, so a request is one `echo`
+away:
+
+```bash
+echo '{"version":1,"operation":"fetch","reference":"VERK-42"}' | verk-provider
+```
+
+Then `worktree branch --issue VERK-42 --dry-run` shows the branch name and the rule behind its prefix, and creates
+nothing. For a command from `.worktree.yml` you have not approved yet, `--dry-run` asks nothing, so it exits `2`
+with `missing_value` until you run `worktree config --approve`.

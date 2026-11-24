@@ -183,7 +183,8 @@ worktree config clickup.autoAssign true
 **Branching from your own tracker.** Use the `--issue` flag (short: `-i`) to create a branch name from an issue in a tracker that is none of the four
 above. The team writes a small program that reads its tracker and prints the issue as JSON, and
 `issueProvider.command` in the [project file](/worktree/project-configuration/) names it. `--issue` cannot be
-combined with `--github`, `--jira`, `--linear` or `--clickup`.
+combined with `--github`, `--jira`, `--linear` or `--clickup`. The requests it gets and the answers it may give are
+in [Custom Issue Provider](/worktree/guides/custom-issue-provider/).
 
 ```bash
 worktree branch --issue VERK-42
@@ -195,8 +196,8 @@ worktree branch --issue VERK-42
   cannot be read as an option.
 - The branch is named `<prefix><key>-<title>` from what the command printed, through your
   [`branchName` template](/worktree/project-configuration/#branch-name-template). The prefix comes from
-  `issueProvider.branchType`, else the shared `branchType`, else the `kind` the command gave (`feature`, `bugfix` or
-  `chore`), else there is none. See [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
+  `issueProvider.branchType`, else the shared `branchType`, else, when neither list is written, the `kind` the
+  command gave (`feature`, `bugfix` or `chore`), else there is none. See [Branch-type rules](/worktree/project-configuration/#branch-type-rules).
 - With no `issueProvider.command` anywhere, the run exits `2` with `missing_value`, naming `issueProvider.command`,
   before anything is run.
 - A command from `.worktree.yml` runs only after you have approved it, once for each command line: a terminal run

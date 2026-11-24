@@ -19,8 +19,8 @@ import {
 
 // The audit is tested against a small compliant site built here, then broken one rule at a time. Expected
 // values come from plan §4.8 (what the audit asserts), D3 (URL form: https://northguild.dev/worktree/<path>/)
-// and D10 (which JSON-LD types go where) — never from the audit's own constants. The 28 paths are the 24 old
-// routes at 2633f3a, the two #238 added (5c741ee), the Rex Sessions guide (#270) and the `rename` command page (#272) under D17 (2026-11-04): /docs becomes the landing at the root, /docs/getting-started becomes
+// and D10 (which JSON-LD types go where) — never from the audit's own constants. The 29 paths are the 24 old
+// routes at 2633f3a, the two #238 added (5c741ee), the Rex Sessions guide (#270) and the `rename` command page (#272) and the custom issue provider guide (#357) under D17 (2026-11-04): /docs becomes the landing at the root, /docs/getting-started becomes
 // /getting-started/, every other /docs/<p> becomes /<p>/.
 const ORIGIN = "https://northguild.dev/worktree/";
 const PATHS = [
@@ -42,6 +42,7 @@ const PATHS = [
   "guides",
   "guides/clickup-integration",
   "guides/context-switching",
+  "guides/custom-issue-provider",
   "guides/editor-integration",
   "guides/env-files",
   "guides/github-issue-integration",
@@ -335,7 +336,7 @@ function notFoundPage(overrides = {}) {
   ].join("\n");
 }
 
-// #309 phase 1 (D6): `/dox/` is built by Astro as a StarlightPage that is not one of the 28 pages. What it carries is what
+// #309 phase 1 (D6): `/dox/` is built by Astro as a StarlightPage that is not one of the 29 pages. What it carries is what
 // the build renders (read off dist/dox/index.html): `noindex`, the inline script that marks the document, the site header,
 // the search and menu buttons and the settings gear, no footer, and one `astro-island` holding the
 // island's chunk (`DoxPage.<hash>.js`), whose stylesheet is linked from this page alone.
@@ -825,7 +826,7 @@ describe("auditDist", () => {
     ).toBe(true);
   });
 
-  it("fails a sitemap that lacks /getting-started/ (28 URLs are expected, not 27)", async () => {
+  it("fails a sitemap that lacks /getting-started/ (29 URLs are expected, not 28)", async () => {
     await write(
       dist,
       "sitemap-0.xml",
@@ -1032,7 +1033,7 @@ describe("auditDist", () => {
     expect((await audit()).some((f) => /faq/.test(f))).toBe(true);
   });
 
-  // llms.txt (D13, plan §4.8): the same 28 URLs as the sitemap, each with a title and the page's description.
+  // llms.txt (D13, plan §4.8): the same 29 URLs as the sitemap, each with a title and the page's description.
   it("fails when llms.txt is missing", async () => {
     await rm(join(dist, "llms.txt"));
     expect((await audit()).some((f) => /llms\.txt/.test(f))).toBe(true);
@@ -1101,7 +1102,7 @@ describe("auditDist", () => {
     );
   });
 
-  // D8: the describedby link to llms.txt, on the 28 pages and not on the 404.
+  // D8: the describedby link to llms.txt, on the 29 pages and not on the 404.
   describe("the describedby link to llms.txt (D8)", () => {
     const LLMS_URL = "https://northguild.dev/worktree/llms.txt";
 
@@ -1232,7 +1233,7 @@ describe("auditDist", () => {
     expect(await audit()).toEqual([]);
   });
 
-  // Phase 15 (the user, 2026-11-04): "ditch the footer" on the landing. The root is still one of the 28 pages, so
+  // Phase 15 (the user, 2026-11-04): "ditch the footer" on the landing. The root is still one of the 29 pages, so
   // the date rule turns around there: the footer that carried it is gone.
 
   it("fails a landing that carries a last-updated date", async () => {
@@ -1386,7 +1387,7 @@ describe("auditDist", () => {
     expect(await audit()).toEqual([]);
   });
 
-  it("does not require a date on 404.html (it is not one of the 28 pages)", async () => {
+  it("does not require a date on 404.html (it is not one of the 29 pages)", async () => {
     // beforeEach's 404.html has none, and the compliant site passes.
     expect(await audit()).toEqual([]);
   });
@@ -2520,7 +2521,7 @@ describe("the Dox link (#309 phase 4)", () => {
     });
 
     // Every page but the landing has a sidebar, so a menu the probe cannot find is a failure, not a page with nothing to
-    // check: otherwise markup that stopped matching would skip the rule on all 27 and pass.
+    // check: otherwise markup that stopped matching would skip the rule on all 28 and pass.
     it("fails a page with a sidebar that has no mobile menu", async () => {
       const failures = await withMenu("");
       expect(failures).toContain(
@@ -2565,6 +2566,23 @@ describe("decorative graphics", () => {
         '<svg aria-hidden="true"></svg><svg role="img" aria-label="Twig"></svg><span aria-hidden="true"><svg></svg></span>',
       ),
     ).toEqual([]);
+  });
+
+  // Starlight puts one aria-hidden anchor icon in every heading, so a long guide has dozens; the audit must not stop
+  // looking after a fixed number of them (it once gave up after 20 and called the 21st icon unhidden).
+  it("accepts a page with more than 20 headings, each with a hidden anchor icon", async () => {
+    const heading = (n) =>
+      `<h2 id="h${n}">Heading ${n}<a href="#h${n}"><span aria-hidden="true"><svg></svg></span></a></h2>`;
+    const body = Array.from({ length: 45 }, (_, n) => heading(n)).join("");
+    expect(await withBody(body)).toEqual([]);
+  });
+
+  it("still fails an unhidden svg after more than 20 hidden anchor icons", async () => {
+    const hidden = '<span aria-hidden="true"><svg></svg></span>'.repeat(30);
+    const failures = await withBody(`${hidden}<svg viewBox='0 0 1 1'></svg>`);
+    expect(
+      failures.some((f) => /faq.*<svg> is neither aria-hidden/.test(f)),
+    ).toBe(true);
   });
 
   it("fails an image with role=img but no name", async () => {
@@ -3363,7 +3381,7 @@ describe("the Dox page (#309)", () => {
     return doxFailures();
   };
 
-  it("passes a /dox/ that meets every rule, and the 28 pages do not list it", async () => {
+  it("passes a /dox/ that meets every rule, and the 29 pages do not list it", async () => {
     expect(await audit()).toEqual([]);
   });
 

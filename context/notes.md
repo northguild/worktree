@@ -88,3 +88,20 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
   no `issueProvider.name` the wording reads "…through Issue provider".
 - **Outside the Files line:** `src/lib/validators.test.ts` (the validator's colocated test) and
   `src/lib/config.test.ts` (its `BOOLEAN_KEYS` fixture must list every boolean personal key).
+
+## Phase 6
+
+- **"Approving the provider command" can now be a `###` heading** — the 20-removal audit cap that forced the
+  bold paragraph is gone (Phase 6). Four links labelled for it land on `#approving-the-steps` (`guides/
+  custom-issue-provider.mdx`, `branch.mdx:207`, `config.mdx:312`, `project-configuration.mdx:427`); the page's
+  table of contents lacks the section. A `###` does not move the Dox chunk count. Same for `branch.mdx`'s
+  "Branching from your own tracker" paragraph (a `##` there would move the 221-chunk count).
+- **The guide names the four built-in trackers** (lines 6, 47) only as the built-ins — within §2's intent, not
+  the checklist's literal wording.
+- **D7 as built:** a written list that matches nothing gives no prefix and `kind` is not used — settled in
+  Phase 4, matches the other providers, but a literal reading of D7's chain would fall through to `kind`.
+- **The §8 browser pass** of the guide page (keyboard, both themes, phone width) is still owed and needs a person.
+- **The guide's slug sentence contradicts itself:** "anything but letters, digits, spaces and `-` removed …, each
+  run of spaces, `_` and `-` made one `-`" — the code keeps `_` in the first step (`utils.ts:145`) and joins it
+  into `-` ("a_b" → "a-b"), and drops hyphens at either end. Suggested: "anything but letters, digits, spaces,
+  `_` and `-` removed …, each run of spaces, `_` and `-` made one `-`, none at either end". Minor, user-visible.

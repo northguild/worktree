@@ -468,7 +468,7 @@ describe("DoxChat -- the scroller", () => {
 
 // Plan #309 Phase 5: the trace in the answer's card (§4.1 row 12) and the hub's status line (§4.1 row 6). The trace
 // frames are AG-UI `CUSTOM` events named `dox-retrieval`, written by hand to the shape `chat-types.ts` documents; the
-// 28 is the number of docs pages (`find docs/src/content/docs -name '*.mdx'`).
+// 29 is the number of docs pages (`find docs/src/content/docs -name '*.mdx'`).
 const TRACE_FRAME = `data: ${JSON.stringify({
   type: "CUSTOM",
   name: "dox-retrieval",
@@ -545,7 +545,7 @@ describe("DoxChat -- the hub's status line", () => {
     render(<DoxChat />);
 
     expect(
-      screen.getByText(/^Dox \/\/ 28 pages · \d+ sections indexed$/),
+      screen.getByText(/^Dox \/\/ 29 pages · \d+ sections indexed$/),
     ).toBeInTheDocument();
   });
 });

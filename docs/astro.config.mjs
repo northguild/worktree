@@ -83,6 +83,10 @@ export default defineConfig({
             { label: "Editor Integration", slug: "guides/editor-integration" },
             { label: "Herdr Spaces", slug: "guides/herdr-spaces" },
             { label: "Rex Sessions", slug: "guides/rex-sessions" },
+            {
+              label: "Custom Issue Provider",
+              slug: "guides/custom-issue-provider",
+            },
           ],
         },
         { label: "FAQ", slug: "faq" },

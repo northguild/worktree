@@ -1016,7 +1016,7 @@ describe("the frozen legacy prompt", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const route of BUILT.routes)
       expect(legacy).toContain(`\n  ${route}\n`);
-    expect(legacy.match(/^### Docs: /gm)).toHaveLength(28);
+    expect(legacy.match(/^### Docs: /gm)).toHaveLength(29);
   });
 
   it("carries no retrieval wording: no standing order section, no refusal instruction", () => {
