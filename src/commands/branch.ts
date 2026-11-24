@@ -1505,18 +1505,21 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     const { args } = parsed;
     // A copy: a bare `--linear` is swapped for the picked identifier below.
     const flags = { ...parsed.flags };
+    // `--issue ""` and `--issue=` parse to an empty string, which is falsy: the
+    // flag was given, so it counts as given here and is refused below as empty.
+    const issueGiven = flags.issue !== undefined;
     if (
       [
         flags.github,
         flags.jira,
         flags.linear,
         flags.clickup,
-        flags.issue,
+        issueGiven,
       ].filter(Boolean).length > 1
     ) {
       // The wording without --issue is the one every earlier run printed.
       this.error(
-        flags.issue
+        issueGiven
           ? "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several."
           : "Please provide only one of --github, --jira, --linear or --clickup, not several.",
       );
@@ -1531,7 +1534,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.jira &&
       !flags.linear &&
       !flags.clickup &&
-      !flags.issue
+      !issueGiven
     ) {
       this.error(
         "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
@@ -1545,7 +1548,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.jira &&
       !flags.linear &&
       !flags.clickup &&
-      !flags.issue
+      !issueGiven
     ) {
       this.error(
         "--start/--no-start requires one of --github, --jira, --linear, --clickup or --issue.",
@@ -1561,7 +1564,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       !flags.jira &&
       !flags.linear &&
       !flags.clickup &&
-      !flags.issue
+      !issueGiven
     ) {
       this.error(
         "--dry-run requires one of --github, --jira, --linear, --clickup or --issue.",
@@ -1626,7 +1629,7 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // #357 D5: the provider command is found, and approved by this person when
     // the file is where it came from, before anything can run it. Only a run
     // with --issue reads an issueProvider key.
-    if (flags.issue) {
+    if (flags.issue !== undefined) {
       const reference = flags.issue.trim();
       if (reference === "") {
         throw new InvalidValueError(

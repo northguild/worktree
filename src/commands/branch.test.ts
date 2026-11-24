@@ -8294,6 +8294,47 @@ describe("branch command — --issue (a custom issue provider)", () => {
       expect(mockRunCapturing).not.toHaveBeenCalled();
     });
 
+    // Documented in commands/branch.mdx (`invalid_value`: "an empty `--issue`").
+    // `--issue ""` and `--issue=` parse to "", which is the same refusal as a
+    // whitespace-only value: same message, exit 2, nothing spawned or created.
+    it.each([
+      ["empty", ""],
+    ])("refuses an %s --issue in --json with invalid_value and exit 2", async (_name, issue) => {
+      await runJson({ issue });
+
+      expect(output.document()).toMatchObject({
+        error: {
+          code: "invalid_value",
+          message: "--issue needs the issue's key, number or URL.",
+        },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["empty", ""],
+      ["whitespace-only", "   "],
+    ])("refuses a %s --issue in plain output with the same message", async (_name, issue) => {
+      await expect(runPlain({ issue })).rejects.toThrow(
+        "--issue needs the issue's key, number or URL.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["--assign", { assign: true }],
+      ["--start", { start: true }],
+      ["--dry-run", { "dry-run": true }],
+    ])("an empty --issue with %s is refused as an empty --issue, not as a missing one", async (_flag, other) => {
+      await expect(runPlain({ issue: "", ...other })).rejects.toThrow(
+        "--issue needs the issue's key, number or URL.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
     it("exits 2 with missing_value naming issueProvider.command when none is configured", async () => {
       delete gitConfigValues["issueProvider.command"];
 
@@ -8317,6 +8358,14 @@ describe("branch command — --issue (a custom issue provider)", () => {
         "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several.",
       );
       expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    it('counts an empty --issue as given, so --issue "" with --github is refused as several', async () => {
+      await expect(runPlain({ issue: "", github: "42" })).rejects.toThrow(
+        "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
     it("exits 2 for --issue with --github through the command's own exit code", async () => {
