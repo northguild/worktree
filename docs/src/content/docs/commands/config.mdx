@@ -99,7 +99,7 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
   [user config file](#user-config-file) are marked the same way with `(user config)` and
   `(overrides user config: <the file's value>)`; where `.worktree.yml` sets the key too, only it is named,
   since it outranks the user file. Keys only the file can set follow, one line
-  each: `jira.branchType: 4 rules`, `branchType: 2 rules` (the shared list), `branchName=<template>`, `copy: 1 pattern` and `postCreate: 2 steps`,
+  each: `jira.branchType: 4 rules`, `issueProvider.branchType: 2 rules`, `branchType: 2 rules` (the shared list), `branchName=<template>`, `copy: 1 pattern` and `postCreate: 2 steps`,
   each marked `(.worktree.yml)`. A value the file supplies is not missing, so `--list --missing` leaves it
   out. Secrets stay masked as `<key>=***`.
 
@@ -107,7 +107,7 @@ When the repository's `.worktree.yml` sets a team key, `worktree config` knows. 
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree from
 the team keys in your git config (`defaultSourceBranch`, `branchPrefix.*`, `jira.host`, `jira.deployment`,
-`clickup.workspaceId`, `github.repository`, `github.host` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
+`clickup.workspaceId`, `github.repository`, `github.host`, `issueProvider.name`, `issueProvider.command` and `postCreate`), with the `$schema` comment line first. It never writes a personal or
 secret key. A personal `postCreate` command becomes a one-step list. The file is left uncommitted for you to
 review, and the command refuses to overwrite an existing `.worktree.yml`. It takes no other argument or flag.
 

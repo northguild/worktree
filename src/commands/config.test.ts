@@ -597,6 +597,72 @@ describe("config command", () => {
     });
   });
 
+  // #357 D4: the provider's name and command are stored, listed unmasked and
+  // settable by name; the wizard never asks for them, and neither is a secret.
+  describe("issueProvider.name and issueProvider.command", () => {
+    it.each([
+      "issueProvider.name",
+      "issueProvider.command",
+    ])("%s is a config name, not a secret, and never prompted", (key) => {
+      expect(CONFIG_NAMES as readonly string[]).toContain(key);
+      expect(SECRET_CONFIG_NAMES as readonly string[]).not.toContain(key);
+      expect(UNPROMPTED_CONFIG_NAMES as readonly string[]).toContain(key);
+    });
+
+    it("stores a valid command and name, and --list shows them unmasked", async () => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+      const set = vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+      for (const [name, value] of [
+        ["issueProvider.command", "verk-provider --json"],
+        ["issueProvider.name", "verk"],
+      ]) {
+        (config as any).parse = vi
+          .fn()
+          .mockResolvedValue({ args: { name, value }, flags: {} });
+        await config.run();
+        expect(set).toHaveBeenCalledWith(name, value);
+      }
+
+      vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
+        (key: string) =>
+          Promise.resolve(
+            {
+              "issueProvider.command": "verk-provider --json",
+              "issueProvider.name": "verk",
+            }[key] ?? "",
+          ),
+      );
+      (config as any).parse = vi
+        .fn()
+        .mockResolvedValue({ args: {}, flags: { list: true, missing: false } });
+      await config.run();
+
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        "issueProvider.command=verk-provider --json",
+      );
+      expect(mockConsoleLog).toHaveBeenCalledWith("issueProvider.name=verk");
+    });
+
+    it.each([
+      ["issueProvider.name", "Not Valid"],
+      ["issueProvider.command", "no-such-program-here --json"],
+    ])("refuses %s=%j with exit 2 and stores nothing", async (name, value) => {
+      vi.spyOn(validators, "validateConfigValue").mockRestore();
+      vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+      const set = vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+      (config as any).parse = vi
+        .fn()
+        .mockResolvedValue({ args: { name, value }, flags: {} });
+
+      await expect(config.run()).rejects.toMatchObject({
+        code: "invalid_value",
+        oclif: { exit: 2 },
+      });
+      expect(set).not.toHaveBeenCalledWith(name, expect.anything());
+    });
+  });
+
   // #120 D7: github.host is stored, listed unmasked and settable by name, and
   // the wizard never asks for it.
   describe("github.host", () => {
@@ -4977,6 +5043,35 @@ postCreate:
 
         expect(printed()).toContain(
           "postCreate=pnpm build (overrides .worktree.yml: pnpm install; pnpm prisma generate)",
+        );
+      });
+
+      // #357 Phase 2 "Done when": --list shows issueProvider.command with its
+      // marker, and the file-only branchType as a count.
+      it("marks issueProvider.command as the file's, and summarises its branchType", async () => {
+        await withFile(
+          "issueProvider:\n  name: verk\n  command: verk-provider --json\n  branchType:\n    - otherwise: chore\n",
+        );
+
+        await config.run();
+
+        expect(printed()).toEqual(
+          expect.arrayContaining([
+            "issueProvider.name=verk (.worktree.yml)",
+            "issueProvider.command=verk-provider --json (.worktree.yml)",
+            "issueProvider.branchType: 1 rule (.worktree.yml)",
+          ]),
+        );
+      });
+
+      it("shows a git config command as an override of the file's", async () => {
+        await withFile("issueProvider:\n  command: file-provider\n");
+        personal["issueProvider.command"] = "my-provider";
+
+        await config.run();
+
+        expect(printed()).toContain(
+          "issueProvider.command=my-provider (overrides .worktree.yml: file-provider)",
         );
       });
 

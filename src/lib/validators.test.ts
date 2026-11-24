@@ -689,6 +689,50 @@ describe("isValidConfigValue github.host", () => {
   });
 });
 
+// #357 D4: the pattern ^[a-z][a-z0-9-]{0,31}$ is the plan's own text.
+describe("isValidConfigValue issueProvider.name", () => {
+  it.each([
+    "v",
+    "verk",
+    "my-tracker-2",
+    `a${"b".repeat(31)}`,
+  ])("accepts %j", async (value) => {
+    expect(await isValidConfigValue("issueProvider.name", value)).toBe(true);
+  });
+
+  it.each([
+    ["an empty value", ""],
+    ["a capital", "Verk"],
+    ["a leading digit", "1verk"],
+    ["a leading hyphen", "-verk"],
+    ["an underscore", "ver_k"],
+    ["a space", "ver k"],
+    ["a trailing newline", "verk\n"],
+    ["33 characters", `a${"b".repeat(32)}`],
+  ])("refuses %s", async (_label, value) => {
+    expect(await isValidConfigValue("issueProvider.name", value)).toEqual(
+      expect.stringContaining("Name must start"),
+    );
+  });
+});
+
+describe("isValidConfigValue issueProvider.command", () => {
+  it("validates the argv head, like postCreate", async () => {
+    vi.spyOn(cli, "commandExists").mockResolvedValue(false);
+
+    expect(
+      await isValidConfigValue("issueProvider.command", "nope --json"),
+    ).toBe("Command not found: nope");
+
+    vi.spyOn(cli, "commandExists").mockResolvedValue(true);
+
+    expect(
+      await isValidConfigValue("issueProvider.command", "verk --json"),
+    ).toBe(true);
+    expect(cli.commandExists).toHaveBeenCalledWith("verk");
+  });
+});
+
 // Expected values come from plan D2: exactly `cloud` and `datacenter`,
 // lower-case; "server" and "data-center" are rejected aliases.
 describe("isValidConfigValue jira.deployment", () => {

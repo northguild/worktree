@@ -46,6 +46,17 @@ export async function isValidCommandLine(
   return true;
 }
 
+// The display name of a team's own issue provider (#357 D4). It is printed and
+// reported in `--json`, so it is a short lowercase word and nothing else.
+export const ISSUE_PROVIDER_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+
+export function isValidIssueProviderName(value: string): true | string {
+  return (
+    ISSUE_PROVIDER_NAME_PATTERN.test(value) ||
+    "Name must start with a lowercase letter and hold only lowercase letters, digits and hyphens, at most 32 characters"
+  );
+}
+
 export async function isValidBranch(value: string): Promise<true | string> {
   const branches = value.startsWith("origin/")
     ? await gitGetRemoteBranches()
@@ -260,10 +271,14 @@ export async function isValidConfigValue(
       return isValidGitHubRepository(value);
     case "github.host":
       return isValidGitHubHost(value);
+    case "issueProvider.name":
+      return isValidIssueProviderName(value);
     case "agent.command":
     // Executed in every new worktree, so it is held to the same check as the
     // other command line: its head has to be a program that exists.
     case "postCreate":
+    // Run by `branch --issue` (#357 D4), so held to the same check.
+    case "issueProvider.command":
       return await isValidCommandLine(value);
     default:
       return true;

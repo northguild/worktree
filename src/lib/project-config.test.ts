@@ -33,6 +33,7 @@ import {
   renderBranchName,
   renderProjectFile,
   resetProjectConfigCache,
+  resolveIssueProvider,
   resolveTeamConfig,
   showLinesVisibly,
   summariseProjectFile,
@@ -2370,5 +2371,339 @@ describe("showLinesVisibly", () => {
 
   it("drops the \\r of a CRLF line end but escapes a lone one", () => {
     expect(showLinesVisibly("one\r\ntwo\rthree")).toBe("one\ntwo\\x0dthree");
+  });
+});
+
+// #357 D4 and Phase 2's "Done when": issueProvider.name and .command are team
+// keys read as a pair from the layer that sets the command; branchType is
+// file-only. Every expected value is read off those two texts, not off the
+// code: the layers differ per value so a wrong winner shows as a wrong value.
+describe("issueProvider in the file (#357 D4)", () => {
+  async function loads(content: string) {
+    fromOriginMain(content);
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("did not load");
+    return result.config;
+  }
+
+  const FILE =
+    "issueProvider:\n  name: verk\n  command: verk-provider --json\n  branchType:\n    - when: { Type: Bug }\n      type: bugfix\n";
+
+  it("loads name, command and branchType, and the two keys are team and project-file keys", async () => {
+    const config = await loads(FILE);
+
+    expect(config.issueProvider?.name).toBe("verk");
+    expect(config.issueProvider?.command).toBe("verk-provider --json");
+    expect(config.issueProvider?.branchType).toEqual([
+      { when: { Type: "Bug" }, type: "bugfix" },
+    ]);
+    for (const key of [
+      "issueProvider.name",
+      "issueProvider.command",
+    ] as const) {
+      expect(isTeamConfigKey(key)).toBe(true);
+      expect(isProjectFileKey(key)).toBe(true);
+    }
+    expect(isProjectFileKey("issueProvider.branchType")).toBe(false);
+    expect(projectFileValue(config, "issueProvider.command")).toBe(
+      "verk-provider --json",
+    );
+    expect(projectFileKeys(config).sort()).toEqual([
+      "issueProvider.command",
+      "issueProvider.name",
+    ]);
+  });
+
+  it("loads a file that holds only a command", async () => {
+    const config = await loads("issueProvider:\n  command: verk-provider\n");
+
+    expect(config.issueProvider?.name).toBeUndefined();
+  });
+
+  it.each([
+    ["an ESC", String.raw`"verk-provider \e[2J"`],
+    ["a CR", String.raw`"verk-provider\r"`],
+    ["a right-to-left override", String.raw`"verk-provider \u202e"`],
+    ["only spaces", `"   "`],
+  ])("stops with a ProjectConfigError on a command with %s", async (_label, yaml) => {
+    const error = await failure(`issueProvider:\n  command: ${yaml}\n`);
+
+    expect(error.message).toContain("issueProvider.command");
+    expect(error.oclif.exit).toBe(2);
+  });
+
+  it.each([
+    "Verk",
+    "1verk",
+    "ver k",
+    "-verk",
+    "verk_x",
+    `a${"b".repeat(32)}`,
+    '""',
+  ])("stops on the name %s, which the pattern ^[a-z][a-z0-9-]{0,31}$ refuses", async (value) => {
+    const error = await failure(`issueProvider:\n  name: ${value}\n`);
+
+    expect(error.message).toContain("issueProvider.name");
+    expect(error.oclif.exit).toBe(2);
+  });
+
+  it.each([
+    "v",
+    "verk",
+    "my-tracker-2",
+    `a${"b".repeat(31)}`,
+  ])("accepts the name %s", async (value) => {
+    expect(
+      (await loads(`issueProvider:\n  name: ${value}\n`)).issueProvider?.name,
+    ).toBe(value);
+  });
+
+  it("refuses a credential key in the section as unknown, never loading it", async () => {
+    fromOriginMain("issueProvider:\n  command: verk\n  token: abc\n");
+    const result = await readProjectConfig({});
+
+    expect(result.status).toBe("loaded");
+    expect(result.warnings.join("\n")).toContain("issueProvider.token");
+  });
+
+  it("refuses a bad rule in issueProvider.branchType like any other list", async () => {
+    const error = await failure(
+      "issueProvider:\n  branchType:\n    - otherwise: feature\n    - otherwise: chore\n",
+    );
+
+    expect(error.message).toContain("issueProvider.branchType");
+  });
+
+  it("summarises branchType as `issueProvider.branchType: N rules`", async () => {
+    const config = await loads(FILE);
+
+    expect(summariseProjectFile(config)).toEqual([
+      "issueProvider.branchType: 1 rule (.worktree.yml)",
+    ]);
+  });
+
+  it("is written by renderProjectFile and loads as written", async () => {
+    const text = renderProjectFile({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "verk-provider --json",
+    });
+
+    expect(text).toContain(
+      "issueProvider:\n  name: verk\n  command: verk-provider --json",
+    );
+    const config = await loads(text);
+    expect(config.issueProvider?.command).toBe("verk-provider --json");
+  });
+
+  it("is in the published schema, with the name's pattern and no credential key", () => {
+    const { issueProvider } = projectConfigJsonSchema().properties as Record<
+      string,
+      { properties: Record<string, { pattern?: string }> }
+    >;
+
+    expect(Object.keys(issueProvider?.properties ?? {}).sort()).toEqual([
+      "branchType",
+      "command",
+      "name",
+    ]);
+    expect(issueProvider?.properties.name?.pattern).toBe(
+      "^[a-z][a-z0-9-]{0,31}$",
+    );
+  });
+});
+
+describe("worktree config --project writes the issueProvider pair (#357 D4)", () => {
+  it("writes both keys under one section, and the file loads as written", async () => {
+    fakeGitConfig({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "verk-provider --json",
+    });
+    const target = path.join(scratch, ".worktree.yml");
+
+    const written = await writeProjectFile();
+
+    expect(written.keys).toEqual([
+      "issueProvider.command",
+      "issueProvider.name",
+    ]);
+    expect(fs.readFileSync(target, "utf8")).toContain(
+      "issueProvider:\n  name: verk\n  command: verk-provider --json\n",
+    );
+    const result = await readProjectConfig({
+      WORKTREE_PROJECT_CONFIG: target,
+    });
+    expect(result.status === "loaded" && result.config.issueProvider).toEqual({
+      name: "verk",
+      command: "verk-provider --json",
+    });
+  });
+});
+
+describe("resolveIssueProvider: the pair comes from one layer (#357 D4)", () => {
+  function personal(values: Record<string, string>) {
+    mockedConfig.gitGetConfigValue.mockImplementation((name: string) =>
+      Promise.resolve(values[name] ?? ""),
+    );
+  }
+  const PROJECT =
+    "issueProvider:\n  name: filename\n  command: file-provider\n";
+  const USER = "issueProvider:\n  name: username\n  command: user-provider\n";
+
+  it("is none when no layer sets a command", async () => {
+    expect(await resolveIssueProvider()).toBeUndefined();
+  });
+
+  it("is none for a name with no command", async () => {
+    personal({ "issueProvider.name": "orphan" });
+
+    expect(await resolveIssueProvider()).toBeUndefined();
+  });
+
+  it("takes the git-config pair over the file's and the user file's", async () => {
+    personal({
+      "issueProvider.name": "gitname",
+      "issueProvider.command": "git-provider",
+    });
+    fromOriginMain(PROJECT);
+    userFile(USER);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "gitname",
+      command: "git-provider",
+      source: "git-config",
+    });
+  });
+
+  it("takes the file's pair over the user file's", async () => {
+    fromOriginMain(PROJECT);
+    userFile(USER);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "filename",
+      command: "file-provider",
+      source: "project",
+    });
+  });
+
+  it("takes the user file's pair when nothing above sets a command", async () => {
+    userFile(USER);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "username",
+      command: "user-provider",
+      source: "user",
+    });
+  });
+
+  it("never labels a person's own command with the file's name", async () => {
+    personal({ "issueProvider.command": "git-provider" });
+    fromOriginMain(PROJECT);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: null,
+      command: "git-provider",
+      source: "git-config",
+    });
+  });
+
+  // D4: the pair comes from the layer that sets `command`, so a name set in git
+  // config alone never labels the file's or the user file's command.
+  it("takes the file's own name for the file's command, not a git-config name", async () => {
+    personal({ "issueProvider.name": "gitname" });
+    fromOriginMain(PROJECT);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "filename",
+      command: "file-provider",
+      source: "project",
+    });
+  });
+
+  it("gives the user file's command no name when only git config has one", async () => {
+    personal({ "issueProvider.name": "gitname" });
+    userFile("issueProvider:\n  command: user-provider\n");
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: null,
+      command: "user-provider",
+      source: "user",
+    });
+  });
+
+  it("never labels the file's command with the user file's name", async () => {
+    fromOriginMain("issueProvider:\n  command: file-provider\n");
+    userFile(USER);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: null,
+      command: "file-provider",
+      source: "project",
+    });
+  });
+
+  it("drops a git-config name the pattern refuses, keeping the command", async () => {
+    personal({
+      "issueProvider.name": "Bad\u001b[2JName",
+      "issueProvider.command": "git-provider",
+    });
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: null,
+      command: "git-provider",
+      source: "git-config",
+    });
+  });
+
+  it("trims the command", async () => {
+    personal({ "issueProvider.command": "  git-provider --json  " });
+
+    expect((await resolveIssueProvider())?.command).toBe("git-provider --json");
+  });
+
+  it("throws the file's error rather than answering with none", async () => {
+    fromOriginMain("issueProvider:\n  name: Bad\n");
+
+    await expect(resolveIssueProvider()).rejects.toBeInstanceOf(
+      ProjectConfigError,
+    );
+  });
+});
+
+describe("offerProjectConfig: the issueProvider pair when removing covered keys (#357 D4)", () => {
+  const FILE = "issueProvider:\n  name: verk\n  command: verk-provider\n";
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    setNonInteractive(false);
+    fromOriginMain(FILE);
+  });
+
+  it("removes a local pair that repeats the file's", async () => {
+    const { local } = fakeGitConfig({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "verk-provider",
+    });
+
+    await offerProjectConfig();
+
+    expect(local.has("northguild.worktree.issueProvider.command")).toBe(false);
+    expect(local.has("northguild.worktree.issueProvider.name")).toBe(false);
+  });
+
+  // The name is half of a pair: with the command kept, removing a name equal to
+  // the file's would leave the person's own command with no name.
+  it("keeps a local name equal to the file's while a local command differs", async () => {
+    const { local } = fakeGitConfig({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "my-own-provider",
+    });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.issueProvider.command")).toBe(
+      "my-own-provider",
+    );
+    expect(local.get("northguild.worktree.issueProvider.name")).toBe("verk");
   });
 });

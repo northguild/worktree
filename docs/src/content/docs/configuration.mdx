@@ -28,6 +28,8 @@ your git config.
 - `github.autoAssign` (`true` or `false`, unset means you are asked, or assigned when non-interactive)
 - `github.repository` (example: `acme/widgets`; the repository `--github` reads and assigns in, only needed when it is not the repository found otherwise (`upstream` when it is on `github.host` (`github.com` unless set), else `origin`), for example when your issues are on your fork and an `upstream` remote exists; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
 - `github.host` (example: `ghe.example.com`; the GitHub host `--github` and `--assign` use, a bare hostname, default `github.com`; for GitHub Enterprise, which also needs a remote on that host; never asked for by `worktree config`) — see [GitHub Integration Notes](#github-integration-notes)
+- `issueProvider.name` (example: `verk`; a short label for your team's own issue provider, lowercase letters, digits and hyphens, starting with a letter, at most 32 characters; a team key, also set under `issueProvider:` in `.worktree.yml`; never asked for by `worktree config`)
+- `issueProvider.command` (example: `verk-provider --json`; the command line that runs your team's own issue provider, split into arguments and never passed through a shell, whose head has to be a program that exists; the command finds its own credentials, so no key here holds one; a team key, also set under `issueProvider:` in `.worktree.yml`, read as a pair with `issueProvider.name` from the same place; never asked for by `worktree config`)
 - `jira.host` (Your Jira workspace URL, example: `https://company.atlassian.net`)
 - `jira.deployment` (`cloud` or `datacenter`, default `cloud`; which Jira `jira.host` is, Jira Cloud or Jira Data Center; a team key, also set under `jira:` in `.worktree.yml`; never asked for by `worktree config`)
 - `jira.email` (Your Jira email address)
@@ -342,7 +344,7 @@ clone's git config or on each machine. It is optional: with no file, nothing cha
 `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`,
 `linear.agentAllow`, `linear.agentContext`, `clickup.autoAssign` and `clickup.autoStart`) and a fallback for these
 team keys: `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`,
-`jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host` and `postCreate`.
+`jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host`, `issueProvider.name`, `issueProvider.command` and `postCreate`.
 Write a dotted key nested under its section. `postCreate` is a list of steps. `branchType`, `branchName` and
 `copy` stay in `.worktree.yml`.
 

@@ -11,6 +11,7 @@ export const TEAM_SECTIONS: Record<string, readonly string[]> = {
   github: ["repository", "host", "branchType"],
   linear: ["branchType"],
   clickup: ["workspaceId", "branchType"],
+  issueProvider: ["name", "command", "branchType"],
 };
 export const TEAM_SCALARS = new Set([
   "defaultSourceBranch",

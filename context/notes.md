@@ -18,3 +18,19 @@ Non-blocking observations from the gates. Branch-local; `/feature-close` deletes
 - **For Phase 4's printers:** the title may hold control characters (D6 allows it) and must be escaped
   wherever printed; a `url` with `user:token@` passes the http(s) check and would reach `--json`; `not_found`
   gives `--json` code `failed`, which `branch.mdx`'s table should say.
+
+## Phase 2
+
+- **`config --list` and `config <key> <value>` treat `issueProvider.name` per key, not as a pair**
+  (`src/commands/config.ts:287`, `:330`): a git-config name beside the file's command lists as overriding the
+  file, though the resolver ignores it; a file name beside a git-config command lists as set but resolves to
+  `null`. Contradicts `project-configuration.mdx`'s pair sentence. Branch-local and user-visible; fix by
+  Phase 4 at the latest.
+- **`commands/config.mdx` has no key entries for `issueProvider.name`/`.command`** (every other key has one);
+  §7 assigned no row for it.
+- **Docs say the command's "head must be a program that exists"** — true for `worktree config`, not for a
+  command in `.worktree.yml`, which only the `step` rule checks.
+- **§5's process-list risk** is only implied by "a token never goes in this section"; Phase 6's guide should say it.
+- **Smaller:** the git-config path's name lookup still reads (and can throw on) lower layers; an invalid
+  git-config name is dropped silently (documented); the test at `project-config.test.ts:2461` does not assert
+  `token` is absent; the name's error text is written three times.

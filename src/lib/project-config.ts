@@ -32,6 +32,7 @@ import { loadUserConfig } from "./user-config.js";
 import {
   GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
+  ISSUE_PROVIDER_NAME_PATTERN,
   isValidGitHubHost,
   isValidGitHubRepository,
 } from "./validators.js";
@@ -189,6 +190,29 @@ export const projectConfigSchema = z
       })
       .optional(),
     linear: branchType.optional(),
+    // The team's own tracker, run as a command (#357 D4). No key holds a
+    // credential: the command finds its own.
+    issueProvider: branchType
+      .extend({
+        name: z
+          .string()
+          .regex(ISSUE_PROVIDER_NAME_PATTERN, {
+            message:
+              "name must start with a lowercase letter and hold only lowercase letters, digits and hyphens, at most 32 characters",
+          })
+          .meta({
+            description:
+              "A short name for the provider, shown in messages and reported by --json. Optional.",
+          })
+          .optional(),
+        command: step
+          .meta({
+            description:
+              "The command line that runs the provider, split into arguments, never through a shell.",
+          })
+          .optional(),
+      })
+      .optional(),
     clickup: branchType
       .extend({
         workspaceId: scalar
@@ -424,6 +448,10 @@ const TEAM_CONFIG_KEYS = [
   "clickup.workspaceId",
   "github.repository",
   "github.host",
+  // The command before the name: the name is half of a pair with it, and the
+  // covered-key removal relies on seeing the command first.
+  "issueProvider.command",
+  "issueProvider.name",
 ] as const satisfies readonly ConfigName[];
 
 export type TeamConfigKey = (typeof TEAM_CONFIG_KEYS)[number];
@@ -451,6 +479,10 @@ function projectValue(config: ProjectConfig, key: TeamConfigKey) {
       return config.github?.repository;
     case "github.host":
       return config.github?.host;
+    case "issueProvider.command":
+      return config.issueProvider?.command;
+    case "issueProvider.name":
+      return config.issueProvider?.name;
     case "clickup.workspaceId":
       // YAML reads an unquoted 9001234 as a number; git config holds text.
       return config.clickup?.workspaceId === undefined
@@ -490,6 +522,51 @@ export async function resolveTeamConfig(name: TeamConfigKey): Promise<{
 
 export async function getTeamConfigValue(name: TeamConfigKey) {
   return (await resolveTeamConfig(name)).value;
+}
+
+/**
+ * The team's own issue provider (#357 D4): the command, trimmed, and the name
+ * from the same layer that set it, or `undefined` when no layer sets a command.
+ * A name never comes from another layer than its command, so a file's name
+ * cannot label a person's own command. A name that does not match the pattern
+ * (git config takes anything) is dropped, not reported: it is only a label.
+ */
+export async function resolveIssueProvider(): Promise<
+  | {
+      name: string | null;
+      command: string;
+      source: Exclude<ConfigValueSource, "default">;
+    }
+  | undefined
+> {
+  const { value, source } = await resolveTeamConfig("issueProvider.command");
+  const command = value.trim();
+  if (source === "default" || command === "") {
+    return undefined;
+  }
+  let name: string | undefined;
+  if (source === "git-config") {
+    // Git config is the first layer, so a name it answers with is its own.
+    const own = await resolveTeamConfig("issueProvider.name");
+    name = own.source === "git-config" ? own.value.trim() : undefined;
+  } else if (source === "project") {
+    const project = await loadProjectConfig();
+    name =
+      project.status === "loaded"
+        ? project.config.issueProvider?.name
+        : undefined;
+  } else {
+    const user = await loadUserConfig();
+    name =
+      user.status === "loaded"
+        ? fileSettingValue(user.config, "issueProvider.name")
+        : undefined;
+  }
+  return {
+    name: name && ISSUE_PROVIDER_NAME_PATTERN.test(name) ? name : null,
+    command,
+    source,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -953,7 +1030,13 @@ function count(amount: number, noun: string) {
  */
 export function summariseProjectFile(config: ProjectConfig) {
   const lines: string[] = [];
-  for (const provider of ["jira", "github", "linear", "clickup"] as const) {
+  for (const provider of [
+    "jira",
+    "github",
+    "linear",
+    "clickup",
+    "issueProvider",
+  ] as const) {
     const rules = config[provider]?.branchType;
     if (rules) {
       lines.push(
@@ -1013,6 +1096,8 @@ export function renderProjectFile(
   section("jira", "deployment", values["jira.deployment"]);
   section("github", "repository", values["github.repository"]);
   section("github", "host", values["github.host"]);
+  section("issueProvider", "name", values["issueProvider.name"]);
+  section("issueProvider", "command", values["issueProvider.command"]);
   section("clickup", "workspaceId", values["clickup.workspaceId"]);
   // A personal postCreate is one string; the file holds a list of steps.
   document.postCreate = values.postCreate ? [values.postCreate] : undefined;
@@ -1232,6 +1317,14 @@ async function removeCoveredLocalConfig(config: ProjectConfig) {
       continue;
     }
     if (key === "defaultSourceBranch" && !hasOriginHead) {
+      continue;
+    }
+    // The name is half of a pair with the command (D4): while a git-config
+    // command stays, the file's name must not be handed to it by a removal.
+    if (
+      key === "issueProvider.name" &&
+      (await resolveTeamConfig("issueProvider.command")).source === "git-config"
+    ) {
       continue;
     }
     const fromFile = projectFileValue(config, key);

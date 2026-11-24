@@ -621,7 +621,7 @@ under `northguild.worktree.*`.
 
 A repository can commit a `.worktree.yml` at its root that supplies the team keys:
 `defaultSourceBranch`, `branchPrefix.feature|bugfix|chore`, `jira.host`, `jira.deployment`,
-`clickup.workspaceId`, `github.repository` and `github.host` (written nested: `jira: { host: ... }`). Precedence per key:
+`clickup.workspaceId`, `github.repository`, `github.host`, `issueProvider.name` and `issueProvider.command` (written nested: `jira: { host: ... }`). Precedence per key:
 flag, then git config (any scope), then the file, then the user config file (below),
 then the built-in default; the user file ranks below the team file. The
 file is read from `origin/HEAD` (`git show`), never the working copy, and
@@ -669,7 +669,7 @@ else `$XDG_CONFIG_HOME/worktree/config.yml` (only when set, non-empty and absolu
 (`herdr: { focus: false }`). It takes the personal keys above (`jira.autoStart`,
 `github.autoAssign` and the rest) and, as a fallback below `.worktree.yml`, the team keys
 `defaultSourceBranch`, `branchPrefix.*`, `jira.host`, `jira.deployment`,
-`clickup.workspaceId`, `github.repository`, `github.host` and `postCreate` (a list);
+`clickup.workspaceId`, `github.repository`, `github.host`, `issueProvider.name`, `issueProvider.command` and `postCreate` (a list);
 `branchType`, `branchName` and `copy` stay in `.worktree.yml`. A secret key in it stops the
 run with exit `2`, naming the key; an unknown key warns and is ignored. Its `postCreate`
 steps run without approval because the file is the user's own, so a file synced between
@@ -701,6 +701,8 @@ gitignored to be copied; a tracked file never is. Copied files are listed in
 | `github.autoAssign` | `true` or `false` | whether `--github` assigns the issue to you; unset means ask (assign when non-interactive) |
 | `github.repository` | `acme/widgets` | which repository `--github` and `--assign` use: this key (team key, also under `github:` in `.worktree.yml`), else `upstream` if it is on `github.host` (`github.com` unless set), else `origin`; optional, and `worktree config` never asks for it |
 | `github.host` | `ghe.example.com` | the GitHub host `--github` and `--assign` use, a bare hostname; default `github.com`; team key (also under `github:` in `.worktree.yml`); the clone also needs a remote on that host (`origin` when `github.repository` is set), or the run fails before any request; `worktree config` never asks for it |
+| `issueProvider.name` | `verk` | a short label for the team's own issue provider: a lowercase letter, then up to 31 lowercase letters, digits or hyphens; team key (also under `issueProvider:` in `.worktree.yml`), read from the same place as `issueProvider.command`; `worktree config` never asks for it |
+| `issueProvider.command` | `verk-provider --json` | the command line that runs the team's own issue provider, split into arguments and never run through a shell; its head must be a program that exists; the command finds its own credentials, so no key holds one; team key (also under `issueProvider:` in `.worktree.yml`); `worktree config` never asks for it |
 | `jira.host` | `https://company.atlassian.net` | `--jira` flag |
 | `jira.deployment` | `cloud` or `datacenter` | which Jira `jira.host` is: Jira Cloud or Jira Data Center (Server); unset means `cloud`; team key (also under `jira:` in `.worktree.yml`); `worktree config` never asks for it |
 | `jira.email` | `you@company.com` | `--jira` flag |

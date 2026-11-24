@@ -78,7 +78,7 @@ not offer to run `worktree config` for a key the file supplies.
 
 | Kind of key | Keys | In the file |
 |---|---|---|
-| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host` | Read; your git config overrides them, and they override your user config file |
+| Team keys | `defaultSourceBranch`, `branchPrefix.feature`, `branchPrefix.bugfix`, `branchPrefix.chore`, `jira.host`, `jira.deployment`, `clickup.workspaceId`, `github.repository`, `github.host`, `issueProvider.name`, `issueProvider.command` | Read; your git config overrides them, and they override your user config file |
 | Personal keys | `opener`, `codeEditor`, `herdr.focus`, `herdr.agent`, `rex.focus`, `agent.command`, `jira.email`, `jira.autoAssign`, `jira.autoStart`, `github.autoAssign`, `linear.autoStart`, `linear.agentAllow`, `linear.agentContext`, `clickup.autoAssign`, `clickup.autoStart` | Ignored with a warning naming the key and `worktree config <key>` |
 | Secret keys | `jira.apiToken`, `linear.apiKey`, `linear.agentToken`, `linear.webhookSecret`, `clickup.apiToken`, `github.token` | Refused; the run stops |
 
@@ -98,6 +98,14 @@ host it is asked about, so a merged change to `github.host` is a change to where
 code, as for [`jira.host`](#jirahost-receives-everyones-credentials). Your own `github.host` in git config
 overrides the file's, and `github.com` there puts a repository back on the default. `worktree config` never
 asks for it. See [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
+
+`issueProvider` is for a team's own issue tracker, one that is none of the four above. `issueProvider.command` is the
+command line that runs it, split into arguments and never passed through a shell, and
+`issueProvider.name` is an optional short label of one lowercase letter followed by up to 31 lowercase letters, digits or
+hyphens. The two are read as a pair: the name always comes from the same place as the command (your git config, the
+file, or your user config file), so a name in the file never labels a command you set yourself. No key holds a
+credential; the command finds its own, so a token never goes in this section, and `worktree config` never asks for either
+key. `issueProvider.branchType` is file-only, like the other providers' lists, and takes the same rules.
 
 The `branchType` lists under `jira`, `github`, `linear` and `clickup`, and the shared top-level `branchType`, are live: see
 [Branch-type rules](#branch-type-rules). So are `branchName`, see [Branch name template](#branch-name-template),
@@ -368,7 +376,7 @@ Steps from a file run commands on your machine that someone else wrote, so each 
 
 `worktree config --project` writes a commented `.worktree.yml` at the top level of the current worktree
 from the team keys in your git config: the source branch, the branch prefixes, the Jira host and deployment, the ClickUp
-workspace id, the GitHub repository, the GitHub host and `postCreate`, which becomes a one-step list. It never writes a personal or secret key. The
+workspace id, the GitHub repository, the GitHub host, the issue provider's name and command, and `postCreate`, which becomes a one-step list. It never writes a personal or secret key. The
 file is left uncommitted and the command refuses to overwrite one that is there, so review it, commit it and
 merge it to the default branch. The result loads exactly as written.
 
