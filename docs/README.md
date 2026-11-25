@@ -26,13 +26,17 @@ Both commands build the worker, write `.dev.vars`, start the Cloudflare Worker o
 
 `PUBLIC_GEMINI_WORKER_URL` is the variable that controls which worker the docs app talks to (Astro only exposes `PUBLIC_` variables to client code; unset, the chat falls back to `http://localhost:8787`). The `dev:local*` scripts set it to `http://localhost:8787` so Astro hits your local `wrangler dev` instance. In production, the GitHub Actions workflow bakes in (from its `GEMINI_WORKER_URL` repository variable) the deployed Cloudflare Worker URL at build time.
 
-**Prerequisite:** `docs/.env.local` must exist with your Gemini API key.
+**Prerequisite:** `docs/.env.local` must exist with your Gemini API key and Cloudflare credentials.
 Copy `.env.local.example` and fill it in:
 
 ```bash
 cp docs/.env.local.example docs/.env.local
-# then edit docs/.env.local and set GEMINI_API_KEY=...
+# then edit docs/.env.local and set GEMINI_API_KEY=..., CLOUDFLARE_API_TOKEN=... and CLOUDFLARE_ACCOUNT_ID=...
 ```
+
+The Worker's `AI` and `DOX_USAGE` bindings are remote in dev, so `wrangler dev` needs access to the Cloudflare account that
+owns them: the two `CLOUDFLARE_*` values (wrangler reads `docs/.env.local`), or `wrangler login`. To run without that access,
+see *Local development* in [`worker/README.md`](worker/README.md#local-development).
 
 ---
 
