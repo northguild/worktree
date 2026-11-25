@@ -190,11 +190,11 @@ and any warning go to stderr. It implies a [non-interactive run](/worktree/comma
 | --- | --- |
 | `branch`, `path` | the worktree's branch and absolute path |
 | `current` | whether it is the worktree you are in |
-| `pathExists` | whether its directory is still on disk |
+| `pathExists` | whether its directory is still on disk as a git checkout. `false` also when the directory is there but has lost its `.git` file; `list` then shows it as `Not a git checkout (.git missing), directory kept` |
 | `remote`, `remoteExists` | the upstream the branch tracks, `null` when it tracks none, and whether that remote branch still exists |
 | `ahead`, `behind` | the [counts above](#ahead-and-behind-counts) as numbers |
 | `mergedInto` | the base whose commits already contain all of this branch's changes; `null` when not known to be merged |
-| `uncommittedChanges` | the number of uncommitted changes; `null` when the directory is gone, as there is nothing to count |
+| `uncommittedChanges` | the number of uncommitted changes; `null` when `pathExists` is `false`, as there is nothing to count |
 | `safeToRemove` | the verdict [`cleanup`](/worktree/commands/cleanup/) acts on, from the data this run gathered. `cleanup` weighs agent sessions and canceled Linear issues; `list` does so only with `--agents` and `--issues`, so without them it can report `false` for a worktree `cleanup` would remove through a canceled issue, and `true` for one it would hold back for a live session. With both flags it is `cleanup`'s verdict, except for the worktree you are in (`current: true`), which `cleanup` never considers |
 | `churn` | only with `--churn`: `{files, insertions, deletions}` for the committed work, [as above](#showing-churn), or `null` when it could not be taken. All zeros means the diff was taken and was empty |
 | `issue` | only with `--issues`: `null` when the branch has no recorded Linear issue, otherwise `{provider, key, state}`: `provider` is `"linear"`, `key` the identifier such as `ENG-123`, and `state` the issue's state type (`canceled`, `started`, ...) or `null` when it could not be read. Only the type is read, never the state's name |

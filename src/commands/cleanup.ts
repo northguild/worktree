@@ -10,7 +10,11 @@ import {
 import { createSpinner } from "../lib/progress.js";
 import { askConfirm } from "../lib/prompt.js";
 import type { WorktreeListEntry } from "../lib/types.js";
-import { formatCount, worktreeListEntryToListName } from "../lib/utils.js";
+import {
+  formatCount,
+  missingPathDetail,
+  worktreeListEntryToListName,
+} from "../lib/utils.js";
 
 // A worktree cleanup would have swept but for the work sitting in it. Asking the
 // predicate about a zeroed copy keeps the safety rule in one place rather than
@@ -88,7 +92,7 @@ function removalReason(wt: WorktreeListEntry): string {
   if (!wt.pathExists) {
     // Returned before any count is consulted, so this says nothing about
     // commits — deliberately. See §9 Q5.
-    return "Path does not exist";
+    return missingPathDetail(wt);
   }
   if (wt.remoteExists && wt.issue?.state === "canceled") {
     // A worktree on a live remote qualifies only through D4's last clause, and

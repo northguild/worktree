@@ -36,5 +36,5 @@ export const VALID_DOC_ROUTES: ReadonlySet<string> = new Set([
 /** What the Worker indexes: the hub's status line reads it. */
 export const CORPUS_COUNTS: { pages: number; chunks: number } = {
   pages: 29,
-  chunks: 222,
+  chunks: 223,
 };

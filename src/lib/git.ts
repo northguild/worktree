@@ -298,15 +298,22 @@ export const DETACHED_LABEL = "(detached HEAD)";
 // "Porcelain Format"): one `label value` line per attribute, a blank line after
 // each record. A path is everything after the first space of its line, so lines
 // are never trimmed. A record on neither a branch nor a detached HEAD, such as
-// the `bare` one, has no branch to report and is dropped.
+// the `bare` one, has no branch to report and is dropped. `prunable` marks a
+// record git can no longer use, such as a directory that lost its `.git` file
+// (#368); the directory may still be on disk.
 function parseWorktreeRecords(
   porcelain: string,
-): Array<{ path: string; branchName: string }> {
-  const entries: Array<{ path: string; branchName: string }> = [];
+): Array<{ path: string; branchName: string; prunable: boolean }> {
+  const entries: Array<{
+    path: string;
+    branchName: string;
+    prunable: boolean;
+  }> = [];
 
   for (const record of porcelain.split("\n\n")) {
     let path: string | undefined;
     let branchName: string | undefined;
+    let prunable = false;
 
     for (const line of record.split("\n")) {
       if (line.startsWith("worktree ")) {
@@ -315,11 +322,13 @@ function parseWorktreeRecords(
         branchName = line.slice("branch ".length).replace(/^refs\/heads\//, "");
       } else if (line === "detached") {
         branchName = DETACHED_LABEL;
+      } else if (line === "prunable" || line.startsWith("prunable ")) {
+        prunable = true;
       }
     }
 
     if (path !== undefined && branchName !== undefined) {
-      entries.push({ path, branchName });
+      entries.push({ path, branchName, prunable });
     }
   }
 
@@ -339,10 +348,15 @@ export async function gitGetWorktrees({
 
   return (
     parseWorktreeRecords(result)
-      .map(({ path, branchName }) => ({
+      .map(({ path, branchName, prunable }) => ({
         path,
         branchName,
-        pathExists: fs.existsSync(path),
+        // A prunable record has no usable checkout even where its directory is
+        // still there: git searches the parents of a directory with no `.git`
+        // and runs every probe in the wrong repository, or none (#368). It is
+        // treated as a missing path, which skips the probes and lets `remove`
+        // and `cleanup` prune it. Pruning leaves the directory untouched.
+        pathExists: !prunable && fs.existsSync(path),
         isCurrent: currentBranch
           ? branchName === currentBranch
           : path === currentPath,
@@ -870,7 +884,9 @@ export async function gitNukeWorktreeCmd(
   { branchName, path }: WorktreeTarget,
   { force = false }: GitNukeWorktreeCmdOptions = {},
 ) {
-  if (fs.existsSync(path)) {
+  // A directory without its `.git` file is not a working tree git can remove,
+  // so it is pruned like a missing one. The directory is left where it is.
+  if (fs.existsSync(path) && fs.existsSync(`${path}/.git`)) {
     await run("git", [
       "worktree",
       "remove",

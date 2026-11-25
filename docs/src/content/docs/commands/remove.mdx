@@ -51,6 +51,14 @@ counted as ahead, because a squash merge and a rebase both give the same work ne
 identities, but there is nothing in it to lose. Warning about those commits would teach you
 that this prompt does not mean anything, which is how the one that does gets waved through.
 
+## A directory that has lost its `.git` file
+
+An interrupted removal, such as a stopped `rm -rf`, can leave a worktree's directory on disk without
+the `.git` file that made it a checkout. Git still lists it, as `prunable`. `remove` gets the plain
+question for it, since nothing in it can be counted, and then drops git's record and deletes the
+branch. **The directory itself is kept**: without `.git` its contents can no longer be checked for
+uncommitted work, so look through it before you delete it by hand.
+
 ## When an agent is working in the worktree
 
 If an agent session is working in the worktree you name, the prompt opens with that fact and then

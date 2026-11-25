@@ -1,6 +1,19 @@
+import fs from "node:fs";
 import type { ColorName } from "chalk";
 import chalk from "./color.js";
 import type { WorktreeAgent, WorktreeListEntry } from "./types.js";
+
+/**
+ * What a worktree with no usable checkout is called. Its directory may still be
+ * on disk without the `.git` file that made it a checkout (#368); then `remove`
+ * and `cleanup` drop only git's record and the branch, and the directory is
+ * kept, so the label says so rather than claiming the path is gone.
+ */
+export function missingPathDetail(wt: Pick<WorktreeListEntry, "path">): string {
+  return fs.existsSync(wt.path)
+    ? "Not a git checkout (.git missing), directory kept"
+    : "Path does not exist";
+}
 
 export function conjoin(
   arr: readonly (string | number)[],
@@ -73,7 +86,7 @@ export function worktreeListEntryToListName(
 ): string {
   const details = [];
   if (!wt.pathExists) {
-    details.push("Path does not exist");
+    details.push(missingPathDetail(wt));
   }
   if (wt.remote && !wt.remoteExists) {
     details.push(`Remote removed`);

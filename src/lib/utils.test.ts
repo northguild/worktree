@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { WorktreeAgent, WorktreeListEntry } from "./types.js";
 import {
   conjoin,
@@ -56,6 +57,25 @@ describe("worktreeListEntryToListName", () => {
     });
 
     expect(result).toContain("Path does not exist");
+  });
+
+  // #368: the directory is still on disk but has lost its `.git` file, so it is
+  // no checkout, and removal keeps the directory. The label must not say gone.
+  it("names a directory still on disk as no git checkout, kept", () => {
+    const existsSpy = vi.spyOn(fs, "existsSync").mockReturnValue(true);
+
+    const result = worktreeListEntryToListName({
+      path: "/path/to/worktree",
+      branchName: "feature/test",
+      remote: "origin/feature/test",
+      pathExists: false,
+    });
+
+    expect(result).toContain(
+      "Not a git checkout (.git missing), directory kept",
+    );
+    expect(result).not.toContain("Path does not exist");
+    existsSpy.mockRestore();
   });
 
   it("should show remote branch does not exist when remote exists but is not found", () => {

@@ -767,6 +767,26 @@ describe("gitNukeWorktreeCmd", () => {
     ]);
   });
 
+  // #368: an interrupted removal can leave the directory with no `.git` file.
+  // `git worktree remove` refuses it, and the record has to go by a prune.
+  it("prunes instead of removing when the directory has lost its .git file", async () => {
+    vi.spyOn(fs, "existsSync").mockImplementation(
+      (path) => path === worktreePath,
+    );
+    const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
+
+    await gitNukeWorktreeCmd(target);
+
+    // Nothing after the branch delete: the directory is left on disk.
+    expect(runSpy).toHaveBeenCalledTimes(2);
+    expect(runSpy).toHaveBeenNthCalledWith(1, "git", ["worktree", "prune"]);
+    expect(runSpy).toHaveBeenNthCalledWith(2, "git", [
+      "branch",
+      "-D",
+      branchName,
+    ]);
+  });
+
   it("appends --force to the remove when forced", async () => {
     const runSpy = vi.spyOn(cli, "run").mockResolvedValue("");
 
@@ -1450,6 +1470,49 @@ describe("gitGetWorktreeList agent join", () => {
 // those with an upstream. A branch nobody ever pushed is precisely the case
 // the old `remoteExists` guard skipped, and skipping it is what let such a
 // worktree read as empty.
+// #368: a record git marks `prunable` has a directory that is no checkout, and
+// every probe run in it would climb into the parents and fail the whole gather.
+describe("gitGetWorktreeList with a prunable record", () => {
+  const rootPath = "/repo/project";
+  const brokenPath = `${rootPath}.worktrees/broken`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+  });
+
+  it("takes no probe in it and lists it as safe to remove", async () => {
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list --porcelain",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+    );
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(
+        `${porcelainRecord(brokenPath, "broken")}prunable gitdir file points to non-existent location\n`,
+      )
+      .mockResolvedValueOnce("origin/main");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree?.branchName).toBe("broken");
+    expect(worktree?.pathExists).toBe(false);
+    expect(worktree?.safeToRemove).toBe(true);
+    expect(mockRun).not.toHaveBeenCalledWith("git", ["status", "-s"], {
+      cwd: brokenPath,
+    });
+  });
+});
+
 describe("gitGetWorktreeList ahead counting", () => {
   const rootPath = "/repo/project";
   const onePath = `${rootPath}.worktrees/feature/one`;
