@@ -239,6 +239,15 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 Copy `docs/.env.local.example` → `docs/.env.local` and fill it in. The first two brains use the `AI` binding, which is remote (see [Brains](#brains)): a question asked against `wrangler dev`
 spends the account's real daily allocation. Leave the binding out of `wrangler.toml` to run on Gemini alone.
 
+**Prerequisite: Cloudflare credentials.** `worker:dev`, and so `dev:local` and `dev:local:watch`, opens a remote session for
+the `AI` binding and the `DOX_USAGE` KV namespace, so it needs access to the account that owns them: `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` in `docs/.env.local` (wrangler reads that file), or `wrangler login`. Without them, wrangler asks you
+to log in; non-interactively, wrangler 4.152.0 stops with "Failed to start the remote proxy session ... it's necessary to set a
+CLOUDFLARE_API_TOKEN environment variable". Under `concurrently`, that line is easy to miss among the other output.
+Without access, edit `wrangler.toml` locally and do not commit the edit. Delete the `[ai]` block to run on Gemini alone, as
+above; there is no local Workers AI. Then delete `remote = true` from the `[[kv_namespaces]]` block
+(`binding = "DOX_USAGE"`), so the ledger uses a simulated local KV.
+
 Two commands cover the common cases:
 
 | Command | What it does |
