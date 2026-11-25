@@ -48,4 +48,20 @@ remote = true
 [vars]
 # Non-secret env vars go here
 
+# The evals environment (plan #355 D9): a local-only copy of this Worker for `pnpm --filter docs worker:dev:evals`, which the
+# live Dox evals (`docs/evals/run-live.ts`) ask. It is NEVER deployed: `worker-deploy.yml` passes no `--env`, and
+# `wrangler deploy --env evals` would create `worktree-gemini-proxy-evals` without the visitor cap.
+#
+# Bindings are not inherited into an environment, so `[ai]` is declared again and `DOX_USAGE` is left out on purpose: with
+# no ledger the 5-a-day visitor cap and the usage counts are off (`chat-handler.ts`), the preview namespace takes no eval
+# writes, and the deployed Worker is unchanged. `workers_dev = false` and no route mean even a mistaken deploy has no URL.
+# `worker:dev:evals` also blanks `GEMINI_API_KEY`, so a failing Workers AI brain cannot fall over onto Gemini's small daily
+# allowance. `remote = true` is stated for the same reason as the top-level `[ai]`: the models never run locally.
+[env.evals]
+workers_dev = false
+
+[env.evals.ai]
+binding = "AI"
+remote = true
+
 # Secrets are set via: pnpm wrangler secret put GEMINI_API_KEY

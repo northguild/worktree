@@ -1,0 +1,55 @@
+{
+  "failures": {
+    "fit.kept": ["reworded-github-issue-name"],
+    "refusal.quiet": [],
+    "retrieval.mrr": [
+      "follow-up-undo-that",
+      "lookup-key-branch-prefix",
+      "lookup-what-does-clean-do"
+    ],
+    "retrieval.recallAt10": [
+      "follow-up-undo-that",
+      "lookup-key-branch-prefix",
+      "lookup-what-does-clean-do"
+    ],
+    "retrieval.withinK": [],
+    "vocabulary.hit": []
+  },
+  "metrics": {
+    "fit.kept": 0.962,
+    "refusal.quiet": 1,
+    "retrieval.mrr": 0.719,
+    "retrieval.recallAt10": 0.888,
+    "retrieval.withinK": 1,
+    "vocabulary.hit": 1
+  },
+  "ranks": {
+    "fault-every-command": [2],
+    "fault-long-how-to": [3],
+    "follow-up-undo-that": [null],
+    "injection-outside-link": [2],
+    "lookup-flag-agent": [1],
+    "lookup-flag-source": [1],
+    "lookup-key-branch-prefix": [null],
+    "lookup-key-copy": [1],
+    "lookup-key-post-create": [1],
+    "lookup-linear-issue": [1],
+    "lookup-namespace-config-file": [1],
+    "lookup-namespace-default-source-branch": [1],
+    "lookup-rename": [1],
+    "lookup-terse-clickup": [2],
+    "lookup-terse-install": [1],
+    "lookup-terse-rename": [1],
+    "lookup-terse-undo-a-cleanup": [3],
+    "lookup-what-does-clean-do": [null],
+    "reworded-cleanup-merged-prs": [1],
+    "reworded-cleanup-stale": [1],
+    "reworded-env-new-worktree": [1],
+    "reworded-env-untracked": [1],
+    "reworded-github-issue-name": [4],
+    "reworded-github-issue-number": [2],
+    "starter-commands-cleanup": [1],
+    "starter-guides-env-files": [1],
+    "starter-guides-github-issue-integration": [2]
+  }
+}

@@ -158,7 +158,8 @@ The build indexes the chunks with [MiniSearch](https://lucaong.github.io/minisea
 
 #### What the Worker does with a question
 
-For each `POST /api/chat`, after validation (`docs/worker/chat-handler.ts`):
+For each `POST /api/chat`, after validation, `docs/worker/chat-handler.ts` calls `prepareTurn`
+(`docs/worker/prepare-turn.ts`), which runs these four steps in order:
 
 1. **Search** the last message of the conversation (`retrieval/search.ts`). Stopwords are dropped; an identifier such as
    `branchPrefix` is also split into its words in the index; a chunk in the section of the page the reader came from
@@ -563,6 +564,8 @@ or use the root-level aliases where noted.
 | `dev:local:watch` | Same as `dev:local`, plus watch-rebuild the worker on every save — use when editing worker code |
 | `worker:dev` | Start the already-built worker at `http://localhost:8787` |
 | `worker:build:watch` | Watch-rebuild the worker bundle on file changes |
+| `worker:dev:evals` | Start the built worker as its local-only `evals` environment, with `GEMINI_API_KEY` blanked, for `evals:live`. It spends real Neurons: see [`evals/README.md`](evals/README.md) |
+| `worker:dev:evals:gemini` | The same, with `worker/.dev.vars` left in, so the Gemini brains answer too. Spends Gemini's daily requests as well |
 
 ### AI context & skill maintenance
 
@@ -575,7 +578,9 @@ or use the root-level aliases where noted.
 
 | Command | What it does |
 |---|---|
-| `test` | Run all docs tests with vitest |
+| `test` | Run all docs tests with vitest, the offline Dox evals (`evals/offline.test.ts`) included |
+| `evals:baseline` | Rewrite `evals/baseline.json` from the offline evals and format it with Biome. Run it only when a score moved on purpose; see [`evals/README.md`](evals/README.md) |
+| `evals:live` | Ask the live Dox eval cases of a running `worker:dev:evals` Worker and grade the answers. **Spends real Neurons**; refuses under `CI`; `--help` lists the flags and costs and sends nothing. See [`evals/README.md`](evals/README.md) |
 | `worker:test` | Run every worker test under `worker/` (the router, both handlers, the validator, the error mapping, the rate limiter) |
 | `worker:bundle-check` | Build the worker, then `wrangler deploy --dry-run`: proves it still bundles for Cloudflare, with no credentials and nothing sent. Run it after changing a dependency or an import; CI runs it |
 | `worker:setup-secret` | Store `GEMINI_API_KEY` as an encrypted Cloudflare secret (one-time) |

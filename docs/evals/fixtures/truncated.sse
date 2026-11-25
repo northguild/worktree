@@ -1,0 +1,44 @@
+data: {"type":"RUN_STARTED","threadId":"eval-fixture","runId":"fixture-truncated","timestamp":1700000000000}
+
+data: {"type":"CUSTOM","name":"dox-retrieval","value":{"totalChunks":210,"retrievedCount":10,"chunkTitles":["worktree remove: delete git worktrees › Detached worktrees","worktree cleanup: remove stale git worktrees","worktree remove: delete git worktrees","FAQ: @northguild/worktree and git worktrees › What happens to a Herdr space when I remove the worktree?","worktree remove: delete git worktrees › The confirmation prompt","worktree cleanup: remove stale git worktrees › What it prints","worktree cleanup: remove stale git worktrees › Canceled Linear issues","worktree remove: delete git worktrees › JSON output","worktree cleanup: remove stale git worktrees › Flags","worktree remove: delete git worktrees › Usage"],"chunkUrls":["/commands/remove/","/commands/cleanup/","/faq/"],"timings":{"corpus":3,"search":3,"prompt":3}},"timestamp":1700000000000}
+
+data: {"type":"CUSTOM","name":"dox-progress","value":{"text":"Asking Gemma 4 26B…"},"timestamp":1700000000000}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"fixture-truncated-text","role":"assistant","timestamp":1795541737905,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"},"model":"cf-gemma-4-26b"}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"To r","timestamp":1795541737905,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"emov","timestamp":1795541737905,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"e a ","timestamp":1795541737905,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"work","timestamp":1795541737905,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"tree","timestamp":1795541737905,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":", ru","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"n `w","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"orkt","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"ree ","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"remo","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"ve <","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"bran","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"ch> ","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"--fo","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"fixture-truncated-text","delta":"rce`","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"}}}}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"fixture-truncated-text","timestamp":1795541737906,"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"},"model":"cf-gemma-4-26b"}}}
+
+data: {"type":"CUSTOM","name":"dox-retrieval","value":{"totalChunks":210,"retrievedCount":10,"chunkTitles":["worktree remove: delete git worktrees › Detached worktrees","worktree cleanup: remove stale git worktrees","worktree remove: delete git worktrees","FAQ: @northguild/worktree and git worktrees › What happens to a Herdr space when I remove the worktree?","worktree remove: delete git worktrees › The confirmation prompt","worktree cleanup: remove stale git worktrees › What it prints","worktree cleanup: remove stale git worktrees › Canceled Linear issues","worktree remove: delete git worktrees › JSON output","worktree cleanup: remove stale git worktrees › Flags","worktree remove: delete git worktrees › Usage"],"chunkUrls":["/commands/remove/","/commands/cleanup/","/faq/"],"timings":{"corpus":3,"search":3,"prompt":3,"firstToken":21,"total":24},"brainLabel":"Gemma 4 26B"},"timestamp":1700000000000}
+
+data: {"type":"RUN_FINISHED","runId":"fixture-truncated","threadId":"eval-fixture","timestamp":1795541737906,"usage":[{"inputTokens":5225,"outputTokens":15,"totalTokens":5240}],"metadata":{"tanstack":{"source":{"provider":"fake","api":"text","model":"cf-gemma-4-26b"},"model":"cf-gemma-4-26b","finishReason":"length"}}}
+

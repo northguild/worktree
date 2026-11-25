@@ -17,7 +17,7 @@ Browser (northguild.dev/worktree/)  →  POST https://<worker>.workers.dev/api/c
                           3a. the ledger (usage.ts): read today's counts from KV (if bound);
                               a visitor at their cap of 5 a UTC day → 429 { error, retryable, resetsAt }
                           4. retrieval: search the question in the bundled corpus,
-                             keep what fits, build the system prompt (retrieval/)  → 500 if the corpus cannot be searched
+                             keep what fits, build the system prompt (prepare-turn.ts, over retrieval/)  → 500 if the corpus cannot be searched
                           5. the stream opens: RUN_STARTED, then the walk past the brains (brains.ts, walkBrains):
                                for each candidate the ledger has not marked out, in order, chat()  (@tanstack/ai) over its adapter
                                  – createCloudflareText over env.AI for a Workers AI brain
@@ -213,16 +213,36 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 |---|---|---|
 | `worker:dev` | Runs the **already-built** worker locally at `http://localhost:8787` | After `worker:build`, when you want to test against the local worker |
 | `worker:build:watch` | Rebuilds the worker bundle on every file save | In a separate terminal during active worker development |
+| `worker:dev:evals` | Runs the built worker as the local-only `evals` environment (below), with `GEMINI_API_KEY` blanked | Only for the live Dox evals, which spend real Neurons (`docs/evals/README.md`) |
+| `worker:dev:evals:gemini` | The same, with `.dev.vars` left in so the Gemini brains answer | Only when the live evals are to ask a Gemini brain |
 | `worker:build-context` | Scans MDX files + `skills/worktree/SKILL.md` → regenerates `worker/docs-context.ts` (the corpus: chunks, serialised MiniSearch index, vocabulary, counts, plus `LEGACY_PROMPT`, the frozen `POST /` route's whole-docs prompt) **and** `src/chat/docs-routes.generated.ts` (valid link list, corpus counts) | After adding/editing any docs page or the skill guide |
 | `worker:build` | Runs `worker:build-context` then bundles `worker.ts` via tsup | Before `worker:dev`, or manually before deploying |
 
 > **Tip:** Use `dev:local:watch` (see [Local development](#local-development)) to run the full stack in one command instead of managing terminals manually.
 
+### The `evals` environment
+
+`wrangler.toml`'s `[env.evals]` is a local-only copy of this Worker for the live Dox evals (plan #355). It declares `[env.evals.ai]`
+(remote: the models spend the account's real Neurons) and **no** `DOX_USAGE` namespace, because bindings are not inherited into an
+environment. Without the ledger the 5-a-day visitor cap and the usage counts are off, so a run is not stopped after five questions
+and the preview namespace takes no writes. `workers_dev = false` and no route mean it has no URL. **Never deploy it:**
+`worker-deploy.yml` passes no `--env`, and `wrangler deploy --env evals` would create `worktree-gemini-proxy-evals` without the
+visitor cap. A dry run (`wrangler deploy --dry-run --env evals`) is safe, needs no credentials, and prints the bindings
+(`AI` only, with two warnings that `vars` and `kv_namespaces` are not inherited, which is intended).
+
+`wrangler dev --env evals` reads `.dev.vars.evals` if there is one and ignores `.dev.vars` then; with none it reads `.dev.vars`
+(Cloudflare's local-development documentation). That is why `worker:dev:evals` blanks the key with `--var GEMINI_API_KEY:` and
+`worker:dev:evals:gemini` leaves it. The runbook, `docs/evals/README.md`, has the whole procedure.
+
+Both evals scripts run `wrangler dev` **without** `--local`. That flag turns remote bindings off, and Workers AI has no local
+simulator, so under it the start-up table shows `env.AI` as `not supported` and every answer fails with `upstream_unavailable`.
+Without the flag `wrangler dev` still runs the Worker locally and sends only the `AI` binding to Cloudflare.
+
 ### Testing
 
 | Command | What it does | When to run |
 |---|---|---|
-| `worker:test` | Runs every test under `docs/worker/` (the router, both handlers, the validator, the retrieval modules, the error mapping, the rate limiter) with vitest | Before deploying, or in CI |
+| `worker:test` | Runs every test under `docs/worker/` (the router, both handlers, the validator, the retrieval modules, the error mapping, the rate limiter) with vitest. It does not run the Dox evals under `docs/evals/`; `pnpm docs:test` (`test` in the docs workspace) does | Before deploying, or in CI |
 | `worker:bundle-check` | Builds the worker, then `wrangler deploy --dry-run`: proves it still bundles for Cloudflare. Needs no credentials and sends nothing | After changing a dependency or an import; CI runs it |
 
 ### Deployment
@@ -439,7 +459,8 @@ assembled, and how AI-generated links are validated, see
 ### Quick reference for this worker
 
 The worker does not carry the docs in its prompt. For each question it searches a corpus that is embedded in the bundle
-and builds a prompt from what it finds (`retrieval/`):
+and builds a prompt from what it finds. `prepare-turn.ts` (`prepareTurn`) runs the steps below in order, once per
+question, and `chat-handler.ts` calls it; the pieces are in `retrieval/`:
 
 1. **`search.ts`**: MiniSearch 7.2.0 over the docs' heading sections, loaded once per isolate from the index
    `worker:build-context` serialised. Stopwords out, identifiers split into words, a 1.5 boost for the section of the
