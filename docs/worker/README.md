@@ -161,12 +161,17 @@ so pointed at this TOML file it prints the snippet and writes nothing. Each comm
 is derived from the title; ignore that name. Put the first id in `id` and the second in `preview_id`, under
 `binding = "DOX_USAGE"`. A made-up id makes `wrangler deploy` fail.
 
-`remote = true` is stated, as it is for `[ai]`, because `worker:dev` runs `wrangler dev --local`, and a local `wrangler dev`
-defaults to a simulated local KV that ignores both ids (Cloudflare's KV docs: "Wrangler defaults to using a local version of KV
+`remote = true` is stated, as it is for `[ai]`, because `wrangler dev` defaults to a simulated local KV that ignores both
+ids (Cloudflare's KV docs: "Wrangler defaults to using a local version of KV
 ... you can set `"remote": true` in the KV binding configuration"; wrangler 4.152.0's `config-schema.json` describes
 `kv_namespaces[].remote` as "Whether the KV namespace should be remote or not in local development"). With it, `wrangler dev`
 reads and writes the preview namespace on Cloudflare, so a local question spends real KV writes (R2). Remove the line to
 develop against the simulated local KV instead.
+
+`worker:dev` does not pass `--local`: in wrangler 4 that flag means "run locally with remote bindings disabled", so it would
+ignore `remote = true` on both bindings. Workers AI has no local simulator, and under `--local` the bindings table prints
+`env.AI  AI  not supported` and every answer fails with `upstream_unavailable`. Read the bindings table at start-up: `env.AI`
+and `env.DOX_USAGE` should say `remote`.
 
 ### Errors inside the stream
 
@@ -233,6 +238,15 @@ All commands are run from the repo root with `pnpm --filter docs run <command>`.
 **Prerequisite:** `docs/.env.local` must contain your Gemini API key.
 Copy `docs/.env.local.example` → `docs/.env.local` and fill it in. The first two brains use the `AI` binding, which is remote (see [Brains](#brains)): a question asked against `wrangler dev`
 spends the account's real daily allocation. Leave the binding out of `wrangler.toml` to run on Gemini alone.
+
+**Prerequisite: Cloudflare credentials.** `worker:dev`, and so `dev:local` and `dev:local:watch`, opens a remote session for
+the `AI` binding and the `DOX_USAGE` KV namespace, so it needs access to the account that owns them: `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` in `docs/.env.local` (wrangler reads that file), or `wrangler login`. Without them, wrangler asks you
+to log in; non-interactively, wrangler 4.152.0 stops with "Failed to start the remote proxy session ... it's necessary to set a
+CLOUDFLARE_API_TOKEN environment variable". Under `concurrently`, that line is easy to miss among the other output.
+Without access, edit `wrangler.toml` locally and do not commit the edit. Delete the `[ai]` block to run on Gemini alone, as
+above; there is no local Workers AI. Then delete `remote = true` from the `[[kv_namespaces]]` block
+(`binding = "DOX_USAGE"`), so the ledger uses a simulated local KV.
 
 Two commands cover the common cases:
 
