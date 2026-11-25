@@ -702,7 +702,7 @@ describing it goes to stderr as usual:
 | `code` | Means | Exit |
 | --- | --- | --- |
 | `missing_value` | a value with no default was not given, such as `--linear` with no identifier in a run that cannot ask or with `--dry-run`; `details` names it and the flag | `2` |
-| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a reference the `--issue` provider calls `invalid_reference`, an empty `--issue`, a `--github`, `--jira` or `--linear` URL for another repository or GitHub host, Jira site or Linear workspace or of a shape not accepted, a `--github` number that is a pull request, a branch name that is already taken | `2` |
+| `invalid_value` | a value or flag combination was refused: a bad branch name, an empty brief, a malformed `--github`, `--jira`, `--linear` or `--clickup` issue id, a reference the `--issue` provider calls `invalid_reference`, an empty `--github`, `--jira`, `--linear`, `--clickup` or `--issue`, a `--github`, `--jira` or `--linear` URL for another repository or GitHub host, Jira site or Linear workspace or of a shape not accepted, a `--github` number that is a pull request, a branch name that is already taken | `2` |
 | `not_found` | something named does not exist, such as the `--source` branch | `2` |
 | `timeout` | a call that is bounded did not answer in time | `1` |
 | `failed` | anything else | `1` |
