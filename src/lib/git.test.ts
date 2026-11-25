@@ -1547,6 +1547,24 @@ describe("gitGetWorktreeList with a prunable record", () => {
     expect(worktree?.safeToRemove).toBe(false);
   });
 
+  // #372 review: git calls a record whose whole directory is gone prunable too.
+  // That one keeps the missing-path verdict it always had, uncounted.
+  it("leaves a prunable record whose directory is gone uncounted and safe", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    mockPreamble(`${porcelainRecord(brokenPath, "broken")}${prunableLine}\n`);
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree?.prunable).toBeUndefined();
+    expect(worktree?.ahead).toBeUndefined();
+    expect(worktree?.safeToRemove).toBe(true);
+    expect(mockRun).not.toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", "origin/main..refs/heads/broken"],
+      undefined,
+    );
+  });
+
   it("counts a prunable branch with a live upstream against that upstream", async () => {
     expectCommands(
       "git fetch --prune",
@@ -3164,6 +3182,31 @@ describe("gitGetWorktrees", () => {
       ),
     );
     vi.spyOn(fs, "existsSync").mockReturnValue(false);
+
+    // The directory is gone, which git also calls prunable. It keeps the
+    // missing-path verdict it always had, so it is not marked (#372 review).
+    expect(await gitGetWorktrees()).toEqual([
+      {
+        path: `${treesPath}/prun`,
+        branchName: "prun",
+        pathExists: false,
+        isCurrent: false,
+      },
+    ]);
+  });
+
+  it("marks a prunable worktree whose directory is still on disk", async () => {
+    mockList(
+      porcelain(
+        mainRecord,
+        linked(
+          `${treesPath}/prun`,
+          "prun",
+          "prunable gitdir file points to non-existent location",
+        ),
+      ),
+    );
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
 
     expect(await gitGetWorktrees()).toEqual([
       {

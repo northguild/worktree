@@ -72,10 +72,12 @@ export interface WorktreeListBaseEntry {
   path: string;
   branchName: string;
   pathExists?: boolean;
-  // Git lists the record as `prunable`: it has no usable checkout, even where
-  // its directory is still on disk without the `.git` file (#368). Such an
-  // entry reports `pathExists: false`, and `head` is the commit git's own
-  // record holds for it, which is what its commits are counted from.
+  // The directory is still on disk, but git lists the record as `prunable`
+  // because it has lost its `.git` file, so it is no usable checkout (#368).
+  // Such an entry reports `pathExists: false`, and `head` is the commit git's
+  // own record holds for it, which is what its commits are counted from. A
+  // record whose directory is gone is never marked, though git calls it
+  // prunable too: it keeps the missing-path verdict it always had.
   prunable?: boolean;
   head?: string;
   isCurrent?: boolean;

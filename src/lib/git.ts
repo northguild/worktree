@@ -358,20 +358,27 @@ export async function gitGetWorktrees({
 
   return (
     parseWorktreeRecords(result)
-      .map(({ path, branchName, prunable, head }) => ({
-        path,
-        branchName,
-        ...(prunable ? { prunable, head } : {}),
-        // A prunable record has no usable checkout even where its directory is
-        // still there: git searches the parents of a directory with no `.git`
-        // and runs every probe in the wrong repository, or none (#368). No probe
-        // runs in it; its commits are counted from the repository instead, and
-        // `remove` and `cleanup` prune it. Pruning leaves the directory as is.
-        pathExists: !prunable && fs.existsSync(path),
-        isCurrent: currentBranch
-          ? branchName === currentBranch
-          : path === currentPath,
-      }))
+      .map(({ path, branchName, prunable, head }) => {
+        const onDisk = fs.existsSync(path);
+        // Git marks a record `prunable` both when its directory is gone and
+        // when the directory is still there without its `.git` file. Only the
+        // second is new here (#368): it has no usable checkout, because git
+        // searches the parents of a directory with no `.git` and runs every
+        // probe in the wrong repository, or none. No probe runs in it; its
+        // commits are counted from the repository instead, and `remove` and
+        // `cleanup` prune it, leaving the directory as is. A directory that is
+        // gone keeps the verdict it always had, so it is not marked.
+        const kept = prunable && onDisk;
+        return {
+          path,
+          branchName,
+          ...(kept ? { prunable: true, head } : {}),
+          pathExists: !prunable && onDisk,
+          isCurrent: currentBranch
+            ? branchName === currentBranch
+            : path === currentPath,
+        };
+      })
       // Filter out any branches that are not worktree branches, and also skip the current branch.
       // The trailing separator keeps a sibling such as `<root>.worktrees-old` out.
       .filter(
@@ -459,9 +466,10 @@ export function isSafeToRemove(wt: WorktreeListEntry): boolean {
     // Worktree is defined but doesn't exist in the filesystem. Tested first, and
     // before the agent clause too: a directory that is already gone holds
     // nothing to lose, whoever the session listing still believes is in it.
-    // A prunable record is not let through here (#368): its branch can carry
-    // commits that exist nowhere else, and `branch -D` would drop them, so it
-    // answers the clauses below on the count taken from the repository.
+    // A prunable record whose directory is still on disk is not let through
+    // here (#368): its branch can carry commits that exist nowhere else, and
+    // `branch -D` would drop them, so it answers the clauses below on the count
+    // taken from the repository. A gone directory is not marked `prunable`.
     return true;
   }
   if (hasLiveAgent(wt)) {
@@ -559,10 +567,10 @@ interface AheadCount {
 }
 
 // Where a worktree's commits are counted from. A checkout is asked from inside
-// it, about its HEAD. A prunable record has no checkout to ask from (#368), but
-// git still holds its branch and its HEAD commit, so it is asked from the
-// repository about those. A directory that is gone and not prunable has
-// neither, and gets no probe.
+// it, about its HEAD. A directory that lost its `.git` (marked `prunable`) has
+// no checkout to ask from (#368), but git still holds its branch and its HEAD
+// commit, so it is asked from the repository about those. A directory that is
+// gone gets no probe, as it never did.
 interface CommitProbe {
   cwd: string | undefined;
   rev: string;
