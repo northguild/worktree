@@ -65,11 +65,15 @@ Found 5 worktree branches that are marked safe to remove.
 - feature/eng-123-dark-mode (Linear issue ENG-123 canceled, no unpushed commits)
 ```
 
-Those five are the whole vocabulary. `merged into <base>` is the one that names a count rather
+Those five are the whole vocabulary, with one more below for a directory that has lost its `.git` file. `merged into <base>` is the one that names a count rather
 than denying one: that worktree *is* ahead of `origin/main`, and every commit in it is already
 applied there. `Path does not exist` answers none of the checks above: a worktree whose
 directory is already gone is removed before its commits are considered, because there is no
-directory to count them in.
+directory to count them in. `Not a git checkout (.git missing), directory kept` is a directory that is still on disk but
+has lost its `.git` file, as an interrupted removal can leave it. Unlike a directory that is gone,
+its branch is still counted, from the repository, and it is removed only when the checks above
+clear it. `cleanup` then drops git's record of it and its branch, and leaves the directory for you
+to check for uncommitted work before you delete it by hand.
 
 `cleanup` also reports what it held back, under four headings:
 
