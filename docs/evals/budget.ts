@@ -232,14 +232,16 @@ function previewLines(
   committed: CommittedReports,
 ): string[] {
   const lines = ["--brains all would run:"];
+  let neurons = 0;
   for (const brain of brains) {
     if (brain.provider === "workers-ai") {
       const total = cases.reduce(
         (sum, c) => sum + estimateNeurons(committed[brain.id], c.id),
         0,
       );
+      neurons += total;
       lines.push(
-        `  ${brain.id}: ${cases.length} cases, about ${total} Neurons (budget ${options.budget})`,
+        `  ${brain.id}: ${cases.length} cases, about ${total} Neurons`,
       );
     } else {
       lines.push(
@@ -247,6 +249,9 @@ function previewLines(
       );
     }
   }
+  lines.push(
+    `  Workers AI together: about ${neurons} Neurons, against one budget of ${options.budget}`,
+  );
   lines.push("Nothing was sent. Add --confirm-spend to run it.");
   return lines;
 }
@@ -292,16 +297,24 @@ export class RunGuard {
     this.committed = committed;
   }
 
-  /** A budget stop ends the run: that case and every later one are `ungraded`. A Gemini cap stops that model only. */
+  /**
+   * The budget is the Workers AI brains' together, since they draw on one pool of Neurons, so a budget stop ends every
+   * Workers AI case after it and no Gemini one: those spend no Neurons. A Gemini cap stops that model only. Each case
+   * reserves the worst case, or its committed figure where that is higher, so the run stops before any case that could
+   * take it past the budget, not only before one that is expected to.
+   */
   decide(brain: GuardBrain, caseId: string): Decision {
-    if (this.stopped) return { start: false, note: "budget", endsRun: true };
     if (brain.provider === "google") {
       if ((this.requests.get(brain.id) ?? 0) >= this.limits.geminiCap) {
         return { start: false, note: "gemini cap", endsRun: false };
       }
       return { start: true };
     }
-    const reserved = estimateNeurons(this.committed[brain.id], caseId);
+    if (this.stopped) return { start: false, note: "budget", endsRun: true };
+    const reserved = Math.max(
+      estimateNeurons(this.committed[brain.id], caseId),
+      WORST_CASE_NEURONS,
+    );
     if (this.spent + reserved > this.limits.budget) {
       this.stopped = true;
       return { start: false, note: "budget", endsRun: true };

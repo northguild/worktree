@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseStream, readStream } from "./read-stream.ts";
+import { parseStream } from "./read-stream.ts";
 
 // The fixtures are real `createChatHandler` output over `fakeText` (`README.md` says how they were recorded). Every expected
 // value below is what the recording was told to say or what the recorded bytes hold, read by hand from the .sse file:
@@ -146,15 +146,5 @@ describe("parseStream — faults", () => {
     expect(parseStream("").faults).toEqual([
       "the stream ended with neither RUN_FINISHED nor RUN_ERROR",
     ]);
-  });
-});
-
-describe("readStream", () => {
-  it("reads a Response body to the same record as its text", async () => {
-    const text = fixture("answer");
-
-    const record = await readStream(new Response(text));
-
-    expect(record).toEqual(parseStream(text));
   });
 });

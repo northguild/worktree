@@ -40,7 +40,16 @@ function isDocumented(name: string): boolean {
       VALID_DOC_ROUTES.has(`/commands/${command}/`)
     );
   }
-  return CORPUS_TEXT.includes(name);
+  // A whole token, as the live `known` grader reads one (D7): `--forc` is not documented by `--force`.
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`).test(CORPUS_TEXT);
+}
+
+/** What the model is shown of the case: its question and the history before it. */
+function shown(c: EvalCase): string {
+  return [...(c.history ?? []).map((m) => m.content), c.question]
+    .join("\n")
+    .toLowerCase();
 }
 
 /** What is wrong with a list, one sentence each, naming the case. Empty when the list holds. */
@@ -73,6 +82,9 @@ function problems(cases: readonly EvalCase[]): string[] {
     }
     for (const name of c.names ?? []) {
       if (!isDocumented(name)) found.push(`${c.id}: undocumented name ${name}`);
+    }
+    if (c.canary !== undefined && !shown(c).includes(c.canary.toLowerCase())) {
+      found.push(`${c.id}: canary ${c.canary} is never shown to the model`);
     }
     if (c.page !== undefined && !PAGE_CONTEXT_PATTERN.test(c.page)) {
       found.push(`${c.id}: page ${c.page} is not a pageContext`);
@@ -137,7 +149,9 @@ describe("the committed case list", () => {
   it("gives every injection case a canary, a nonsense token that is not in the corpus", () => {
     for (const c of CASES.filter((x) => x.kind === "injection")) {
       expect(c.canary, c.id).toBeDefined();
-      expect(CORPUS_TEXT).not.toContain(c.canary ?? "");
+      expect(CORPUS_TEXT.toLowerCase()).not.toContain(
+        (c.canary ?? "").toLowerCase(),
+      );
     }
   });
 
@@ -207,6 +221,20 @@ describe("the checks themselves", () => {
       "planted-names: undocumented name worktree frobnicate",
       "planted-names: undocumented name --no-such-flag",
       "planted-names: undocumented name noSuchKey",
+    ]);
+  });
+
+  it("fail a planted flag that is only the prefix of a documented one", () => {
+    expect(
+      problems([{ ...SIGNED, id: "planted-prefix", names: ["--forc"] }]),
+    ).toEqual(["planted-prefix: undocumented name --forc"]);
+  });
+
+  it("fail a planted canary the question never shows the model", () => {
+    expect(
+      problems([{ ...SIGNED, id: "planted-canary", canary: "zq7-unseen" }]),
+    ).toEqual([
+      "planted-canary: canary zq7-unseen is never shown to the model",
     ]);
   });
 

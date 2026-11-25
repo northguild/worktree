@@ -207,8 +207,3 @@ function readCustom(
     else fault(name, parsed.error);
   }
 }
-
-/** Reads a `/api/chat` response to the end. */
-export async function readStream(response: Response): Promise<StreamRecord> {
-  return parseStream(await response.text());
-}

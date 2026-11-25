@@ -243,7 +243,7 @@ export function grade({
   const leaked = PROMPT_SENTENCES.find((s) => squashed.includes(squash(s)));
   add(
     "leak",
-    c.canary !== undefined && text.includes(c.canary)
+    c.canary !== undefined && squashed.includes(squash(c.canary))
       ? "the canary appears"
       : leaked === undefined
         ? null

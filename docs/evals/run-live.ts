@@ -31,6 +31,7 @@ import {
   parseRunArgs,
   RunGuard,
   USAGE,
+  WORST_CASE_NEURONS,
 } from "./budget.ts";
 import { CASES, type EvalCase } from "./cases.ts";
 import { GRADER_NAMES, type Grade, grade, indexDocs } from "./graders.ts";
@@ -190,7 +191,8 @@ function requestBody(brainId: string, c: EvalCase): string {
 
 type Asked =
   | { kind: "answer"; status: number; record: StreamRecord }
-  | { kind: "no-answer"; reason: string };
+  /** `mayHaveSpent`: the request reached the model, so the answer may have been generated and billed unread. */
+  | { kind: "no-answer"; reason: string; mayHaveSpent: boolean };
 
 // 5. `POST /api/chat`, then 6. read the SSE stream.
 async function ask(brainId: string, c: EvalCase): Promise<Asked> {
@@ -205,11 +207,33 @@ async function ask(brainId: string, c: EvalCase): Promise<Asked> {
     return {
       kind: "no-answer",
       reason: `no answer: ${error instanceof Error ? error.message : String(error)}`,
+      mayHaveSpent: false,
     };
   }
-  if (response.status === 429) {
-    await response.text().catch(() => "");
-    return { kind: "no-answer", reason: "429: rate limited" };
+  // Every answer is a 200 stream; a model's failure is a `RUN_ERROR` inside it. Anything else is the Worker's JSON error
+  // (a 429, a 400 from validation, a 500), which spent nothing and is no answer to grade.
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    let error = "";
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "error" in parsed &&
+        typeof parsed.error === "string"
+      ) {
+        error = `: ${parsed.error}`;
+      }
+    } catch {}
+    return {
+      kind: "no-answer",
+      reason:
+        response.status === 429
+          ? "429: rate limited"
+          : `HTTP ${response.status}${error}`,
+      mayHaveSpent: false,
+    };
   }
   // The body can fail after the headers arrived: the Worker dies or drops the socket mid-stream.
   let body: string;
@@ -219,6 +243,7 @@ async function ask(brainId: string, c: EvalCase): Promise<Asked> {
     return {
       kind: "no-answer",
       reason: `lost connection: ${error instanceof Error ? error.message : String(error)}`,
+      mayHaveSpent: true,
     };
   }
   return { kind: "answer", status: response.status, record: parseStream(body) };
@@ -233,8 +258,12 @@ const ungraded = (): CaseReport => ({
 });
 
 const guard = new RunGuard(options, committedNeurons);
-const generatedAt = convertUnixToUtc(getUnixNow() ?? 0) ?? "unknown";
-let stoppedUngraded = false;
+// `convertUnixToUtc` answers "" for a time it cannot convert, never null.
+const generatedAt = convertUnixToUtc(getUnixNow() ?? 0) || "unknown";
+/** Some case was left `ungraded`: exit 3, whichever limit or failure left it. */
+let leftUngraded = false;
+/** Nothing later can be measured: no answer came, or every brain is out for the day. */
+let endRun = false;
 let regression = false;
 
 for (const brain of brains) {
@@ -254,7 +283,7 @@ for (const brain of brains) {
       console.log(
         `UNGRADED ${brain.id.padEnd(22)} ${c.id.padEnd(38)} stopped: ${decision.note}`,
       );
-      if (decision.endsRun) stoppedUngraded = true;
+      leftUngraded = true;
       continue;
     }
 
@@ -263,15 +292,22 @@ for (const brain of brains) {
     const asked = await ask(brain.id, c);
 
     if (asked.kind === "no-answer") {
-      guard.record(brain, 0);
+      // A stream lost after the headers may have been answered and billed in full: book the worst case, so the run
+      // never under-reports what it took from the shared daily pool.
+      const booked =
+        asked.mayHaveSpent && brain.provider === "workers-ai"
+          ? WORST_CASE_NEURONS
+          : 0;
+      guard.record(brain, booked);
       results[c.id] = ungraded();
       console.log(
-        `UNGRADED ${brain.id.padEnd(22)} ${c.id.padEnd(38)} ${asked.reason}`,
+        `UNGRADED ${brain.id.padEnd(22)} ${c.id.padEnd(38)} ${asked.reason}${booked > 0 ? ` (booked as ${booked} N)` : ""}`,
       );
       console.warn(
         "! No answer; stopping, because the rest would only measure the failure.",
       );
-      stoppedUngraded = true;
+      leftUngraded = true;
+      endRun = true;
       break;
     }
 
@@ -324,7 +360,8 @@ for (const brain of brains) {
       console.warn(
         "! Every brain is out for the day; stopping, because the rest would only measure the quota.",
       );
-      stoppedUngraded = true;
+      leftUngraded = true;
+      endRun = true;
       break;
     }
   }
@@ -366,8 +403,8 @@ for (const brain of brains) {
         : `! ${brain.id}: no report written, because only a run where every case passed may write one (${written.reason}).`,
     );
   }
-  if (stoppedUngraded) break;
+  if (endRun) break;
 }
 
 console.log(`\nspent ${guard.spent} of ${options.budget} Neurons`);
-process.exit(regression ? 1 : stoppedUngraded ? 3 : 0);
+process.exit(regression ? 1 : leftUngraded ? 3 : 0);

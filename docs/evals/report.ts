@@ -95,7 +95,7 @@ export interface RunResult {
   generatedAt: string;
   budget: number;
   cases: Record<string, CaseReport>;
-  /** `--only`: replace just these entries and add their Neurons to the committed total. */
+  /** `--only`: replace just these entries; the total is then recomputed over every entry. */
   partial: boolean;
 }
 
@@ -107,19 +107,17 @@ export function mergeReport(
   committed: LiveReport | undefined,
   run: RunResult,
 ): LiveReport {
-  const ran = Object.values(run.cases).reduce(
+  const cases = run.partial ? { ...committed?.cases, ...run.cases } : run.cases;
+  // The sum over the cases the report holds, so a rerun case replaces its old figure rather than adding to it.
+  const spent = Object.values(cases).reduce(
     (sum, c) => sum + (c.neurons ?? 0),
     0,
   );
-  const cases = run.partial ? { ...committed?.cases, ...run.cases } : run.cases;
   return {
     brain: run.brain,
     model: run.model,
     generatedAt: run.generatedAt,
-    neurons: {
-      spent: (run.partial ? (committed?.neurons.spent ?? 0) : 0) + ran,
-      budget: run.budget,
-    },
+    neurons: { spent, budget: run.budget },
     cases: Object.fromEntries(Object.entries(cases).sort(byKey)),
   };
 }

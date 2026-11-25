@@ -171,7 +171,7 @@ describe("mergeReport and serialiseReport", () => {
     expect(merged.neurons).toEqual({ spent: 250, budget: 2500 });
   });
 
-  it("replaces only its own entries on a partial run and adds their Neurons", () => {
+  it("replaces only its own entries on a partial run, and their Neurons replace the old figures", () => {
     const merged = mergeReport(committed, {
       ...run,
       cases: { b: pass(90) },
@@ -179,7 +179,21 @@ describe("mergeReport and serialiseReport", () => {
     });
     expect(merged.cases.a).toEqual(committed.cases.a);
     expect(merged.cases.b?.neurons).toBe(90);
-    expect(merged.neurons.spent).toBe(400 + 90);
+    // a's 200 and b's new 90: b's old 200 is gone with its entry, so a rerun never grows the total.
+    expect(merged.neurons.spent).toBe(200 + 90);
+    expect(
+      mergeReport(merged, { ...run, cases: { b: pass(90) }, partial: true })
+        .neurons.spent,
+    ).toBe(290);
+  });
+
+  it("adds a partial run's new entry to the total", () => {
+    const merged = mergeReport(committed, {
+      ...run,
+      cases: { c: pass(60) },
+      partial: true,
+    });
+    expect(merged.neurons.spent).toBe(200 + 200 + 60);
   });
 
   it("writes keys in sorted order at every depth, so a rewrite diffs quietly", () => {

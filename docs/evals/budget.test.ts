@@ -176,6 +176,11 @@ describe("parseRunArgs — --brains all asks first", () => {
     // 3 live cases x 350 worst case = 1,050 Neurons for each of the two Workers AI brains.
     expect(text).toContain("cf-gemma-4-26b: 3 cases, about 1050 Neurons");
     expect(text).toContain("cf-glm-4.7-flash: 3 cases, about 1050 Neurons");
+    // The two draw on one pool, so the budget is theirs together, not one each.
+    expect(text).toContain(
+      "Workers AI together: about 2100 Neurons, against one budget of 2500",
+    );
+    expect(text).not.toContain("(budget");
     // A Gemini brain is capped at 3 requests by default, and its 3 cases fit.
     expect(text).toContain("gemini-3.6-flash: 3 cases, up to 3 requests");
     expect(text).toContain("Nothing was sent");
@@ -241,16 +246,40 @@ describe("RunGuard — a run stops before overspending", () => {
     });
   });
 
-  it("reserves the committed report's figure for a case it holds", () => {
-    // Budget 120: a case committed at 100 fits, where the 350 worst case would not.
+  it("reserves the worst case even for a case the committed report holds cheaper", () => {
+    // The committed 5 is one answer's figure, not a bound: the same question can be answered at full length next time.
     const guard = new RunGuard(
       { budget: 120, geminiCap: 3 },
-      { [GEMMA.id]: { cases: { a: { neurons: 100 } } } },
+      { [GEMMA.id]: { cases: { a: { neurons: 5 } } } },
     );
-    expect(guard.decide(GEMMA, "a")).toEqual({ start: true });
-    guard.record(GEMMA, 100);
-    // 100 spent; a case with no committed figure needs 350 more.
+    expect(guard.decide(GEMMA, "a")).toEqual({
+      start: false,
+      note: "budget",
+      endsRun: true,
+    });
+  });
+
+  it("reserves a committed figure above the worst case", () => {
+    const guard = new RunGuard(
+      { budget: 400, geminiCap: 3 },
+      { [GEMMA.id]: { cases: { a: { neurons: 401 } } } },
+    );
+    expect(guard.decide(GEMMA, "a").start).toBe(false);
+  });
+
+  it("stops the Workers AI brains together on the budget, and no Gemini brain", () => {
+    const guard = new RunGuard({ budget: 400, geminiCap: 3 });
+    guard.decide(GEMMA, "a");
+    guard.record(GEMMA, 300);
+    // 300 + 350 is over 400: the budget stop ends Gemma's cases and GLM's, which share the pool...
     expect(guard.decide(GEMMA, "b").start).toBe(false);
+    expect(guard.decide(GLM, "a")).toEqual({
+      start: false,
+      note: "budget",
+      endsRun: true,
+    });
+    // ...and a Gemini brain, which spends no Neurons, is still asked.
+    expect(guard.decide(FLASH, "a")).toEqual({ start: true });
   });
 
   it("spends the measured figure, not the reservation", () => {
