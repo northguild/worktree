@@ -18,7 +18,7 @@
   "metrics": {
     "fit.kept": 0.962,
     "refusal.quiet": 1,
-    "retrieval.mrr": 0.7,
+    "retrieval.mrr": 0.719,
     "retrieval.recallAt10": 0.888,
     "retrieval.withinK": 1,
     "vocabulary.hit": 1
@@ -42,7 +42,7 @@
     "lookup-terse-rename": [1],
     "lookup-terse-undo-a-cleanup": [3],
     "lookup-what-does-clean-do": [null],
-    "reworded-cleanup-merged-prs": [2],
+    "reworded-cleanup-merged-prs": [1],
     "reworded-cleanup-stale": [1],
     "reworded-env-new-worktree": [1],
     "reworded-env-untracked": [1],
