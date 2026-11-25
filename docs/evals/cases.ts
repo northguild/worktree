@@ -64,7 +64,7 @@ export interface EvalCase {
 }
 
 const ISSUES =
-  "Core Patterns › Derive a branch name from a GitHub, Jira or Linear issue or a ClickUp task";
+  "Core Patterns › Derive a branch name from a GitHub, Jira or Linear issue, a ClickUp task or your own tracker";
 const CREATE = "Core Patterns › Create a new branch in its own worktree";
 const LIFECYCLE = "Core Patterns › Maintain the worktree lifecycle";
 
