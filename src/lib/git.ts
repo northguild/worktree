@@ -223,8 +223,9 @@ export async function gitGetTopLevelPath() {
 // gitGetWorktreeList can pass gitGetComparisonBase()'s answer for a worktree
 // that has no upstream — `@{u}` does not resolve there and run() rejects.
 export async function gitGetCommitsAheadCount(
-  branchPath: string,
+  branchPath: string | undefined,
   base = "@{u}",
+  rev = "HEAD",
 ) {
   // An empty base is gitGetComparisonBase() saying nothing resolved, and git
   // does not refuse it: `rev-list --count ..HEAD` exits 0 and prints 0. That
@@ -234,9 +235,11 @@ export async function gitGetCommitsAheadCount(
   if (!base) {
     return undefined;
   }
-  const countStr = await run("git", ["rev-list", "--count", `${base}..HEAD`], {
-    cwd: branchPath,
-  });
+  const countStr = await run(
+    "git",
+    ["rev-list", "--count", `${base}..${rev}`],
+    branchPath === undefined ? undefined : { cwd: branchPath },
+  );
   if (countStr) {
     return strToNum(countStr);
   }
@@ -301,23 +304,30 @@ export const DETACHED_LABEL = "(detached HEAD)";
 // the `bare` one, has no branch to report and is dropped. `prunable` marks a
 // record git can no longer use, such as a directory that lost its `.git` file
 // (#368); the directory may still be on disk.
-function parseWorktreeRecords(
-  porcelain: string,
-): Array<{ path: string; branchName: string; prunable: boolean }> {
+function parseWorktreeRecords(porcelain: string): Array<{
+  path: string;
+  branchName: string;
+  prunable: boolean;
+  head?: string;
+}> {
   const entries: Array<{
     path: string;
     branchName: string;
     prunable: boolean;
+    head?: string;
   }> = [];
 
   for (const record of porcelain.split("\n\n")) {
     let path: string | undefined;
     let branchName: string | undefined;
     let prunable = false;
+    let head: string | undefined;
 
     for (const line of record.split("\n")) {
       if (line.startsWith("worktree ")) {
         path = line.slice("worktree ".length);
+      } else if (line.startsWith("HEAD ")) {
+        head = line.slice("HEAD ".length);
       } else if (line.startsWith("branch ")) {
         branchName = line.slice("branch ".length).replace(/^refs\/heads\//, "");
       } else if (line === "detached") {
@@ -328,7 +338,7 @@ function parseWorktreeRecords(
     }
 
     if (path !== undefined && branchName !== undefined) {
-      entries.push({ path, branchName, prunable });
+      entries.push({ path, branchName, prunable, head });
     }
   }
 
@@ -348,14 +358,15 @@ export async function gitGetWorktrees({
 
   return (
     parseWorktreeRecords(result)
-      .map(({ path, branchName, prunable }) => ({
+      .map(({ path, branchName, prunable, head }) => ({
         path,
         branchName,
+        ...(prunable ? { prunable, head } : {}),
         // A prunable record has no usable checkout even where its directory is
         // still there: git searches the parents of a directory with no `.git`
-        // and runs every probe in the wrong repository, or none (#368). It is
-        // treated as a missing path, which skips the probes and lets `remove`
-        // and `cleanup` prune it. Pruning leaves the directory untouched.
+        // and runs every probe in the wrong repository, or none (#368). No probe
+        // runs in it; its commits are counted from the repository instead, and
+        // `remove` and `cleanup` prune it. Pruning leaves the directory as is.
         pathExists: !prunable && fs.existsSync(path),
         isCurrent: currentBranch
           ? branchName === currentBranch
@@ -444,10 +455,13 @@ function carriesNoKnownWork(wt: WorktreeListEntry): boolean {
 }
 
 export function isSafeToRemove(wt: WorktreeListEntry): boolean {
-  if (!wt.pathExists) {
+  if (!wt.pathExists && !wt.prunable) {
     // Worktree is defined but doesn't exist in the filesystem. Tested first, and
     // before the agent clause too: a directory that is already gone holds
     // nothing to lose, whoever the session listing still believes is in it.
+    // A prunable record is not let through here (#368): its branch can carry
+    // commits that exist nowhere else, and `branch -D` would drop them, so it
+    // answers the clauses below on the count taken from the repository.
     return true;
   }
   if (hasLiveAgent(wt)) {
@@ -544,21 +558,51 @@ interface AheadCount {
   base?: string;
 }
 
+// Where a worktree's commits are counted from. A checkout is asked from inside
+// it, about its HEAD. A prunable record has no checkout to ask from (#368), but
+// git still holds its branch and its HEAD commit, so it is asked from the
+// repository about those. A directory that is gone and not prunable has
+// neither, and gets no probe.
+interface CommitProbe {
+  cwd: string | undefined;
+  rev: string;
+  upstream: string;
+}
+
+function commitProbe(wt: WorktreeListBaseEntry): CommitProbe | undefined {
+  if (wt.pathExists) {
+    return { cwd: wt.path, rev: "HEAD", upstream: "@{u}" };
+  }
+  if (!wt.prunable) {
+    return undefined;
+  }
+  if (wt.branchName !== DETACHED_LABEL) {
+    return {
+      cwd: undefined,
+      rev: `refs/heads/${wt.branchName}`,
+      upstream: `${wt.branchName}@{u}`,
+    };
+  }
+  return wt.head
+    ? { cwd: undefined, rev: wt.head, upstream: wt.head }
+    : undefined;
+}
+
 // The one count that can legitimately fail to take, so every exit says which
 // happened: a number, or a reason it is missing. Never a zero standing in for a
 // count that was never taken — that substitution is the whole defect this
 // feature exists to remove. See UNPUSHED-COMMIT-GUARD-PLAN §3 D1, issue #63.
 async function countAhead(
-  worktreePath: string,
-  pathExists: boolean | undefined,
+  probe: CommitProbe | undefined,
   remoteExists: boolean,
   comparisonBase: string,
 ): Promise<AheadCount> {
-  if (!pathExists) {
-    // No directory to run in. `pathExists` already carries this and the
-    // listing already prints "Path does not exist", so a second detail saying
-    // the same thing would only be noise. What such a worktree's verdict
-    // should be is §9 Q5, left open by this plan and by CLEANUP-DATA-LOSS.
+  if (!probe) {
+    // No directory to run in and no prunable record to count from (see
+    // `commitProbe`). `pathExists` already carries this and the listing
+    // already prints "Path does not exist", so a second detail saying the same
+    // thing would only be noise. What such a worktree's verdict should be is
+    // §9 Q5, left open by this plan and by CLEANUP-DATA-LOSS.
     return {};
   }
 
@@ -566,7 +610,7 @@ async function countAhead(
   // count `list` has always shown, and it is the more precise question. The
   // run's comparison base is for the branch nobody ever pushed, which is
   // exactly the worktree this feature exists to stop losing.
-  const base = remoteExists ? "@{u}" : comparisonBase;
+  const base = remoteExists ? probe.upstream : comparisonBase;
   if (!base) {
     return {
       aheadUnknownReason:
@@ -575,7 +619,10 @@ async function countAhead(
   }
 
   try {
-    return { ahead: await gitGetCommitsAheadCount(worktreePath, base), base };
+    return {
+      ahead: await gitGetCommitsAheadCount(probe.cwd, base, probe.rev),
+      base,
+    };
   } catch {
     // D5: failing closed loses nothing, but failing closed *silently* makes a
     // cleanup that cannot classify anything look like a cleanup with nothing
@@ -610,13 +657,12 @@ async function countAhead(
 const MERGED_PROBE_TIMEOUT_MS = 10_000;
 
 async function findMergedBase(
-  worktreePath: string,
+  probe: CommitProbe,
   base: string,
 ): Promise<string | undefined> {
+  const at = probe.cwd === undefined ? {} : { cwd: probe.cwd };
   try {
-    const mergeBase = await run("git", ["merge-base", base, "HEAD"], {
-      cwd: worktreePath,
-    });
+    const mergeBase = await run("git", ["merge-base", base, probe.rev], at);
     // The probe commit is a real object in the repository — one per worktree
     // per run, unreachable from any ref, collected by `git gc` like any other
     // loose object. There is no way to ask git this question without one: a
@@ -624,8 +670,15 @@ async function findMergedBase(
     // are individually the wrong patches.
     const probeCommit = await run(
       "git",
-      ["commit-tree", "HEAD^{tree}", "-p", mergeBase, "-m", "merged probe"],
-      { cwd: worktreePath },
+      [
+        "commit-tree",
+        `${probe.rev}^{tree}`,
+        "-p",
+        mergeBase,
+        "-m",
+        "merged probe",
+      ],
+      at,
     );
     // The only unbounded call in the gather: `cherry` computes a patch-id for
     // every commit the base has gained since the merge base, so a worktree
@@ -634,7 +687,7 @@ async function findMergedBase(
     // verdict, and the timeout bounds the pathological case to a held-back
     // worktree rather than a `list` that appears to hang.
     const cherry = await run("git", ["cherry", base, probeCommit], {
-      cwd: worktreePath,
+      ...at,
       timeout: MERGED_PROBE_TIMEOUT_MS,
     });
     // One probe commit in, so one line out: `-` when the base already has an
@@ -727,7 +780,9 @@ export async function gitGetWorktreeList({
 
   const worktreeList: WorktreeListEntry[] = [];
 
-  for (const { path, branchName, pathExists, isCurrent } of result) {
+  for (const entry of result) {
+    const { path, branchName, pathExists, isCurrent } = entry;
+    const probe = commitProbe(entry);
     const remote = tracking.find((t) => t.local === branchName)?.remote ?? "";
     const remoteExists = !!remote && remoteBranches.includes(remote);
     // `ahead` is now counted for every worktree whose directory is there, not
@@ -736,8 +791,7 @@ export async function gitGetWorktreeList({
     // rejects — and leaving the count untaken is what let a branch carrying
     // unpushed commits read as empty.
     const { ahead, aheadUnknownReason, base } = await countAhead(
-      path,
-      pathExists,
+      probe,
       remoteExists,
       comparisonBase,
     );
@@ -751,8 +805,8 @@ export async function gitGetWorktreeList({
     // `comparisonBase` safe to hand over here: `countAhead` reaches the count
     // only through a base that is not empty.
     const mergedInto =
-      pathExists && !remoteExists && ahead
-        ? await findMergedBase(path, comparisonBase)
+      probe && !remoteExists && ahead
+        ? await findMergedBase(probe, comparisonBase)
         : undefined;
     // `behind` keeps that guard, deliberately. Against the default branch it
     // would mean "commits on main this branch does not have", non-zero for
@@ -784,6 +838,7 @@ export async function gitGetWorktreeList({
       aheadUnknownReason,
       mergedInto,
       pathExists,
+      ...(entry.prunable ? { prunable: true } : {}),
       uncommittedChanges,
       isCurrent,
       churn,
@@ -1389,7 +1444,9 @@ async function measureWorktrees(
     const measurements: TreeMeasurement[] = [];
     for (const wt of worktrees) {
       measurements.push(
-        fs.existsSync(wt.path)
+        // A kept directory weighs one entry too: a prunable one is pruned, not
+        // deleted, so walking it would draw a bar nothing ever moves (#368).
+        fs.existsSync(wt.path) && fs.existsSync(`${wt.path}/.git`)
           ? await measureTree(wt.path)
           : measureAbsentTree(),
       );

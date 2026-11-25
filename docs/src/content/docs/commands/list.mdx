@@ -95,7 +95,7 @@ edits are not part of it; they are counted separately as `N uncommitted changes`
 - **It sits beside `Ahead:` and is shown only where `Ahead:` is.** A worktree with nothing ahead, and one
   whose branch is already merged, show no `Churn:` detail. The [JSON](#json-output) still carries what was
   taken for a merged branch.
-- **It is left out where it could not be taken** — no comparison base resolved, the directory is gone, or
+- **It is left out where it could not be taken** — no comparison base resolved, the directory is gone or has lost its `.git` file, or
   the diff failed, did not answer within 10 seconds or printed something unrecognised — rather than printed as `+0 -0`.
 - **It costs one more git call per worktree**, which is why it is opt-in. Without `--churn`, `list` runs
   exactly what it ran before, and [`remove`](/worktree/commands/remove/) and [`cleanup`](/worktree/commands/cleanup/)
@@ -135,7 +135,8 @@ unchanged. [`remove`](/worktree/commands/remove/) never reads them.
 `Ahead:` counts commits this worktree carries that its comparison base does not.
 **The count is taken for every worktree whose directory is present, including
 one on a branch you have never pushed** — that is the case worth seeing, because
-those commits exist in exactly one place.
+those commits exist in exactly one place. A directory that has lost its `.git` file is
+counted too, from the repository, against the branch git still holds for it.
 
 The base depends on whether the branch tracks a remote:
 
@@ -200,8 +201,8 @@ and any warning go to stderr. It implies a [non-interactive run](/worktree/comma
 | `issue` | only with `--issues`: `null` when the branch has no recorded Linear issue, otherwise `{provider, key, state}`: `provider` is `"linear"`, `key` the identifier such as `ENG-123`, and `state` the issue's state type (`canceled`, `started`, ...) or `null` when it could not be read. Only the type is read, never the state's name |
 | `agent` | only with `--agents`: `null` when no session lives in the worktree, otherwise `{name, sessionId, herdrAgent, live, interactive, waiting}`. `waiting` is `true` for a live session that is idle between turns or blocked on a question, whether or not it is interactive. `herdrAgent` is the name Herdr gives the agent, as `branch --json` reports it in `herdr.agent`, or the agent's pane id when Herdr reports no name |
 
-**A count or flag that could not be taken is `null`, never `0` and never left out.** `ahead` and `uncommittedChanges` are
-`null` when the directory is gone (and `ahead` also when no comparison base resolved), `behind` is `null` for a branch with no upstream, `churn` is `null` when no figure was taken for the worktree, `issue.state` is `null` when the type could not be read (a warning goes to stderr, and stdout is still one document), and
+**A count or flag that could not be taken is `null`, never `0` and never left out.** `uncommittedChanges` is
+`null` when `pathExists` is `false`, `ahead` is `null` when the directory is gone (but not when it has only lost its `.git` file, which is counted from the repository) and when no comparison base resolved, `behind` is `null` for a branch with no upstream, `churn` is `null` when no figure was taken for the worktree, `issue.state` is `null` when the type could not be read (a warning goes to stderr, and stdout is still one document), and
 inside `agent` any of `sessionId`, `herdrAgent`, `live`, `interactive` and `waiting` is `null` when the
 source did not say. A `0` always means the count was taken and is zero.
 

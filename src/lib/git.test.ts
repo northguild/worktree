@@ -1472,16 +1472,18 @@ describe("gitGetWorktreeList agent join", () => {
 // worktree read as empty.
 // #368: a record git marks `prunable` has a directory that is no checkout, and
 // every probe run in it would climb into the parents and fail the whole gather.
+// Its branch is still in the repository, so its commits are counted from there.
 describe("gitGetWorktreeList with a prunable record", () => {
   const rootPath = "/repo/project";
   const brokenPath = `${rootPath}.worktrees/broken`;
+  const prunableLine = "prunable gitdir file points to non-existent location";
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
   });
 
-  it("takes no probe in it and lists it as safe to remove", async () => {
+  function mockPreamble(record: string) {
     expectCommands(
       "git fetch --prune",
       "git --no-pager branch -r",
@@ -1497,19 +1499,101 @@ describe("gitGetWorktreeList with a prunable record", () => {
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("main")
       .mockResolvedValueOnce(rootPath)
-      .mockResolvedValueOnce(
-        `${porcelainRecord(brokenPath, "broken")}prunable gitdir file points to non-existent location\n`,
-      )
+      .mockResolvedValueOnce(record)
       .mockResolvedValueOnce("origin/main");
+  }
+
+  it("counts its branch from the repository and runs nothing in the directory", async () => {
+    mockPreamble(`${porcelainRecord(brokenPath, "broken")}${prunableLine}\n`);
+    expectCommands("git rev-list --count origin/main..refs/heads/broken");
+    mockRun.mockResolvedValueOnce("0");
 
     const [worktree] = await gitGetWorktreeList();
 
     expect(worktree?.branchName).toBe("broken");
     expect(worktree?.pathExists).toBe(false);
+    expect(worktree?.ahead).toBe(0);
     expect(worktree?.safeToRemove).toBe(true);
-    expect(mockRun).not.toHaveBeenCalledWith("git", ["status", "-s"], {
-      cwd: brokenPath,
-    });
+    expect(mockRun).toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", "origin/main..refs/heads/broken"],
+      undefined,
+    );
+    for (const [, , options] of mockRun.mock.calls) {
+      expect(options?.cwd).not.toBe(brokenPath);
+    }
+  });
+
+  // The review of #372: before this, the missing-path clause let such a branch
+  // through, and `cleanup` ran `branch -D` on commits that exist nowhere else.
+  it("holds back a prunable branch that carries unmerged commits", async () => {
+    mockPreamble(`${porcelainRecord(brokenPath, "broken")}${prunableLine}\n`);
+    expectCommands(
+      "git rev-list --count origin/main..refs/heads/broken",
+      "git merge-base origin/main refs/heads/broken",
+      `git commit-tree refs/heads/broken^{tree} -p ${MERGE_BASE_SHA} -m "merged probe"`,
+      `git cherry origin/main ${PROBE_COMMIT_SHA}`,
+    );
+    mockRun
+      .mockResolvedValueOnce("2")
+      .mockResolvedValueOnce(MERGE_BASE_SHA)
+      .mockResolvedValueOnce(PROBE_COMMIT_SHA)
+      .mockResolvedValueOnce(`+ ${PROBE_COMMIT_SHA}`);
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree?.ahead).toBe(2);
+    expect(worktree?.mergedInto).toBeUndefined();
+    expect(worktree?.safeToRemove).toBe(false);
+  });
+
+  it("counts a prunable branch with a live upstream against that upstream", async () => {
+    expectCommands(
+      "git fetch --prune",
+      "git --no-pager branch -r",
+      'git for-each-ref "--format=%(refname:short) %(upstream:short)" refs/heads',
+      "git branch --show-current",
+      "git rev-parse --show-toplevel",
+      "git worktree list --porcelain",
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      "git rev-list --count broken@{u}..refs/heads/broken",
+    );
+    mockRun
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("origin/broken")
+      .mockResolvedValueOnce("broken origin/broken")
+      .mockResolvedValueOnce("main")
+      .mockResolvedValueOnce(rootPath)
+      .mockResolvedValueOnce(
+        `${porcelainRecord(brokenPath, "broken")}${prunableLine}\n`,
+      )
+      .mockResolvedValueOnce("origin/main")
+      .mockResolvedValueOnce("1");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree?.remoteExists).toBe(true);
+    expect(worktree?.ahead).toBe(1);
+    expect(worktree?.safeToRemove).toBe(false);
+  });
+
+  it("counts a prunable detached record from the commit git recorded for it", async () => {
+    const sha = "abc1234abc1234abc1234abc1234abc1234abc1234";
+    mockPreamble(
+      `worktree ${brokenPath}\nHEAD ${sha}\ndetached\n${prunableLine}\n`,
+    );
+    expectCommands(`git rev-list --count origin/main..${sha}`);
+    mockRun.mockResolvedValueOnce("0");
+
+    const [worktree] = await gitGetWorktreeList();
+
+    expect(worktree?.branchName).toBe("(detached HEAD)");
+    expect(worktree?.ahead).toBe(0);
+    expect(mockRun).toHaveBeenCalledWith(
+      "git",
+      ["rev-list", "--count", `origin/main..${sha}`],
+      undefined,
+    );
   });
 });
 
@@ -2738,6 +2822,27 @@ describe("what the removal helpers report", () => {
         expect(progressMocks.start.mock.calls[0][0]).toBe(41);
       });
 
+      // #372 review: a directory that lost its `.git` is pruned, not deleted,
+      // so walking it would draw a bar that nothing ever moves.
+      it("weighs a kept directory with no .git as one entry", async () => {
+        vi.spyOn(fs, "existsSync").mockImplementation(
+          (candidate) => candidate !== `${twoPath}/.git`,
+        );
+        removalProgressMocks.measureTree.mockResolvedValueOnce({
+          total: 40,
+          checkpoints: [],
+          coveredFraction: 0,
+        });
+
+        await gitRemoveWorktreesWithProgress([entry(), two]);
+
+        expect(removalProgressMocks.measureTree).toHaveBeenCalledTimes(1);
+        expect(removalProgressMocks.measureTree).not.toHaveBeenCalledWith(
+          twoPath,
+        );
+        expect(progressMocks.start.mock.calls[0][0]).toBe(41);
+      });
+
       it("falls back to a spinner line per worktree when the count throws, and still removes", async () => {
         removalProgressMocks.measureTree.mockRejectedValue(
           new Error("EACCES: permission denied"),
@@ -3065,6 +3170,8 @@ describe("gitGetWorktrees", () => {
         path: `${treesPath}/prun`,
         branchName: "prun",
         pathExists: false,
+        prunable: true,
+        head: hash,
         isCurrent: false,
       },
     ]);
