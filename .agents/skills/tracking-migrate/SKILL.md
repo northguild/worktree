@@ -171,8 +171,8 @@ Do not create anything to prove the tracker works.
 
 ## Finishing up
 
-1. **Show what changed**, as a list: every issue created with its number, what was set on it, and every
-   file removed. The removals are the part that is a diff; show them as one.
+1. **Show what changed**, as a list: every issue created, by the reference `tracking.md` gives, what was
+   set on it, and every file removed. The removals are the part that is a diff; show them as one.
 2. **Offer to remove what is now dead and empty** — `roadmap.md` once its last entry is gone, and `drafts/`
    and `plans/` once they hold nothing. Only where empty, only shown first, and never `history.md`,
    `archive/`.

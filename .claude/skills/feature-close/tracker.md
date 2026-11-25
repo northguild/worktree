@@ -19,7 +19,7 @@ phase finished — and so is everything about pushing.
 | the reference sweep | **nothing to sweep.** No path changed, so no link broke |
 | the plan's §9, read out of the document | **unchanged** — §9 is a section of the body, and the body is the plan |
 | answered or waived, written into the item | a body edit like any other |
-| the why names the filed issue | the closing comment names it, by number — both issues are in one tracker, so it is a reference rather than a path |
+| the why names the filed issue | the closing comment names it, by its reference — both issues are in one tracker, so it is a reference rather than a path |
 | delete `context/notes.md` | **unchanged** — it is a file in a working tree under either answer, and it is deleted the same way |
 
 **The archive is the closed issue**, and it is more than the file it replaces: the plan, the discussion
@@ -29,15 +29,26 @@ ported.
 
 ### Who closes it
 
-**Where [`context/git.md`](../../../context/git.md) says the agent pushes and opens a pull request**, put
-`Closes #<issue>` in the pull request body and let the merge close it. The close then rides the same change
-as the work — which is exactly what appending the `history.md` row does under the other answer.
+**What closes it is [`context/tracking.md`](../../../context/tracking.md)'s *how a change closes one*;
+when is this section's.** Where that row is absent, the answer is GitHub's keyword, `Closes #<n>`: say so
+once and name `/onboard`. Name the issue in the form *how an issue is referenced* gives, wherever this
+command writes it.
 
-**Where it says anything else, close the issue here**, with the closing comment, and say that is what
-happened. Nothing else will: the trailer fires only when the commit reaches the default branch, and under
+**Where the close is a command, run it here, once what this command writes is committed** — the one for
+*completed*, or for *not planned* under `--dropped` — whatever `git.md` says, and put no keyword in the
+pull request. Nothing else will run it. Every phase is already committed, which is what the refusal
+checked; **where the user commits, hand the command over with the change** rather than closing ahead of
+their commit.
+
+**Where it is a keyword and [`context/git.md`](../../../context/git.md) says the agent pushes and opens a
+pull request**, put it in the pull request body and let the merge close it. The close then rides the same
+change as the work — which is exactly what appending the `history.md` row does under the other answer.
+
+**Where `git.md` says anything else, close the issue here**, with the closing comment, and say that is what
+happened. Nothing else will: the keyword fires only when the commit reaches the default branch, and under
 those answers it never gets there.
 
-**`--dropped` always closes here, whatever `git.md` says.** A trailer closes an issue as *completed*, and
+**`--dropped` always closes here, whatever `git.md` says.** A keyword closes an issue as *completed*, and
 that is the wrong outcome for an idea that will not be built — the two close reasons are how this answer
 records what `history.md`'s Outcome column used to.
 
@@ -71,4 +82,4 @@ Name them in the closing comment and in the report, and **leave the relationship
 and its reason are the only explanation a person will find when they open one of those issues next month.
 
 **Then push, if `git.md` says so.** Unchanged, except that the pull request body links the issue rather
-than an archived path, and carries the trailer described above.
+than an archived path, and carries the keyword only where *Who closes it* puts one there.

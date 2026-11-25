@@ -228,6 +228,19 @@ thirty notes through its whole life, read by every phase, going stale as the cod
 settled it was *what does this file do that something else does not already do*, and the answer was nothing
 that matters — a file whose invariant is maintained by discipline has no invariant.
 
+### A defect this work put there is never filed
+
+**Why where it came from is asked before kind.** The kind test sorts what a gate did not block on, and the
+reviewer's three conditions for blocking say nothing about whose code it is. So a defect in code the phase
+had written minutes earlier went out as a bug, and the feature merged carrying it. In four repositories a
+month's bugs said *on branch …, not yet on main* in 80 of 253 first lines, and each became a pull request of
+its own after the feature merged: one loopback's work, paid for at the price of a whole run.
+
+**Why an old defect blocks only when the fix is small, and never holds the phase.** A defect that was
+already there, in a file the phase changes, is cheapest to fix while the phase has it open. But a
+pre-existing defect must not stop the phase at the loop cap. A fix that grows was never the phase's, and it
+goes back to being judged by kind.
+
 ### A bug is not a backlog entry
 
 With nowhere of its own, a defect went into the backlog, because that was the only *record* the workflow

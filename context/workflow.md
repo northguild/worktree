@@ -311,20 +311,31 @@ phase, or not.** There is no severity scale and no second status vocabulary — 
 are the four in the ledger, and **nothing below adds to them**: the file this section ends up describing
 holds no status, gates nothing, and is read by no command.
 
+### A defect this work put there is never filed
+
+**Ask where a defect came from before its kind.** *This work* is the feature, any phase of it, or the one
+`/orchestrate` change.
+
+| The defect | It |
+|---|---|
+| **this work put it there** | **blocks**, whatever the reviewer called it. A rule in it a regression could break with the suite green is a test this phase writes |
+| **it was there before**, in a file this phase changes, and the fix is one targeted edit needing no new decision | **blocks** too. If the fix grows or one loop does not settle it, back it out, judge it as below: it never holds the phase |
+| **anything else** | is judged as below |
+
 **A blocking item has three ends, and the run that found it picks one before it reports:**
 
 | End | When | Where the record lives |
 |---|---|---|
 | **fixed** | the loopback fixes it and the gate re-passes | nowhere — there is nothing left to record |
 | **`blocked`** | the gate hit its cap, or it cannot be fixed in this phase | the phase's own ledger row: status `blocked`, the reason in its Note |
-| **filed** | it is real work that outlives this phase | a bug, or a backlog entry — see *A bug is not a backlog entry* |
+| **filed** | it is real work that outlives this phase, and it was there before | a bug, or a backlog entry — see *A bug is not a backlog entry* |
 
 **A non-blocking observation has two ends, and kind decides which** — not size, and not how interesting it
 was to find:
 
 | End | When | Where the record lives |
 |---|---|---|
-| **a bug** | it is a real defect, and it is user-visible or a regression would land green — the gates pass and the defect ships anyway | wherever this project already files bugs |
+| **a bug** | it is a real defect that was there before, and it is user-visible or a regression would land green — the gates pass and the defect ships anyway | wherever this project already files bugs |
 | **a backlog entry** | it is not a defect, and it is work you would want a `history.md` row for | the backlog, added by `/roadmap` |
 | **a note** | anything else | `notes.md` in this branch's working tree, until the branch ends |
 
@@ -367,7 +378,8 @@ has already written where the phase stands.
 
 > **A defect found against a phase that is already `done` sets that phase back to `blocked`**, with the
 > reason in its Note. Do not record it elsewhere and leave the row claiming `done`. If it is larger than
-> the feature, it is an issue instead, and the row stays as it is.
+> the feature, it is an issue instead, and the row stays as it is. **Where a later phase's gate finds
+> it, that gate's loopback fixes it instead**, and that row stays `done`.
 
 **Nothing accumulates across features.** A `blocked` row is archived with its plan at `/feature-close`,
 `notes.md` is deleted there, and an issue was never this feature's to carry.

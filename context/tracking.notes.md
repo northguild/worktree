@@ -47,7 +47,32 @@ Under the tracker answer, fill in its three parameters and check its one optiona
   `**Types:**` line. The workflow sets a type and never reads one.
 
 Everything else in that subsection — the primitive table, the planned label, priority, `blocked by`, and
-what the body's ceiling costs when it is reached — is live prose and stays as it is.
+what the body's ceiling costs when it is reached — is live prose and stays as it is, except the two rows
+below.
+
+### How an issue is referenced, and how a change closes one
+
+Two rows of the primitive table, and they ship with GitHub's answer. **Confirm them against the tracker
+rather than asking blind**; on GitHub there is nothing to change.
+
+**The reference** is the form a commit, a pull request and a report write, and the forms a command
+accepts as an issue argument:
+
+- `#<n>` — GitHub's, and the shipped answer.
+- `VERK-<n>`, with a bare `<n>` also accepted — a tracker that keys its issues.
+
+**Pick a form the forge will not read as its own.** A tracker that is not the forge and writes `#<n>`
+makes every commit link to whatever issue or pull request on the forge carries that number.
+
+**The close** is one of two kinds, and the skills branch on which:
+
+- **A keyword** — `Closes #<n>` on GitHub. The skills put it in the pull request body or the commit
+  message and the forge closes the issue as *completed* when the change reaches the default branch. It
+  fires nowhere else, so a change that is never merged, and every *not planned* close, is closed by the
+  skill directly.
+- **A command** — `verk close <n> --reason completed`, and the one for *not planned* beside it. The skills
+  run it once the change is committed and never write a keyword. Name both: `/feature-close --dropped`
+  needs the second.
 
 ## How much a plan may hold
 
