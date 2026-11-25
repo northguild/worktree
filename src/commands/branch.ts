@@ -1535,17 +1535,17 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
 
     // `--github ""`, `--github=` and the like parse to an empty string, which
     // every truthiness test below reads as "not given" (#363). The flag was
-    // given, so it is refused here, as an empty `--issue` is.
-    for (const [name, value] of [
-      ["github", flags.github],
-      ["jira", flags.jira],
-      ["linear", flags.linear],
-      ["clickup", flags.clickup],
+    // given, so it is refused here, before the brief is read and before the
+    // fetch. Each message names what that flag takes.
+    for (const [name, value, wanted] of [
+      ["github", flags.github, "the issue's number or URL"],
+      ["jira", flags.jira, "the issue's key or URL"],
+      ["linear", flags.linear, "the issue's identifier or URL"],
+      ["clickup", flags.clickup, "the task's id"],
+      ["issue", flags.issue, "the issue's key, number or URL"],
     ] as const) {
       if (value !== undefined && value.trim() === "") {
-        throw new InvalidValueError(
-          `--${name} needs the issue's key, number or URL.`,
-        );
+        throw new InvalidValueError(`--${name} needs ${wanted}.`);
       }
     }
 
@@ -1654,13 +1654,8 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
     // the file is where it came from, before anything can run it. Only a run
     // with --issue reads an issueProvider key.
     if (flags.issue !== undefined) {
-      const reference = flags.issue.trim();
-      if (reference === "") {
-        throw new InvalidValueError(
-          "--issue needs the issue's key, number or URL.",
-        );
-      }
-      flags.issue = reference;
+      // An empty one was refused above, with the other issue flags.
+      flags.issue = flags.issue.trim();
       this.issueProvider = await resolveIssueProvider();
       if (!this.issueProvider) {
         throw new MissingValueError(

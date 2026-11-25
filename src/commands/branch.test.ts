@@ -8383,20 +8383,26 @@ describe("branch command — --issue (a custom issue provider)", () => {
 
     // #363: an empty tracker flag was read as "not given" by every truthiness
     // test, so the run went on as a plain branch or named the wrong problem.
+    // Each message names what that flag takes: --clickup takes no URL.
     it.each([
-      ["github", { github: "" }],
-      ["jira", { jira: "" }],
-      ["linear", { linear: "" }],
-      ["clickup", { clickup: "" }],
-      ["github", { github: "   " }],
-    ])("refuses an empty --%s with invalid_value and exit 2", async (name, flags) => {
+      ["github", { github: "" }, "--github needs the issue's number or URL."],
+      ["jira", { jira: "" }, "--jira needs the issue's key or URL."],
+      [
+        "linear",
+        { linear: "" },
+        "--linear needs the issue's identifier or URL.",
+      ],
+      ["clickup", { clickup: "" }, "--clickup needs the task's id."],
+      [
+        "github",
+        { github: "   " },
+        "--github needs the issue's number or URL.",
+      ],
+    ])("refuses an empty --%s with invalid_value and exit 2", async (_name, flags, message) => {
       await runJson({ ...flags });
 
       expect(output.document()).toMatchObject({
-        error: {
-          code: "invalid_value",
-          message: `--${name} needs the issue's key, number or URL.`,
-        },
+        error: { code: "invalid_value", message },
       });
       expect(process.exitCode).toBe(2);
       expect(mockRunCapturing).not.toHaveBeenCalled();
@@ -8409,9 +8415,16 @@ describe("branch command — --issue (a custom issue provider)", () => {
       ["--dry-run", { "dry-run": true }],
     ])("an empty --github with %s is refused as empty, not as a missing issue flag", async (_flag, other) => {
       await expect(runPlain({ github: "", ...other })).rejects.toThrow(
-        "--github needs the issue's key, number or URL.",
+        "--github needs the issue's number or URL.",
       );
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("refuses an empty --issue before the fetch", async () => {
+      await expect(runPlain({ issue: "" })).rejects.toThrow(
+        "--issue needs the issue's key, number or URL.",
+      );
+      expect(git.gitFetch).not.toHaveBeenCalled();
     });
 
     it("reads the provider pair from git config once per run", async () => {
