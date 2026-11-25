@@ -61,7 +61,8 @@ them and every tree can reach it.
 | what kind of work it is | the issue's type — set by the workflow, read by nothing in it |
 | which features have to land before this one | the issue's **blocked by** relationships |
 | how much a plan may hold | *How much a plan may hold* below — here that ceiling is the body's own hard limit |
-| how a change closes one | `Closes #<n>`, in the pull request body where there is one and in the commit message otherwise |
+| how an issue is referenced | `#<n>`, in a commit, a pull request and a report, and the form a command that takes an issue accepts |
+| how a change closes one | **a keyword** — `Closes #<n>`, in the pull request body where there is one and in the commit message otherwise, acted on by the forge when the change reaches the default branch |
 
 ## The plan and its ledger both live in the issue body
 
