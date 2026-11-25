@@ -20,6 +20,12 @@ Yes. Any repository you can clone and operate with Git locally can be managed.
 Yes. Set the host with `worktree config github.host <host>`, keep a remote of the clone on that host, and sign in
 with `gh auth login --hostname <host>`. See [GitHub Enterprise](/worktree/guides/github-issue-integration/#github-enterprise).
 
+## Can I use a tracker `worktree` does not support?
+
+Yes. Write a small program that reads your tracker and prints the issue as JSON, set it as `issueProvider.command`,
+and run `worktree branch --issue <reference>`. It can also assign the issue and move it to started. See
+[Custom Issue Provider](/worktree/guides/custom-issue-provider/) for what it is sent and what it must print.
+
 ## Does `--jira` work with Jira Data Center?
 
 Yes. Run `worktree config jira.deployment datacenter`, set `jira.host`, and store a personal access token in

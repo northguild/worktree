@@ -238,6 +238,23 @@ describe("runCapturing", () => {
     ).rejects.toMatchObject({ killed: true, signal: "SIGTERM" });
   });
 
+  // A wrapper script's `trap 'cleanup; exit 1' TERM` ends the child with a
+  // number, not a signal; the timeout still ended it, so it is a rejection.
+  it.each([
+    1, 0,
+  ])("rejects a child that exits %i from its SIGTERM handler, still a timeout", async (code) => {
+    await expect(
+      runCapturing(
+        node,
+        [
+          "-e",
+          `process.on("SIGTERM", () => process.exit(${code})); ${sleepForever}`,
+        ],
+        { timeout: 1_000 },
+      ),
+    ).rejects.toMatchObject({ killed: true, code: null });
+  });
+
   it("leaves a child that answers within the timeout alone", async () => {
     const result = await runCapturing(
       node,
@@ -258,6 +275,84 @@ describe("runCapturing", () => {
     ]);
 
     expect(result).toEqual({ stdout: "slow", stderr: "", exitCode: 0 });
+  });
+
+  // A request document for a provider command: it goes to stdin, not argv, so
+  // a value starting with `-` is never read as an option by the child.
+  it("writes input to the child's stdin and closes it, so a reader of all of stdin finishes", async () => {
+    const result = await runCapturing(
+      node,
+      [
+        "-e",
+        "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write('got:'+d))",
+      ],
+      { input: '{"reference":"-rf"}' },
+    );
+
+    expect(result).toEqual({
+      stdout: 'got:{"reference":"-rf"}',
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("delivers input byte for byte, multi-byte characters included", async () => {
+    const input = "naïve ☃ \u{1F600}\n";
+
+    const result = await runCapturing(
+      node,
+      [
+        "-e",
+        "const c=[];process.stdin.on('data',b=>c.push(b)).on('end',()=>process.stdout.write(Buffer.concat(c)))",
+      ],
+      { input, trim: false },
+    );
+
+    expect(result.stdout).toBe(input);
+  });
+
+  it("does not fail when the child exits without reading its input", async () => {
+    // 4 MiB cannot sit in the pipe's buffer, so the write meets a closed pipe
+    // (EPIPE). That is the child's choice, not this call's failure.
+    const result = await runCapturing(
+      node,
+      ["-e", "process.stdout.write('ignored')"],
+      { input: "x".repeat(4 * 1024 * 1024) },
+    );
+
+    expect(result).toEqual({ stdout: "ignored", stderr: "", exitCode: 0 });
+  });
+
+  it("rejects, killing the child, once stdout exceeds maxBuffer", async () => {
+    // 200 bytes against a 100-byte cap: Node's documented maxBuffer behaviour
+    // (child_process.html) is to terminate the child and report the overrun.
+    await expect(
+      runCapturing(
+        node,
+        ["-e", `process.stdout.write("a".repeat(200)); ${sleepForever}`],
+        { maxBuffer: 100 },
+      ),
+    ).rejects.toMatchObject({ code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" });
+  });
+
+  it("keeps Node's 1 MiB default when maxBuffer is not set", async () => {
+    // An explicit `maxBuffer: undefined` would lift the limit altogether.
+    await expect(
+      runCapturing(node, [
+        "-e",
+        `process.stdout.write("a".repeat(2 * 1024 * 1024)); ${sleepForever}`,
+      ]),
+    ).rejects.toMatchObject({ code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" });
+  });
+
+  it("resolves output that fits within maxBuffer", async () => {
+    const result = await runCapturing(
+      node,
+      ["-e", `process.stdout.write("a".repeat(100))`],
+      { maxBuffer: 100 },
+    );
+
+    expect(result.stdout).toBe("a".repeat(100));
   });
 });
 

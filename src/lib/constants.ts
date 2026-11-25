@@ -22,6 +22,10 @@ export const CONFIG_NAMES = [
   "github.autoAssign",
   "github.repository",
   "github.host",
+  "issueProvider.name",
+  "issueProvider.command",
+  "issueProvider.autoAssign",
+  "issueProvider.autoStart",
   "branchPrefix.feature",
   "branchPrefix.bugfix",
   "branchPrefix.chore",
@@ -55,6 +59,11 @@ export const SECRET_CONFIG_NAMES = [
 // Center site (#126 D2); most people use Cloud, so it is asked of no one.
 // The four `linear.agent*`/`linear.webhookSecret` keys (#115 D9) mean something
 // only to someone running a Linear agent listener, so they are asked of no one.
+// `issueProvider.name` and `.command` name a team's own tracker command (#357
+// D4); a team that has one sets it, so the wizard asks no one. Their two
+// switches, `.autoAssign` and `.autoStart` (D8), are the same: only a person
+// whose team has a provider has a use for them, and the first --assign or
+// --start run asks and saves.
 export const UNPROMPTED_CONFIG_NAMES = [
   "github.repository",
   "github.host",
@@ -63,6 +72,10 @@ export const UNPROMPTED_CONFIG_NAMES = [
   "linear.webhookSecret",
   "linear.agentAllow",
   "linear.agentContext",
+  "issueProvider.name",
+  "issueProvider.command",
+  "issueProvider.autoAssign",
+  "issueProvider.autoStart",
 ] as const satisfies readonly ConfigName[];
 
 // Accepted values for the `jira.deployment` config key (#126 D1, D2). Unset

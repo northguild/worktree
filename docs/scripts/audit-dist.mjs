@@ -6,17 +6,17 @@
  *
  * Per page: a unique `<meta name="description">` of at most 155 characters; one `<link rel="canonical">` in the D3
  * form; Open Graph and Twitter tags; JSON-LD of the right types (`BreadcrumbList` only on a nested page, D10); and
- * no Dox code, which loads on `/dox/` alone (#309, below). Per site: a sitemap listing exactly the 28 URLs, a
+ * no Dox code, which loads on `/dox/` alone (#309, below). Per site: a sitemap listing exactly the 29 URLs, a
  * `404.html`, a landing at the root (a heading and a "Get started" link to /getting-started/), and no `shuding/nextra` string anywhere.
  *
  * Also per page (phase 8): the "Last updated" date equals `git log --follow -1` for the page's source file (D11). It
- * applies to the 28 pages only; `404.html` is not one of them and has none. Phase 15 turns it around on the landing,
+ * applies to the 29 pages only; `404.html` is not one of them and has none. Phase 15 turns it around on the landing,
  * which has no footer: the root must carry no date. No page carries an "Edit page" link to GitHub (the user,
  * 2026-11-04, replacing phase 8's edit links; gmt's docs have none either); no page carries the project line the
  * footer once had (licence, CLI version, maintainers); and no page shows the northguild organisation's GitHub avatar,
  * the second logo the footer once carried beside the header's mark; no id appears twice on a page; and the landing has one
  * link action ("Get started"), one "Ask Dox" link to /dox/, and no section below the hero. Per site: `llms.txt`
- * (D13) is a llmstxt.org file listing the same 28 URLs, each with a title and the page's own description.
+ * (D13) is a llmstxt.org file listing the same 29 URLs, each with a title and the page's own description.
  *
  * Also (phase 9, accessibility): every button has an accessible name (an icon-only one needs an `aria-label`, an
  * `aria-labelledby` or a `title`), and a name that stands beside visible text contains it (WCAG 2.5.3); every
@@ -83,14 +83,14 @@
  * Also (plan 287, D5): every file under `_astro/` has a hash of five or more characters in its name, because
  * `docs/deploy/_headers` serves that folder `immutable` for a year.
  *
- * Also (#309 phase 1, the Dox page): `/dox/` is not one of the 28 pages and gets rules of its own (`auditDox`). It is built
+ * Also (#309 phase 1, the Dox page): `/dox/` is not one of the 29 pages and gets rules of its own (`auditDox`). It is built
  * (`dox/index.html`), `noindex`, listed in neither the sitemap nor `llms.txt`, and shaped as D6 says: the inline script that
  * sets `data-dox-shell`, exactly one `astro-island`, `<title>` `Dox · @northguild/worktree`, the site header, named
  * controls, no footer (the page is the chat), every graphic hidden or named. No other page or the
  * 404 loads Dox code: the island's chunk, or the stylesheet that carries the hive.
  *
  * Also (#309 phase 4, D2, the links to /dox/): the chat is a page, and its entry points are plain links. On every page and
- * the 404 the `<header>` has one link to /worktree/dox/ named "Chat with Dox", first in the right group; it carries `aria-current="page"` on /dox/ and nowhere else; every page with a sidebar (the 28 but the
+ * the 404 the `<header>` has one link to /worktree/dox/ named "Chat with Dox", first in the right group; it carries `aria-current="page"` on /dox/ and nowhere else; every page with a sidebar (the 29 but the
  * landing) has a mobile menu (`mobile-preferences`), and the menu has the same link before the social icons; and the landing
  * has one "Ask Dox" link to /worktree/dox/ and no "Ask Dox" button. The launcher, the bubble and the shortcut are gone,
  * so their rules are too; "Dox code on /dox/ alone" (`auditDox`) is what keeps the chat from loading elsewhere.
@@ -223,7 +223,7 @@ function auditIcons(html, dist) {
 const LLMS_TXT_URL = `${ORIGIN}llms.txt`;
 
 /**
- * D8: each of the 28 pages links its llms.txt exactly once, as `rel="describedby" type="text/plain"` with the absolute
+ * D8: each of the 29 pages links its llms.txt exactly once, as `rel="describedby" type="text/plain"` with the absolute
  * URL, and the file is in the build. The 404 is not a page of the site and carries none (auditNotFound).
  */
 function auditDescribedBy(html, dist) {
@@ -287,7 +287,7 @@ const defaultExpectedDate = (path) => {
 export const SITE_DEFAULT_DESCRIPTION =
   "Docs for worktree, an open-source CLI that manages git worktrees: one per branch or issue, with env files copied and your editor opened.";
 
-// The 28 pages: the 24 old routes at 2633f3a, the two #238 added (5c741ee) under D17 (2026-11-04), the Rex Sessions guide (#270) and the `rename` command page (#272): /docs becomes the landing at the root,
+// The 29 pages: the 24 old routes at 2633f3a, the two #238 added (5c741ee) under D17 (2026-11-04), the Rex Sessions guide (#270) and the `rename` command page (#272) and the custom issue provider guide (#357): /docs becomes the landing at the root,
 // /docs/getting-started becomes /getting-started/, and every other /docs/<p> becomes /<p>/. Written out, not
 // derived from the content collection, so a page added or lost by accident fails here.
 export const PAGE_PATHS = Object.freeze([
@@ -309,6 +309,7 @@ export const PAGE_PATHS = Object.freeze([
   "guides",
   "guides/clickup-integration",
   "guides/context-switching",
+  "guides/custom-issue-provider",
   "guides/editor-integration",
   "guides/env-files",
   "guides/github-issue-integration",
@@ -594,7 +595,7 @@ function auditHeader(html, where, { onDox = false } = {}) {
 /**
  * The mobile menu (Starlight's `mobile-preferences`, on the pages with a sidebar) repeats the Dox link before the social
  * icons, because below 50rem the header shows only the gear and Dox, GitHub and Discord are left to the menu (gmt's MobileMenuFooter.astro). Every one of
- * the 28 pages but the landing has a sidebar, so the caller says where a menu must be (`required`) and a page there with
+ * the 29 pages but the landing has a sidebar, so the caller says where a menu must be (`required`) and a page there with
  * none fails: a probe that stopped matching the build would otherwise skip the rule on every page and pass. The class is
  * matched as a token, not as the start of the attribute. The landing, the 404 and /dox/ have no menu to check.
  */
@@ -931,7 +932,9 @@ function withoutElements(
 ) {
   const closing = `</${name}>`;
   let out = html;
-  for (let guard = 0; guard < 20; guard++) {
+  // Each pass removes one element and `out` only shrinks, so this ends: when nothing matches, or when an opening tag
+  // has no closing one. No fixed count of removals (a long page has dozens of heading-anchor icons).
+  for (;;) {
     const open = out.match(openTag);
     if (!open) break;
     const end = out.indexOf(closing, open.index);
@@ -2058,7 +2061,7 @@ function auditNotFound(html) {
   return failures;
 }
 
-// The Dox page (#309 D6): the one page that is neither one of the 28 nor the 404.
+// The Dox page (#309 D6): the one page that is neither one of the 29 nor the 404.
 const DOX_URL = `${ORIGIN}dox/`;
 const DOX_TITLE = "Dox · @northguild/worktree";
 /** The island's chunk, `DoxPage.<hash>.js`; the hive's stylesheet is told by what it holds, below. */
@@ -2082,7 +2085,7 @@ async function loadsDoxCode(html, dist) {
   return false;
 }
 
-/** `/dox/`: not one of the 28 pages, so none of `auditPage`'s rules apply; these are its own. Returns failure rules. */
+/** `/dox/`: not one of the 29 pages, so none of `auditPage`'s rules apply; these are its own. Returns failure rules. */
 async function auditDox(dist) {
   const failures = [];
   const fail = (rule) => failures.push(`/dox/: ${rule}`);

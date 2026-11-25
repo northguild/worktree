@@ -25,7 +25,7 @@ import {
 
 // Expected values: plan #309 D8 (MiniSearch 7.2.0's `toJSON` / `loadJSON` under the same options, stopwords, camelCase
 // splitting, a namespace boost of 1.5, a relevance floor), written out from gmt's `search.ts` comments; the routes are
-// the site's own (28 `.mdx` pages: `find docs/src/content/docs -name '*.mdx'`); and §9 Q14, whose measurements are
+// the site's own (29 `.mdx` pages: `find docs/src/content/docs -name '*.mdx'`); and §9 Q14, whose measurements are
 // the figures in the "relevance floor" block below (taken with no floor, over this corpus, on 2026-11-08).
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -189,9 +189,9 @@ describe("the relevance floor (plan #309 §9 Q14)", () => {
 });
 
 describe("the corpus the build writes", () => {
-  it("has one route per docs page: 28", () => {
-    expect(BUILT.routes).toHaveLength(28);
-    expect(BUILT.counts.pages).toBe(28);
+  it("has one route per docs page: 29", () => {
+    expect(BUILT.routes).toHaveLength(29);
+    expect(BUILT.counts.pages).toBe(29);
     expect(BUILT.routes).toContain("/");
     expect(BUILT.routes).toContain("/commands/branch/");
   });

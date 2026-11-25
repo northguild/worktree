@@ -16,6 +16,8 @@ import { InvalidValueError } from "./prompt.js";
 import {
   GITHUB_HOST_PATTERN,
   GITHUB_REPOSITORY_PATTERN,
+  ISSUE_PROVIDER_NAME_PATTERN,
+  ISSUE_PROVIDER_NAME_RULE,
   isValidGitHubHost,
   isValidGitHubRepository,
 } from "./validators.js";
@@ -45,6 +47,8 @@ const TEAM_FALLBACK_KEYS = [
   "clickup.workspaceId",
   "github.repository",
   "github.host",
+  "issueProvider.name",
+  "issueProvider.command",
   "postCreate",
 ] as const;
 
@@ -71,6 +75,8 @@ const VALUE_SCHEMAS: Record<string, z.ZodType> = {
   "linear.agentContext": z.boolean(),
   "clickup.autoAssign": z.boolean(),
   "clickup.autoStart": z.boolean(),
+  "issueProvider.autoAssign": z.boolean(),
+  "issueProvider.autoStart": z.boolean(),
   defaultSourceBranch: text,
   "branchPrefix.feature": z.string(),
   "branchPrefix.bugfix": z.string(),
@@ -97,6 +103,10 @@ const VALUE_SCHEMAS: Record<string, z.ZodType> = {
     .refine((value) => isValidGitHubHost(value) === true, {
       message: GITHUB_HOST_MESSAGE,
     }),
+  "issueProvider.name": z.string().regex(ISSUE_PROVIDER_NAME_PATTERN, {
+    message: `name ${ISSUE_PROVIDER_NAME_RULE}`,
+  }),
+  "issueProvider.command": step,
   postCreate: z.array(step),
 };
 

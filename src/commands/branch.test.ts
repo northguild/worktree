@@ -27,6 +27,7 @@ import {
   expectCommands,
   loadConfig,
   mockRun,
+  mockRunCapturing,
 } from "../test-setup.js";
 import Branch from "./branch.js";
 
@@ -2505,7 +2506,7 @@ jira:
         });
 
         await expect(branch.run()).rejects.toThrow(
-          "--start/--no-start requires one of --github, --jira, --linear or --clickup.",
+          "--start/--no-start requires one of --github, --jira, --linear, --clickup or --issue.",
         );
         await expect(branch.run()).rejects.toMatchObject({
           oclif: { exit: 2 },
@@ -4698,7 +4699,7 @@ jira:
       it.each([
         [true],
         [false],
-      ])("errors when the assign flag is %s with none of --github, --jira, --linear or --clickup", async (assign) => {
+      ])("errors when the assign flag is %s with none of --github, --jira, --linear, --clickup or --issue", async (assign) => {
         vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation(
           (key: string) => {
             if (key === "has-called-config") return Promise.resolve("true");
@@ -4707,7 +4708,7 @@ jira:
         );
         const mockError = vi.spyOn(branch, "error").mockImplementation(() => {
           throw new Error(
-            "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+            "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
           );
         });
 
@@ -4719,10 +4720,10 @@ jira:
         // Both spellings are one flag under `allowNo`, and neither has an
         // issue to act on here.
         await expect(branch.run()).rejects.toThrow(
-          "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+          "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
         );
         expect(mockError).toHaveBeenCalledWith(
-          "--assign/--no-assign requires one of --github, --jira, --linear or --clickup.",
+          "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
         );
       });
 
@@ -6180,7 +6181,7 @@ github:
     const dry = runDry({}, [], { branchName: "my/own-name" });
 
     await expect(dry).rejects.toThrow(
-      "--dry-run requires one of --github, --jira, --linear or --clickup.",
+      "--dry-run requires one of --github, --jira, --linear, --clickup or --issue.",
     );
     expect(git.gitCreateWorktree).not.toHaveBeenCalled();
   });
@@ -7969,6 +7970,1051 @@ describe("branch command — issue URLs", () => {
       expect(everything()).not.toContain("SECRETQ");
       expect(everything()).not.toContain("SECRETU");
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// #357 Phase 4: `--issue` runs the team's own provider command. The provider is
+// a process, so "was it spawned" is asserted against `runCapturing`, the helper
+// its runner uses (src/test-setup.ts mocks it for every suite); `mockRun` is
+// git's, and says nothing about the provider.
+describe("branch command — --issue (a custom issue provider)", () => {
+  const originalExitCode = process.exitCode;
+  const mockConfirm = vi.mocked(confirm);
+  const mockInput = vi.mocked(input);
+  let output: ReturnType<typeof captureOutput>;
+  let gitConfigValues: Record<string, string>;
+  let approvalStored: string;
+  let fileContent: string | undefined;
+
+  const APPROVAL_KEY = "northguild.worktree.issueProviderApproval";
+  // D5: SHA-256 of the UTF-8 JSON of the split argv, here
+  // `["verk-cli","--stdin"]`; worked out with `shasum -a 256`, not by the code.
+  const APPROVAL_HASH =
+    "a1eb02c98f4e624cb9489b56080dc0733e0945c98c18b51526f097420bc791ac";
+  // The stand-in provider the Done-when names: key VERK-42, title "Fix login",
+  // kind bugfix, so `branchPrefix.bugfix` `fix/` gives `fix/VERK-42-fix-login`.
+  const verkIssue = {
+    key: "VERK-42",
+    title: "Fix login",
+    url: "https://verk.example/i/42",
+    type: "Bug",
+    labels: ["auth"],
+    fields: [],
+    kind: "bugfix",
+    can: [],
+  };
+
+  function answer(issue: Record<string, unknown> = {}) {
+    mockRunCapturing.mockResolvedValue({
+      stdout: JSON.stringify({ version: 1, issue: { ...verkIssue, ...issue } }),
+      stderr: "",
+      exitCode: 0,
+    });
+  }
+
+  function projectFile(content: string) {
+    fileContent = content;
+  }
+
+  async function runIssue(
+    flags: Record<string, unknown>,
+    { json = false, args = {} }: { json?: boolean; args?: object } = {},
+  ) {
+    const command = new Branch(json ? ["--json"] : [], await loadConfig());
+    (command as any).parse = vi.fn().mockResolvedValue({ args, flags });
+    (command as any).parsed = true;
+    const open = vi
+      .spyOn(command as any, "openWorktreePath")
+      .mockResolvedValue({ opener: "none" });
+    return { command, open };
+  }
+
+  async function runJson(flags: Record<string, unknown>) {
+    const { command } = await runIssue(flags, { json: true });
+    return (command as any)._run();
+  }
+
+  async function runPlain(flags: Record<string, unknown>) {
+    const { command } = await runIssue(flags);
+    return command.run();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.exitCode = undefined;
+    output = captureOutput();
+    resetProjectConfigCache();
+    resetUserConfigCache();
+    approvalStored = "";
+    fileContent = undefined;
+    gitConfigValues = {
+      "has-called-config": "true",
+      defaultSourceBranch: "origin/main",
+      "branchPrefix.feature": "feature/",
+      "branchPrefix.bugfix": "fix/",
+      "branchPrefix.chore": "chore/",
+      "issueProvider.command": "verk-cli --stdin",
+      "issueProvider.name": "verk",
+    };
+    vi.spyOn(gitConfig, "gitGetConfigValue").mockImplementation((key: string) =>
+      Promise.resolve(gitConfigValues[key] ?? ""),
+    );
+    // The approval record is read and written through git's `run`.
+    mockRun.mockImplementation(async (_file: string, args: string[]) => {
+      if (args.length === 3) {
+        if (approvalStored) return approvalStored;
+        throw new Error("exit 1");
+      }
+      approvalStored = args[args.length - 1] ?? "";
+      return "";
+    });
+    expectCommands(
+      `git config --local ${APPROVAL_KEY}`,
+      `git config --local ${APPROVAL_KEY} ${APPROVAL_HASH}`,
+    );
+    vi.spyOn(projectConfig, "offerProjectConfig").mockResolvedValue();
+    vi.spyOn(git, "gitFetch").mockResolvedValue("");
+    vi.spyOn(git, "gitResolveOriginHead").mockResolvedValue("origin/main");
+    vi.spyOn(git, "gitReadBlobAtRef").mockImplementation(async () =>
+      fileContent === undefined
+        ? { status: "absent-path" }
+        : { status: "found", content: fileContent },
+    );
+    vi.spyOn(git, "gitHasOriginRemote").mockResolvedValue(true);
+    vi.spyOn(git, "gitGetTopLevelPath").mockResolvedValue("/repo/top");
+    vi.spyOn(git, "gitFindBranchCheckout").mockResolvedValue(undefined);
+    vi.spyOn(git, "gitGetLocalBranches").mockResolvedValue([]);
+    vi.spyOn(gitConfig, "gitSetConfigValue").mockResolvedValue();
+    vi.spyOn(git, "gitCreateWorktree").mockResolvedValue("/path/to/worktree");
+    vi.mocked(copyEnvFilesFromRootPath).mockResolvedValue([]);
+    vi.mocked(runInstall).mockResolvedValue({ ran: false, reason: "skipped" });
+    mockInput.mockImplementation(async (config: any) => config.default);
+    answer();
+  });
+
+  afterEach(() => {
+    output.restore();
+    process.exitCode = originalExitCode;
+    setNonInteractive(false);
+  });
+
+  describe("naming", () => {
+    it("creates fix/VERK-42-fix-login from the provider's kind and reports the issue", async () => {
+      await runJson({ issue: "VERK-42", assign: false });
+
+      expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+        "fix/VERK-42-fix-login",
+        "origin/main",
+        { fetch: false },
+      );
+      expect(output.document()).toMatchObject({
+        branch: "fix/VERK-42-fix-login",
+        issue: {
+          provider: "custom",
+          name: "verk",
+          key: "VERK-42",
+          url: "https://verk.example/i/42",
+        },
+      });
+    });
+
+    it("spawns the configured command unchanged, in the top level, with the reference on stdin", async () => {
+      await runJson({ issue: "VERK-42" });
+
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+      const [file, args, options] = mockRunCapturing.mock.calls[0] as [
+        string,
+        string[],
+        { cwd: string; input: string },
+      ];
+      expect([file, ...args]).toEqual(["verk-cli", "--stdin"]);
+      expect(options.cwd).toBe("/repo/top");
+      expect(JSON.parse(options.input)).toEqual({
+        version: 1,
+        operation: "fetch",
+        reference: "VERK-42",
+      });
+    });
+
+    it("passes the trimmed reference verbatim, even one that looks like an option", async () => {
+      await runJson({ issue: "  --all  " });
+
+      const options = mockRunCapturing.mock.calls[0]?.[2] as { input: string };
+      expect(JSON.parse(options.input).reference).toBe("--all");
+    });
+
+    it("reports name null when no name is configured", async () => {
+      delete gitConfigValues["issueProvider.name"];
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        issue: { provider: "custom", name: null, key: "VERK-42" },
+      });
+    });
+
+    it("reports url null when the provider gave none", async () => {
+      answer({ url: null });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({ issue: { url: null } });
+    });
+
+    it("gives no prefix when the provider names no kind and no list is set", async () => {
+      answer({ kind: null });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({ branch: "VERK-42-fix-login" });
+    });
+
+    it("lets a shared branchType rule on Type: Bug decide over the provider's kind (D7)", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: chore\n");
+      answer({ kind: "feature" });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        branch: "chore/VERK-42-fix-login",
+      });
+    });
+
+    it("lets issueProvider.branchType decide over the shared list (D7)", async () => {
+      projectFile(
+        "branchType:\n  - otherwise: chore\nissueProvider:\n  branchType:\n    - when: { Labels: auth }\n      type: feature\n",
+      );
+      answer({ kind: "bugfix" });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        branch: "feature/VERK-42-fix-login",
+      });
+    });
+
+    it("gives a list that matches nothing no prefix, as every provider's list does", async () => {
+      projectFile(
+        "branchType:\n  - when: { Type: Story }\n    type: feature\n",
+      );
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({ branch: "VERK-42-fix-login" });
+    });
+
+    it("matches a rule on a provider-supplied field by id", async () => {
+      projectFile(
+        "issueProvider:\n  branchType:\n    - when: { severity: high }\n      type: bugfix\n",
+      );
+      answer({
+        kind: null,
+        fields: [
+          { id: "severity", name: "Severity", values: [{ name: "high" }] },
+        ],
+      });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        branch: "fix/VERK-42-fix-login",
+      });
+    });
+
+    it("lets the portable Type win over a provider field that reuses its name", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: bugfix\n");
+      answer({
+        kind: null,
+        fields: [{ id: "Type", name: "Type", values: [{ name: "Task" }] }],
+      });
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        branch: "fix/VERK-42-fix-login",
+      });
+    });
+
+    it("escapes the reference in the spinner text", async () => {
+      await runJson({ issue: "VERK-42\u001b[2J" });
+
+      const texts = vi
+        .mocked(ora)
+        .mock.calls.map((call) => JSON.stringify(call[0]));
+      expect(texts.some((text) => text.includes("VERK-42"))).toBe(true);
+      expect(texts.join("")).not.toContain("\\u001b");
+    });
+  });
+
+  describe("errors", () => {
+    it("gives an invalid_reference as invalid_value with exit 2 and no worktree", async () => {
+      mockRunCapturing.mockResolvedValue({
+        stdout: JSON.stringify({
+          version: 1,
+          error: { code: "invalid_reference", message: "Not a key." },
+        }),
+        stderr: "",
+        exitCode: 0,
+      });
+
+      await runJson({ issue: "nope" });
+
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("gives not_found as failed with exit 1 and no worktree", async () => {
+      mockRunCapturing.mockResolvedValue({
+        stdout: JSON.stringify({
+          version: 1,
+          error: { code: "not_found", message: "No issue VERK-9." },
+        }),
+        stderr: "",
+        exitCode: 0,
+      });
+
+      await runJson({ issue: "VERK-9" });
+
+      expect(output.document()).toMatchObject({ error: { code: "failed" } });
+      expect(process.exitCode).toBe(1);
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("refuses an empty reference before spawning anything", async () => {
+      await runJson({ issue: "   " });
+
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    // Documented in commands/branch.mdx (`invalid_value`: "an empty `--issue`").
+    // `--issue ""` and `--issue=` parse to "", which is the same refusal as a
+    // whitespace-only value: same message, exit 2, nothing spawned or created.
+    it.each([
+      ["empty", ""],
+    ])("refuses an %s --issue in --json with invalid_value and exit 2", async (_name, issue) => {
+      await runJson({ issue });
+
+      expect(output.document()).toMatchObject({
+        error: {
+          code: "invalid_value",
+          message: "--issue needs the issue's key, number or URL.",
+        },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["empty", ""],
+      ["whitespace-only", "   "],
+    ])("refuses a %s --issue in plain output with the same message", async (_name, issue) => {
+      await expect(runPlain({ issue })).rejects.toThrow(
+        "--issue needs the issue's key, number or URL.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["--assign", { assign: true }],
+      ["--start", { start: true }],
+      ["--dry-run", { "dry-run": true }],
+    ])("an empty --issue with %s is refused as an empty --issue, not as a missing one", async (_flag, other) => {
+      await expect(runPlain({ issue: "", ...other })).rejects.toThrow(
+        "--issue needs the issue's key, number or URL.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    it("exits 2 with missing_value naming issueProvider.command when none is configured", async () => {
+      delete gitConfigValues["issueProvider.command"];
+
+      await runJson({ issue: "VERK-42" });
+
+      const document = output.document() as any;
+      expect(document.error.code).toBe("missing_value");
+      expect(document.error.message).toContain("issueProvider.command");
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["--github", { github: "42" }],
+      ["--jira", { jira: "DEV-1" }],
+      ["--linear", { linear: "ENG-1" }],
+      ["--clickup", { clickup: "9hx" }],
+    ])("refuses --issue with %s, exit 2, before spawning", async (_label, other) => {
+      await expect(runPlain({ issue: "VERK-42", ...other })).rejects.toThrow(
+        "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+
+    it('counts an empty --issue as given, so --issue "" with --github is refused as several', async () => {
+      await expect(runPlain({ issue: "", github: "42" })).rejects.toThrow(
+        "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["--github", { github: "" }],
+      ["--jira", { jira: "" }],
+      ["--linear", { linear: "" }],
+      ["--clickup", { clickup: "" }],
+    ])("counts an empty %s as given, so it beside --issue is refused as several", async (_label, other) => {
+      await expect(runPlain({ issue: "VERK-42", ...other })).rejects.toThrow(
+        "Please provide only one of --github, --jira, --linear, --clickup or --issue, not several.",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("reads the provider pair from git config once per run", async () => {
+      await runJson({ issue: "VERK-42" });
+
+      expect(process.exitCode).toBeUndefined();
+      const reads = vi
+        .mocked(gitConfig.gitGetConfigValue)
+        .mock.calls.filter(([key]) => key === "issueProvider.command");
+      expect(reads).toHaveLength(1);
+    });
+
+    it("exits 2 for --issue with --github through the command's own exit code", async () => {
+      await runJson({ issue: "VERK-42", github: "42" });
+
+      expect(process.exitCode).toBe(2);
+      expect(output.document()).toMatchObject({
+        error: { code: "invalid_value" },
+      });
+    });
+  });
+
+  describe("approval of a command from the file (D5)", () => {
+    const FILE = "issueProvider:\n  command: verk-cli --stdin\n  name: verk\n";
+
+    beforeEach(() => {
+      delete gitConfigValues["issueProvider.command"];
+      delete gitConfigValues["issueProvider.name"];
+      projectFile(FILE);
+    });
+
+    it("fails closed non-interactively: exit 2, nothing spawned, no worktree", async () => {
+      setNonInteractive(true);
+
+      await runJson({ issue: "VERK-42" });
+
+      const document = output.document() as any;
+      expect(document.error.code).toBe("missing_value");
+      expect(JSON.stringify(document)).toContain("worktree config --approve");
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("asks in a terminal, stores the approval on yes and then spawns", async () => {
+      mockConfirm.mockResolvedValue(true);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await runPlain({ issue: "VERK-42", assign: false });
+
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(approvalStored).toBe(APPROVAL_HASH);
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("spawns nothing and creates nothing when the question is declined", async () => {
+      mockConfirm.mockResolvedValue(false);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await expect(runPlain({ issue: "VERK-42" })).rejects.toThrow(
+        "not approved",
+      );
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it("runs an approved command without asking", async () => {
+      approvalStored = APPROVAL_HASH;
+
+      await runPlain({ issue: "VERK-42", assign: false });
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets a command from git config run with no approval at all", async () => {
+      gitConfigValues["issueProvider.command"] = "verk-cli --stdin";
+      setNonInteractive(true);
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(mockRunCapturing).toHaveBeenCalledTimes(1);
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("fails a dry run closed too, which asks nothing, before spawning", async () => {
+      await expect(
+        runPlain({ issue: "VERK-42", "dry-run": true }),
+      ).rejects.toBeInstanceOf(MissingValueError);
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+    });
+  });
+
+  // #357 Phase 5 (D8): assign and start are the provider's own operations, tried
+  // only when its fetch answer's `can` lists them. The expected `assigned` and
+  // `started` values are D8's and the Done-when's: true for assigned,
+  // already-yours, started and already-started, false for held-by-other and
+  // left-alone and for any failure, null when nothing was attempted. "Was it
+  // called" is asserted against `runCapturing`, the helper the runner uses.
+  describe("assign and start through the provider (D8)", () => {
+    type Operation = "fetch" | "assign" | "start";
+    const operationsAsked = () =>
+      mockRunCapturing.mock.calls.map(
+        (call) =>
+          (
+            JSON.parse((call[2] as { input: string }).input) as {
+              operation: Operation;
+            }
+          ).operation,
+      );
+
+    type Raw = { stdout: string; stderr: string; exitCode: number };
+    /**
+     * The provider: a fetch answer carrying `can`, and one reply per operation,
+     * given as the answer document or, to model a failure, as the raw process
+     * result or an error the runner rejects with.
+     */
+    function provide({
+      can = ["assign", "start"],
+      assign = { outcome: "assigned" },
+      start = { outcome: "started", from: "Todo", to: "Doing" },
+      assignRaw,
+      startRaw,
+    }: {
+      can?: string[];
+      assign?: Record<string, unknown>;
+      start?: Record<string, unknown>;
+      assignRaw?: Raw | Error;
+      startRaw?: Raw | Error;
+    } = {}) {
+      mockRunCapturing.mockImplementation(async (_file, _args, options) => {
+        const { operation } = JSON.parse(
+          (options as { input: string }).input,
+        ) as { operation: Operation };
+        const raw = operation === "assign" ? assignRaw : startRaw;
+        if (operation !== "fetch" && raw instanceof Error) {
+          throw raw;
+        }
+        if (operation !== "fetch" && raw) {
+          return raw;
+        }
+        const document =
+          operation === "fetch"
+            ? { version: 1, issue: { ...verkIssue, can } }
+            : { version: 1, ...(operation === "assign" ? assign : start) };
+        return { stdout: JSON.stringify(document), stderr: "", exitCode: 0 };
+      });
+    }
+
+    it("sends the issue's key, assigns before the worktree exists and starts after it", async () => {
+      provide();
+      // Calls made before the worktree exists are the fetch and the assign;
+      // `create` clears the log, so what is left afterwards is the start alone.
+      let before: string[] = [];
+      vi.mocked(git.gitCreateWorktree).mockImplementation(async () => {
+        before = operationsAsked();
+        mockRunCapturing.mockClear();
+        return "/path/to/worktree";
+      });
+
+      await runJson({ issue: "VERK-42", assign: true, start: true });
+
+      expect(before).toEqual(["fetch", "assign"]);
+      expect(operationsAsked()).toEqual(["start"]);
+    });
+
+    it("sends the issue's key and runs in the top level for assign", async () => {
+      provide();
+
+      await runJson({ issue: "VERK-42", assign: true, start: false });
+
+      const assignCall = mockRunCapturing.mock.calls[1]?.[2] as {
+        input: string;
+        cwd: string;
+      };
+      expect(JSON.parse(assignCall.input)).toEqual({
+        version: 1,
+        operation: "assign",
+        key: "VERK-42",
+      });
+      expect(assignCall.cwd).toBe("/repo/top");
+    });
+
+    it.each([
+      ["assigned", { outcome: "assigned" }],
+      ["already-yours", { outcome: "already-yours" }],
+    ])("reports assigned true for %s", async (_label, assign) => {
+      provide({ assign });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      expect(output.document()).toMatchObject({
+        assigned: true,
+        warnings: [],
+      });
+    });
+
+    it("reports assigned false with a warning naming who holds it for held-by-other", async () => {
+      provide({ assign: { outcome: "held-by-other", heldBy: "Ada" } });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(document.warnings).toEqual([expect.stringContaining("Ada")]);
+      expect(document.warnings[0]).toContain("VERK-42");
+      expect(process.exitCode).toBeUndefined();
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("warns without a name when the provider gave none for held-by-other", async () => {
+      provide({ assign: { outcome: "held-by-other" } });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(document.warnings).toHaveLength(1);
+      expect(document.warnings[0]).toContain("someone else");
+    });
+
+    it("never prints a control character the provider put in heldBy", async () => {
+      provide({
+        assign: { outcome: "held-by-other", heldBy: "Ada\u001b[2J\u202e" },
+      });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(JSON.stringify(document.warnings)).not.toMatch(/\\u001b|\\u202e/);
+      expect(output.stderr()).not.toContain("\u001b");
+      expect(document.warnings[0]).toContain("verk");
+    });
+
+    it.each([
+      ["a non-zero exit", { stdout: "", stderr: "boom", exitCode: 1 }],
+      [
+        "an answer that breaks the contract",
+        { stdout: '{"version":1,"outcome":"?"}', stderr: "", exitCode: 0 },
+      ],
+    ])("warns and carries on, assigned false, for %s", async (_label, assignRaw) => {
+      provide({ assignRaw });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(document.warnings).toEqual([
+        expect.stringContaining("Could not assign VERK-42"),
+      ]);
+      expect(process.exitCode).toBeUndefined();
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("warns and carries on, assigned false, when the provider times out", async () => {
+      // `runCapturing` rejects a killed child; the runner words it (D6).
+      provide({
+        assignRaw: Object.assign(new Error("timed out"), { killed: true }),
+      });
+
+      await runJson({ issue: "VERK-42", assign: true });
+
+      const document = output.document() as any;
+      expect(document.assigned).toBe(false);
+      expect(document.warnings[0]).toContain("did not answer within 15s");
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it.each([
+      ["started", { outcome: "started", from: "Todo", to: "Doing" }],
+      ["already-started", { outcome: "already-started", state: "Doing" }],
+    ])("reports started true for %s", async (_label, start) => {
+      provide({ start });
+
+      await runJson({ issue: "VERK-42", start: true, assign: false });
+
+      expect(output.document()).toMatchObject({ started: true, warnings: [] });
+    });
+
+    it("reports started false with a warning for left-alone", async () => {
+      provide({ start: { outcome: "left-alone", state: "Blocked" } });
+
+      await runJson({ issue: "VERK-42", start: true, assign: false });
+
+      const document = output.document() as any;
+      expect(document.started).toBe(false);
+      expect(document.warnings).toEqual([expect.stringContaining("Blocked")]);
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    // A start answer is untrusted input, capped only at 1 MiB. Whatever it
+    // puts in `from`, `to` or `state` is shown cut to 200 characters after
+    // escaping, the bound `heldBy` has, so no printed line or `--json` warning
+    // carries more than 200 characters of the provider's words.
+    describe("bounds what a start answer can print", () => {
+      const long = "A".repeat(1000);
+      // Every line a spinner of this run settled with, succeed or warn.
+      const settledLines = () =>
+        vi
+          .mocked(ora)
+          .mock.results.flatMap((r) => [
+            ...r.value.succeed.mock.calls,
+            ...r.value.warn.mock.calls,
+          ])
+          .map(([text]: [string | undefined]) => text ?? "");
+
+      it.each([
+        ["from", { outcome: "started", from: long, to: "Doing" }],
+        ["to", { outcome: "started", from: "Todo", to: long }],
+        ["state", { outcome: "already-started", state: long }],
+        ["state", { outcome: "left-alone", state: long }],
+      ])("cuts a long %s of start answer %# to 200 characters in the line", async (_f, start) => {
+        provide({ start });
+
+        await runJson({ issue: "VERK-42", start: true, assign: false });
+
+        const lines = settledLines().filter((line) => line.includes("AAAA"));
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toContain("A".repeat(200));
+        expect(lines[0]).not.toContain("A".repeat(201));
+      });
+
+      it("cuts a long state of left-alone to 200 characters in the --json warning", async () => {
+        provide({ start: { outcome: "left-alone", state: long } });
+
+        await runJson({ issue: "VERK-42", start: true, assign: false });
+
+        const document = output.document() as any;
+        expect(document.warnings).toHaveLength(1);
+        expect(document.warnings[0]).toContain("A".repeat(200));
+        expect(document.warnings[0]).not.toContain("A".repeat(201));
+      });
+
+      it("cuts a long heldBy to 200 characters in the line and the --json warning", async () => {
+        provide({ assign: { outcome: "held-by-other", heldBy: long } });
+
+        await runJson({ issue: "VERK-42", assign: true, start: false });
+
+        const lines = settledLines().filter((line) => line.includes("AAAA"));
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toContain("A".repeat(200));
+        expect(lines[0]).not.toContain("A".repeat(201));
+        const document = output.document() as any;
+        expect(document.warnings).toHaveLength(1);
+        expect(document.warnings[0]).toContain("A".repeat(200));
+        expect(document.warnings[0]).not.toContain("A".repeat(201));
+      });
+
+      it("never leaves half a character where the cut falls inside one", async () => {
+        // An emoji is two UTF-16 units; at 199 it straddles the 200th.
+        const state = `${"A".repeat(199)}\u{1F600}${"B".repeat(10)}`;
+        provide({ start: { outcome: "left-alone", state } });
+
+        await runJson({ issue: "VERK-42", start: true, assign: false });
+
+        const document = output.document() as any;
+        expect(document.warnings).toHaveLength(1);
+        expect(document.warnings[0]).not.toMatch(/\p{Cs}/u);
+        expect(document.warnings[0]).toContain(`${"A".repeat(199)}�`);
+        expect(document.warnings[0]).not.toContain("B");
+      });
+    });
+
+    it("reports started false and exit 0 when the start call fails", async () => {
+      provide({ startRaw: { stdout: "", stderr: "no", exitCode: 2 } });
+
+      await runJson({ issue: "VERK-42", start: true, assign: false });
+
+      const document = output.document() as any;
+      expect(document.started).toBe(false);
+      expect(document.warnings).toEqual([
+        expect.stringContaining("Could not move VERK-42"),
+      ]);
+      expect(process.exitCode).toBeUndefined();
+      expect(git.gitCreateWorktree).toHaveBeenCalled();
+    });
+
+    it("attempts nothing and reports null when issueProvider.autoAssign is false", async () => {
+      provide();
+      gitConfigValues["issueProvider.autoAssign"] = "false";
+
+      await runJson({ issue: "VERK-42", start: false });
+
+      expect(operationsAsked()).toEqual(["fetch"]);
+      expect(output.document()).toMatchObject({
+        assigned: null,
+        started: null,
+      });
+    });
+
+    it("attempts no start and reports null when issueProvider.autoStart is false", async () => {
+      provide();
+      gitConfigValues["issueProvider.autoStart"] = "false";
+
+      await runJson({ issue: "VERK-42", assign: false });
+
+      expect(operationsAsked()).toEqual(["fetch"]);
+      expect(output.document()).toMatchObject({ started: null });
+    });
+
+    it("lets --assign beat issueProvider.autoAssign false", async () => {
+      provide();
+      gitConfigValues["issueProvider.autoAssign"] = "false";
+
+      await runJson({ issue: "VERK-42", assign: true, start: false });
+
+      expect(operationsAsked()).toEqual(["fetch", "assign"]);
+    });
+
+    it("tries both when non-interactive and nothing is configured, saving nothing", async () => {
+      provide();
+
+      await runJson({ issue: "VERK-42" });
+
+      expect(operationsAsked()).toEqual(["fetch", "assign", "start"]);
+      expect(output.document()).toMatchObject({
+        assigned: true,
+        started: true,
+      });
+      expect(gitConfig.gitSetConfigValue).not.toHaveBeenCalled();
+    });
+
+    it("asks once in a terminal and saves the answer under issueProvider.autoAssign", async () => {
+      provide({ can: ["assign"] });
+      mockConfirm.mockResolvedValue(false);
+
+      await runPlain({ issue: "VERK-42" });
+
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(gitConfig.gitSetConfigValue).toHaveBeenCalledWith(
+        "issueProvider.autoAssign",
+        "false",
+      );
+      expect(operationsAsked()).toEqual(["fetch"]);
+    });
+
+    it("never calls start for a provider whose can lacks it, and warns on an explicit --start", async () => {
+      provide({ can: ["assign"] });
+      gitConfigValues["issueProvider.autoStart"] = "true";
+
+      await runJson({ issue: "VERK-42", start: true, assign: false });
+
+      expect(operationsAsked()).toEqual(["fetch"]);
+      const document = output.document() as any;
+      expect(document.started).toBeNull();
+      expect(document.warnings).toEqual([
+        expect.stringContaining("does not support moving"),
+      ]);
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("never calls assign for a provider whose can lacks it, and warns on an explicit --assign", async () => {
+      provide({ can: ["start"] });
+
+      await runJson({ issue: "VERK-42", assign: true, start: false });
+
+      expect(operationsAsked()).toEqual(["fetch"]);
+      const document = output.document() as any;
+      expect(document.assigned).toBeNull();
+      expect(document.warnings).toEqual([
+        expect.stringContaining("does not support assigning"),
+      ]);
+    });
+
+    it("neither asks nor warns about an operation the provider lacks when no flag asks for it", async () => {
+      provide({ can: [] });
+
+      await runPlain({ issue: "VERK-42" });
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(operationsAsked()).toEqual(["fetch"]);
+    });
+
+    it("does not warn about --no-assign and --no-start for a provider without them", async () => {
+      provide({ can: [] });
+
+      await runJson({ issue: "VERK-42", assign: false, start: false });
+
+      expect(output.document()).toMatchObject({ warnings: [] });
+    });
+
+    it("ignores issueProvider.autoStart in .worktree.yml with a warning naming where to set it", async () => {
+      provide();
+      projectFile("issueProvider:\n  autoStart: false\n");
+
+      await runJson({ issue: "VERK-42", assign: false });
+
+      // The file's `false` is not obeyed: the unset key means non-interactive
+      // start, and the person is told where the key belongs.
+      expect(operationsAsked()).toEqual(["fetch", "start"]);
+      expect(output.document()).toMatchObject({
+        warnings: [
+          expect.stringContaining("worktree config issueProvider.autoStart"),
+        ],
+      });
+    });
+  });
+
+  describe("--assign, --start and --dry-run", () => {
+    it("does not warn or ask when neither flag is given", async () => {
+      await runJson({ issue: "VERK-42" });
+
+      expect(output.document()).toMatchObject({
+        assigned: null,
+        started: null,
+        warnings: [],
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("does not warn about --no-assign and --no-start, which ask for nothing", async () => {
+      await runJson({ issue: "VERK-42", assign: false, start: false });
+
+      expect(output.document()).toMatchObject({ warnings: [] });
+    });
+
+    it("names the list that decided in a dry run, and creates nothing", async () => {
+      projectFile(
+        "issueProvider:\n  branchType:\n    - when: { Type: Bug }\n      type: bugfix\n",
+      );
+
+      await runIssue({ issue: "VERK-42", "dry-run": true }).then(
+        ({ command }) => command.run(),
+      );
+
+      expect(output.stdout()).toContain("Branch name: fix/VERK-42-fix-login");
+      expect(output.stdout()).toContain(
+        "Rule: rule 1 of issueProvider.branchType: when: { Type: Bug }, type: bugfix",
+      );
+      expect(output.stdout()).toContain("Type (id Type)");
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("names the shared list when it decided", async () => {
+      projectFile("branchType:\n  - when: { Type: Bug }\n    type: chore\n");
+
+      await runIssue({ issue: "VERK-42", "dry-run": true }).then(
+        ({ command }) => command.run(),
+      );
+
+      expect(output.stdout()).toContain("Branch name: chore/VERK-42-fix-login");
+      expect(output.stdout()).toContain("rule 1 of branchType:");
+    });
+
+    it("reports the provider's own mapping, not a list, when no kind came from anywhere", async () => {
+      answer({ kind: null });
+
+      await runIssue({ issue: "VERK-42", "dry-run": true }).then(
+        ({ command }) => command.run(),
+      );
+
+      expect(output.stdout()).toContain("Branch name: VERK-42-fix-login");
+      // No list was written, so the line must not point at one (as for every
+      // built-in provider).
+      expect(output.stdout()).toContain(
+        "Rule: built-in mapping (the project file has no issueProvider.branchType or shared branchType)",
+      );
+      expect(output.stdout()).not.toContain("none matched");
+    });
+
+    it("prints the dry run's document with the custom issue member", async () => {
+      const { command } = await runIssue(
+        { issue: "VERK-42", "dry-run": true },
+        { json: true },
+      );
+
+      await (command as any)._run();
+
+      expect(output.document()).toMatchObject({
+        dryRun: true,
+        branch: "fix/VERK-42-fix-login",
+        issue: {
+          provider: "custom",
+          name: "verk",
+          key: "VERK-42",
+          url: "https://verk.example/i/42",
+        },
+        kind: "bugfix",
+        match: { source: "built-in" },
+      });
+    });
+
+    it("accepts --assign and --start only with an issue flag, naming all five", async () => {
+      await expect(runPlain({ assign: true })).rejects.toThrow(
+        "--assign/--no-assign requires one of --github, --jira, --linear, --clickup or --issue.",
+      );
+      await expect(runPlain({ start: true })).rejects.toThrow(
+        "--start/--no-start requires one of --github, --jira, --linear, --clickup or --issue.",
+      );
+    });
+  });
+
+  describe("a run without --issue", () => {
+    it("spawns nothing and reads no issueProvider key", async () => {
+      await runPlain({ "no-open": true });
+      // a positional name
+      const { command } = await runIssue(
+        {},
+        { args: { branchName: "feature/own-name" } },
+      );
+      await command.run();
+
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      const keys = vi
+        .mocked(gitConfig.gitGetConfigValue)
+        .mock.calls.map((call) => String(call[0]));
+      expect(keys.filter((key) => key.startsWith("issueProvider"))).toEqual([]);
+      expect(git.gitCreateWorktree).toHaveBeenCalledWith(
+        "feature/own-name",
+        "origin/main",
+        { fetch: false },
+      );
+    });
+
+    it("spawns nothing for --github either", async () => {
+      vi.spyOn(githubIntegration, "fetchGitHubIssue").mockResolvedValue({
+        number: 8,
+        title: "Fix it",
+        state: "open",
+        htmlUrl: null,
+        type: null,
+        labels: [],
+        pullRequest: null,
+      } as any);
+      vi.spyOn(githubIntegration, "assignGitHubIssue").mockResolvedValue({
+        login: "o",
+        assigned: true,
+      });
+
+      await runPlain({ github: "8", assign: false });
+
+      expect(mockRunCapturing).not.toHaveBeenCalled();
     });
   });
 });

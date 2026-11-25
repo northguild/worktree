@@ -136,6 +136,21 @@ describe("readUserConfig", () => {
     });
   });
 
+  // #357 D8: the provider's assign/start switches are personal keys, so the
+  // user file accepts them, as it does every other provider's.
+  it("accepts issueProvider.autoAssign and issueProvider.autoStart", async () => {
+    write(
+      defaultFile(),
+      "issueProvider:\n  autoAssign: false\n  autoStart: true\n",
+    );
+    const result = await readUserConfig({}, home);
+    expect(result).toMatchObject({
+      status: "loaded",
+      config: { issueProvider: { autoAssign: false, autoStart: true } },
+      warnings: [],
+    });
+  });
+
   it("reads the file at an absolute XDG_CONFIG_HOME", async () => {
     const xdg = path.join(dir, "xdg");
     write(path.join(xdg, "worktree", "config.yml"), "opener: none\n");
@@ -240,6 +255,10 @@ describe("readUserConfig", () => {
     ["github:\n  repository: acme\n", "github.repository"],
     ['postCreate:\n  - "echo \\u001b[2J"\n', "postCreate[0]"],
     ['postCreate:\n  - "   "\n', "postCreate[0]"],
+    ["issueProvider:\n  name: Verk\n", "issueProvider.name"],
+    ["issueProvider:\n  name: 1verk\n", "issueProvider.name"],
+    ['issueProvider:\n  command: "verk \\u001b[2J"\n', "issueProvider.command"],
+    ['issueProvider:\n  command: "   "\n', "issueProvider.command"],
   ])("refuses %j", async (yaml, key) => {
     write(defaultFile(), yaml);
     const error = (await readUserConfig({}, home).catch(
@@ -338,6 +357,38 @@ describe("writeUserConfigValue", () => {
         postCreate: ["pnpm install"],
       },
     });
+  });
+
+  // #357 D4: the pair is a personal fallback; branchType stays file-only.
+  it("loads issueProvider.name and .command as a fallback, and ignores a branchType", async () => {
+    write(
+      defaultFile(),
+      "issueProvider:\n  name: verk\n  command: verk-provider --json\n  branchType:\n    - otherwise: chore\n",
+    );
+    const result = await readUserConfig({}, home);
+
+    expect(result).toMatchObject({
+      status: "loaded",
+      config: {
+        issueProvider: { name: "verk", command: "verk-provider --json" },
+      },
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain(
+      "unknown key `issueProvider.branchType`",
+    );
+  });
+
+  it("writes issueProvider.command as text, and refuses a bad name without writing", async () => {
+    writeUserConfigValue("issueProvider.name", "verk", {}, home);
+    writeUserConfigValue("issueProvider.command", "verk-provider", {}, home);
+
+    expect(await readUserConfig({}, home)).toMatchObject({
+      config: { issueProvider: { name: "verk", command: "verk-provider" } },
+    });
+    expect(() =>
+      writeUserConfigValue("issueProvider.name", "Not Valid", {}, home),
+    ).toThrow(UserConfigError);
   });
 
   // D8: comments and key order survive; the new key goes after the existing ones.

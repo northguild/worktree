@@ -10,13 +10,17 @@ import { CONFIG_NAMES, SECRET_CONFIG_NAMES } from "./constants.js";
 import * as git from "./git.js";
 import { setNonInteractive } from "./interaction.js";
 import {
+  approveIssueProvider,
   approvePostCreate,
+  ensureIssueProviderApproved,
   ensurePostCreateApproved,
   getBranchPrefix,
   getBranchTypeRules,
   getProjectPostCreateSteps,
   getUserPostCreateSteps,
+  ISSUE_PROVIDER_APPROVAL_KEY,
   isProjectFileKey,
+  issueProviderApprovalHash,
   isTeamConfigKey,
   loadProjectConfig,
   markProjectConfigUnusable,
@@ -33,6 +37,7 @@ import {
   renderBranchName,
   renderProjectFile,
   resetProjectConfigCache,
+  resolveIssueProvider,
   resolveTeamConfig,
   showLinesVisibly,
   summariseProjectFile,
@@ -1096,6 +1101,27 @@ describe("getBranchTypeRules and getBranchPrefix", () => {
     });
   });
 
+  // #357 D7: the custom provider's own list is `issueProvider.branchType`, and
+  // the shared one is its fallback, as for every other provider.
+  it("names the custom provider's list issueProvider.branchType, then the shared one", async () => {
+    fromOriginMain(
+      "branchType:\n  - otherwise: chore\nissueProvider:\n  branchType:\n    - otherwise: bugfix\n",
+    );
+    expect(await getBranchTypeRules("issueProvider")).toEqual({
+      rules: [{ otherwise: "bugfix" }],
+      listName: "issueProvider.branchType",
+      shared: false,
+    });
+
+    resetProjectConfigCache();
+    fromOriginMain("branchType:\n  - otherwise: chore\n");
+    expect(await getBranchTypeRules("issueProvider")).toEqual({
+      rules: [{ otherwise: "chore" }],
+      listName: "branchType",
+      shared: true,
+    });
+  });
+
   it("rejects a bad rule in the shared list like any other", async () => {
     const error = await failure("branchType:\n  - otherwise: epic\n");
 
@@ -1345,6 +1371,18 @@ describe("post-create approval", () => {
 
     expect(log.mock.calls.flat().join("\n")).toContain("pnpm prisma generate");
     expect(stored).toBe(STEPS_HASH);
+  });
+
+  it("approvePostCreate lists steps already approved, and asks nothing", async () => {
+    stored = STEPS_HASH;
+
+    expect(await approvePostCreate()).toBe(false);
+
+    const shown = log.mock.calls.flat().join("\n");
+    expect(shown).toContain("1. pnpm install");
+    expect(shown).toContain("2. pnpm prisma generate");
+    expect(shown).toContain("already approved");
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("approvePostCreate says so when the file has no steps", async () => {
@@ -2147,6 +2185,25 @@ describe("offerProjectConfig: removing the keys the file covers", () => {
     ]);
   });
 
+  // #357 Phase 4: a repository that does not use a custom issue provider reads
+  // none of its keys, here the command or the approval record. (One whose file
+  // sets the provider still reads them, which D4 and D5 require.)
+  it("reads no issueProvider key and no approval when the file has no issueProvider section", async () => {
+    fakeGitConfig({ "branchPrefix.feature": "feat/" });
+    mockedConfig.gitGetConfigValue.mockClear();
+    mockRun.mockClear();
+
+    await offerProjectConfig();
+
+    const read = [
+      ...mockedConfig.gitGetConfigValue.mock.calls.map((call) =>
+        String(call[0]),
+      ),
+      ...mockRun.mock.calls.map((call) => (call[1] as string[]).join(" ")),
+    ];
+    expect(read.filter((entry) => entry.includes("issueProvider"))).toEqual([]);
+  });
+
   // project-configuration.mdx: with no origin/HEAD the personal
   // defaultSourceBranch is what finds the file, so removing it would lose it.
   it("removes a covered defaultSourceBranch when origin/HEAD resolves", async () => {
@@ -2370,5 +2427,571 @@ describe("showLinesVisibly", () => {
 
   it("drops the \\r of a CRLF line end but escapes a lone one", () => {
     expect(showLinesVisibly("one\r\ntwo\rthree")).toBe("one\ntwo\\x0dthree");
+  });
+});
+
+// #357 D4 and Phase 2's "Done when": issueProvider.name and .command are team
+// keys read as a pair from the layer that sets the command; branchType is
+// file-only. Every expected value is read off those two texts, not off the
+// code: the layers differ per value so a wrong winner shows as a wrong value.
+describe("issueProvider in the file (#357 D4)", () => {
+  async function loads(content: string) {
+    fromOriginMain(content);
+    const result = await readProjectConfig({});
+    if (result.status !== "loaded") throw new Error("did not load");
+    return result.config;
+  }
+
+  const FILE =
+    "issueProvider:\n  name: verk\n  command: verk-provider --json\n  branchType:\n    - when: { Type: Bug }\n      type: bugfix\n";
+
+  it("loads name, command and branchType, and the two keys are team and project-file keys", async () => {
+    const config = await loads(FILE);
+
+    expect(config.issueProvider?.name).toBe("verk");
+    expect(config.issueProvider?.command).toBe("verk-provider --json");
+    expect(config.issueProvider?.branchType).toEqual([
+      { when: { Type: "Bug" }, type: "bugfix" },
+    ]);
+    for (const key of [
+      "issueProvider.name",
+      "issueProvider.command",
+    ] as const) {
+      expect(isTeamConfigKey(key)).toBe(true);
+      expect(isProjectFileKey(key)).toBe(true);
+    }
+    expect(isProjectFileKey("issueProvider.branchType")).toBe(false);
+    expect(projectFileValue(config, "issueProvider.command")).toBe(
+      "verk-provider --json",
+    );
+    expect(projectFileKeys(config).sort()).toEqual([
+      "issueProvider.command",
+      "issueProvider.name",
+    ]);
+  });
+
+  it("loads a file that holds only a command", async () => {
+    const config = await loads("issueProvider:\n  command: verk-provider\n");
+
+    expect(config.issueProvider?.name).toBeUndefined();
+  });
+
+  it.each([
+    ["an ESC", String.raw`"verk-provider \e[2J"`],
+    ["a CR", String.raw`"verk-provider\r"`],
+    ["a right-to-left override", String.raw`"verk-provider \u202e"`],
+    ["only spaces", `"   "`],
+  ])("stops with a ProjectConfigError on a command with %s", async (_label, yaml) => {
+    const error = await failure(`issueProvider:\n  command: ${yaml}\n`);
+
+    expect(error.message).toContain("issueProvider.command");
+    expect(error.oclif.exit).toBe(2);
+  });
+
+  it.each([
+    "Verk",
+    "1verk",
+    "ver k",
+    "-verk",
+    "verk_x",
+    `a${"b".repeat(32)}`,
+    '""',
+  ])("stops on the name %s, which the pattern ^[a-z][a-z0-9-]{0,31}$ refuses", async (value) => {
+    const error = await failure(`issueProvider:\n  name: ${value}\n`);
+
+    expect(error.message).toContain("issueProvider.name");
+    expect(error.oclif.exit).toBe(2);
+  });
+
+  it.each([
+    "v",
+    "verk",
+    "my-tracker-2",
+    `a${"b".repeat(31)}`,
+  ])("accepts the name %s", async (value) => {
+    expect(
+      (await loads(`issueProvider:\n  name: ${value}\n`)).issueProvider?.name,
+    ).toBe(value);
+  });
+
+  it("refuses a credential key in the section as unknown, never loading it", async () => {
+    fromOriginMain("issueProvider:\n  command: verk\n  token: abc\n");
+    const result = await readProjectConfig({});
+
+    expect(result.status).toBe("loaded");
+    expect(result.warnings.join("\n")).toContain("issueProvider.token");
+  });
+
+  it("refuses a bad rule in issueProvider.branchType like any other list", async () => {
+    const error = await failure(
+      "issueProvider:\n  branchType:\n    - otherwise: feature\n    - otherwise: chore\n",
+    );
+
+    expect(error.message).toContain("issueProvider.branchType");
+  });
+
+  it("summarises branchType as `issueProvider.branchType: N rules`", async () => {
+    const config = await loads(FILE);
+
+    expect(summariseProjectFile(config)).toEqual([
+      "issueProvider.branchType: 1 rule (.worktree.yml)",
+    ]);
+  });
+
+  it("is written by renderProjectFile and loads as written", async () => {
+    const text = renderProjectFile({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "verk-provider --json",
+    });
+
+    expect(text).toContain(
+      "issueProvider:\n  name: verk\n  command: verk-provider --json",
+    );
+    const config = await loads(text);
+    expect(config.issueProvider?.command).toBe("verk-provider --json");
+  });
+
+  it("is in the published schema, with the name's pattern and no credential key", () => {
+    const { issueProvider } = projectConfigJsonSchema().properties as Record<
+      string,
+      { properties: Record<string, { pattern?: string }> }
+    >;
+
+    expect(Object.keys(issueProvider?.properties ?? {}).sort()).toEqual([
+      "branchType",
+      "command",
+      "name",
+    ]);
+    expect(issueProvider?.properties.name?.pattern).toBe(
+      "^[a-z][a-z0-9-]{0,31}$",
+    );
+  });
+});
+
+describe("worktree config --project writes the issueProvider pair (#357 D4)", () => {
+  it("writes both keys under one section, and the file loads as written", async () => {
+    fakeGitConfig({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "verk-provider --json",
+    });
+    const target = path.join(scratch, ".worktree.yml");
+
+    const written = await writeProjectFile();
+
+    expect(written.keys).toEqual([
+      "issueProvider.command",
+      "issueProvider.name",
+    ]);
+    expect(fs.readFileSync(target, "utf8")).toContain(
+      "issueProvider:\n  name: verk\n  command: verk-provider --json\n",
+    );
+    const result = await readProjectConfig({
+      WORKTREE_PROJECT_CONFIG: target,
+    });
+    expect(result.status === "loaded" && result.config.issueProvider).toEqual({
+      name: "verk",
+      command: "verk-provider --json",
+    });
+  });
+});
+
+describe("resolveIssueProvider: the pair comes from one layer (#357 D4)", () => {
+  function personal(values: Record<string, string>) {
+    mockedConfig.gitGetConfigValue.mockImplementation((name: string) =>
+      Promise.resolve(values[name] ?? ""),
+    );
+  }
+  const PROJECT =
+    "issueProvider:\n  name: filename\n  command: file-provider\n";
+  const USER = "issueProvider:\n  name: username\n  command: user-provider\n";
+
+  it("is none when no layer sets a command", async () => {
+    expect(await resolveIssueProvider()).toBeUndefined();
+  });
+
+  it("skips a git-config command of only whitespace, for the file's", async () => {
+    personal({ "issueProvider.command": "   " });
+    fromOriginMain(PROJECT);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "filename",
+      command: "file-provider",
+      source: "project",
+    });
+  });
+
+  it("is none for a name with no command", async () => {
+    personal({ "issueProvider.name": "orphan" });
+
+    expect(await resolveIssueProvider()).toBeUndefined();
+  });
+
+  it("takes the git-config pair over the file's and the user file's", async () => {
+    personal({
+      "issueProvider.name": "gitname",
+      "issueProvider.command": "git-provider",
+    });
+    fromOriginMain(PROJECT);
+    userFile(USER);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "gitname",
+      command: "git-provider",
+      source: "git-config",
+    });
+  });
+
+  it("takes the file's pair over the user file's", async () => {
+    fromOriginMain(PROJECT);
+    userFile(USER);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "filename",
+      command: "file-provider",
+      source: "project",
+    });
+  });
+
+  it("takes the user file's pair when nothing above sets a command", async () => {
+    userFile(USER);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "username",
+      command: "user-provider",
+      source: "user",
+    });
+  });
+
+  it("never labels a person's own command with the file's name", async () => {
+    personal({ "issueProvider.command": "git-provider" });
+    fromOriginMain(PROJECT);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: null,
+      command: "git-provider",
+      source: "git-config",
+    });
+  });
+
+  // D4: the pair comes from the layer that sets `command`, so a name set in git
+  // config alone never labels the file's or the user file's command.
+  it("takes the file's own name for the file's command, not a git-config name", async () => {
+    personal({ "issueProvider.name": "gitname" });
+    fromOriginMain(PROJECT);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: "filename",
+      command: "file-provider",
+      source: "project",
+    });
+  });
+
+  it("gives the user file's command no name when only git config has one", async () => {
+    personal({ "issueProvider.name": "gitname" });
+    userFile("issueProvider:\n  command: user-provider\n");
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: null,
+      command: "user-provider",
+      source: "user",
+    });
+  });
+
+  it("never labels the file's command with the user file's name", async () => {
+    fromOriginMain("issueProvider:\n  command: file-provider\n");
+    userFile(USER);
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: null,
+      command: "file-provider",
+      source: "project",
+    });
+  });
+
+  it("drops a git-config name the pattern refuses, keeping the command", async () => {
+    personal({
+      "issueProvider.name": "Bad\u001b[2JName",
+      "issueProvider.command": "git-provider",
+    });
+
+    expect(await resolveIssueProvider()).toEqual({
+      name: null,
+      command: "git-provider",
+      source: "git-config",
+    });
+  });
+
+  it("trims the command", async () => {
+    personal({ "issueProvider.command": "  git-provider --json  " });
+
+    expect((await resolveIssueProvider())?.command).toBe("git-provider --json");
+  });
+
+  it("throws the file's error rather than answering with none", async () => {
+    fromOriginMain("issueProvider:\n  name: Bad\n");
+
+    await expect(resolveIssueProvider()).rejects.toBeInstanceOf(
+      ProjectConfigError,
+    );
+  });
+});
+
+describe("offerProjectConfig: the issueProvider pair when removing covered keys (#357 D4)", () => {
+  const FILE = "issueProvider:\n  name: verk\n  command: verk-provider\n";
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    setNonInteractive(false);
+    fromOriginMain(FILE);
+  });
+
+  // D5: the file's command must be approved first, or an unattended `branch`
+  // would stop on the approval once the copy is gone.
+  it("removes a local pair that repeats the file's, once the file's command is approved", async () => {
+    const { local } = fakeGitConfig({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "verk-provider",
+      issueProviderApproval: issueProviderApprovalHash(["verk-provider"]),
+    });
+
+    await offerProjectConfig();
+
+    expect(local.has("northguild.worktree.issueProvider.command")).toBe(false);
+    expect(local.has("northguild.worktree.issueProvider.name")).toBe(false);
+  });
+
+  // Removing the command would hand the file's name to the provider in its
+  // place: a different git-config name is in effect today, so the pair stays.
+  it("keeps an approved local command equal to the file's while the local name differs", async () => {
+    const { local } = fakeGitConfig({
+      "issueProvider.name": "mine",
+      "issueProvider.command": "verk-provider",
+      issueProviderApproval: issueProviderApprovalHash(["verk-provider"]),
+    });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.issueProvider.command")).toBe(
+      "verk-provider",
+    );
+    expect(local.get("northguild.worktree.issueProvider.name")).toBe("mine");
+  });
+
+  // The name is half of a pair: with the command kept, removing a name equal to
+  // the file's would leave the person's own command with no name.
+  it("keeps a local name equal to the file's while a local command differs", async () => {
+    const { local } = fakeGitConfig({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "my-own-provider",
+    });
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.issueProvider.command")).toBe(
+      "my-own-provider",
+    );
+    expect(local.get("northguild.worktree.issueProvider.name")).toBe("verk");
+  });
+});
+
+// #357 D5: the file's provider command runs code on every teammate's machine,
+// so it runs only once this person approved it, as `postCreate` does (D16).
+// The hash is SHA-256 over the UTF-8 JSON of the split argv tokens; the values
+// below are from `printf '%s' '<json>' | shasum -a 256`, not from the code.
+describe("issue provider approval (#357 D5)", () => {
+  const FILE =
+    "issueProvider:\n  name: verk\n  command: verk-provider --json\n";
+  const HASH =
+    "13a679888611928150423b6dad0e23f5602a7abb239781db705afb03bc738923";
+  const CHANGED_HASH =
+    "2786f8e50ee93c5e161eb155b0d8de47569e4834f716c1badbeba0ee706af510";
+  const APPROVAL = "northguild.worktree.issueProviderApproval";
+  let local: Map<string, string>;
+  let shown: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.mocked(confirm).mockReset();
+    shown = vi.spyOn(console, "error").mockImplementation(() => {});
+    setNonInteractive(false);
+    fromOriginMain(FILE);
+    ({ local } = fakeGitConfig());
+  });
+
+  afterEach(() => {
+    shown.mockRestore();
+    setNonInteractive(false);
+  });
+
+  const stored = () => local.get(APPROVAL) ?? "";
+  const outcome = (call: Promise<unknown>) =>
+    call.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+  it("hashes the JSON array of the split argv tokens (value from shasum)", () => {
+    expect(issueProviderApprovalHash(["verk-provider", "--json"])).toBe(HASH);
+    expect(issueProviderApprovalHash(["verk-provider", "--yaml"])).toBe(
+      CHANGED_HASH,
+    );
+  });
+
+  it("keeps the approval key out of CONFIG_NAMES, under the internal namespace", () => {
+    expect(ISSUE_PROVIDER_APPROVAL_KEY).toBe(APPROVAL);
+    expect(CONFIG_NAMES as readonly string[]).not.toContain(
+      ISSUE_PROVIDER_APPROVAL_KEY.replace("northguild.worktree.", ""),
+    );
+  });
+
+  it("fails closed non-interactively: exit 2, missing_value, naming --approve, never the hash, nothing spawned", async () => {
+    setNonInteractive(true);
+
+    const error = await outcome(ensureIssueProviderApproved());
+
+    expect(error).toBeInstanceOf(MissingValueError);
+    const { message, value, flag, oclif } = error as MissingValueError & {
+      oclif: { exit: number };
+    };
+    expect(oclif.exit).toBe(2);
+    // The sentence a person reads: MissingValueError's `no default for <value>;
+    // pass <flag>` shape, with a flag that is a noun phrase, so it parses.
+    expect(message).toBe(
+      "no default for approval of this project's issue provider command from .worktree.yml; pass your approval (run `worktree config --approve` once in a terminal)",
+    );
+    for (const text of [message, value, flag]) {
+      expect(text).not.toMatch(/[0-9a-f]{64}/);
+    }
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stored()).toBe("");
+    expect(mockRun.mock.calls.map(([file]) => file)).not.toContain(
+      "verk-provider",
+    );
+  });
+
+  it("fails closed on a dry run even in a terminal, asking nothing", async () => {
+    const error = await outcome(ensureIssueProviderApproved({ dryRun: true }));
+
+    expect(error).toBeInstanceOf(MissingValueError);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stored()).toBe("");
+  });
+
+  it("passes an approved command with no prompt", async () => {
+    local.set(APPROVAL, HASH);
+    setNonInteractive(true);
+
+    await expect(ensureIssueProviderApproved()).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("asks again when one token changed", async () => {
+    local.set(APPROVAL, HASH);
+    fromOriginMain("issueProvider:\n  command: verk-provider --yaml\n");
+    vi.mocked(confirm).mockResolvedValue(true);
+
+    await ensureIssueProviderApproved();
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(stored()).toBe(CHANGED_HASH);
+  });
+
+  it("asks in a terminal, shows the command escaped, and stores the hash only on yes", async () => {
+    fromOriginMain('issueProvider:\n  command: "verk-provider --json"\n');
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    const declined = await outcome(ensureIssueProviderApproved());
+
+    expect((declined as { oclif?: { exit: number } }).oclif?.exit).toBe(1);
+    expect(stored()).toBe("");
+    expect(shown.mock.calls.flat().join("\n")).toContain(
+      "verk-provider --json",
+    );
+
+    vi.mocked(confirm).mockResolvedValue(true);
+    await ensureIssueProviderApproved();
+    expect(stored()).toBe(HASH);
+  });
+
+  it("never asks for a command from git config", async () => {
+    ({ local } = fakeGitConfig({ "issueProvider.command": "own-provider" }));
+    setNonInteractive(true);
+
+    await expect(ensureIssueProviderApproved()).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("never asks for a command from the user file", async () => {
+    fromOriginMain("copy: []\n");
+    userFile("issueProvider:\n  command: user-provider\n");
+    setNonInteractive(true);
+
+    await expect(ensureIssueProviderApproved()).resolves.toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("needs nothing when no layer sets a command", async () => {
+    fromOriginMain("copy: []\n");
+    setNonInteractive(true);
+
+    await expect(ensureIssueProviderApproved()).resolves.toBeUndefined();
+  });
+
+  it("approveIssueProvider refuses non-interactively and stores nothing", async () => {
+    setNonInteractive(true);
+
+    await expect(approveIssueProvider()).rejects.toThrow(MissingValueError);
+    expect(stored()).toBe("");
+  });
+
+  it("approveIssueProvider lists the command escaped and stores the hash only on yes", async () => {
+    vi.mocked(confirm).mockResolvedValue(false);
+
+    expect(await approveIssueProvider()).toBe(false);
+    expect(stored()).toBe("");
+    expect(shown.mock.calls.flat().join("\n")).toContain(
+      "verk-provider --json",
+    );
+
+    vi.mocked(confirm).mockResolvedValue(true);
+    expect(await approveIssueProvider()).toBe(true);
+    expect(stored()).toBe(HASH);
+  });
+
+  it("approveIssueProvider asks nothing when the file has no command or it is approved", async () => {
+    fromOriginMain("copy: []\n");
+    expect(await approveIssueProvider()).toBe(false);
+
+    // The first read is cached; without the reset the file below is never read.
+    resetProjectConfigCache();
+    fromOriginMain(FILE);
+    local.set(APPROVAL, HASH);
+    expect(await approveIssueProvider()).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+    // Still listed, so `--approve` is where a person can read it again.
+    const lines = shown.mock.calls.flat().join("\n");
+    expect(lines).toContain("verk-provider --json");
+    expect(lines).toContain("already approved");
+  });
+
+  it("keeps a local command equal to the file's until the file's is approved", async () => {
+    ({ local } = fakeGitConfig({
+      "issueProvider.name": "verk",
+      "issueProvider.command": "verk-provider --json",
+    }));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await offerProjectConfig();
+
+    expect(local.get("northguild.worktree.issueProvider.command")).toBe(
+      "verk-provider --json",
+    );
+    expect(local.has("northguild.worktree.issueProvider.name")).toBe(true);
+
+    local.set(APPROVAL, HASH);
+    await offerProjectConfig();
+
+    expect(local.has("northguild.worktree.issueProvider.command")).toBe(false);
+    expect(local.has("northguild.worktree.issueProvider.name")).toBe(false);
   });
 });
