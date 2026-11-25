@@ -10,7 +10,7 @@ research, write, report — and only where the plan lands changes.
 
 | Above | Becomes |
 |---|---|
-| `/feature-plan "<name>"` | `/feature-plan #<issue>` — the number is the name under this answer |
+| `/feature-plan "<name>"` | `/feature-plan <issue>`, in a form *how an issue is referenced* accepts — GitHub's `#<n>` where that row is absent, said once with `/onboard` named. The issue is the name under this answer |
 | pick from `context/roadmap.md` | pick from the open issues carrying the backlog label |
 | the ranking's first key | **the issue's `Priority:` line**, above everything below it |
 | ranking's *has a draft* | the issue body already holds researched material rather than one or two lines |

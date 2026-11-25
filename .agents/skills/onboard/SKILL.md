@@ -348,7 +348,13 @@ answer's vocabulary. Under the working-tree answer that subsection is deleted in
    that the workflow **sets a type and never reads one** — no refusal, ranking or report branches on it.
    Warn about the collision if the set includes `Task`: that word means work too small for this loop in
    [`workflow.md`](../../../context/workflow.md), and an issue typed `Task` is still a workflow feature.
-4. **Create either label if it is absent**, and say so before doing it. This is the first thing this
+4. **How an issue is referenced, and how a change closes one** — two rows of that subsection's table,
+   shipped with GitHub's answer. On GitHub, confirm them and move on. **Where the tracker is not the
+   forge, ask for both**: the reference a commit writes and the forms a command accepts, and whether the
+   close is a keyword the forge acts on or a command — one for *completed* and one for *not planned*. The
+   alternatives are in [`context/tracking.notes.md`](../../../context/tracking.notes.md). **Where the rows
+   are absent**, an install from before they shipped, write them from that file and say you did.
+5. **Create either label if it is absent**, and say so before doing it. This is the first thing this
    command does that is visible to anyone else with access to the repository — which is why the check
    above runs first: a refusal that fires after the label exists is a refusal that already wrote.
 

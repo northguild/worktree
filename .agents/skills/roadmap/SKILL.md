@@ -22,7 +22,7 @@ file names the tracker, read [`tracker.md`](tracker.md) beside this file before 
 ```
 /roadmap              # print the backlog — read-only
 /roadmap "some idea"  # append one pending entry
-/roadmap #123         # adopt an existing issue — tracker answer only
+/roadmap <issue>      # adopt an existing issue — tracker answer only
 ```
 
 ## When nobody typed it

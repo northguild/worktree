@@ -229,14 +229,20 @@ Require concrete evidence — file paths, command output — for every verdict, 
 **one bit: does it block this phase or not.** There is no severity scale to assign — see *What happens to a
 defect the gate found* in [`context/workflow.md`](../../../context/workflow.md).
 
+**Before reading the verdict, sort each note by where its defect came from**, per *A defect this work put
+there is never filed* in [`context/workflow.md`](../../../context/workflow.md) — an earlier phase's defect
+included. **A `PASS WITH NOTES` carrying one that blocks is a `FAIL`**, and step 10 fixes it. Nothing this
+feature wrote is ever filed as a bug.
+
 - `PASS` or `PASS WITH NOTES` → the phase's work is done; go to step 11.
 - `FAIL` → go to step 10.
 
-**Every non-blocking observation gets one of two ends, and kind decides which** — not size. The full
-argument is *What happens to a defect the gate found* in
+**Every other non-blocking observation gets one of two ends, and kind decides which** — not size. The
+full argument is *What happens to a defect the gate found* in
 [`context/workflow.md`](../../../context/workflow.md):
 
-- **A real defect, and it is user-visible or a regression would land green** → it is a **bug**. File it
+- **A real defect that was there before this feature, and it is user-visible or a regression would land
+  green** → it is a **bug**. File it
   wherever this project already files bugs, with this project's own labels, and say in the report that you
   did. **Do not apply the backlog label** — see *A bug is not a backlog entry* in
   [`context/workflow.md`](../../../context/workflow.md). The backlog is a list of features and this is not
@@ -262,6 +268,9 @@ Cap: **two loops per gate, per phase.**
 Under the cap: re-brief with the prior implementation and the validator's feedback **verbatim — do not
 summarise or paraphrase it** — plus the instruction to address only the failing items, refactor nothing
 that passes, and expand no scope. Then re-run the same gate.
+
+**An old defect step 9's sort promoted never reaches the cap.** If one loop does not settle it, back its
+edit out and give it its kind's end, and the verdict stands on the rest.
 
 At the cap: **close the row to `blocked` with the reason in its Note — before you escalate**, not after.
 A phase whose verification cannot pass is blocked by definition. Then hand back to the user with the
