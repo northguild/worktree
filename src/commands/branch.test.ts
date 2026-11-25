@@ -8381,6 +8381,39 @@ describe("branch command — --issue (a custom issue provider)", () => {
       expect(git.gitCreateWorktree).not.toHaveBeenCalled();
     });
 
+    // #363: an empty tracker flag was read as "not given" by every truthiness
+    // test, so the run went on as a plain branch or named the wrong problem.
+    it.each([
+      ["github", { github: "" }],
+      ["jira", { jira: "" }],
+      ["linear", { linear: "" }],
+      ["clickup", { clickup: "" }],
+      ["github", { github: "   " }],
+    ])("refuses an empty --%s with invalid_value and exit 2", async (name, flags) => {
+      await runJson({ ...flags });
+
+      expect(output.document()).toMatchObject({
+        error: {
+          code: "invalid_value",
+          message: `--${name} needs the issue's key, number or URL.`,
+        },
+      });
+      expect(process.exitCode).toBe(2);
+      expect(mockRunCapturing).not.toHaveBeenCalled();
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["--assign", { assign: true }],
+      ["--start", { start: true }],
+      ["--dry-run", { "dry-run": true }],
+    ])("an empty --github with %s is refused as empty, not as a missing issue flag", async (_flag, other) => {
+      await expect(runPlain({ github: "", ...other })).rejects.toThrow(
+        "--github needs the issue's key, number or URL.",
+      );
+      expect(git.gitCreateWorktree).not.toHaveBeenCalled();
+    });
+
     it("reads the provider pair from git config once per run", async () => {
       await runJson({ issue: "VERK-42" });
 

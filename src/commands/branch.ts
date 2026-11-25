@@ -1533,6 +1533,22 @@ missing issue exits 1; declining to open an existing worktree exits 1)`;
       );
     }
 
+    // `--github ""`, `--github=` and the like parse to an empty string, which
+    // every truthiness test below reads as "not given" (#363). The flag was
+    // given, so it is refused here, as an empty `--issue` is.
+    for (const [name, value] of [
+      ["github", flags.github],
+      ["jira", flags.jira],
+      ["linear", flags.linear],
+      ["clickup", flags.clickup],
+    ] as const) {
+      if (value !== undefined && value.trim() === "") {
+        throw new InvalidValueError(
+          `--${name} needs the issue's key, number or URL.`,
+        );
+      }
+    }
+
     // There is no issue to assign without one of them. Checked here rather than
     // beside the assignment itself so a malformed command line fails before the
     // issue fetch and the branch-name prompt, in the shape of the check above.
