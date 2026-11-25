@@ -91,7 +91,8 @@ variable for the real build). Like `pnpm --filter docs typecheck`, it rewrites `
 
 `pnpm --filter docs worker:bundle-check` builds the chat Worker and runs `wrangler deploy --dry-run` on it
 (output under the gitignored `docs/worker/dist/dry-run/`): it proves the Worker still bundles for Cloudflare and needs **no credentials**,
-because a dry run builds the upload and sends nothing. It does not run the Worker; that is `wrangler dev --local` (plan #257 §8).
+because a dry run builds the upload and sends nothing. It does not run the Worker; that is `pnpm --filter docs worker:dev` (plan #257 §8 named `wrangler dev --local`, which
+disables the Worker's remote bindings; #367 dropped the flag).
 
 ## Audit
 
