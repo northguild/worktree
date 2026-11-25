@@ -1,5 +1,13 @@
 # @northguild/worktree
 
+## 3.1.1
+
+### Patch Changes
+
+- beb95ca: `worktree branch` now refuses an empty `--github`, `--jira`, `--linear` or `--clickup` (exit `2`, `invalid_value`) instead of going on as if the flag were not given.
+- 64bc6a8: `remove`, `list` and `cleanup` no longer fail when a worktree directory has lost its `.git` file. Git's record of it is pruned on removal, and the directory is left on disk for you to check.
+- f546775: Added `--issue`, which names a branch from your own issue tracker through a command you configure as `issueProvider`; `--assign` and `--start` work through it too.
+
 ## 3.1.0
 
 ### Minor Changes
